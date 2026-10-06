@@ -1,0 +1,58 @@
+SOUND EFFECT CREDITS (public/sfx)
+================================
+
+Every sample in this folder is CC0 1.0 (Creative Commons Zero / public domain
+dedication, https://creativecommons.org/publicdomain/zero/1.0/). No attribution is
+required; it is given here anyway.
+
+Sources
+-------
+* Kenney (https://www.kenney.nl) - three packs, all CC0:
+    - "Impact Sounds"    (version 1.0, 2019-12-19)
+    - "Interface Sounds"
+    - "Music Jingles"
+  Support Kenney: https://www.patreon.com/kenney/  and  https://kenney.nl/support
+* rubberduck - pack "sfx_breaking_and_falling" (75 sounds, "bfh1_*" files), published
+  on OpenGameArt.org under CC0 1.0.
+
+The files were copied as-is (Ogg Vorbis, not re-encoded or edited); only the names changed.
+Per-file playback loudness normalisation lives in src/sfx.js (MANIFEST gains).
+
+File map (file here <- original file name, source pack)
+-------------------------------------------------------
+snow_crunch_1.ogg        <- footstep_snow_000.ogg          Kenney - Impact Sounds
+snow_crunch_2.ogg        <- footstep_snow_001.ogg          Kenney - Impact Sounds
+snow_crunch_3.ogg        <- footstep_snow_002.ogg          Kenney - Impact Sounds
+snow_crunch_4.ogg        <- footstep_snow_003.ogg          Kenney - Impact Sounds
+snow_crunch_5.ogg        <- footstep_snow_004.ogg          Kenney - Impact Sounds
+impact_soft_1.ogg        <- impactSoft_heavy_000.ogg       Kenney - Impact Sounds
+impact_soft_2.ogg        <- impactSoft_heavy_002.ogg       Kenney - Impact Sounds
+impact_soft_3.ogg        <- impactSoft_heavy_003.ogg       Kenney - Impact Sounds
+hit_1.ogg                <- bfh1_hit_06.ogg                rubberduck, sfx_breaking_and_falling
+hit_2.ogg                <- bfh1_hit_08.ogg                rubberduck, sfx_breaking_and_falling
+hit_3.ogg                <- bfh1_hit_07.ogg                rubberduck, sfx_breaking_and_falling
+crash_wood_1.ogg         <- bfh1_wood_breaking_03.ogg      rubberduck, sfx_breaking_and_falling
+crash_wood_2.ogg         <- bfh1_wood_breaking_04.ogg      rubberduck, sfx_breaking_and_falling
+crash_wood_3.ogg         <- bfh1_wood_breaking_01.ogg      rubberduck, sfx_breaking_and_falling
+crash_glass_1.ogg        <- bfh1_glass_breaking_01.ogg     rubberduck, sfx_breaking_and_falling
+crash_glass_2.ogg        <- bfh1_glass_breaking_06.ogg     rubberduck, sfx_breaking_and_falling
+crash_rock_1.ogg         <- bfh1_rock_breaking_03.ogg      rubberduck, sfx_breaking_and_falling
+crash_rock_2.ogg         <- bfh1_rock_breaking_01.ogg      rubberduck, sfx_breaking_and_falling
+break_1.ogg              <- bfh1_breaking_02.ogg           rubberduck, sfx_breaking_and_falling
+break_2.ogg              <- bfh1_breaking_03.ogg           rubberduck, sfx_breaking_and_falling
+break_3.ogg              <- bfh1_breaking_01.ogg           rubberduck, sfx_breaking_and_falling
+break_4.ogg              <- bfh1_falling_04.ogg            rubberduck, sfx_breaking_and_falling
+ui_click.ogg             <- click_001.ogg                  Kenney - Interface Sounds
+ui_select.ogg            <- select_005.ogg                 Kenney - Interface Sounds
+ui_confirm.ogg           <- confirmation_004.ogg           Kenney - Interface Sounds
+ui_back.ogg              <- back_003.ogg                   Kenney - Interface Sounds
+ui_toggle.ogg            <- toggle_002.ogg                 Kenney - Interface Sounds
+coin_1.ogg               <- glass_001.ogg                  Kenney - Interface Sounds
+coin_2.ogg               <- glass_002.ogg                  Kenney - Interface Sounds
+jingle_win.ogg           <- jingles_STEEL02.ogg            Kenney - Music Jingles
+jingle_lose.ogg          <- jingles_STEEL01.ogg            Kenney - Music Jingles
+jingle_milestone.ogg     <- jingles_STEEL10.ogg            Kenney - Music Jingles
+jingle_star.ogg          <- jingles_STEEL16.ogg            Kenney - Music Jingles
+
+Procedurally synthesised sounds (rolling loop, whoosh, pop pluck, fallback versions of
+everything above) are generated at runtime in src/audio.js and need no credit.

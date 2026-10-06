@@ -37,8 +37,8 @@ export const BIOME_LENGTH = 600;
 const CH = 50;            // scenery chunk length (m of path)
 const AHEAD = 300;        // scenery is generated while chunk end <= ball.s + AHEAD
 const BEHIND = 70;        // chunks whose end is more than this behind the ball are recycled
-const SP = 10;            // path sample spacing (m): corridor tests, terrain, flank cross-sections (CH / SP = 5)
-const NS = 1024;          // path sample ring size
+const SP = 5;             // path sample spacing (m): corridor tests, terrain, flank cross-sections (CH / SP = 10)
+const NS = 2048;          // path sample ring size (10 km)
 const BLEND = 1.5;        // seconds to blend sky/fog/lights between biomes
 const CLEAR = 12;         // corridor half width
 const CLEAR_PAD = 1.5;    // safety pad on top of CLEAR (path sampling error)
@@ -54,7 +54,7 @@ const WARC = 1.8;         // arc length of one wall row (m)
 const WMAXCH = 10;        // wall capacity in chunks
 const MS = 6;             // floats of per-instance meta: x, z, footprint, bottom, top, offset above the terrain
 const OVL_R = 48;         // a path stretch passing within this plan distance of another (non-adjacent) one overlaps it
-const OVL_J = 40;         // ... searched this many samples either way (400 m)
+const OVL_J = 80;         // ... searched this many samples either way (400 m)
 const MAXT = 64;          // max distinct decor types
 const GN = 36;            // ground grid cells per side
 const CELL = 20;          // ground cell size (m)  -> +-360 m
@@ -1458,7 +1458,7 @@ export class Environment {
     const rl = Math.hypot(rx, rz) || 1;
     x.rx = rx / rl; x.rz = rz / rl;
     x.hw = lerp(this._shw[k0], this._shw[k1], t);
-    x.ed = lerp(this._sed[k0], this._sed[k1], t);
+    x.ed = Math.max(Math.abs(this._sed[k0]), Math.abs(this._sed[k1]));
     x.lo = Math.min(this._sov[k0], this._sov[k1]);
     x.c = t > 1e-6 ? lerp(this._cliffAt(i), this._cliffAt(i + 1), t) : this._cliffAt(i);
     x.D = this._depthAt(s); x.U = this._flankU(s); x.E = this._flankE(s);
@@ -1469,7 +1469,7 @@ export class Environment {
     const X = x;
     const wx = X.px + X.rx * sg * (X.hw + du), wz = X.pz + X.rz * sg * (X.hw + du);
     const dr = this._drop(du < 0 ? 0 : du, X.D, X.U, X.E, X.c);
-    let y = X.py + sg * X.ed + dr;
+    let y = X.py - X.ed + dr;
     if (du > 0.5) y += this._rug(wx, wz, du, X.U);
     if (X.lo < X.py) {
       const yl = X.lo - 0.5 + dr;
@@ -1594,7 +1594,7 @@ export class Environment {
       const cl = this._cliffAt(i);
       for (let side = 0; side < 2; side++) {
         const sg = side ? 1 : -1;
-        const edgeY = py + sg * ed;
+        const edgeY = py - Math.abs(ed);
         for (let p = 0; p < NP; p++) {
           const du = p === 0 ? -0.3 : p === 1 ? 1.4 : U * FLANK_TAU[p - 2];
           const u = hw + du;
@@ -1781,7 +1781,7 @@ export class Environment {
 
   /** Nearest point on the (sampled, extrapolated past the frontier) path; fills _nI/_nT/_nD. hint = sample index guess. */
   _nearest(x, z, hint) {
-    const iHi = this._iHi, iLo = Math.max(this._iBase, iHi - 880);
+    const iHi = this._iHi, iLo = Math.max(this._iBase, iHi - 1800);
     let i = hint < iLo ? iLo : hint > iHi ? iHi : hint | 0;
     const sx = this._sx, sz = this._sz;
     let k = ((i % NS) + NS) % NS;
@@ -1829,14 +1829,11 @@ export class Environment {
     const lo = Math.min(this._sov[ka], this._sov[kb]);
     this._ff = Math.min(py, lo) - D; this._fpy = py; this._fs = sS; this._fdu = du;
     if (du >= U) { this._fy = this._ff; return this._fy; }
-    // banked turns: the track surface is a tilted plane, the two edges are at different heights
-    const fx = this._sx[ka] + (this._sx[kb] - this._sx[ka]) * t, fz = this._sz[ka] + (this._sz[kb] - this._sz[ka]) * t;
-    const lat = (x - fx) * this._srx[ka] + (z - fz) * this._srz[ka];
-    const ed = this._sed[ka] + (this._sed[kb] - this._sed[ka]) * tc;
-    const latc = lat < -hw ? -hw : lat > hw ? hw : lat;
+    // banked turns: the two edges are at different heights
+    const ed = Math.max(Math.abs(this._sed[ka]), Math.abs(this._sed[kb])); // banked turn: hang from the LOWER edge
     const c = this._cliffAt(a) * (1 - tc) + this._cliffAt(a + 1) * tc;
     const dr = this._drop(du < 0 ? 0 : du, D, U, this._flankE(sS), c);
-    let y = py + ed * (latc / hw) + dr;
+    let y = py - ed + dr;
     if (du > 0.5) y += this._rug(x, z, du, U);
     if (lo < py) { // another pass of the path lies below (helix, loop): hang the terrain from it, 0.5 m under its centre line
       const yl = lo - 0.5 + dr;
@@ -2242,12 +2239,12 @@ export class Environment {
         this._nearest(cl.x[i], cl.z[i], cl.hi[i]);
         cl.hi[i] = this._nI;
         const half = this._cloudH * cl.r[i] * cl.sq[i] + 1.3, lim = cl.r[i] * this._cloudHr + CLEAR + CLEAR_PAD;
-        if (this._nD < lim + 25) { // close to the path: test the neighbouring samples (the path descends along the corridor)
-          for (let a = this._nI - 4; a <= this._nI + 5 && !respawn; a++) {
-            if (a < this._iBase || a > this._iHi) continue;
-            const k = ((a % NS) + NS) % NS, dx = cl.x[i] - this._sx[k], dz = cl.z[i] - this._sz[k];
-            if (dx * dx + dz * dz < lim * lim && !(cl.y[i] + half <= this._sy[k] - BELOW) && !(cl.y[i] - half >= this._sy[k] + ABOVE)) respawn = true;
-          }
+        // every sample of the last 600 m of path (other passes of a helix or loop lie far along the path but close in plan)
+        for (let a = Math.max(this._iBase, this._iHi - 120); a <= this._iHi && !respawn; a++) {
+          const k = ((a % NS) + NS) % NS;
+          if (this._stag[k] !== a) continue;
+          const dx = cl.x[i] - this._sx[k], dz = cl.z[i] - this._sz[k];
+          if (dx * dx + dz * dz < lim * lim && !(cl.y[i] + half <= this._sy[k] - BELOW) && !(cl.y[i] - half >= this._sy[k] + ABOVE)) respawn = true;
         }
       }
       if (respawn) this._spawnCloud(i, false);
