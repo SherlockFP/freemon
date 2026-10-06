@@ -318,7 +318,7 @@ export class CigPlus {
 
     this.T = {};
     for (const k of KEYS) this.T[k] = 0;
-    this.mods = { speedMul: 1, accelMul: 1, steerMul: 1, eatMul: 1, gravityMul: 1, magnetR: 0, ghost: false, shield: false, tonMul: 1, sliding: false, flying: false, invert: false };
+    this.mods = { speedMul: 1, accelMul: 1, steerMul: 1, eatMul: 1, gravityMul: 1, magnetR: 0, ghost: false, shield: false, tonMul: 1, sliding: false, flying: false, invert: false, noMelt: false };
 
     this.pickups = []; this.slides = []; this.kickers = []; this.towers = [];
     this.mush = []; this.portals = []; this.gates = []; this.armies = []; this.snow = [];
@@ -358,62 +358,35 @@ export class CigPlus {
   _plan() {
     const w = this.world, R = this.rng, lvl = this.lvl;
     const L = w.L, lo = 90, hi = L - 40;
-    const blocked = [];
-    for (const r of w.ramps) blocked.push([r.d - 12, r.d + r.len + 48]);
-    for (const p of w.patches) blocked.push([p.d - p.rd - 12, p.d + p.rd + 12]);
-    for (const r of w.roads) blocked.push([r.d - 16, r.d + 16]);
-    const fit = (d, len, pad = 6) => {
+    // Keep-out intervals tagged by type; each feature kind avoids only the types that would hurt it.
+    // Higher levels are packed with world ramps/patches/roads, so slides, mushrooms, towers etc. may overlap
+    // patches and roads (the ball is lifted / airborne there) but never ramps.
+    const RAMP = 1, PATCH = 2, ROAD = 4, OWN = 8;
+    const blk = [];
+    for (const r of w.ramps) blk.push([r.d - 6, r.d + r.len + 44, RAMP]);
+    for (const p of w.patches) blk.push([p.d - p.rd - 6, p.d + p.rd + 6, PATCH]);
+    for (const r of w.roads) blk.push([r.d - 10, r.d + 10, ROAD]);
+    const MASK = { slide: RAMP | OWN, mush: RAMP | OWN, updraft: RAMP | OWN, flip: RAMP | OWN, portal: RAMP | OWN, army: RAMP | OWN, invert: RAMP | OWN, pickup: RAMP | OWN };
+    const PM = [RAMP | PATCH | ROAD | OWN, RAMP | PATCH | OWN, RAMP | OWN]; // portal exit: prefer clear snow
+    // earliest start >= d such that [a - pad, a + len + pad] is clear of everything in `mask`
+    const fit = (mask, d, len, pad = 5) => {
       let a = d;
-      for (let it = 0; it < 16; it++) {
+      for (let it = 0; it < 32; it++) {
         let moved = false;
-        for (let i = 0; i < blocked.length; i++) {
-          const b = blocked[i];
-          if (a - pad < b[1] && a + len + pad > b[0]) { a = b[1] + pad; moved = true; }
+        for (let i = 0; i < blk.length; i++) {
+          const e = blk[i];
+          if (e[2] & mask && a - pad < e[1] && a + len + pad > e[0]) { a = e[1] + pad; moved = true; }
         }
         if (!moved) return a + len <= hi ? a : -1;
       }
       return -1;
     };
-
-    const pool = [{ k: 'slide', w: 3, len: 100 }, { k: 'updraft', w: 2, len: 30 }, { k: 'mush', w: 2, len: 78 }];
-    if (lvl >= 2) pool.push({ k: 'flip', w: 2.4, len: 56 });
-    if (lvl >= 3) pool.push({ k: 'portal', w: 1.6, len: 128 });
-    if (lvl >= 4) pool.push({ k: 'army', w: 2, len: 24 });
-    if (lvl >= 5) pool.push({ k: 'invert', w: 0.7, len: 12 });
-    let invertDone = false, last = '', last2 = '';
-    let d = lo + R.range(30, 70);
-    let guard = 0;
-    while (d < hi - 30 && guard++ < 40) {
-      let tot = 0;
-      for (const p of pool) tot += p.k === 'invert' && invertDone ? 0 : p.w * (p.k === last || p.k === last2 ? 0.15 : 1);
-      let roll = R.next() * tot, pick = pool[0];
-      for (const p of pool) {
-        const wt = p.k === 'invert' && invertDone ? 0 : p.w * (p.k === last || p.k === last2 ? 0.15 : 1);
-        if (roll < wt) { pick = p; break; }
-        roll -= wt;
-      }
-      let at = fit(d, pick.len);
-      if (at < 0) { // doesn't fit anywhere: try the shorter features once, else stop
-        const small = pool.filter((p) => p.len < 60 && !(p.k === 'invert' && invertDone));
-        pick = small[(R.next() * small.length) | 0];
-        at = fit(d, pick.len);
-        if (at < 0) break;
-      }
-      let used = pick.len;
-      switch (pick.k) {
-        case 'slide': used = this._addSlide(at); break;
-        case 'updraft': this._addTower(at + 8); break;
-        case 'mush': used = this._addMush(at); break;
-        case 'flip': used = this._addKicker(at); break;
-        case 'portal': used = this._addPortal(at); break;
-        case 'army': this._addArmy(at + 12); break;
-        case 'invert': this._addGate(at + 4); invertDone = true; break;
-        default: break;
-      }
-      blocked.push([at - 10, at + used + 10]);
-      last2 = last; last = pick.k;
-      d = at + used + R.range(55, 105);
-    }
+    // free length starting at a (until the next keep-out in `mask` or the end of the slope)
+    const room = (mask, a, pad = 5) => {
+      let end = hi;
+      for (let i = 0; i < blk.length; i++) if (blk[i][2] & mask && blk[i][0] > a && blk[i][0] - pad < end) end = blk[i][0] - pad;
+      return end - a;
+    };
 
     // Power-ups: one roughly every 150 m, drawn from a shuffled bag so kinds don't repeat.
     const kinds = ['magnet', 'giant', 'shield', 'rainbow', 'wings'];
@@ -424,17 +397,75 @@ export class CigPlus {
       if (!bag.length) { bag = kinds.slice(); for (let i = bag.length - 1; i > 0; i--) { const j = (R.next() * (i + 1)) | 0; [bag[i], bag[j]] = [bag[j], bag[i]]; } }
       return bag.pop();
     };
-    let pd = lo + R.range(25, 55);
+    let pd = lo + R.range(20, 45);
     while (pd < hi) {
-      const at = fit(pd, 4, 8);
+      const at = fit(MASK.pickup, pd, 4, 8);
       if (at < 0) break;
       const hw = w.halfWidth(at);
       const x = R.range(-1, 1) * Math.max(1, hw - 3) * 0.75;
       const s = clamp(0.85 + this._expR(at) * 0.33, 1, 3.6);
       this.pickups.push({ kind: draw(), x, d: at, s, gy: w.groundY(x, at), alive: true, ph: R.range(0, TAU) });
-      blocked.push([at - 6, at + 10]);
-      pd = at + R.range(135, 170);
+      blk.push([at - 6, at + 10, OWN]);
+      pd = at + R.range(110, 150);
     }
+
+    const pool = [
+      { k: 'slide', w: 3, min: 60, max: 100 }, { k: 'updraft', w: 2, min: 28, max: 28 }, { k: 'mush', w: 2, min: 40, max: 80 },
+    ];
+    if (lvl >= 2) pool.push({ k: 'flip', w: 2.4, min: 52, max: 56 });
+    if (lvl >= 3) pool.push({ k: 'portal', w: 1.6, min: 0, max: 0 });
+    if (lvl >= 4) pool.push({ k: 'army', w: 2, min: 24, max: 24 });
+    if (lvl >= 5) pool.push({ k: 'invert', w: 0.7, min: 12, max: 12 });
+    let invertDone = false, last = '', last2 = '';
+    let d = lo + R.range(20, 50);
+    let guard = 0;
+    while (d < hi - 20 && guard++ < 80) {
+      // each kind has its own first-fit position; pick among the kinds whose spot is close to the cursor
+      let tot = 0;
+      const spots = [], wt = [];
+      for (let i = 0; i < pool.length; i++) {
+        const p = pool[i];
+        let x = p.w, at = -1;
+        if (p.k === 'invert' && invertDone) x = 0;
+        else {
+          at = fit(MASK[p.k], d, Math.max(p.min, 14));
+          if (p.k === 'portal') { if (at >= 0 && this._portalSpot(fit, PM, at) < 0) at = -1; }
+          else if (at >= 0 && room(MASK[p.k], at) < p.min) at = -1;
+        }
+        if (at < 0 || at - d > 70) x = 0; // don't leave a huge gap for a far-away spot; try again further down
+        if (p.k === last || p.k === last2) x *= 0.15;
+        spots.push(at); wt.push(x); tot += x;
+      }
+      if (tot <= 0) { d += 35; continue; }
+      let roll = R.next() * tot, idx = 0;
+      for (let i = 0; i < pool.length; i++) { if (roll < wt[i]) { idx = i; break; } roll -= wt[i]; }
+      const pick = pool[idx], at = spots[idx];
+      const avail = room(MASK[pick.k], at);
+      let used = pick.min;
+      switch (pick.k) {
+        case 'slide': used = this._addSlide(at, Math.min(pick.max, avail)); break;
+        case 'updraft': this._addTower(at + 8); break;
+        case 'mush': used = this._addMush(at, avail >= 82 ? 3 : 2); break;
+        case 'flip': used = this._addKicker(at); break;
+        case 'portal': used = this._addPortal(at, this._portalSpot(fit, PM, at)); break;
+        case 'army': this._addArmy(at + 12); break;
+        case 'invert': this._addGate(at + 4); invertDone = true; break;
+        default: break;
+      }
+      blk.push([at - 8, at + used + 8, OWN]);
+      if (pick.k === 'portal') { const pp = this.portals[this.portals.length - 1]; blk.push([pp.a.d, pp.b.d + 10, OWN]); used = pp.b.d + 10 - at; }
+      last2 = last; last = pick.k;
+      d = at + used + R.range(35, 80);
+    }
+  }
+
+  // Portal A at `a`, exit B ~90-115 m further down in clear ground. Returns B's d or -1.
+  _portalSpot(fit, masks, a) {
+    for (let i = 0; i < masks.length; i++) {
+      const b = fit(masks[i], a + 100, 14);
+      if (b >= 0 && b - a < 150) return b;
+    }
+    return -1;
   }
 
   // Remove props from a rectangular footprint so features never sit on top of scenery.
@@ -451,9 +482,9 @@ export class CigPlus {
     }
   }
 
-  _addSlide(d0) {
+  _addSlide(d0, maxLen = 100) {
     const w = this.world, R = this.rng;
-    const len = R.range(70, 100);
+    const len = Math.min(maxLen, R.range(70, 100));
     const mid = d0 + len / 2;
     const hwMin = w.halfWidth(d0);
     let hwC = clamp(this._expR(mid) * 1.6 + 3.4, 4.2, hwMin * 0.5);
@@ -504,9 +535,9 @@ export class CigPlus {
     this._clear(() => x, d - pr, d + pr, pr + 0.5);
   }
 
-  _addMush(d0) {
+  _addMush(d0, n = 3) {
     const w = this.world, R = this.rng;
-    const n = 3, spacing = 26;
+    const spacing = 26;
     const hw = w.halfWidth(d0);
     const expR = this._expR(d0 + 30);
     const pr = clamp(2.4 + expR * 1.1, 3, hw * 0.3);
@@ -518,13 +549,12 @@ export class CigPlus {
       this.mush.push({ x, d, pr, capH: pr * 0.55, gy: w.groundY(x, d), cd: 0, sq: 0, tilt: -Math.atan(slope) });
       this._clear(() => x, d - pr, d + pr, pr + 0.5);
     }
-    return 6 + (n - 1) * spacing + pr;
+    return 6 + (n - 1) * spacing + pr + 2;
   }
 
-  _addPortal(d0) {
+  _addPortal(d0, dB) {
     const w = this.world, R = this.rng;
-    const dist = R.range(95, 125);
-    const dB = d0 + dist;
+    const dist = dB - d0;
     const mk = (d) => {
       const hw = w.halfWidth(d);
       const pr = clamp(2.8 + this._expR(d) * 1.0, 4, hw * 0.45);
@@ -808,12 +838,22 @@ export class CigPlus {
   _refreshMods(b) {
     const m = this.mods, T = this.T;
     m.speedMul = 1; m.accelMul = 1; m.steerMul = 1; m.eatMul = 1; m.gravityMul = 1; m.magnetR = 0; m.ghost = false; m.tonMul = 1;
+    m.noMelt = false;
     m.shield = T.shield > 0; m.sliding = !!this.slideCur; m.flying = this.fly.on; m.invert = T.invert > 0;
     if (T.rocket > 0) { m.speedMul *= 1 + 0.8 * clamp(T.rocket / 0.6, 0, 1); m.accelMul = 4; m.ghost = true; }
     if (this.slideCur) { m.speedMul *= 1.6; m.accelMul = Math.max(m.accelMul, 3); m.steerMul *= 2.4; m.ghost = true; }
     if (this.fly.on) { m.gravityMul = this.fly.t < this.fly.up ? -0.4 : 0.3; m.speedMul *= 1.12; m.steerMul *= 1.4; }
     if (T.magnet > 0 && b) m.magnetR = (7 + b.r * 3.2) * clamp(T.magnet / 0.8, 0.3, 1);
     if (T.rainbow > 0) m.tonMul = 3;
+    if (b) m.noMelt = !!this.slideCur || this._onKicker(b) || this.lift(b.x, b.d) > 0.15;
+  }
+
+  _onKicker(b) {
+    for (let i = 0; i < this.kickers.length; i++) {
+      const k = this.kickers[i];
+      if (b.d > k.d - 1 && b.d < k.d + k.len + 1 && Math.abs(b.x - k.x) < k.w / 2 + 1) return true;
+    }
+    return false;
   }
 
   // ------------------------------------------------------------------ per-frame

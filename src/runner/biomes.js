@@ -3,11 +3,13 @@
 // The ball runs DOWNHILL on a ski-run carved along a mountain ridge (Temple-Run style). Everything around the track is
 // ours: sky dome, sun/moon, stars, fog + light colours, MOUNTAIN FLANKS (terrain that falls away from both track edges,
 // a snow bank where the track has a curb, a sheer cliff where it has none), the valley floor far below, scenery chunks,
-// clouds, ambient particles, biome blending and beat pulses. 8 biomes of 600 m cycle forever (BIOME_LENGTH).
+// clouds, ambient particles, biome blending and beat pulses. 14 biomes of 600 m cycle forever (BIOME_LENGTH): snow, forest, greenhill, kapadokya, town, desert, icecave, candy, sakura,
+// istanbul, neon, moon, pirate, volcano. setBiomeOverride(id) locks the world to one of them (campaign levels).
 //
 // Contracts (see RUNNER.md):
 //   biomeAt(s) -> { biome, index, t, next }     trackPalette(s) -> { tileA, tileB, edge, rail, glow, under }
-//   musicStyleAt(s) -> id                       new Environment(scene, track, opts?) ; update(dt, camera, ball, beat) ; dispose()
+//   musicStyleAt(s) -> id   biomeMods(s) -> { gravity, grip, fog, wind }   setBiomeOverride(idOrNull)
+//   new Environment(scene, track, opts?) ; update(dt, camera, ball, beat) ; dispose()
 //
 // Track API used: frame(s, out) [+ optional halfWidth(s) and edgeAt(s): 0 = cliff / gap, > 0 = curb with a snow bank].
 // Only called for s in [max(0, ball.s - 55), ball.s + 315], so it is safe with ensure(ball.s + 320) / trim(ball.s - 60).
@@ -16,7 +18,7 @@
 // LOWEST pass where the path overlaps itself in plan (helix, loop, corkscrew), so nothing is ever above any track surface.
 // The flank ribbons, the valley floor plane and every scenery item sample the SAME function, so things sit on the ground.
 //
-// Budgets (measured with the real track.js, 4 km runs, 6 seeds): 11-23 draw calls (limit 25), <= 61k triangles (limit 80k),
+// Budgets (measured with the real track.js, 4 km runs, 6 seeds): 10-22 draw calls (limit 25), <= 63k triangles (limit 80k),
 // ~0.4 ms CPU per steady update (chunk builds ~2 ms every 50 m), no per-frame allocations (a chunk build allocates a few
 // small temporaries), scenery deterministic per s.
 //
