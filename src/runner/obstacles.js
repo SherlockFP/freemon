@@ -1,0 +1,1683 @@
+// obstacles.js — lane-based downhill hazards, pickups and pads for the endless mode.
+//
+// Events emitted by collide(): hit, knock, ice, melt, push {du}, pad {kind boost|jump|spring, onBeat, power}, portal {biome},
+// pickup {kind flake|snow|gate|crystal|box|letter|magnet|x2|superjump|rocket|helmet}, grind {active, done, s0, s1, u, h},
+// zip {s0,s1,u,h}, loop {minSpeed,s0,s1,R}, valley {depth, ok=first frame}, slowmo {s0,s1,scale}, crack {s,u}.
+// Constructor opts: { seed, jumpPadV } (jumpPadV = runner RCFG.jumpPadV, used to size spring / jump-pad coin arcs).
+//
+// Everything lives in track-local coordinates (s, u, h). ball.h is the height of the ball BOTTOM above the
+// surface plane, exactly like the runner (resting on flat snow: h = 0); internally centre = h + r. Lanes are u = LANES (from track.js).
+// Moving/beat obstacles are pure functions of beat.beat. One InstancedMesh per primitive with fixed
+// capacities (18 draw calls in total). No per-frame allocations (events come from a reusable pool).
+
+import * as THREE from 'three';
+import { makeRng } from '../rng.js';
+import { LANES, LANE_W } from './track.js';
+
+const PI = Math.PI, TAU = PI * 2;
+const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+const smooth = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const _c = new THREE.Color();
+const FR = { pos: new THREE.Vector3(), tan: new THREE.Vector3(), right: new THREE.Vector3(), up: new THREE.Vector3() };
+const DEFAULT_PAL = { tileA: 0xe8f1fb, tileB: 0xc9d9ee, edge: 0x7fb4e8, rail: 0x4a6a92, glow: 0xffd24a, under: 0x3a4f70 };
+export { LANES, LANE_W };
+
+export const COL = {
+  wood: 0xb07a42, wood2: 0x8f5f32, ice: 0x9fe8ff, melt: 0xff7a1a, flake: 0xdff6ff, snow: 0xffffff,
+  rock: 0x8a93a0, pine: 0x2f7d4a, dark: 0x2a2f3d, red: 0xd9482f, orange: 0xe8742a, cabin: 0xa5693a,
+};
+
+// ---------------------------------------------------------------------------
+// Event pool (reused plain objects)
+// ---------------------------------------------------------------------------
+const EVN = 192, EVP = [];
+for (let i = 0; i < EVN; i++) EVP.push({ type: '', ds: 0, du: 0, dh: 0, strength: 0, kind: '', value: 0, s: 0, u: 0, h: 0, onBeat: false, power: 0, color: 0, size: 0, ok: false, rate: 0, biome: 0, toughness: 0, headOn: false, id: 0, letter: '', active: false, s0: 0, s1: 0, minSpeed: 0, scale: 0, depth: 0, R: 0, done: false });
+let evi = 0;
+export function ev(events, type) {
+  const e = EVP[evi]; evi = (evi + 1) % EVN;
+  e.type = type; e.ds = 0; e.du = 0; e.dh = 0; e.strength = 0; e.kind = ''; e.value = 0; e.s = 0; e.u = 0; e.h = 0;
+  e.onBeat = false; e.power = 0; e.color = 0; e.size = 0; e.ok = false; e.rate = 0; e.biome = 0; e.toughness = 0; e.headOn = false; e.id = 0; e.letter = '';
+  e.active = false; e.s0 = 0; e.s1 = 0; e.minSpeed = 0; e.scale = 0; e.depth = 0; e.R = 0; e.done = false;
+  events.push(e);
+  return e;
+}
+
+// ---------------------------------------------------------------------------
+// Geometry. Vertex colours = part colour (or white for instance-tinted pools) * mild face shade.
+// ---------------------------------------------------------------------------
+function merge(parts, shaded) {
+  const pos = [], col = [];
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+  for (const [geo, hex, x, y, z, rx, ry, rz, sx, sy, sz] of parts) {
+    const g = geo.index ? geo.toNonIndexed() : geo.clone();
+    q.setFromEuler(e.set(rx || 0, ry || 0, rz || 0));
+    m.compose(p.set(x || 0, y || 0, z || 0), q, sc.set(sx || 1, sy || 1, sz || 1));
+    g.applyMatrix4(m);
+    const a = g.attributes.position.array;
+    if (hex == null) _c.setRGB(1, 1, 1); else _c.setHex(hex);
+    for (let i = 0; i < a.length; i += 3) { pos.push(a[i], a[i + 1], a[i + 2]); col.push(_c.r, _c.g, _c.b); }
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  out.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 3));
+  out.computeVertexNormals();
+  if (shaded) {
+    const n = out.attributes.normal, c = out.attributes.color;
+    for (let i = 0; i < n.count; i++) {
+      const k = 0.74 + 0.26 * (n.getY(i) * 0.5 + 0.5);
+      c.setXYZ(i, c.getX(i) * k, c.getY(i) * k, c.getZ(i) * k);
+    }
+  }
+  return out;
+}
+const B = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+
+const FONT = {
+  A: ['01110', '10001', '10001', '11111', '10001', '10001', '10001'], B: ['11110', '10001', '10001', '11110', '10001', '10001', '11110'],
+  C: ['01111', '10000', '10000', '10000', '10000', '10000', '01111'], D: ['11110', '10001', '10001', '10001', '10001', '10001', '11110'],
+  E: ['11111', '10000', '10000', '11110', '10000', '10000', '11111'], F: ['11111', '10000', '10000', '11110', '10000', '10000', '10000'],
+  G: ['01111', '10000', '10000', '10011', '10001', '10001', '01111'], H: ['10001', '10001', '10001', '11111', '10001', '10001', '10001'],
+  I: ['11111', '00100', '00100', '00100', '00100', '00100', '11111'], J: ['00111', '00010', '00010', '00010', '00010', '10010', '01100'],
+  K: ['10001', '10010', '10100', '11000', '10100', '10010', '10001'], L: ['10000', '10000', '10000', '10000', '10000', '10000', '11111'],
+  M: ['10001', '11011', '10101', '10101', '10001', '10001', '10001'], N: ['10001', '11001', '10101', '10011', '10001', '10001', '10001'],
+  O: ['01110', '10001', '10001', '10001', '10001', '10001', '01110'], P: ['11110', '10001', '10001', '11110', '10000', '10000', '10000'],
+  Q: ['01110', '10001', '10001', '10001', '10101', '10010', '01101'], R: ['11110', '10001', '10001', '11110', '10100', '10010', '10001'],
+  S: ['01111', '10000', '10000', '01110', '00001', '00001', '11110'], T: ['11111', '00100', '00100', '00100', '00100', '00100', '00100'],
+  U: ['10001', '10001', '10001', '10001', '10001', '10001', '01110'], V: ['10001', '10001', '10001', '10001', '10001', '01010', '00100'],
+  W: ['10001', '10001', '10001', '10101', '10101', '11011', '10001'], X: ['10001', '10001', '01010', '00100', '01010', '10001', '10001'],
+  Y: ['10001', '10001', '01010', '00100', '00100', '00100', '00100'], Z: ['11111', '00001', '00010', '00100', '01000', '10000', '11111'],
+};
+const FONT_TR = { 'Ç': ['C', null, '00100'], 'Ğ': ['G', '01110', null], 'İ': ['I', '00100', null], 'Ö': ['O', '01010', null], 'Ş': ['S', null, '00100'], 'Ü': ['U', '01010', null] };
+
+/** Blocky 3D letter (voxels, gold face + darker back layer), ~1.5 m wide, centred. */
+function letterGeometry(ch) {
+  let rows = FONT[ch], above = null, below = null;
+  if (!rows && FONT_TR[ch]) { const t = FONT_TR[ch]; rows = FONT[t[0]]; above = t[1]; below = t[2]; }
+  if (!rows) rows = ['11111', '10001', '10001', '10001', '10001', '10001', '11111'];
+  const all = [];
+  if (above) all.push([above, -1]);
+  rows.forEach((r, i) => all.push([r, i]));
+  if (below) all.push([below, 7]);
+  const cell = 0.3, parts = [], box = B(cell, cell, 0.5);
+  for (const [r, ri] of all) for (let c = 0; c < 5; c++) {
+    if (r[c] !== '1') continue;
+    const x = (c - 2) * cell, y = (3 - ri) * cell;
+    parts.push([box, 0xffd23a, x, y, 0.12, 0, 0, 0, 1, 1, 1]);
+    parts.push([box, 0xd9822b, x, y, -0.18, 0, 0, 0, 1.12, 1.12, 0.5]);
+  }
+  return merge(parts, false);
+}
+
+function makeGeometries() {
+  const G = {};
+  const cylBark = new THREE.CylinderGeometry(0.5, 0.5, 1, 12).toNonIndexed();
+  {   // radial bark stripes so rolling logs are visible
+    const n = G.cylCount = cylBark.attributes.position.count, c = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { const seg = Math.floor(i / 6); const k = i < 72 ? (seg & 1 ? 0.8 : 1) : 0.68; c[3 * i] = c[3 * i + 1] = c[3 * i + 2] = k; }
+    cylBark.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    cylBark.computeVertexNormals();
+  }
+  G.cyl = cylBark;
+  G.box = merge([[B(1, 1, 1), null]], true);
+  G.ball = merge([[new THREE.IcosahedronGeometry(0.5, 1), null]], true);
+  G.torus = merge([[new THREE.TorusGeometry(1, 0.1, 8, 32), null]], false);
+  G.hex = merge([[new THREE.CylinderGeometry(0.5, 0.5, 0.1, 6), null]], false);
+  const bar = B(1, 0.1, 0.1);
+  G.flake = merge([[bar, null], [bar, null, 0, 0, 0, 0, 0, PI / 3], [bar, null, 0, 0, 0, 0, 0, 2 * PI / 3],
+    [B(0.12, 0.12, 0.55), null], [new THREE.CylinderGeometry(0.17, 0.17, 0.14, 6), null, 0, 0, 0, PI / 2, 0, 0]], false);
+  // pine: trunk + 3 cones + snow tip
+  G.pine = merge([
+    [new THREE.CylinderGeometry(0.16, 0.22, 1.0, 6), 0x6b4a2b, 0, 0.5, 0],
+    [new THREE.ConeGeometry(1.25, 1.5, 7), 0x2f7d4a, 0, 1.6, 0], [new THREE.ConeGeometry(0.98, 1.35, 7), 0x2a7242, 0, 2.55, 0],
+    [new THREE.ConeGeometry(0.7, 1.2, 7), 0x256a3b, 0, 3.45, 0], [new THREE.ConeGeometry(0.34, 0.55, 7), 0xffffff, 0, 4.25, 0],
+  ], true);
+  // plow blade: long bar with hazard stripes along its length
+  {
+    const g = new THREE.BoxGeometry(1, 1, 1, 8, 1, 1).toNonIndexed();
+    const p = g.attributes.position, c = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i += 3) {
+      const cx = (p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3, seg = Math.floor((cx + 0.5) * 8);
+      const yel = seg & 1;
+      for (let k = 0; k < 3; k++) { const o = 3 * (i + k); c[o] = yel ? 1 : 0.12; c[o + 1] = yel ? 0.78 : 0.12; c[o + 2] = yel ? 0.1 : 0.14; }
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    g.computeVertexNormals();
+    G.plow = g;
+  }
+  const star = new THREE.Shape();
+  for (let i = 0; i < 10; i++) { const a = PI / 2 + (i * PI) / 5, r = i & 1 ? 0.22 : 0.5; (i ? star.lineTo : star.moveTo).call(star, Math.cos(a) * r, Math.sin(a) * r); }
+  const sg = new THREE.ExtrudeGeometry(star, { depth: 0.18, bevelEnabled: false });
+  sg.translate(0, 0, -0.09);
+  G.star = merge([[sg, 0xffd23a]], false);
+  const ch = new THREE.Shape();
+  [[0, 0.3], [0.5, -0.1], [0.5, -0.3], [0, 0.1], [-0.5, -0.3], [-0.5, -0.1]].forEach((p, i) => (i ? ch.lineTo(p[0], p[1]) : ch.moveTo(p[0], p[1])));
+  const cg = new THREE.ExtrudeGeometry(ch, { depth: 0.05, bevelEnabled: false });
+  cg.rotateX(-PI / 2);
+  G.chev = merge([[cg, null]], false);
+  // power-up icons (unlit, baked colours)
+  G.magnet = merge([[new THREE.TorusGeometry(0.28, 0.1, 8, 14, PI), 0xd83030, 0, 0.1, 0], [B(0.2, 0.2, 0.2), 0xdddddd, -0.28, -0.0, 0], [B(0.2, 0.2, 0.2), 0xdddddd, 0.28, 0, 0]], false);
+  G.helmet = merge([[new THREE.SphereGeometry(0.4, 10, 6, 0, TAU, 0, PI / 2), 0xd83030, 0, 0, 0], [new THREE.CylinderGeometry(0.4, 0.4, 0.05, 10), 0xffffff, 0, 0, 0],
+    [B(0.12, 0.42, 0.82), 0xffffff, 0, 0.12, 0], [B(0.5, 0.14, 0.3), 0x2a2f3d, 0, 0.16, 0.34]], false);
+  G.rocket = merge([[new THREE.CylinderGeometry(0.14, 0.14, 0.6, 8), 0xffffff, 0, 0, 0], [new THREE.ConeGeometry(0.14, 0.3, 8), 0xd83030, 0, 0.45, 0],
+    [B(0.04, 0.24, 0.24), 0xd83030, 0.16, -0.28, 0], [B(0.04, 0.24, 0.24), 0xd83030, -0.16, -0.28, 0], [B(0.24, 0.24, 0.04), 0xd83030, 0, -0.28, 0.16],
+    [new THREE.ConeGeometry(0.1, 0.34, 8), 0xffc23a, 0, -0.5, 0, PI, 0, 0]], false);
+  G.spring = merge([0, 1, 2].map((i) => [new THREE.TorusGeometry(0.26, 0.07, 6, 12), 0x3ad86a, 0, -0.22 + i * 0.22, 0, PI / 2, 0, 0]).concat([[new THREE.CylinderGeometry(0.34, 0.34, 0.06, 12), 0xffffff, 0, -0.34, 0]]), false);
+  G.crystal = merge([[new THREE.OctahedronGeometry(0.38, 0), 0x6df0ff, 0, 0, 0, 0, 0, 0, 0.85, 1.35, 0.85]], false);
+  G.gift = merge([[B(0.6, 0.6, 0.6), 0xc23ad8], [B(0.64, 0.14, 0.64), 0xffd23a], [B(0.14, 0.64, 0.64), 0xffd23a], [B(0.64, 0.64, 0.14), 0xffd23a],
+    [B(0.2, 0.2, 0.2), 0xffd23a, 0, 0.4, 0]], false);
+  G.letter = letterGeometry('A');
+  return G;
+}
+
+// pool: key -> [geometry key, material key, capacity]
+const POOLS = {
+  box: ['box', 'lit', 1300], cyl: ['cyl', 'lit', 200], ball: ['ball', 'lit', 320], pine: ['pine', 'lit', 70], plow: ['plow', 'lit', 24],
+  ice: ['box', 'ice', 40],
+  ring: ['torus', 'pulse', 90], chev: ['chev', 'pulse', 300], hex: ['hex', 'pulse', 320],
+  flake: ['flake', 'glow', 480], star: ['star', 'glow', 16], magnet: ['magnet', 'glow', 12], helmet: ['helmet', 'glow', 12],
+  rocket: ['rocket', 'glow', 12], spring: ['spring', 'glow', 12], crystal: ['crystal', 'glow', 12], gift: ['gift', 'glow', 12], letter: ['letter', 'glow', 6],
+};
+// pickup kind -> pool
+const PICK_POOL = { flake: 'flake', snow: 'ball', x2: 'star', crystal: 'crystal', box: 'gift', letter: 'letter', magnet: 'magnet', helmet: 'helmet', rocket: 'rocket', superjump: 'spring' };
+
+export function pulseOf(phase) {
+  const p = phase > 0.5 ? phase - 1 : phase, a = 1 - Math.abs(p) / 0.3;
+  return a > 0 ? a * a : 0;
+}
+
+export const KIND = {};   // obstacle kinds (filled in part 2)
+
+export class Obstacles {
+  constructor(scene, track, opts = {}) {
+    this.scene = scene;
+    this.track = track;
+    this.seed = (opts.seed ?? 1) >>> 0;
+    this.group = new THREE.Group();
+    this.group.name = 'obstacles';
+    if (scene && scene.add) scene.add(this.group);
+    this.G = makeGeometries();
+    this.mats = {
+      lit: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }),
+      ice: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.7, depthWrite: false }),
+      pulse: new THREE.MeshBasicMaterial({ vertexColors: true }),
+      glow: new THREE.MeshBasicMaterial({ vertexColors: true }),
+    };
+    this.pool = {};
+    for (const k in POOLS) this._mkPool(k, POOLS[k]);
+    this.obs = [];          // obstacles sorted by s (centre)
+    this.picks = [];        // pickups sorted by s
+    this.pending = [];      // hit obstacles awaiting resolve()
+    this.byId = new Map();
+    this._id = 1;
+    this.maxExt = 4.6;      // largest half-length of any live obstacle (grows with trains)
+    this.beatF = 0; this.phase = 0; this.bpm = 100; this.time = 0; this.pulse = 0;
+    this.lastS = 0;
+    this.nextLetter = null;
+    this.jumpPadV = opts.jumpPadV ?? 11;     // runner RCFG.jumpPadV: spring / jump pad coin arcs are sized with it
+    this.ballVs = 10; this.gateChain = 0;
+    this.rng = makeRng((this.seed ^ 0xa5a5a5a5) >>> 0);
+    this.next = { power: 260, crystal: 520, box: 340, letter: 300 };   // distance accumulators for rare pickups
+    this._tmpHit = { ds: 0, du: 0 };
+    this._cb = { s: 0, u: 0, h: 0, r: 0, size: 1, vs: 0, vu: 0, vh: 0 };   // centre-based copy of the ball used by all hit tests
+    this.deb = [];
+    for (let i = 0; i < 80; i++) this.deb.push({ on: false, idx: -1, f: null, s0: 0, s: 0, u: 0, h: 0, vs: 0, vu: 0, vh: 0, a: 0, va: 0, life: 0, size: 0 });
+    this.stats = { spawned: 0, byKind: {}, droppedParts: 0 };
+  }
+
+  // ---------- instance pools ----------
+  _mkPool(key, [gk, mk, cap]) {
+    const m = new THREE.InstancedMesh(this.G[gk], this.mats[mk], cap);
+    m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3).fill(1), 3);
+    m.frustumCulled = false; m.count = 0; m.name = 'obs-' + key;
+    const a = m.instanceMatrix.array;
+    for (let i = 0; i < cap; i++) { a[i * 16] = a[i * 16 + 5] = a[i * 16 + 10] = 0; a[i * 16 + 15] = 1; }
+    this.group.add(m);
+    this.pool[key] = { m, free: [], hi: 0, cap, dirty: true, cdirty: true };
+  }
+  _alloc(key) {
+    const p = this.pool[key];
+    let i;
+    if (p.free.length) i = p.free.pop();
+    else if (p.hi < p.cap) i = p.hi++;
+    else { this.stats.droppedParts++; return -1; }
+    p.m.count = p.hi;
+    return i;
+  }
+  _release(key, i) {
+    if (i < 0) return;
+    const p = this.pool[key], a = p.m.instanceMatrix.array, o = i * 16;
+    for (let k = 0; k < 16; k++) a[o + k] = 0;
+    a[o + 15] = 1;
+    p.dirty = true; p.free.push(i);
+  }
+  _col(key, i, hex, k = 1) {
+    if (i < 0) return;
+    const p = this.pool[key], a = p.m.instanceColor.array;
+    _c.setHex(hex);
+    a[i * 3] = _c.r * k; a[i * 3 + 1] = _c.g * k; a[i * 3 + 2] = _c.b * k;
+    p.cdirty = true;
+  }
+  /**
+   * Compose a part matrix in frame f (layout: 0-2 pos, 3 rx, 4 rz, 5-7 up, 8-10 tan, 11 ry):
+   * local offset (u,h), M = Ry(yaw) Rz(roll) Ry(spin), scale, extra pre-scale offset (ox,oy,oz) in the rotated frame.
+   * Local axes: x = right, y = up, z = -tan (backwards).
+   */
+  _set(key, i, f, u, h, yaw, roll, sx, sy, sz, ox = 0, oy = 0, oz = 0, spin = 0) {
+    if (i < 0) return;
+    const p = this.pool[key], a = p.m.instanceMatrix.array, o = i * 16;
+    const cy = Math.cos(yaw), sy_ = Math.sin(yaw), cr = Math.cos(roll), sr = Math.sin(roll), cs = Math.cos(spin), ss = Math.sin(spin);
+    const b0x = cr * cs, b0y = sr * cs, b0z = -ss, b1x = -sr, b1y = cr, b2x = cr * ss, b2y = sr * ss, b2z = cs;
+    const c0x = cy * b0x + sy_ * b0z, c0y = b0y, c0z = -sy_ * b0x + cy * b0z;
+    const c1x = cy * b1x, c1y = b1y, c1z = -sy_ * b1x;
+    const c2x = cy * b2x + sy_ * b2z, c2y = b2y, c2z = -sy_ * b2x + cy * b2z;
+    const w0x = c0x * f[3] + c0y * f[5] - c0z * f[8], w0y = c0x * f[11] + c0y * f[6] - c0z * f[9], w0z = c0x * f[4] + c0y * f[7] - c0z * f[10];
+    const w1x = c1x * f[3] + c1y * f[5] - c1z * f[8], w1y = c1x * f[11] + c1y * f[6] - c1z * f[9], w1z = c1x * f[4] + c1y * f[7] - c1z * f[10];
+    const w2x = c2x * f[3] + c2y * f[5] - c2z * f[8], w2y = c2x * f[11] + c2y * f[6] - c2z * f[9], w2z = c2x * f[4] + c2y * f[7] - c2z * f[10];
+    a[o] = w0x * sx; a[o + 1] = w0y * sx; a[o + 2] = w0z * sx; a[o + 3] = 0;
+    a[o + 4] = w1x * sy; a[o + 5] = w1y * sy; a[o + 6] = w1z * sy; a[o + 7] = 0;
+    a[o + 8] = w2x * sz; a[o + 9] = w2y * sz; a[o + 10] = w2z * sz; a[o + 11] = 0;
+    a[o + 12] = f[0] + f[3] * u + f[5] * h + w0x * ox + w1x * oy + w2x * oz;
+    a[o + 13] = f[1] + f[11] * u + f[6] * h + w0y * ox + w1y * oy + w2y * oz;
+    a[o + 14] = f[2] + f[4] * u + f[7] * h + w0z * ox + w1z * oy + w2z * oz;
+    a[o + 15] = 1;
+    p.dirty = true;
+  }
+  _frameInto(s, f) {
+    this.track.frame(s, FR);
+    f[0] = FR.pos.x; f[1] = FR.pos.y; f[2] = FR.pos.z; f[3] = FR.right.x; f[4] = FR.right.z;
+    f[5] = FR.up.x; f[6] = FR.up.y; f[7] = FR.up.z; f[8] = FR.tan.x; f[9] = FR.tan.y; f[10] = FR.tan.z; f[11] = FR.right.y;
+    return f;
+  }
+  _frameOf(s) { return this._frameInto(s, new Float64Array(12)); }
+  _pal(s) { return Object.assign({}, DEFAULT_PAL, this.track.palette(s) || {}); }
+
+  /** Allocate a static/animated part of an obstacle. Returns the part record. */
+  _part(ob, key, hex, u, h, yaw, roll, sx, sy, sz, ox = 0, oy = 0, oz = 0, f = null, k = 1) {
+    const idx = this._alloc(key);
+    const part = { key, idx, f: f || ob.f, u, h, yaw, roll, sx, sy, sz, ox, oy, oz };
+    if (idx >= 0) { this._col(key, idx, hex, k); this._set(key, idx, part.f, u, h, yaw, roll, sx, sy, sz, ox, oy, oz); }
+    ob.parts.push(part);
+    return part;
+  }
+  _repart(p, u, h, yaw, roll, sx, sy, sz, ox = 0, oy = 0, oz = 0, spin = 0, f = null) {
+    if (p.idx >= 0) this._set(p.key, p.idx, f || p.f, u, h, yaw, roll, sx, sy, sz, ox, oy, oz, spin);
+  }
+
+  // ---------- registration ----------
+  _addOb(ob) {
+    ob.id = this._id++;
+    ob.f = this._frameOf(ob.s);
+    ob.parts = []; ob.cdUntil = 0; ob.alive = true; ob.hitDone = false; ob.pending = false;
+    if (ob.ext === undefined) ob.ext = 2;
+    if (ob.ext > this.maxExt) this.maxExt = ob.ext;
+    KIND[ob.kind].build.call(this, ob);
+    if (KIND[ob.kind].anim) KIND[ob.kind].anim.call(this, ob, this.beatF, this.pulse);
+    this.byId.set(ob.id, ob);
+    this.stats.spawned++;
+    this.stats.byKind[ob.kind] = (this.stats.byKind[ob.kind] || 0) + 1;
+    return ob;
+  }
+  _freeOb(ob) {
+    for (const p of ob.parts) if (p.idx >= 0) { this._release(p.key, p.idx); p.idx = -1; }
+    this.byId.delete(ob.id);
+  }
+  _lb(arr, s) {
+    let lo = 0, hi = arr.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid].s < s) lo = mid + 1; else hi = mid; }
+    return lo;
+  }
+
+  // ---------- hits ----------
+  /** Emit the one-and-only 'hit' event of an obstacle (toughness 1..5). ds,du = separation the ball needs (track-local metres). */
+  _hit(ob, ball, events, ds, du) {
+    if (ob.hitDone) return;
+    ob.hitDone = true;
+    const e = ev(events, 'hit');
+    e.toughness = ob.tough; e.s = ob.cs !== undefined ? ob.cs : ob.s; e.u = ob.cu !== undefined ? ob.cu : ob.u; e.h = ob.hc || 0.8;
+    e.color = ob.color; e.ds = ds; e.du = du; e.id = ob.id;
+    e.headOn = ds < 0 && Math.abs(ds) >= 0.7 * Math.abs(du);
+    ob.pending = true; ob.hitSize = ball.size || 1; ob.autoAt = this.time + 0.06;
+    this.pending.push(ob);
+  }
+
+  /** Runner tells us the outcome of a 'hit': smashed -> the obstacle breaks into debris, else it stays. */
+  resolve(id, smashed) {
+    const ob = this.byId.get(id);
+    if (!ob || !ob.pending) return;
+    this._resolve(ob, !!smashed);
+  }
+  _resolve(ob, smashed) {
+    ob.pending = false;
+    const i = this.pending.indexOf(ob);
+    if (i >= 0) this.pending.splice(i, 1);
+    if (!smashed) return;
+    ob.alive = false;
+    const u = ob.cu !== undefined ? ob.cu : ob.u, s = ob.cs !== undefined ? ob.cs : ob.s;
+    this._debris(ob, s, u, ob.hc || 0.8, ob.color, ob.tough >= 4 ? 9 : 6, 0.3 + 0.06 * ob.tough, 6);
+    for (const p of ob.parts) if (p.idx >= 0) { this._release(p.key, p.idx); p.idx = -1; }
+  }
+
+  // ---------- per-frame ----------
+  update(dt, beat, ball) {
+    this.time += dt;
+    this.beatF = beat.beat; this.phase = beat.phase; this.bpm = beat.bpm || this.bpm;
+    const pulse = pulseOf(beat.phase);
+    this.pulse = pulse;
+    this.mats.pulse.color.setScalar(0.68 + 0.6 * pulse);
+    for (let i = this.pending.length - 1; i >= 0; i--) { const ob = this.pending[i]; if (this.time >= ob.autoAt) this._resolve(ob, ob.hitSize > ob.tough); }   // same rule as the runner: size > toughness smashes
+    const sMin = ball.s - 30, sMax = ball.s + 175, obs = this.obs, M = this.maxExt;
+    for (let i = this._lb(obs, sMin - M); i < obs.length; i++) {
+      const ob = obs[i];
+      if (ob.s - M > sMax) break;
+      if (ob.alive && ob.s + ob.ext >= sMin && ob.s - ob.ext <= sMax) { const K = KIND[ob.kind]; if (K.anim) K.anim.call(this, ob, beat.beat, pulse); }
+    }
+    const pk = this.picks, t = this.time;
+    for (let i = this._lb(pk, ball.s - 10); i < pk.length; i++) {
+      const k = pk[i];
+      if (k.s > ball.s + 140) break;
+      if (!k.alive || k.kind === 'snow') continue;
+      const bob = k.h + 0.1 * Math.sin(t * 2.4 + k.ph);
+      if (k.kind === 'flake') this._set('flake', k.idx, k.f, k.u, bob, t * 2.2 + k.ph, 0, 0.78, 0.78, 0.78);
+      else this._set(k.pool, k.idx, k.f, k.u, bob + 0.1, t * 2.4 + k.ph, k.kind === 'rocket' ? 0.5 : 0, k.sc, k.sc, k.sc);
+    }
+    this._updateDebris(dt);
+    for (const key in this.pool) {
+      const p = this.pool[key];
+      if (p.dirty) { p.m.instanceMatrix.needsUpdate = true; p.dirty = false; }
+      if (p.cdirty) { p.m.instanceColor.needsUpdate = true; p.cdirty = false; }
+    }
+    this.lastS = ball.s; this.ballVs = ball.vs || this.ballVs;
+  }
+
+  _updateDebris(dt) {
+    const D = this.deb;
+    for (let i = 0; i < D.length; i++) {
+      const d = D[i];
+      if (!d.on) continue;
+      d.life -= dt;
+      if (d.life <= 0) { d.on = false; this._release('box', d.idx); d.idx = -1; continue; }
+      d.vh -= 28 * dt;
+      d.s += d.vs * dt; d.u += d.vu * dt; d.h += d.vh * dt;
+      if (d.h < d.size * 0.5) { d.h = d.size * 0.5; d.vh = Math.abs(d.vh) * 0.35; d.vu *= 0.7; d.vs *= 0.7; }
+      d.a += d.va * dt;
+      const k = d.size * Math.min(1, d.life * 2.5);
+      this._set('box', d.idx, d.f, d.u, d.h, d.a, d.a * 0.7, k, k, k, 0, 0, -(d.s - d.s0));
+    }
+  }
+
+  _debris(ob, s, u, h, color, n, size, vsBase) {
+    const D = this.deb;
+    let made = 0;
+    for (let i = 0; i < D.length && made < n; i++) {
+      const d = D[i];
+      if (d.on) continue;
+      const idx = this._alloc('box');
+      if (idx < 0) return;
+      d.on = true; d.idx = idx; d.f = ob.f; d.s0 = ob.s; d.s = s; d.u = u; d.h = h;
+      const r1 = Math.random() - 0.5, r2 = Math.random() - 0.5, r3 = Math.random();
+      d.vs = vsBase * 0.5 + r1 * 4; d.vu = r2 * 8; d.vh = 3 + r3 * 5; d.a = r3 * 6; d.va = (r1 + r2) * 14;
+      d.life = 0.9 + r3 * 0.5; d.size = size * (0.35 + 0.35 * r3);
+      this._col('box', idx, color, 0.85 + 0.3 * r3);
+      made++;
+    }
+  }
+
+  // ---------- collisions ----------
+  collide(ball, events) {
+    const cb = this._cb;
+    cb.s = ball.s; cb.u = ball.u; cb.r = ball.r; cb.h = ball.h + ball.r; cb.size = ball.size || 1; cb.vs = ball.vs; cb.vu = ball.vu; cb.vh = ball.vh;
+    const R = ball.r + 6.5, M = this.maxExt, obs = this.obs, t = this.time;
+    for (let i = this._lb(obs, ball.s - R - M); i < obs.length; i++) {
+      const ob = obs[i];
+      if (ob.s - M > ball.s + R) break;
+      if (!ob.alive || Math.abs(ball.s - ob.s) > ob.ext + R) continue;
+      KIND[ob.kind].hit.call(this, ob, cb, events, t);
+    }
+    const mag = ball.magnet || 0, pk = this.picks, rr = ball.r + 1.3 + mag;
+    for (let i = this._lb(pk, ball.s - rr); i < pk.length; i++) {
+      const k = pk[i];
+      if (k.s > ball.s + rr) break;
+      if (!k.alive) continue;
+      const ds = cb.s - k.s, du = cb.u - k.u, dh = cb.h - k.h;
+      // the magnet power-up widens the pickup radius of flakes (and a bit of snow)
+      const rad = cb.r + k.rad + (k.kind === 'flake' ? mag : k.kind === 'snow' ? mag * 0.4 : 0);
+      if (ds * ds + du * du + dh * dh > rad * rad) continue;
+      k.alive = false;
+      this._release(k.pool, k.idx);
+      const e = ev(events, 'pickup');
+      e.kind = k.kind; e.value = k.value; e.s = k.s; e.u = k.u; e.h = k.h;
+      if (k.kind === 'letter') e.letter = k.letter || this.nextLetter || '';
+    }
+  }
+
+  // ---------- geometry helpers for kinds ----------
+  /** Sphere vs AABB in (s,u,h). Returns this._tmpHit with the (ds,du) separation, or null. */
+  _aabb(ball, s0, s1, u0, u1, h0, h1) {
+    const cs = clamp(ball.s, s0, s1), cu = clamp(ball.u, u0, u1), ch = clamp(ball.h, h0, h1);
+    const dx = ball.s - cs, dy = ball.u - cu, dz = ball.h - ch;
+    const d2 = dx * dx + dy * dy + dz * dz, r = ball.r;
+    if (d2 >= r * r) return null;
+    const H = this._tmpHit;
+    if (d2 < 1e-9) {
+      const ps0 = ball.s - s0, ps1 = s1 - ball.s, pu0 = ball.u - u0, pu1 = u1 - ball.u, m = Math.min(ps0, ps1, pu0, pu1);
+      H.ds = 0; H.du = 0;
+      if (m === ps0) H.ds = -(ps0 + r); else if (m === ps1) H.ds = ps1 + r; else if (m === pu0) H.du = -(pu0 + r); else H.du = pu1 + r;
+      return H;
+    }
+    const d = Math.sqrt(d2), pen = r - d;
+    H.ds = (dx / d) * pen; H.du = (dy / d) * pen;
+    if (dz * dz > dx * dx + dy * dy) { H.ds = 0; H.du = 0; }     // landing on top: no sideways separation
+    return H;
+  }
+
+  /** Vertical cylinder (s,u circle, height ht). */
+  _cyl(ball, cs, cu, rad, ht) {
+    if (ball.h - ball.r > ht) return null;
+    const dx = ball.s - cs, dy = ball.u - cu, rr = rad + ball.r, d2 = dx * dx + dy * dy;
+    if (d2 >= rr * rr) return null;
+    const d = Math.sqrt(d2) || 1e-6, pen = rr - d, H = this._tmpHit;
+    H.ds = (dx / d) * pen; H.du = (dy / d) * pen;
+    return H;
+  }
+
+  /** Oriented bar (axis angle th in the (u,s) plane); true if the ball overlaps. */
+  _obb(ball, cu, cs, th, hl, hwid, h0, h1) {
+    const dv = ball.h < h0 ? h0 - ball.h : ball.h > h1 ? ball.h - h1 : 0;
+    if (dv >= ball.r) return false;
+    const rr = Math.sqrt(ball.r * ball.r - dv * dv);
+    const c = Math.cos(th), s = Math.sin(th), ru = ball.u - cu, rs = ball.s - cs;
+    const along = ru * c + rs * s, perp = -ru * s + rs * c;
+    const dx = along - clamp(along, -hl, hl), dz = perp - clamp(perp, -hwid, hwid);
+    return dx * dx + dz * dz < rr * rr;
+  }
+
+  _knock(events, ob, du, dh, strength, t, cd = 0.5) {
+    if (t < ob.cdUntil) return;
+    ob.cdUntil = t + cd;
+    const e = ev(events, 'knock');
+    e.du = du; e.dh = dh; e.strength = strength;
+  }
+
+  // ---------- pickups ----------
+  _pickup(kind, s, u, h, opts = {}) {
+    const pool = PICK_POOL[kind], idx = this._alloc(pool);
+    if (idx < 0) return null;
+    const f = this._frameOf(s);
+    const sc = opts.sc || (kind === 'flake' ? 0.78 : kind === 'letter' ? 1.0 : kind === 'crystal' ? 1.3 : 1.35);
+    const k = { kind, pool, s, u, h, f, idx, alive: true, ph: (s * 1.7) % TAU, sc, value: opts.value ?? 1,
+      rad: opts.rad ?? (kind === 'snow' ? 0.65 : kind === 'letter' ? 1.0 : kind === 'flake' ? 0.5 : 0.62), letter: opts.letter || '' };
+    if (kind === 'snow') { this._col('ball', idx, COL.snow); this._set('ball', idx, f, u, 0.38, k.ph, 0, 1.3, 0.9, 1.3); }
+    else if (kind === 'flake') this._col('flake', idx, COL.flake);
+    else this._col(pool, idx, 0xffffff);
+    this.picks.push(k);
+    return k;
+  }
+  _sortPicks() { this.picks.sort((a, b) => a.s - b.s); }
+
+  /** Replace the letter the runner wants next (null: none). Rebuilds the shared 3D letter geometry. */
+  setNextLetter(ch) {
+    const c = ch ? String(ch).toLocaleUpperCase('tr') : null;
+    if (c === this.nextLetter) return;
+    this.nextLetter = c;
+    const p = this.pool.letter;
+    if (c) { p.m.geometry.dispose(); p.m.geometry = letterGeometry(c); p.m.geometry.computeBoundingSphere(); }
+    else for (const k of this.picks) if (k.kind === 'letter' && k.alive) { k.alive = false; this._release('letter', k.idx); }
+  }
+
+  trim(sBehind) {
+    const obs = this.obs;
+    let k = 0;
+    while (k < obs.length && obs[k].s + obs[k].ext < sBehind) {
+      const ob = obs[k++];
+      if (ob.pending) { const i = this.pending.indexOf(ob); if (i >= 0) this.pending.splice(i, 1); }
+      this._freeOb(ob);
+    }
+    if (k) obs.splice(0, k);
+    const pk = this.picks;
+    k = 0;
+    while (k < pk.length && pk[k].s < sBehind) { const p = pk[k++]; if (p.alive) this._release(p.pool, p.idx); }
+    if (k) pk.splice(0, k);
+  }
+
+  dispose() {
+    for (const key in this.pool) { this.group.remove(this.pool[key].m); this.pool[key].m.dispose(); }
+    for (const k in this.G) if (this.G[k] && this.G[k].dispose) this.G[k].dispose();
+    for (const k in this.mats) this.mats[k].dispose();
+    if (this.group.parent) this.group.parent.remove(this.group);
+    this.obs.length = 0; this.picks.length = 0; this.pending.length = 0; this.byId.clear();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Obstacle kinds
+//   static  — blockers with a 'hit' (toughness 1..5): snowman, sign, crate, sled, logpile, pine, rock, cabin,
+//             fallenLog / fence (low, jumpable), snowcat / longLogs (long "train" blockers)
+//   moving  — lane-hopping skier / snowmobile, rolling log (beat-locked)
+//   plow, swing — beat-locked, 'knock' events
+//   ice, melt   — floor patches ('ice' / 'melt' events)
+//   pad, portal
+// ---------------------------------------------------------------------------
+const SEG = 4.2;   // train segment length (each segment has its own frame so trains follow curves)
+
+const DEFS = {
+  snowman: { shape: 'cyl', tough: 1, color: 0xffffff, rad: 0.55, ht: 2.4, ext: 1.5, build(ob) {
+    const u = ob.u;
+    this._part(ob, 'ball', COL.snow, u, 0.6, 0, 0, 1.2, 1.2, 1.2); this._part(ob, 'ball', COL.snow, u, 1.5, 0, 0, 0.86, 0.86, 0.86);
+    this._part(ob, 'ball', COL.snow, u, 2.1, 0, 0, 0.62, 0.62, 0.62);
+    this._part(ob, 'cyl', COL.dark, u, 2.42, 0, 0, 0.75, 0.06, 0.75); this._part(ob, 'cyl', COL.dark, u, 2.62, 0, 0, 0.42, 0.4, 0.42);
+    this._part(ob, 'box', COL.orange, u, 2.1, 0, 0, 0.07, 0.07, 0.3, 0, 0, 0.32);
+  } },
+  sign: { shape: 'cyl', tough: 1, color: COL.red, rad: 0.45, ht: 1.8, ext: 1.2, build(ob) {
+    this._part(ob, 'box', COL.wood2, ob.u, 0.85, 0, 0, 0.12, 1.7, 0.12);
+    this._part(ob, 'box', COL.red, ob.u, 1.5, 0, 0, 1.0, 0.5, 0.08, 0, 0, 0.1); this._part(ob, 'box', COL.snow, ob.u, 1.5, 0, 0, 0.8, 0.1, 0.09, 0, 0, 0.1);
+  } },
+  crate: { shape: 'box', tough: 2, color: COL.wood, hs: 0.6, hu: 0.6, ht: 1.1, ext: 1.5, build(ob) {
+    const n = ob.n || 1; ob.ht = 1.1 * n;
+    for (let k = 0; k < n; k++) this._part(ob, 'box', k & 1 ? COL.wood2 : COL.wood, ob.u, 0.55 + 1.1 * k, 0.1 * (k ? -1 : 1), 0, 1.1, 1.1, 1.1);
+  } },
+  sled: { shape: 'box', tough: 2, color: COL.red, hs: 1.0, hu: 0.55, ht: 1.2, ext: 1.8, build(ob) { sledParts.call(this, ob, 0); } },
+  logpile: { shape: 'box', tough: 3, color: COL.wood2, hs: 0.95, hu: 1.0, ht: 1.5, ext: 1.8, build(ob) {
+    const u = ob.u, P = PI / 2;
+    this._part(ob, 'cyl', COL.wood2, u, 0.42, 0, P, 0.84, 2.0, 0.84, 0, 0, -0.45); this._part(ob, 'cyl', COL.wood, u, 0.42, 0, P, 0.84, 2.0, 0.84, 0, 0, 0.45);
+    this._part(ob, 'cyl', COL.wood, u, 1.1, 0, P, 0.84, 1.9, 0.84);
+  } },
+  pine: { shape: 'cyl', tough: 4, color: COL.pine, rad: 0.8, ht: 4.7, ext: 1.6, build(ob) {
+    const sc = ob.sc || 1; ob.rad = 0.8 * sc; ob.ht = 4.7 * sc;
+    this._part(ob, 'pine', 0xffffff, ob.u, 0, ob.u * 3.1, 0, sc, sc, sc);
+  } },
+  rock: { shape: 'cyl', tough: 5, color: COL.rock, rad: 0.95, ht: 1.4, ext: 1.7, build(ob) {
+    const sc = ob.sc || 1; ob.rad = 0.95 * sc; ob.ht = 1.4 * sc;
+    this._part(ob, 'ball', COL.rock, ob.u, 0.6 * sc, ob.u, 0, 1.9 * sc, 1.4 * sc, 1.7 * sc);
+    this._part(ob, 'ball', 0x9aa3b0, ob.u + 0.45 * sc, 0.35 * sc, 1, 0, 1.0 * sc, 0.8 * sc, 0.9 * sc, 0, 0, 0.4);
+  } },
+  cabin: { shape: 'box', tough: 5, color: COL.cabin, hs: 1.5, hu: 1.05, ht: 2.6, ext: 2.2, build(ob) {
+    const u = ob.u, R = 0.55;
+    this._part(ob, 'box', COL.cabin, u, 0.9, 0, 0, 2.0, 1.8, 2.8);
+    this._part(ob, 'box', COL.wood2, u - 0.58, 2.1, 0, -R, 1.35, 0.18, 3.1); this._part(ob, 'box', COL.wood2, u + 0.58, 2.1, 0, R, 1.35, 0.18, 3.1);
+    this._part(ob, 'box', COL.snow, u - 0.62, 2.2, 0, -R, 1.3, 0.12, 3.15); this._part(ob, 'box', COL.snow, u + 0.62, 2.2, 0, R, 1.3, 0.12, 3.15);
+    this._part(ob, 'box', COL.dark, u, 0.6, 0, 0, 0.6, 1.0, 0.06, 0, 0, 1.42); this._part(ob, 'box', COL.rock, u + 0.6, 2.6, 0, 0, 0.35, 0.9, 0.35, 0, 0, -0.6);
+  } },
+  fallenLog: { shape: 'box', tough: 2, color: COL.wood2, ht: 0.85, hs: 0.45, ext: 1.2, low: true, build(ob) {
+    const len = ob.uMax - ob.uMin, uc = (ob.uMax + ob.uMin) / 2;
+    ob.hu = len / 2; ob.u = uc;
+    this._part(ob, 'cyl', COL.wood2, uc, 0.42, 0, PI / 2, 0.84, len, 0.84);
+    this._part(ob, 'cyl', COL.wood, uc + len * 0.2, 0.2, 0, PI / 2, 0.45, len * 0.45, 0.45, 0, 0, 0.55);
+  } },
+  fence: { shape: 'box', tough: 1, color: COL.wood, ht: 0.85, hs: 0.2, ext: 1.0, low: true, build(ob) {
+    const w = ob.uMax - ob.uMin, uc = (ob.uMax + ob.uMin) / 2, n = Math.ceil(w / 1.1) + 1;
+    ob.hu = w / 2; ob.u = uc;
+    for (let k = 0; k < n; k++) this._part(ob, 'box', COL.wood2, ob.uMin + (w * k) / (n - 1), 0.47, 0, 0, 0.13, 0.95, 0.13);
+    this._part(ob, 'box', COL.wood, uc, 0.35, 0, 0, w, 0.1, 0.06); this._part(ob, 'box', COL.wood, uc, 0.72, 0, 0, w, 0.1, 0.06);
+  } },
+  snowcat: { shape: 'box', tough: 5, color: COL.orange, ht: 2.6, hu: 1.05, ext: 12, train: true, build(ob) {
+    const L = ob.L, ns = Math.max(2, Math.round(L / SEG)), sl = L / ns;
+    ob.hs = L / 2; ob.hu = 1.05;
+    for (let k = 0; k < ns; k++) {
+      const f = this._frameOf(ob.s - L / 2 + (k + 0.5) * sl);
+      this._part(ob, 'box', COL.orange, ob.u, 1.15, 0, 0, 2.0, 1.5, sl + 0.04, 0, 0, 0, f);
+      this._part(ob, 'box', COL.dark, ob.u - 0.95, 0.4, 0, 0, 0.6, 0.8, sl + 0.04, 0, 0, 0, f); this._part(ob, 'box', COL.dark, ob.u + 0.95, 0.4, 0, 0, 0.6, 0.8, sl + 0.04, 0, 0, 0, f);
+      if (k === 0) { this._part(ob, 'box', 0xbfe3ff, ob.u, 2.2, 0, 0, 1.7, 1.0, sl, 0, 0, 0, f); this._part(ob, 'box', 0xffd23a, ob.u, 2.85, 0, 0, 0.9, 0.18, 0.4, 0, 0, 0, f); }
+      else this._part(ob, 'box', COL.rock, ob.u, 2.05, 0, 0, 1.6, 0.6, sl * 0.9, 0, 0, 0, f);
+    }
+  } },
+  longLogs: { shape: 'box', tough: 3, color: COL.wood2, ht: 1.9, hu: 1.05, ext: 12, train: true, build(ob) {
+    const L = ob.L, ns = Math.max(2, Math.round(L / SEG)), sl = L / ns, P = PI / 2;
+    ob.hs = L / 2; ob.hu = 1.05;
+    for (let k = 0; k < ns; k++) {
+      const f = this._frameOf(ob.s - L / 2 + (k + 0.5) * sl);
+      this._part(ob, 'cyl', COL.wood, ob.u - 0.5, 0.5, P, P, 1.0, sl + 0.05, 1.0, 0, 0, 0, f); this._part(ob, 'cyl', COL.wood2, ob.u + 0.5, 0.5, P, P, 1.0, sl + 0.05, 1.0, 0, 0, 0, f);
+      this._part(ob, 'cyl', COL.wood, ob.u, 1.38, P, P, 0.95, sl + 0.05, 0.95, 0, 0, 0, f);
+    }
+  } },
+};
+
+function sledParts(ob, du) {
+  const u = (ob.cu !== undefined ? ob.cu : ob.u) + du, c = ob.color || COL.red;
+  const mk = (key, hex, ou, h, sx, sy, sz, oz = 0, f = null) => { const p = this._part(ob, key, hex, u + ou, h, 0, 0, sx, sy, sz, 0, 0, oz, f); p.du = ou; return p; };
+  mk('box', c, 0, 0.55, 0.95, 0.55, 1.9); mk('box', COL.dark, 0, 0.95, 0.5, 0.2, 0.8, 0.15); mk('box', 0x9fd8ff, 0, 1.05, 0.7, 0.45, 0.06, -0.55);
+  mk('box', COL.dark, -0.42, 0.08, 0.14, 0.08, 1.95); mk('box', COL.dark, 0.42, 0.08, 0.14, 0.08, 1.95); mk('box', COL.dark, 0, 1.0, 0.85, 0.08, 0.08, -0.45);
+}
+
+KIND.static = {
+  build(ob) {
+    const d = (ob.def = DEFS[ob.type]);
+    ob.tough = d.tough; ob.color = d.color; ob.ht = d.ht; ob.rad = d.rad; ob.hs = d.hs; ob.hu = d.hu; ob.hc = d.ht * 0.5;
+    ob.cs = ob.s; ob.cu = ob.u;
+    d.build.call(this, ob);
+    ob.cu = ob.u; ob.hc = ob.ht * 0.5;
+  },
+  hit(ob, ball, events) {
+    const d = ob.def, H = d.shape === 'cyl' ? this._cyl(ball, ob.s, ob.u, ob.rad, ob.ht)
+      : this._aabb(ball, ob.s - ob.hs, ob.s + ob.hs, ob.u - ob.hu, ob.u + ob.hu, 0, ob.ht);
+    if (H && (H.ds !== 0 || H.du !== 0)) this._hit(ob, ball, events, H.ds, H.du);
+  },
+};
+
+// moving blockers: lane-hopping skier / snowmobile, rolling log
+KIND.moving = {
+  build(ob) {
+    ob.fm = new Float64Array(12);
+    ob.cs = ob.s; ob.cu = ob.u;
+    if (ob.type === 'skier') {
+      ob.tough = 1; ob.color = ob.suit; ob.ht = 1.8; ob.rad = 0.45; ob.hc = 0.9;
+      const mk = (key, hex, ou, h, sx, sy, sz, oz = 0) => { const p = this._part(ob, key, hex, ob.u + ou, h, 0, 0, sx, sy, sz, 0, 0, oz, ob.fm); p.du = ou; };
+      mk('box', ob.suit, 0, 0.9, 0.4, 0.9, 0.3); mk('ball', 0xf2c9a0, 0, 1.55, 0.5, 0.5, 0.5); mk('box', COL.dark, -0.16, 0.05, 0.1, 0.05, 1.5); mk('box', COL.dark, 0.16, 0.05, 0.1, 0.05, 1.5);
+      mk('box', COL.red, 0, 1.78, 0.45, 0.12, 0.45);
+    } else if (ob.type === 'sled') {
+      ob.tough = 2; ob.color = COL.red; ob.ht = 1.2; ob.hs = 1.0; ob.hu = 0.55; ob.hc = 0.6;
+      sledParts.call(this, ob, 0);
+      for (const p of ob.parts) p.f = ob.fm;
+    } else {   // rolling log
+      ob.tough = 3; ob.color = COL.wood2; ob.ht = 0.9; ob.hs = 0.45; ob.hu = 1.0; ob.hc = 0.45;
+      const p = this._part(ob, 'cyl', COL.wood, ob.u, 0.45, 0, PI / 2, 0.9, 2.0, 0.9, 0, 0, 0, ob.fm); p.du = 0;
+    }
+  },
+  anim(ob, b, pulse) {
+    let cs = ob.s, cu = ob.u, k = 1, spin = 0;
+    if (ob.type === 'rolling') {
+      const x = b / ob.per + ob.ph, fr = x - Math.floor(x);
+      cs = ob.s0 + fr * ob.L; cu = ob.u; k = smooth(fr / 0.05) * smooth((1 - fr) / 0.05);
+      spin = (cs - ob.s0) / 0.45;
+    } else {
+      const x = b / ob.per + ob.ph, n = Math.floor(x), f = x - n;
+      const a = LANES[(n & 1) ? ob.laneA : ob.laneB], c = LANES[(n & 1) ? ob.laneB : ob.laneA];
+      cu = a + (c - a) * smooth(f / 0.35);
+      ob.lean = (c - a) * (f < 0.35 ? Math.sin(f / 0.35 * PI) * 0.1 : 0);
+    }
+    ob.cs = cs; ob.cu = cu;
+    if (ob.type === 'rolling' && k < 0.02) { ob.cs = -1e9; }
+    this._frameInto(cs, ob.fm);
+    for (const p of ob.parts) {
+      if (p.idx < 0) continue;
+      if (ob.type === 'rolling') this._repart(p, cu, p.h, 0, PI / 2, 0.9 * k, 2.0 * k, 0.9 * k, 0, 0, 0, spin, ob.fm);
+      else this._repart(p, cu + p.du, p.h, 0, ob.lean || 0, p.sx, p.sy, p.sz, 0, 0, p.oz, 0, ob.fm);
+    }
+  },
+  hit(ob, ball, events) {
+    if (ob.cs < -1e8) return;
+    const H = ob.type === 'skier' ? this._cyl(ball, ob.cs, ob.cu, ob.rad, ob.ht)
+      : this._aabb(ball, ob.cs - ob.hs, ob.cs + ob.hs, ob.cu - ob.hu, ob.cu + ob.hu, 0, ob.ht);
+    if (H && (H.ds !== 0 || H.du !== 0)) this._hit(ob, ball, events, H.ds, H.du);
+  },
+};
+
+// rotating snow-plow blade, pivot on the track edge (far lane always free). 'knock'
+KIND.plow = {
+  build(ob) {
+    ob.hc = 0.6; ob.tough = 3; ob.color = 0xffc21a;
+    ob.bar = this._part(ob, 'plow', 0xffffff, ob.u0, 0.62, 0, 0, ob.L + 0.8, 1.0, 0.3);
+    this._part(ob, 'cyl', COL.dark, ob.u0, 0.7, 0, 0, 0.8, 1.4, 0.8);
+  },
+  anim(ob, b) {
+    const th = TAU * b / ob.per + ob.phi, off = (ob.L - 0.8) / 2;
+    this._repart(ob.bar, ob.u0, 0.62, th, 0, ob.L + 0.8, 1.0, 0.3, off, 0, 0);
+    ob.th = th;
+  },
+  hit(ob, ball, events, t) {
+    const th = ob.th, off = (ob.L - 0.8) / 2;
+    if (!this._obb(ball, ob.u0 + Math.cos(th) * off, ob.s + Math.sin(th) * off, th, (ob.L + 0.8) / 2, 0.3, 0, 1.1)) return;
+    const om = (TAU / ob.per) * (this.bpm / 60), vu = -om * (ball.s - ob.s);
+    let du = clamp(vu * 0.85, -10, 10);
+    if (Math.abs(du) < 3.5) du = (vu < 0 || (vu === 0 && ob.sigma > 0) ? -1 : 1) * 3.5;
+    this._knock(events, ob, du, 1.2, 0.6 + 0.4 * Math.min(1, Math.abs(vu) / 10), t);
+  },
+};
+
+// swinging log on ropes between two pines (hangs from a beam; pendulum across the track). 'knock'
+KIND.swing = {
+  build(ob) {
+    ob.hc = 1.0; ob.tough = 3; ob.color = COL.wood;
+    const hw = ob.hw + 0.3, H = ob.H;
+    this._part(ob, 'pine', 0xffffff, -hw, 0, 0.5, 0, 1.1, 1.1, 1.1); this._part(ob, 'pine', 0xffffff, hw, 0, 2.1, 0, 1.1, 1.1, 1.1);
+    this._part(ob, 'box', COL.wood2, 0, H + 0.1, 0, 0, hw * 2, 0.24, 0.24);
+    ob.ropeA = this._part(ob, 'box', 0xd9c9a0, 0, H, 0, 0, 0.07, ob.Ls, 0.07, 0, -ob.Ls / 2, 0.8);
+    ob.ropeB = this._part(ob, 'box', 0xd9c9a0, 0, H, 0, 0, 0.07, ob.Ls, 0.07, 0, -ob.Ls / 2, -0.8);
+    ob.log = this._part(ob, 'cyl', COL.wood, 0, 0.6, PI / 2, PI / 2, 0.8, 2.2, 0.8);
+  },
+  anim(ob, b) {
+    const w = TAU * b / ob.per, th = ob.amp * Math.sin(w);
+    ob.hu = ob.Ls * Math.sin(th); ob.hh = ob.H - ob.Ls * Math.cos(th); ob.th = th;
+    this._repart(ob.ropeA, 0, ob.H, 0, th, 0.07, ob.Ls, 0.07, 0, -ob.Ls / 2, 0.8);
+    this._repart(ob.ropeB, 0, ob.H, 0, th, 0.07, ob.Ls, 0.07, 0, -ob.Ls / 2, -0.8);
+    this._repart(ob.log, ob.hu, ob.hh, PI / 2, PI / 2, 0.8, 2.2, 0.8);
+  },
+  hit(ob, ball, events, t) {
+    const ds = ball.s - ob.s, dx = ds - clamp(ds, -1.1, 1.1), du = ball.u - ob.hu, dh = ball.h - ob.hh, rr = ball.r + 0.42;
+    if (dx * dx + du * du + dh * dh >= rr * rr) return;
+    const thd = ob.amp * (TAU / ob.per) * Math.cos(TAU * this.beatF / ob.per) * (this.bpm / 60), vu = ob.Ls * Math.cos(ob.th) * thd;
+    let push = clamp(vu, -14, 14);
+    if (Math.abs(push) < 5) push = (vu !== 0 ? Math.sign(vu) : Math.sign(du) || 1) * 5;
+    this._knock(events, ob, push, 1.6, 1, t, 0.6);
+  },
+};
+
+// ice patch (no collision): emits {type:'ice'} while the ball slides on it
+KIND.ice = {
+  build(ob) {
+    ob.hc = 0.05; ob.tough = 0; ob.color = COL.ice;
+    for (const g of ob.groups) {
+      const f = ob.f, w = g.uMax - g.uMin, uc = (g.uMax + g.uMin) / 2;
+      this._part(ob, 'ice', COL.ice, uc, 0.03, 0, 0, w, 0.05, ob.len, 0, 0, 0, f);
+    }
+  },
+  hit(ob, ball, events) {
+    if (ball.h - ball.r > 0.45 || Math.abs(ball.s - ob.s) > ob.len / 2) return;
+    for (const g of ob.groups) if (ball.u > g.uMin - 0.2 && ball.u < g.uMax + 0.2) { ev(events, 'ice'); return; }
+  },
+};
+
+// hot patch (desert / lava biomes): emits {type:'melt', rate} while inside
+KIND.melt = {
+  build(ob) {
+    ob.hc = 0.05; ob.tough = 0; ob.color = COL.melt;
+    const rows = Math.max(2, Math.round(ob.len / 0.78));
+    for (let r = 0; r < rows; r++) {
+      const s = ob.s - ob.len / 2 + (r + 0.5) * (ob.len / rows), f = this._frameOf(s);
+      for (const g of ob.groups) {
+        const cols = Math.max(1, Math.round((g.uMax - g.uMin) / 0.9));
+        for (let c = 0; c < cols; c++) {
+          const u = g.uMin + ((c + 0.5 + (r & 1 ? 0.5 : 0)) * (g.uMax - g.uMin)) / cols;
+          if (u > g.uMax) continue;
+          this._part(ob, 'hex', COL.melt, u, 0.06, 0, 0, 1.0, 1, 1.0, 0, 0, 0, f, 0.8 + 0.4 * ((r * 7 + c * 3) % 5) / 4);
+        }
+      }
+    }
+  },
+  hit(ob, ball, events) {
+    if (ball.h - ball.r > 0.5 || Math.abs(ball.s - ob.s) > ob.len / 2) return;
+    for (const g of ob.groups) if (ball.u > g.uMin && ball.u < g.uMax) { const e = ev(events, 'melt'); e.rate = ob.rate; return; }
+  },
+};
+
+// boost / jump pads
+KIND.pad = {
+  build(ob) {
+    ob.hc = 0.1; ob.tough = 0; ob.color = 0xffffff;
+    if (ob.type === 'boost') {
+      this._part(ob, 'box', COL.dark, ob.u, 0.04, 0, 0, 1.8, 0.08, 3.4);
+      for (let k = -1; k <= 1; k++) this._part(ob, 'chev', ob.glow, ob.u, 0.1, 0, 0, 1.4, 1, 1.0, 0, 0, k * 1.0);
+    } else {
+      this._part(ob, 'cyl', COL.dark, ob.u, 0.1, 0, 0, 1.9, 0.2, 1.9);
+      ob.top = this._part(ob, 'hex', ob.glow, ob.u, 0.24, 0, 0, 1.8, 1, 1.8);
+    }
+  },
+  anim(ob, b, pulse) { if (ob.top) this._repart(ob.top, ob.u, 0.22 + 0.14 * pulse, 0, 0, 1.8, 1 + 2 * pulse, 1.8); },
+  hit(ob, ball, events, t) {
+    if (t < ob.cdUntil || ball.h - ball.r > 0.6) return;
+    const half = ob.type === 'boost' ? 1.7 : 1.0, wid = ob.type === 'boost' ? 1.0 : 1.0;
+    if (Math.abs(ball.s - ob.s) > half || Math.abs(ball.u - ob.u) > wid + ball.r * 0.3) return;
+    ob.cdUntil = t + 0.8;
+    const e = ev(events, 'pad');
+    e.kind = ob.type; e.onBeat = Math.abs(this.phase) < 0.15 || this.phase > 0.85; e.power = 1;
+  },
+};
+
+// portal: big glowing ring gate at the centre of a portal piece
+KIND.portal = {
+  build(ob) {
+    ob.hc = 3.4; ob.tough = 0; ob.color = ob.glow; ob.fired = false;
+    ob.r1 = this._part(ob, 'ring', ob.glow, 0, 3.45, 0, 0, 3.7, 3.7, 0.7);
+    ob.r2 = this._part(ob, 'ring', 0xffffff, 0, 3.45, 0, 0, 2.9, 2.9, 0.4);
+    this._part(ob, 'box', COL.dark, -3.6, 1.0, 0, 0, 0.6, 2.0, 0.6); this._part(ob, 'box', COL.dark, 3.6, 1.0, 0, 0, 0.6, 2.0, 0.6);
+  },
+  anim(ob, b, pulse) {
+    const k = 1 + 0.05 * pulse;
+    this._repart(ob.r1, 0, 3.45, 0, 0, 3.7 * k, 3.7 * k, 0.7);
+    this._repart(ob.r2, 0, 3.45, 0, 0, 2.9 / k, 2.9 / k, 0.4);
+  },
+  hit(ob, ball, events) {
+    if (ob.fired || ball.s < ob.s || ball.s - ob.s > 8) return;
+    ob.fired = true;
+    const e = ev(events, 'portal');
+    e.biome = ob.biome;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Spawning: Subway-Surfers style lane patterns, flake routes / arcs, snow piles, pads, rare pickups
+// ---------------------------------------------------------------------------
+const STATIC_W = [['snowman', 2.0, 0], ['sign', 1.4, 0], ['crate', 1.8, 0], ['sled', 1.0, 0.1], ['logpile', 1.0, 0.2], ['pine', 1.4, 0.1], ['rock', 1.0, 0.25], ['cabin', 0.5, 0.3]];
+const POWERS = ['magnet', 'x2', 'superjump', 'rocket', 'helmet'];
+const AIR_VH = 8.5, AIR_G = 28;
+const bit = (l) => 1 << l;
+
+function wpick(rng, items, w) {      // items weighted by w(item) (<=0 excluded)
+  let tot = 0;
+  for (const it of items) tot += Math.max(0, w(it));
+  if (tot <= 0) return null;
+  let r = rng.next() * tot;
+  for (const it of items) { r -= Math.max(0, w(it)); if (r <= 0) return it; }
+  return items[items.length - 1];
+}
+
+Object.assign(Obstacles.prototype, {
+  // ----- creation helpers -----
+  _mk(plan, ob) { this._addOb(ob); plan.batch.push(ob); return ob; },
+  _static(plan, type, s, u, extra = {}) {
+    const d = DEFS[type];
+    return this._mk(plan, Object.assign({ kind: 'static', type, s, u, ext: d.ext }, extra));
+  },
+  _pickStatic(plan, allowedFn) {
+    const diff = plan.diff;
+    return wpick(plan.rng, STATIC_W, (e) => (diff >= e[2] && allowedFn(e[0]) ? e[1] : 0))[0];
+  },
+  _scaled(plan, type, s, lane) {
+    const sc = type === 'pine' || type === 'rock' ? plan.rng.range(0.9, 1.15) : 1;
+    const extra = { sc };
+    if (type === 'crate') extra.n = plan.rng.chance(0.35 + 0.4 * plan.diff) ? 2 : 1;
+    return this._static(plan, type, s, LANES[lane], extra);
+  },
+
+  // ----- row patterns -----
+  _rows(plan, sA, sB, dense, allowed) {
+    const { rng, diff, piece } = plan, T = this.track;
+    const rows = plan.rows, persist = [], carry = this._carry;
+    const amask = allowed.reduce((m, l) => m | bit(l), 0);
+    let s = sA, prevRoute = allowed.indexOf(1) >= 0 ? 1 : allowed[0], lastRest = false;
+    if (carry) {
+      // continue the previous piece's rhythm: spacing, persistent blockers and route lane carry over
+      for (const p of carry.persist) if (p.s1 + 60 > sA) persist.push(p);
+      if (allowed.indexOf(carry.route) >= 0) prevRoute = carry.route;
+      s = Math.max(sA, carry.s + T.speedAt(sA) * 1.1 + Math.min(carry.ext, 3));
+    }
+    const inAllowed = (l) => allowed.indexOf(l) >= 0;
+    while (s < sB) {
+      const vs = T.speedAt(s);
+      let tm = 0;
+      for (const p of persist) if (s >= p.s0 - 3 && s <= p.s1 + vs * 0.9) tm |= bit(p.lane);
+      const free0 = allowed.filter((l) => !(tm & bit(l)));         // lanes not occupied by persistent blockers
+      if (free0.length === 0) { s += vs * 1.2; continue; }
+      const room = sB - s;
+      const open3 = free0.length === 3;
+      const prevFree = rows.length ? rows[rows.length - 1].free : carry ? carry.free : 7;
+      const F = T.features || {};
+      const pats = ['single', 'double', 'low', 'train', 'mover', 'rolling', 'beat', 'swing', 'ice', 'melt', 'conveyor', 'rail', 'rest'];
+      const pat = wpick(rng, pats, (p) => {
+        switch (p) {
+          case 'single': return free0.length >= 2 ? 3 : 0;
+          case 'double': return open3 && diff >= 0.2 ? 1.2 + 1.6 * diff + (dense ? 0.6 : 0) : 0;
+          case 'low': return 2.6;
+          case 'train': return diff >= 0.25 && persist.length === 0 && room > 30 && allowed.length === 3 && !(allowed.length < 3) ? 0.8 + 0.8 * diff + (dense ? 0.4 : 0) : 0;
+          case 'mover': return diff >= 0.1 && free0.length >= 2 && room > 6 && free0.some((l, i) => free0.indexOf(l + 1) >= 0) ? 1.1 : 0;
+          case 'rolling': return diff >= 0.2 && room > 18 && persist.length === 0 && free0.length >= 2 ? 0.8 : 0;
+          case 'beat': return diff >= 0.25 && room > 6 && open3 ? 0.9 + (dense ? 0.5 : 0) : 0;
+          case 'swing': return diff >= 0.3 && room > 6 && free0.length >= 2 ? 0.8 : 0;
+          case 'ice': return diff >= 0.05 ? 0.5 : 0;
+          case 'melt': return (piece.biome === 3 || piece.biome === 6) ? 1.6 : (diff >= 0.3 ? 0.12 : 0);
+          case 'conveyor': return F.conveyor !== false && diff >= 0.15 ? 0.6 : 0;
+          case 'rail': return F.rail !== false && diff >= 0.2 && room > 30 ? 0.5 : 0;
+          case 'rest': return lastRest ? 0 : 0.35;
+          default: return 0;
+        }
+      });
+      let free = 7, ext = 1.5, jump = false, advanceExtra = 0, made = true;
+      switch (pat) {
+        case 'single': {
+          // 'single' favours the lane the player is most likely in (the previous route lane) ~50% of the time
+          const l = free0.indexOf(prevRoute) >= 0 && rng.chance(0.5) ? prevRoute : free0[rng.int(0, free0.length - 1)];
+          const type = this._pickStatic(plan, () => true);
+          this._scaled(plan, type, s, l);
+          free = bit(0) | bit(1) | bit(2); free &= ~bit(l);
+          ext = DEFS[type].ext;
+          break;
+        }
+        case 'double': {
+          const lanes = rng.chance(0.5) ? [0, 1] : rng.chance(0.5) ? [1, 2] : [0, 2];
+          for (const l of lanes) this._scaled(plan, this._pickStatic(plan, (t) => t !== 'cabin'), s + rng.range(-1, 1), l);
+          free = 7 & ~(bit(lanes[0]) | bit(lanes[1]));
+          ext = 2;
+          break;
+        }
+        case 'low': {
+          // jumpable low blockers across contiguous runs of free lanes (all 3 lanes only if a jump clears them)
+          const runs = [];
+          let cur = null;
+          for (let l = 0; l < 3; l++) {
+            if (free0.indexOf(l) >= 0) { if (cur && l === cur.hi + 1) cur.hi = l; else { cur = { lo: l, hi: l }; runs.push(cur); } }
+            else cur = null;
+          }
+          const run = runs[rng.int(0, runs.length - 1)];
+          let lo = run.lo, hi = run.hi;
+          if (rng.chance(0.55)) { lo = rng.int(run.lo, run.hi); hi = rng.int(lo, run.hi); }
+          const type = rng.chance(0.65) ? 'fallenLog' : 'fence';
+          this._static(plan, type, s, 0, { uMin: LANES[lo] - 1.2, uMax: LANES[hi] + 1.2 });
+          free = 7 & ~(((1 << (hi + 1)) - 1) ^ ((1 << lo) - 1));
+          jump = free0.length > 0 && (free & allowed.reduce((m, l) => m | bit(l), 0) & ~tm) === 0;
+          ext = 1.2;
+          break;
+        }
+        case 'train': {
+          const l = rng.chance(0.5) ? 0 : 2;
+          const L = Math.min(rng.int(14, 22), Math.floor(room - 8));
+          if (L < 10 || !(prevFree & ~bit(l) & amask)) { made = false; break; }
+          const type = rng.chance(0.6) ? 'snowcat' : 'longLogs';
+          this._static(plan, type, s + L / 2, LANES[l], { L, ext: L / 2 + 1.5 });
+          persist.push({ lane: l, s0: s, s1: s + L });
+          free = 7 & ~bit(l);
+          ext = L + 1;      // route transitions begin after the train
+          advanceExtra = 0;
+          break;
+        }
+        case 'mover': {
+          const pairs = [];
+          for (const l of free0) if (free0.indexOf(l + 1) >= 0) pairs.push([l, l + 1]);
+          const pr = pairs[rng.int(0, pairs.length - 1)];
+          const freeLane = [0, 1, 2].filter((l) => l !== pr[0] && l !== pr[1])[0];
+          if (!inAllowed(freeLane) || (tm & bit(freeLane))) { made = false; break; }
+          const type = rng.chance(0.65) ? 'skier' : 'sled';
+          const suits = [0x2f7de6, 0xe6492f, 0x35c46a, 0xe6b82f];
+          this._mk(plan, { kind: 'moving', type, s, u: LANES[pr[0]], ext: 1.8, laneA: pr[0], laneB: pr[1], per: diff > 0.6 ? 3 : 4, ph: rng.range(0, 1), suit: suits[rng.int(0, 3)] });
+          free = bit(freeLane);
+          ext = 1.8;
+          break;
+        }
+        case 'rolling': {
+          const l = free0[rng.int(0, free0.length - 1)], L = 28;
+          if (s + L > piece.s1 - 3 || !(prevFree & ~bit(l) & amask)) { made = false; break; }
+          this._mk(plan, { kind: 'moving', type: 'rolling', s: s + L / 2, u: LANES[l], ext: L / 2 + 1.5, s0: s, L, per: 8, ph: rng.range(0, 1) });
+          persist.push({ lane: l, s0: s, s1: s + L });
+          free = 7 & ~bit(l);
+          ext = 2;
+          break;
+        }
+        case 'beat': {
+          const sigma = rng.chance(0.5) ? -1 : 1;
+          const farLane = sigma < 0 ? 2 : 0;
+          if (tm & bit(farLane) || !inAllowed(farLane)) { made = false; break; }
+          const hw = Math.min(piece.hw, 3.8);
+          this._mk(plan, { kind: 'plow', s, u: sigma * (hw - 0.25), u0: sigma * (hw - 0.25), sigma, L: 4.4, per: diff > 0.7 ? 3 : 4, phi: rng.range(0, TAU), ext: 4.8 });
+          free = bit(farLane);
+          ext = 4.8;
+          break;
+        }
+        case 'swing': {
+          this._mk(plan, { kind: 'swing', s, u: 0, hw: Math.min(piece.hw, 3.8), H: 4.2, Ls: 3.6, amp: 62 * PI / 180, per: diff > 0.6 ? 3 : 4, ext: 2.2 });
+          free = 7; ext = 2.2;
+          break;
+        }
+        case 'ice': {
+          const groups = [];
+          let lo = free0[0], prev = lo;
+          const lanes = free0.filter(() => rng.chance(0.7)); if (!lanes.length) lanes.push(free0[0]);
+          for (const l of lanes) { if (groups.length && l === groups[groups.length - 1].hi + 1) groups[groups.length - 1].hi = l; else groups.push({ lo: l, hi: l }); }
+          const len = rng.range(6, 10);
+          this._mk(plan, { kind: 'ice', s, u: 0, len, ext: len / 2 + 0.5, groups: groups.map((g) => ({ uMin: LANES[g.lo] - 1.2, uMax: LANES[g.hi] + 1.2 })) });
+          free = 7; ext = len / 2;
+          break;
+        }
+        case 'melt': {
+          const lanes = free0.length >= 3 ? [free0[rng.int(0, 2)]] : [free0[rng.int(0, free0.length - 1)]];
+          if (free0.length === 3 && rng.chance(0.4)) { const o = rng.chance(0.5) ? 1 : -1, l2 = lanes[0] + o; if (l2 >= 0 && l2 <= 2) lanes.push(l2); }
+          lanes.sort();
+          const groups = [];
+          for (const l of lanes) { if (groups.length && l === groups[groups.length - 1].hi + 1) groups[groups.length - 1].hi = l; else groups.push({ lo: l, hi: l }); }
+          const len = rng.range(10, 14);
+          this._mk(plan, { kind: 'melt', s, u: 0, len, ext: len / 2 + 0.5, rate: 0.18 + 0.12 * diff, groups: groups.map((g) => ({ uMin: LANES[g.lo] - 1.2, uMax: LANES[g.hi] + 1.2 })) });
+          free = 7 & ~lanes.reduce((m, l) => m | bit(l), 0); if (!free) free = 7;
+          ext = len / 2;
+          break;
+        }
+        case 'conveyor': {
+          const lanes = free0.filter(() => rng.chance(0.6)); if (!lanes.length) lanes.push(free0[rng.int(0, free0.length - 1)]);
+          const groups = [];
+          for (const l of lanes) { if (groups.length && l === groups[groups.length - 1].hi + 1) groups[groups.length - 1].hi = l; else groups.push({ lo: l, hi: l }); }
+          const len = rng.range(8, 12);
+          this._mk(plan, { kind: 'conveyor', s, u: 0, len, ext: len / 2 + 0.5, dir: rng.sign(), push: 3.6, glow: this._pal(s).glow, groups: groups.map((g) => ({ uMin: LANES[g.lo] - 1.2, uMax: LANES[g.hi] + 1.2 })) });
+          free = 7; ext = len / 2;
+          break;
+        }
+        case 'rail': {
+          const l = free0[rng.int(0, free0.length - 1)], len = rng.range(18, 24);
+          if (s + len > sB) { made = false; break; }
+          const railH = 0.55, sp = this._sp(s);
+          this._mk(plan, { kind: 'rail', s: s + len / 2, u: LANES[l], len, railH, glow: this._pal(s).glow, ext: len / 2 + 1 });
+          for (let x = s + 2; x < s + len - 1; x += sp) this._pickup('flake', x, LANES[l], 1.35);      // coins above the rail: grind to collect
+          free = 7; ext = 3;
+          break;
+        }
+        default: made = false;
+      }
+      lastRest = !made || pat === 'rest';
+      if (made) {
+        const mask = allowed.reduce((m, l) => m | bit(l), 0) & ~tm;
+        let cand = [0, 1, 2].filter((l) => (free & bit(l)) && (mask & bit(l)));
+        if (!cand.length) cand = [0, 1, 2].filter((l) => mask & bit(l));
+        let best = cand[0], bd = 9;
+        for (const l of cand) { const d = Math.abs(l - prevRoute) + rng.next() * 0.3; if (d < bd) { bd = d; best = l; } }
+        prevRoute = best;
+        rows.push({ s, ext, free, jump, route: best, pat });
+      }
+      const dt = Math.max(0.95, rng.range(1.0, 1.7) * (1 - 0.3 * diff));
+      s += vs * dt + (made ? Math.min(ext, 3) : 0) + advanceExtra;
+    }
+    if (rows.length) { const r = rows[rows.length - 1]; this._carry = { s: r.s, ext: r.ext, route: r.route, free: r.free, persist: persist.slice() }; }
+  },
+
+  /** Lane-centre route through the rows (smooth lane changes between rows). */
+  _routeFn(plan, baseLane) {
+    const rows = plan.rows;
+    return (s) => {
+      if (!rows.length) return LANES[baseLane];
+      if (s <= rows[0].s) return LANES[rows[0].route];
+      for (let i = 0; i < rows.length - 1; i++) {
+        const a = rows[i], b = rows[i + 1];
+        if (s >= b.s) continue;
+        let t0 = a.s + a.ext + 1.0, t1 = b.s - b.ext - 1.0;
+        if (t1 <= t0 + 0.5) { t0 = (a.s + b.s) / 2 - 0.5; t1 = t0 + 1; }
+        return LANES[a.route] + (LANES[b.route] - LANES[a.route]) * smooth((s - t0) / (t1 - t0));
+      }
+      return LANES[rows[rows.length - 1].route];
+    };
+  },
+
+  // ----- pickups -----
+  _flakeH(s, arcs) {
+    for (const a of arcs) {
+      if (s < a.s0 || s > a.s0 + a.len) continue;
+      const t = (s - a.s0) / a.vs, y = a.base + a.vh * t - 0.5 * AIR_G * t * t;
+      if (y > 1.0) return y;
+    }
+    return 0.9;
+  },
+
+  _flakeRuns(plan, route, sA, sB, arcs, lanePref) {
+    const { rng } = plan, T = this.track;
+    let s = sA + rng.range(0, 6);
+    while (s < sB - 4) {
+      const vs = T.speedAt(s), sp = (vs * 60) / T.bpmAt(s) / 2;
+      const n = rng.int(6, 11);
+      for (let i = 0; i < n; i++) {
+        const si = s + i * sp;
+        if (si > sB) break;
+        this._pickup('flake', si, route(si), this._flakeH(si, arcs));
+      }
+      s += n * sp + rng.range(12, 24);
+    }
+  },
+
+  _snowGroup(plan, s, lane, n = 3, weave = 0) {
+    for (let i = 0; i < n; i++) {
+      const si = s + i * 2.3;
+      this._pickup('snow', si, LANES[lane] + (weave ? Math.sin(i * 1.4) * weave : 0), 0.38);
+    }
+  },
+
+  _powerUp(plan, kind, s, lane, h = 1.3) { return this._pickup(kind, s, LANES[lane], h); },
+
+  _pad(plan, type, s, lane) {
+    const glow = this._pal(s).glow;
+    this._mk(plan, { kind: 'pad', type, s, u: LANES[lane], ext: 2, glow });
+  },
+
+  /** Gap pieces: flake arc over the gap (rewards the jump), snow after the landing. */
+  _gapArc(plan, p) {
+    const T = this.track, rng = plan.rng, lane = rng.int(0, 2), u = LANES[lane];
+    const vs = T.speedAt(p.gapS0), sp = (vs * 60) / T.bpmAt(p.gapS0) / 2;
+    if (p.kind === 'gapRamp') {
+      const base = p.rampH + 0.55;
+      for (let i = 0, s = p.gapS0 + 0.5; s < p.gapS1 + 2.5; i++, s += sp) {
+        const t = (s - p.gapS0) / vs, y = base + p.launchVh * t - 0.5 * AIR_G * t * t;
+        this._pickup('flake', s, u, Math.max(0.9, y));
+      }
+    } else {
+      const s0 = p.gapS0 - 1.0, fl = vs * ((2 * AIR_VH) / AIR_G);
+      for (let s = s0; s < s0 + fl; s += sp) {
+        const t = (s - s0) / vs, y = 0.55 + AIR_VH * t - 0.5 * AIR_G * t * t;
+        this._pickup('flake', s, u, Math.max(0.9, y));
+      }
+    }
+    const apex = p.kind === 'gapRamp'
+      ? { s: p.gapS0 + vs * (p.launchVh / AIR_G), u, h: p.rampH + 0.55 + (p.launchVh * p.launchVh) / (2 * AIR_G) }
+      : { s: p.gapS0 - 1.0 + vs * (AIR_VH / AIR_G), u, h: 0.55 + (AIR_VH * AIR_VH) / (2 * AIR_G) };
+    return { lane, apex };
+  },
+
+  // ----- main entry -----
+  spawn(piece, difficulty, biomeIndex) {
+    const T = this.track, rng = makeRng((Math.imul(piece.id + 1, 2654435761) ^ this.seed) >>> 0);
+    const plan = { rng, piece, diff: clamp(difficulty ?? piece.diff ?? 0, 0, 1), biome: biomeIndex ?? piece.biome, rows: [], batch: [] };
+    const n0 = this.picks.length;
+    const kind = piece.kind, s0 = piece.s0, s1 = piece.s1;
+    if (kind === 'portal') {
+      const pal = this._pal(s0 + 15);
+      this._mk(plan, { kind: 'portal', s: s0 + 15, u: 0, ext: 3, glow: pal.glow, biome: piece.biome });
+    } else {
+      let route = null, arcs = [], risky = 1, apex = null;
+      const early = s0 < 150;
+      switch (kind) {
+        case 'straight': case 'curve': case 'slalom': {
+          const dense = kind === 'slalom', F = T.features || {};
+          // every straight / curve / slalom piece after the first 150 m gets rows; before pieces that force a lane
+          // (narrow / split / hexHoles) the rows stop early so the player has time to take the right lane
+          const nk = T._q && T._q[0], forced = nk === 'narrow' || nk === 'split' || nk === 'hexHoles';
+          const rowEnd = s1 - (forced ? Math.max(14, 1.2 * T.speedAt(s1)) : 4);
+          const prev = T.pieces[T.pieces.length - 2], after = prev && (prev.kind === 'split' || prev.kind === 'hexHoles' || prev.kind === 'narrow');
+          let rowStart = s0 + (after ? Math.max(8, 0.6 * T.speedAt(s0) + 4) : 5), padFlight = 0;
+          // spring pad / jump pad (+ coin arc): rows resume after the landing
+          if (!early && !dense && kind === 'straight' && rng.chance(0.14 + 0.1 * plan.diff)) {
+            const vs = T.speedAt(s0 + 10), spring = F.spring !== false && rng.chance(0.65);
+            const fl = vs * ((2 * this.jumpPadV * (spring ? 1.55 : 1)) / AIR_G);
+            if (s0 + 7 + fl + 12 < rowEnd) {
+              const lane = rng.int(0, 2);
+              if (spring) padFlight = this._spring(plan, s0 + 7, lane);
+              else { this._pad(plan, 'jump', s0 + 7, lane); padFlight = this._arcFlakes(plan, s0 + 8.2, LANES[lane], this.jumpPadV); }
+              rowStart = s0 + 7 + padFlight + 7;
+            }
+          }
+          if (kind === 'slalom' && !early && F.gates !== false && rng.chance(0.55)) this._gates(plan, s0 + 9, s1 - 6);
+          else if (!early) this._rows(plan, rowStart, rowEnd, dense, [0, 1, 2]);
+          route = plan.gates ? this._gateRoute(plan, 1) : this._routeFn(plan, 1);
+          arcs = this._rowArcs(plan);
+          if (kind === 'straight' && !early && F.boost !== false && !padFlight && rng.chance(0.22)) this._placeStrip(plan, route, s0 + 6, s1 - 6);
+          this._flakeRuns(plan, route, padFlight ? s0 + 7 + padFlight + 5 : s0 + 4, s1 - 3, arcs);
+          break;
+        }
+        case 'narrow':
+          this._carry = { s: s0, ext: 0, route: 1, free: bit(1), persist: [] };
+          route = () => 0;
+          this._flakeRuns(plan, route, s0 + piece.taper + 2, s1 - piece.taper, []);
+          break;
+        case 'split': {
+          let lane = rng.chance(0.5) ? 0 : 2;
+          if (!early && rng.chance(0.55 + 0.3 * plan.diff)) lane = this._splitRows(plan, piece);   // blocks ONE side lane only
+          this._carry = { s: s0, ext: 0, route: lane, free: bit(lane), persist: [] };
+          route = () => LANES[lane];
+          this._flakeRuns(plan, route, s0 + 3, s1 - 3, []);
+          break;
+        }
+        case 'hexHoles': {
+          const ls = piece.laneSegs[piece.laneSegs.length - 1];
+          this._carry = { s: s0, ext: 0, route: ls.route, free: ls.free.reduce((m, l) => m | bit(l), 0), persist: [] };
+          route = (s) => piece.pathU(s);
+          this._flakeRuns(plan, route, s0 + 4, s1 - 3, []);
+          break;
+        }
+        case 'gapRamp': case 'skiJump': case 'chasm': case 'gapJump': {
+          const a = this._gapArc(plan, piece);
+          apex = a.apex;
+          route = () => LANES[a.lane];
+          this._snowGroup(plan, piece.gapS1 + 3, a.lane, 3, 0.6);
+          break;
+        }
+        default: {   // set pieces (helix, waves, iceBridge, halfpipe, tube, zipline, loop, corkscrew) + stairs
+          const fn = this['_spawn_' + kind], r = fn ? fn.call(this, plan, piece) || {} : {};
+          route = r.route || (() => 0);
+          if (r.arcs) arcs = r.arcs;
+        }
+      }
+      if (piece.slowmo) this._mk(plan, { kind: 'slowmo', s: piece.slowmo.s0, u: 0, ext: 6, slow: piece.slowmo });
+      // snow piles: after dangerous pieces / risk-reward lanes between rows / early teaching
+      const hazard = kind === 'narrow' || kind === 'hexHoles' || kind === 'split' || kind === 'stairs' || kind === 'slalom' || kind === 'helix' || kind === 'iceBridge' || kind === 'halfpipe' || kind === 'tube' || kind === 'corkscrew' || kind === 'loop' || kind === 'zipline';
+      if (hazard) this._snowGroup(plan, s1 - 18, kind === 'narrow' ? 1 : rng.int(0, 2), 3, kind === 'narrow' ? 0 : 1.2);
+      if (plan.rows.length >= 2) {
+        for (let i = 0; i < plan.rows.length - 1; i++) {
+          if (!rng.chance(0.3)) continue;
+          const a = plan.rows[i], b = plan.rows[i + 1], sm = (a.s + a.ext + b.s - b.ext) / 2;
+          if (b.s - a.s < 9) continue;
+          // risky lane: the lane the next row blocks (else any lane off the safe route)
+          const blocked = [0, 1, 2].filter((l) => !(b.free & bit(l)));
+          const lane = blocked.length && rng.chance(0.6) ? blocked[rng.int(0, blocked.length - 1)] : [0, 1, 2].filter((l) => l !== b.route)[rng.int(0, 1)];
+          this._snowGroup(plan, sm - 2, lane, 3);
+        }
+      } else if (!hazard && piece.gapS0 === undefined && rng.chance(early ? 0.7 : 0.15)) {
+        this._snowGroup(plan, s0 + rng.range(10, Math.max(12, piece.len - 14)), early ? 1 : rng.int(0, 2), 3 + (early ? 1 : 0), early ? 0 : 0.8);
+      }
+      // rare pickups
+      const mid = (s0 + s1) / 2, normal = kind === 'straight' || kind === 'curve' || kind === 'slalom' || kind === 'stairs' || kind === 'waves';
+      const freeS = (want) => { let s = want; for (const r of plan.rows) if (Math.abs(s - r.s) < r.ext + 3.5) s = r.s + r.ext + 4; return Math.min(s, s1 - 3); };
+      const offRoute = (s) => { const rl = Math.round((route(s) / LANE_W) + 1); const o = [0, 1, 2].filter((l) => l !== rl); return o[rng.int(0, 1)]; };
+      if (s0 >= 150 && normal && s1 > this.next.power) {
+        const k = POWERS[rng.int(0, POWERS.length - 1)], s = freeS(mid);
+        this._powerUp(plan, k, s, rng.chance(0.5) ? offRoute(s) : Math.round(route(s) / LANE_W) + 1);
+        this.next.power = s + rng.range(250, 350);
+      }
+      if (s0 >= 150 && s1 > this.next.crystal) {
+        if (apex) { this._pickup('crystal', apex.s, apex.u, apex.h, { value: 1 }); this.next.crystal = apex.s + rng.range(560, 680); }
+        else if (normal) { const s = freeS(mid + 6); this._pickup('crystal', s, LANES[offRoute(s)], 1.2); this.next.crystal = s + rng.range(560, 680); }
+      }
+      if (s0 >= 100 && normal && s1 > this.next.box) {
+        const s = freeS(mid - 5);
+        this._pickup('box', s, LANES[rng.int(0, 2)], 1.1);
+        this.next.box = s + rng.range(360, 440);
+      }
+      if (this.nextLetter && s0 >= 100 && normal && s1 > this.next.letter) {
+        const s = freeS(mid + 4);
+        this._pickup('letter', s, LANES[offRoute(s)], 1.9, { letter: this.nextLetter, rad: 1.0 });
+        this.next.letter = s + rng.range(450, 550);
+      }
+    }
+    // register: obstacles and pickups sorted by s (pieces are generated in order)
+    plan.batch.sort((a, b) => a.s - b.s);
+    for (const ob of plan.batch) this.obs.push(ob);
+    const tail = this.picks.splice(n0).sort((a, b) => a.s - b.s);
+    for (const k of tail) this.picks.push(k);
+  },
+
+  /**
+   * Rocket power-up: a lane-weaving line of flakes at h ~ 6 along [s0, s1] (the runner calls this when the
+   * rocket starts). They are ordinary pickups: collected only while the ball is up there.
+   */
+  spawnSkyCoins(s0, s1) {
+    const T = this.track, vs = T.speedAt(s0), sp = (vs * 60) / T.bpmAt(s0) / 2;
+    const n = Math.min(70, Math.floor((s1 - s0) / sp));
+    for (let i = 0; i < n; i++) {
+      const s = s0 + i * sp, u = LANES[2] * Math.sin(i * sp * 0.2);
+      this._pickup('flake', s, u, 6.7 + 0.25 * Math.sin(i * 0.9));   // rocket flies the ball bottom at h = 6
+    }
+    this._sortPicks();
+    return n;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 obstacle kinds: boost strip, spring pad, slalom gate, conveyor, grind rail, ice bridge tiles,
+// waves (valley events), zipline, loop, slowmo marker
+// ---------------------------------------------------------------------------
+const hash2 = (x) => { const v = Math.sin(x * 127.1 + 311.7) * 43758.5453; return v - Math.floor(v); };
+const SEGL = 4.2;
+
+// boost chevron strip (hiz oklari): lane-wide strip of glowing chevrons; emits one boost pad event on entry
+KIND.strip = {
+  build(ob) {
+    ob.hc = 0.1; ob.tough = 0; ob.color = ob.glow;
+    const ns = Math.max(1, Math.round(ob.len / SEGL)), sl = ob.len / ns, s0 = ob.s - ob.len / 2;
+    for (let k = 0; k < ns; k++) this._part(ob, 'box', COL.dark, ob.u, 0.03, 0, 0, 1.9, 0.06, sl + 0.05, 0, 0, 0, this._frameOf(s0 + (k + 0.5) * sl));
+    const nc = Math.max(2, Math.round(ob.len / 1.8));
+    for (let k = 0; k < nc; k++) this._part(ob, 'chev', ob.glow, ob.u, 0.08, 0, 0, 1.4, 1, 1.0, 0, 0, 0, this._frameOf(s0 + (k + 0.5) * (ob.len / nc)));
+    ob.was = false;
+  },
+  hit(ob, ball, events, t) {
+    const inside = Math.abs(ball.s - ob.s) <= ob.len / 2 && Math.abs(ball.u - ob.u) <= 1.15 + ball.r * 0.3 && ball.h - ball.r < 0.6;
+    if (inside && !ob.was && t >= ob.cdUntil) {
+      ob.cdUntil = t + 0.6;
+      const e = ev(events, 'pad');
+      e.kind = 'boost'; e.onBeat = Math.abs(this.phase) < 0.15 || this.phase > 0.85; e.power = ob.power || 1;
+    }
+    ob.was = inside;
+  },
+};
+
+// spring pad (zip zip): big arc, with a coin arc placed by the spawner. pad event kind 'spring' (power > 1)
+KIND.spring = {
+  build(ob) {
+    ob.hc = 0.2; ob.tough = 0; ob.color = ob.glow;
+    this._part(ob, 'cyl', COL.dark, ob.u, 0.1, 0, 0, 2.1, 0.2, 2.1);
+    ob.coil = [0, 1, 2].map((i) => this._part(ob, 'hex', ob.glow, ob.u, 0.25 + 0.2 * i, 0, 0, 1.25 - 0.1 * i, 1.6, 1.25 - 0.1 * i));
+    ob.top = this._part(ob, 'hex', ob.glow, ob.u, 0.9, 0, 0, 1.9, 1, 1.9);
+  },
+  anim(ob, b, pulse) {
+    const k = 1 - 0.55 * pulse;      // coil compresses on the beat
+    ob.coil.forEach((p, i) => this._repart(p, ob.u, 0.12 + (0.3 + 0.2 * i) * k, 0, 0, 1.25 - 0.1 * i, 1.6, 1.25 - 0.1 * i));
+    this._repart(ob.top, ob.u, 0.22 + 0.7 * k, 0, 0, 1.9, 1, 1.9);
+  },
+  hit(ob, ball, events, t) {
+    if (t < ob.cdUntil || ball.h - ball.r > 0.6) return;
+    if (Math.abs(ball.s - ob.s) > 1.05 || Math.abs(ball.u - ob.u) > 1.05 + ball.r * 0.3) return;
+    ob.cdUntil = t + 0.8;
+    const e = ev(events, 'pad');
+    e.kind = 'spring'; e.onBeat = Math.abs(this.phase) < 0.15 || this.phase > 0.85; e.power = ob.power || 1.55;
+  },
+};
+
+// slalom gate pair: poles + flags. Passing between them emits pickup kind 'gate' (value = chain length)
+KIND.gate = {
+  build(ob) {
+    ob.hc = 1.1; ob.tough = 0; ob.color = ob.flagA; ob.done = false;
+    for (const sg of [-1, 1]) {
+      this._part(ob, 'box', 0xdfe6ef, ob.u + sg * 1.15, 1.1, 0, 0, 0.12, 2.2, 0.12);
+      this._part(ob, 'box', sg < 0 ? ob.flagA : ob.flagB, ob.u + sg * 1.15 - sg * 0.38, 2.0, 0, 0, 0.7, 0.42, 0.05);
+    }
+  },
+  hit(ob, ball, events) {
+    if (ob.done || ball.s < ob.s) return;
+    ob.done = true;
+    if (Math.abs(ball.u - ob.u) <= 1.1) {
+      this.gateChain++;
+      const e = ev(events, 'pickup');
+      e.kind = 'gate'; e.value = this.gateChain; e.s = ob.s; e.u = ob.u; e.h = 1.1;
+    } else this.gateChain = 0;
+  },
+};
+
+// conveyor patch: pushes the ball sideways. emits { type:'push', du } (du = drift speed in m/s, per frame while on it)
+KIND.conveyor = {
+  build(ob) {
+    ob.hc = 0.05; ob.tough = 0; ob.color = COL.dark;
+    const rows = Math.max(2, Math.round(ob.len / 1.6)), s0 = ob.s - ob.len / 2;
+    ob.chev = [];
+    for (let r = 0; r < rows; r++) {
+      const f = this._frameOf(s0 + (r + 0.5) * (ob.len / rows));
+      for (const g of ob.groups) {
+        this._part(ob, 'box', 0x39445a, (g.uMin + g.uMax) / 2, 0.025, 0, 0, g.uMax - g.uMin, 0.05, ob.len / rows + 0.04, 0, 0, 0, f);
+        const nc = Math.max(1, Math.round((g.uMax - g.uMin) / 1.3));
+        for (let c = 0; c < nc; c++) {
+          const p = this._part(ob, 'chev', ob.glow, 0, 0.07, ob.dir > 0 ? -PI / 2 : PI / 2, 0, 1.0, 1, 1.0, 0, 0, 0, f);
+          p.g = g; p.c = c; p.nc = nc; ob.chev.push(p);
+        }
+      }
+    }
+  },
+  anim(ob) {
+    const t = this.time * 1.8;
+    for (const p of ob.chev) {
+      const w = (p.g.uMax - p.g.uMin) / p.nc, x = (((p.c + (t * ob.dir) / 1.3) % p.nc) + p.nc) % p.nc;
+      this._repart(p, p.g.uMin + (x + 0.5) * w, 0.07, ob.dir > 0 ? -PI / 2 : PI / 2, 0, 1.0, 1, 1.0, 0, 0, 0, 0, p.f);
+    }
+  },
+  hit(ob, ball, events) {
+    if (ball.h - ball.r > 0.45 || Math.abs(ball.s - ob.s) > ob.len / 2) return;
+    for (const g of ob.groups) if (ball.u > g.uMin && ball.u < g.uMax) { const e = ev(events, 'push'); e.du = ob.dir * ob.push; return; }
+  },
+};
+
+// grind rail (Buz Rayi): low rail along one lane (ghost: it never blocks). Landing on it (bottom within ~0.3 m of the rail)
+// attaches: { type:'grind', active:true, s0,s1,u,h }, and { type:'grind', active:false, done } when it ends / you leave
+KIND.rail = {
+  build(ob) {
+    ob.hc = ob.railH; ob.tough = 0; ob.color = 0xc9d2e0; ob.grind = false;
+    const ns = Math.max(2, Math.round(ob.len / SEGL)), sl = ob.len / ns, s0 = ob.s - ob.len / 2;
+    for (let k = 0; k < ns; k++) {
+      const f = this._frameOf(s0 + (k + 0.5) * sl);
+      this._part(ob, 'box', 0xc9d2e0, ob.u, ob.railH - 0.09, 0, 0, 0.3, 0.18, sl + 0.04, 0, 0, 0, f);
+      this._part(ob, 'box', ob.glow, ob.u, ob.railH + 0.01, 0, 0, 0.12, 0.04, sl + 0.04, 0, 0, 0, f);
+      this._part(ob, 'box', COL.dark, ob.u, ob.railH * 0.5, 0, 0, 0.12, ob.railH, 0.12, 0, 0, -sl * 0.5, f);
+    }
+    this._part(ob, 'box', COL.dark, ob.u, ob.railH * 0.5, 0, 0, 0.12, ob.railH, 0.12, 0, 0, 0, this._frameOf(ob.s + ob.len / 2));
+    ob.r = { s0, s1: ob.s + ob.len / 2, u: ob.u, h: ob.railH };
+  },
+  hit(ob, ball, events) {
+    const r = ob.r, bottom = ball.h - ball.r;
+    if (!ob.grind) {
+      if (ball.s >= r.s0 && ball.s <= r.s1 - 2 && Math.abs(ball.u - r.u) <= 0.8 && bottom >= r.h - 0.3 && bottom <= r.h + 0.4 && ball.vh <= 1.5) {
+        ob.grind = true;
+        const e = ev(events, 'grind');
+        e.active = true; e.s0 = r.s0; e.s1 = r.s1; e.u = r.u; e.h = r.h; e.id = ob.id;
+      }
+    } else {
+      const end = ball.s > r.s1, off = bottom > r.h + 0.9 || Math.abs(ball.u - r.u) > 1.0;
+      if (end || off) {
+        ob.grind = false; ob.cdUntil = this.time + 0.5;
+        const e = ev(events, 'grind');
+        e.active = false; e.done = end; e.s0 = r.s0; e.s1 = r.s1; e.u = r.u; e.h = r.h; e.id = ob.id;
+      }
+    }
+  },
+};
+
+// ice bridge: collapsing tiles. State is shared with the track piece (p.ice.state: 0 ok / 1 cracking / 2 fallen)
+KIND.icebridge = {
+  build(ob) {
+    const p = ob.piece, ice = p.ice;
+    ob.hc = 0; ob.tough = 0; ob.color = COL.ice; ob.tile = []; ob.lastBeat = -1; ob.crackQ = [];
+    ice.tDelay = new Float32Array(ice.n * 3).fill(0.5);
+    for (let r = 0; r < ice.n; r++) {
+      const f = this._frameOf(ice.s0b + (r + 0.5) * ice.rowLen);
+      for (let c = 0; c < 3; c++) {
+        const part = this._part(ob, 'box', (r + c) & 1 ? 0xbfe9ff : 0xa6d9f2, LANES[c], -0.2, 0, 0, 2.3, 0.4, ice.rowLen - 0.1, 0, 0, 0, f);
+        part.f0 = f; ob.tile.push(part);
+      }
+    }
+  },
+  anim(ob, b) {
+    const p = ob.piece, ice = p.ice, t = this.time;
+    // beat-ahead cracks: each beat a tile ~1.1 s ahead of the ball may start cracking (one per row, rows >= 3 apart)
+    const bi = Math.floor(b);
+    if (bi !== ob.lastBeat) {
+      ob.lastBeat = bi;
+      if (this.lastS > ice.s0b - 8 && this.lastS < ice.s1b - 6 && hash2(bi * 1.37 + ob.id * 3.1) < 0.4 + 0.4 * p.diff) {
+        const row = Math.floor((this.lastS + this.ballVs * 1.1 - ice.s0b) / ice.rowLen), col = Math.floor(hash2(bi * 2.71 + ob.id) * 3);
+        if (row >= 0 && row < ice.n && row - ice.lastRow >= 3 && ice.state[row * 3 + col] === 0) {
+          ice.lastRow = row; ice.state[row * 3 + col] = 1; ice.t0[row * 3 + col] = t; ice.tDelay[row * 3 + col] = 0.5;
+          ob.crackQ.push(ice.s0b + (row + 0.5) * ice.rowLen, LANES[col]);
+        }
+      }
+    }
+    for (let i = 0; i < ob.tile.length; i++) {
+      const st = ice.state[i], part = ob.tile[i];
+      if (part.idx < 0 || st === 0) continue;
+      const r = (i / 3) | 0, c = i % 3, el = t - ice.t0[i];
+      if (st === 1) {
+        if (el >= ice.tDelay[i]) { ice.state[i] = 2; ice.t0[i] = t; continue; }
+        const j = 0.05 * Math.sin(el * 55);
+        this._repart(part, LANES[c] + j, -0.2 + 0.03 * Math.sin(el * 70), 0, 0.04 * Math.sin(el * 40), 2.3, 0.4, ice.rowLen - 0.1, 0, 0, 0, 0, part.f0);
+        if (!part.hot) { part.hot = true; this._col('box', part.idx, 0xffffff, 1); }
+      } else {
+        if (el > 1.5) { this._release('box', part.idx); part.idx = -1; continue; }
+        const dh = -0.2 - 14 * el * el;
+        this._repart(part, LANES[c], dh, 0, 0.6 * el * (c - 1), 2.3, 0.4, ice.rowLen - 0.1, 0, 0, 0, 0, part.f0);
+      }
+    }
+  },
+  hit(ob, ball, events, t) {
+    const ice = ob.piece.ice;
+    while (ob.crackQ.length) { const e = ev(events, 'crack'); e.s = ob.crackQ.shift(); e.u = ob.crackQ.shift(); }
+    if (ball.s < ice.s0b || ball.s >= ice.s1b || ball.h - ball.r > 0.45) return;
+    const row = ((ball.s - ice.s0b) / ice.rowLen) | 0, col = ball.u < -1.2 ? 0 : ball.u > 1.2 ? 2 : 1, i = row * 3 + col;
+    if (ice.state[i] === 0) {
+      ice.state[i] = 1; ice.t0[i] = t;
+      ice.tDelay[i] = 0.55;
+      const e = ev(events, 'crack');
+      e.s = ice.s0b + (row + 0.5) * ice.rowLen; e.u = LANES[col];
+    }
+  },
+};
+
+// waves (Tiny Wings hills): { type:'valley', depth (0..1), ok: first frame } while the ball is in a trough
+KIND.waves = {
+  build(ob) { ob.hc = 0; ob.tough = 0; ob.color = 0; ob.inV = false; },
+  hit(ob, ball, events) {
+    const v = this.track.valleyAt(ball.s);
+    if (v > 0 && ball.h - ball.r < 0.6) {
+      const e = ev(events, 'valley');
+      e.depth = v; e.ok = !ob.inV; e.s = ball.s;
+      ob.inV = true;
+    } else ob.inV = false;
+  },
+};
+
+// zipline: { type:'zip', s0, s1, u, h } once when the ball reaches the start gate (runner lane-locks and hangs the ball)
+KIND.zip = {
+  build(ob) { ob.hc = ob.zip.h; ob.tough = 0; ob.color = 0; ob.fired = false; },
+  hit(ob, ball, events) {
+    if (ob.fired || ball.s < ob.zip.s0) return;
+    ob.fired = true;
+    const e = ev(events, 'zip');
+    e.s0 = ob.zip.s0; e.s1 = ob.zip.s1; e.u = ob.zip.u; e.h = ob.zip.h; e.id = ob.id;
+  },
+};
+
+// loop: { type:'loop', minSpeed, s0, s1, R } a few metres before the circle starts
+KIND.loop = {
+  build(ob) { ob.hc = 0; ob.tough = 0; ob.color = 0; ob.fired = false; },
+  hit(ob, ball, events) {
+    const L = ob.loop;
+    if (ob.fired || ball.s < L.s0 - 6) return;
+    ob.fired = true;
+    const e = ev(events, 'loop');
+    e.minSpeed = L.minSpeed; e.s0 = L.s0; e.s1 = L.s1; e.R = L.R; e.value = L.plannedSpeed; e.id = ob.id;
+  },
+};
+
+// slowmo marker for skiJump: { type:'slowmo', s0, s1, scale } when the ball reaches the lip
+KIND.slowmo = {
+  build(ob) { ob.hc = 0; ob.tough = 0; ob.color = 0; ob.fired = false; },
+  hit(ob, ball, events) {
+    const m = ob.slow;
+    if (ob.fired || ball.s < m.s0 - 1) return;
+    ob.fired = true;
+    const e = ev(events, 'slowmo');
+    e.s0 = m.s0; e.s1 = m.s1; e.scale = m.scale; e.id = ob.id;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Phase 2 spawning helpers + per-set-piece content (_spawn_<kind>)
+// ---------------------------------------------------------------------------
+Object.assign(Obstacles.prototype, {
+  _sp(s) { const T = this.track; return (T.speedAt(s) * 60) / T.bpmAt(s) / 2; },       // 8th-note spacing in metres
+
+  /** coin arc along a ballistic jump from (s, u) with launch speed vh (ball bottom height y(t)); returns the flight distance */
+  _arcFlakes(plan, s, u, vh, h0 = 0) {
+    const T = this.track, vs = T.speedAt(s), sp = this._sp(s), tf = (vh + Math.sqrt(vh * vh + 2 * AIR_G * Math.max(0, h0))) / AIR_G;
+    for (let t = sp / vs * 0.8; t < tf - 0.12; t += sp / vs) {
+      const y = h0 + vh * t - 0.5 * AIR_G * t * t;
+      if (y > -0.2) this._pickup('flake', s + vs * t, u, 0.75 + Math.max(0, y));
+    }
+    return vs * tf;
+  },
+
+  _rowArcs(plan) {
+    const T = this.track, arcs = [];
+    for (const r of plan.rows) if (r.jump || r.pat === 'low') {
+      const vs = T.speedAt(r.s), fl = vs * ((2 * AIR_VH) / AIR_G);
+      arcs.push({ s0: r.s - fl / 2, len: fl, vs, base: 0.55, vh: AIR_VH });
+    }
+    return arcs;
+  },
+
+  /** spring pad (zip zip): big arc + coin arc. Returns the flight distance (rows resume after it). */
+  _spring(plan, s, lane, power = 1.55) {
+    const u = LANES[lane], vh = this.jumpPadV * power;
+    this._mk(plan, { kind: 'spring', s, u, ext: 2, glow: this._pal(s).glow, power });
+    return this._arcFlakes(plan, s + 1.2, u, vh);
+  },
+
+  _gates(plan, sA, sB) {
+    const T = this.track, rng = plan.rng, list = [];
+    let s = sA, lane = rng.int(0, 2);
+    while (s < sB) {
+      this._mk(plan, { kind: 'gate', s, u: LANES[lane], ext: 2, flagA: 0xe8473a, flagB: 0x3a7de8 });
+      list.push({ s, u: LANES[lane] });
+      const opts = [0, 1, 2].filter((l) => l !== lane && (Math.abs(l - lane) === 1 || plan.diff > 0.3));
+      lane = opts[rng.int(0, opts.length - 1)];
+      s += T.speedAt(s) * (1.15 - 0.2 * plan.diff);
+    }
+    plan.gates = list;
+    return list.length;
+  },
+  _gateRoute(plan, baseLane) {
+    const g = plan.gates || [];
+    return (s) => {
+      if (!g.length) return LANES[baseLane];
+      if (s <= g[0].s) return g[0].u;
+      for (let i = 0; i < g.length - 1; i++) {
+        const a = g[i], b = g[i + 1];
+        if (s < b.s) return a.u + (b.u - a.u) * smooth((s - a.s - 1.5) / Math.max(1, b.s - a.s - 3));
+      }
+      return g[g.length - 1].u;
+    };
+  },
+
+  /** boost chevron strip in the route lane, somewhere without rows */
+  _placeStrip(plan, route, sA, sB, len = 12) {
+    const rng = plan.rng;
+    for (let s = sA; s + len < sB; s += 3) {
+      if (plan.rows.some((r) => s - 6 < r.s + r.ext && s + len + 4 > r.s - r.ext)) continue;
+      const sc = s + len / 2, lane = clamp(Math.round(route(sc) / LANE_W) + 1, 0, 2);
+      this._mk(plan, { kind: 'strip', s: sc, u: LANES[lane], len, ext: len / 2 + 1, glow: this._pal(sc).glow, power: 1 });
+      return true;
+    }
+    return false;
+  },
+
+  /** split piece: only one side lane is ever blocked (the centre lane is missing, so you cannot swap sides). Returns the free lane. */
+  _splitRows(plan, p) {
+    const T = this.track, rng = plan.rng, bl = rng.chance(0.5) ? 0 : 2, ol = 2 - bl;
+    let s = p.holeS0 + 2;
+    while (s < p.holeS1 - 3) {
+      const type = this._pickStatic(plan, (n) => n !== 'cabin');
+      this._scaled(plan, type, s, bl);
+      plan.rows.push({ s, ext: DEFS[type].ext, free: bit(ol), jump: false, route: ol, pat: 'single' });
+      s += T.speedAt(s) * rng.range(1.2, 1.9) + 3;
+    }
+    return ol;
+  },
+
+  // ----- helix: beat-shifting pinwheel of coins in the first half, rows (by angle) in the second -----
+  _spawn_helix(plan, p) {
+    const sp = this._sp(p.s0 + 30), mid = p.s0 + 0.45 * p.len;
+    let s = p.s0 + 10, k = 0;
+    while (s < mid) {
+      const lane = (k + Math.floor(k / 6)) % 3;               // 3 spokes, shifted one lane every 6 coins (3 beats)
+      this._pickup('flake', s, LANES[lane], 1.0 + 0.3 * Math.sin(k * 0.9));
+      s += sp; k++;
+    }
+    this._rows(plan, mid + 6, p.s1 - 6, false, [0, 1, 2]);
+    const route = this._routeFn(plan, 1);
+    this._flakeRuns(plan, route, mid + 6, p.s1 - 4, this._rowArcs(plan));
+    return { route };
+  },
+
+  // ----- waves: coin arcs over each crest, valley events -----
+  _spawn_waves(plan, p) {
+    const w = p.wave, rng = plan.rng;
+    this._mk(plan, { kind: 'waves', s: (p.s0 + p.s1) / 2, u: 0, ext: p.len / 2 + 2, piece: p });
+    this._rows(plan, p.s0 + 12, p.s1 - 8, false, [0, 1, 2]);
+    const route = this._routeFn(plan, 1), sp = this._sp(p.s0 + 20);
+    for (let j = 0; j < w.k; j++) {                            // crest = pitch decreasing fastest (cos = -1)
+      const sc = p.s0 + (p.len * (j + 0.5)) / w.k;
+      if (plan.rows.some((r) => Math.abs(sc - r.s) < r.ext + 5)) continue;
+      for (let i = -3; i <= 3; i++) this._pickup('flake', sc + i * sp, route(sc + i * sp), 0.9 + 1.2 * (1 - (i / 3) * (i / 3)));
+    }
+    return { route, arcs: this._rowArcs(plan) };
+  },
+
+  // ----- iceBridge: collapsing tiles + a coin line down the middle lane -----
+  _spawn_iceBridge(plan, p) {
+    const ice = p.ice;
+    this._mk(plan, { kind: 'icebridge', s: (ice.s0b + ice.s1b) / 2, u: 0, ext: (ice.s1b - ice.s0b) / 2 + 4, piece: p });
+    const route = () => LANES[1];
+    this._flakeRuns(plan, route, p.s0 + 4, p.s1 - 3, []);
+    return { route };
+  },
+
+  // ----- halfpipe / tube: rows on the floor lanes, coins along the walls (swipe past the outer lane) -----
+  _spawn_halfpipe(plan, p) {
+    this._rows(plan, p.s0 + 12, p.s1 - 10, false, [0, 1, 2]);
+    const route = this._routeFn(plan, 1), T = this.track, sp = this._sp(p.s0 + 20);
+    this._flakeRuns(plan, route, p.s0 + 10, p.s1 - 8, this._rowArcs(plan));
+    // wall coins: ride the wall at |u| ~ floor + 2.4 k (k = pipe scale at s)
+    for (const sg of [-1, 1]) {
+      let n = 0;
+      for (let s = p.s0 + 16 + (sg > 0 ? 6 : 0); s < p.s1 - 14 && n < 9; s += sp, n++) {
+        const u = sg * (p.pipe.floor + 2.6 * p.pipeK(s)), h = Math.max(0, T.surfaceAt(s, u));
+        this._pickup('flake', s, u, h + 0.9);
+      }
+    }
+    return { route, arcs: this._rowArcs(plan) };
+  },
+  _spawn_tube(plan, p) {
+    this._rows(plan, p.s0 + 10, p.s1 - 8, false, [0, 1, 2]);
+    const route = this._routeFn(plan, 1);
+    this._flakeRuns(plan, route, p.s0 + 8, p.s1 - 6, this._rowArcs(plan));
+    return { route, arcs: this._rowArcs(plan) };
+  },
+
+  // ----- zipline: start-gate trigger + a coin line along the rope (hang height) -----
+  _spawn_zipline(plan, p) {
+    const z = p.zip, sp = this._sp(p.gapS0);
+    this._mk(plan, { kind: 'zip', s: (z.s0 + z.s1) / 2, u: 0, ext: (z.s1 - z.s0) / 2 + 4, zip: z });
+    for (let s = p.gapS0 + 1; s < p.gapS1; s += sp) this._pickup('flake', s, z.u, z.h - 1.3);
+    return { route: () => 0 };
+  },
+
+  // ----- loop: speed strips in all 3 lanes before the circle + coins around it -----
+  _spawn_loop(plan, p) {
+    const L = p.loop, pal = this._pal(L.s0);
+    this._mk(plan, { kind: 'loop', s: (L.s0 + L.s1) / 2, u: 0, ext: (L.s1 - L.s0) / 2 + 12, loop: L });
+    if ((this.track.features || {}).boost !== false) for (let l = 0; l < 3; l++) this._mk(plan, { kind: 'strip', s: L.s0 - 8, u: LANES[l], len: 14, ext: 8, glow: pal.glow, power: 1 });
+    const sp = this._sp(L.s0);
+    let k = 0;
+    for (let s = L.s0 + 3; s < L.s1 - 3; s += sp, k++) this._pickup('flake', s, LANES[1], 0.9);
+    return { route: () => 0 };
+  },
+
+  // ----- corkscrew: coin pinwheel whose lane rotates with the road -----
+  _spawn_corkscrew(plan, p) {
+    const c = p.corkscrew, sp = this._sp(c.s0);
+    let k = 0;
+    for (let s = c.s0 - 4; s < c.s1 + 4; s += sp, k++) this._pickup('flake', s, LANES[(k + Math.floor(k / 6)) % 3], 1.0);
+    return { route: () => 0 };
+  },
+});

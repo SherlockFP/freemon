@@ -1,0 +1,32 @@
+{
+  "appId": "com.freemon.game",
+  "appName": "FREEMON",
+  "webDir": "dist",
+  "backgroundColor": "#bfe3ff",
+  "zoomEnabled": false,
+  "loggingBehavior": "debug",
+  "android": {
+    "backgroundColor": "#bfe3ff",
+    "allowMixedContent": false,
+    "zoomEnabled": false,
+    "loggingBehavior": "debug"
+  },
+  "ios": {
+    "backgroundColor": "#bfe3ff",
+    "contentInset": "never",
+    "scrollEnabled": false,
+    "allowsLinkPreview": false,
+    "zoomEnabled": false,
+    "preferredContentMode": "mobile",
+    "loggingBehavior": "debug"
+  },
+  "plugins": {
+    "SystemBars": {
+      "hidden": true,
+      "style": "LIGHT",
+      "insetsHandling": "css",
+      "initialViewportFitValueHint": "cover",
+      "animation": "NONE"
+    }
+  }
+}
