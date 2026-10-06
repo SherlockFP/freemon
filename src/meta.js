@@ -1108,11 +1108,8 @@ export const meta = {
       endlessUnlocked: nowEndless, justUnlockedEndless: nowEndless && !wasEndless, achievements: newly,
     });
   },
-  // YETİ KAÇIŞI opens after Act 1's boss (level 10). Players who already have an endless record are grandfathered in.
-  endlessUnlocked() {
-    if (S.c.unlocked > 10 || (S.c.stars[10] || 0) > 0) return true;
-    try { return !!(sv && typeof sv.runnerBest === 'function' && sv.runnerBest() > 0); } catch { return false; }
-  },
+  // YETİ KAÇIŞI is open from the first launch (it used to wait for Act 1's boss).
+  endlessUnlocked() { return true; },
   introSeen(id) { return !!S.c.seen[id]; },
   markIntroSeen(id) { if (levelById(id)) { S.c.seen[id] = 1; markDirty(); } },
   // last mode picked on the main screen: 'camp' | 'endless' | 'cig' | 'daily'

@@ -39,9 +39,9 @@ export const RCFG = {
   invulnAfterCrash: 1.1,
   // The Yeti.
   yetiStart: 30,         // metres behind at the start
-  yetiMax: 55,
-  yetiRecover: 1.4,      // m/s you pull away at full speed
-  yetiCrash: 11,         // metres it gains per crash
+  yetiMax: 38,
+  yetiRecover: 0.9,      // m/s you pull away at full speed
+  yetiCrash: 14,         // metres it gains per crash
   yetiStumbleSpeed: 0.8, // below this fraction of target speed you are not pulling away
   fallDeath: -24,
   // Power-up durations (seconds) when the meta module isn't there to supply upgraded values.
@@ -534,7 +534,7 @@ export class Runner {
       { kind: 'boss', name: 'YETİ ÖFKESİ' },
     ];
     const z = layer <= ZONES.length ? ZONES[layer - 1] : ZONES[Math.floor(Math.random() * ZONES.length)];
-    const from = this.b.s + 320, until = from + 420;
+    const from = Math.max(this.b.s + 320, (this.zone && this.zone.until > this.b.s ? this.zone.until + 60 : 0)), until = from + 420;
     if (!z.runner) this.obstacles.setZone?.(z.kind, { from, until });
     this.zone = { ...z, from, until, announced: false };
     setTimeout(() => this.float(`SIRADAKİ: ${z.name}`, 'big'), 1600);
@@ -721,6 +721,7 @@ export class Runner {
     const prog = this.level ? clamp(this.b.s / this.level.length, 0, 1) : bi.t;
     const label = this.level ? `${this.level.act}-${this.level.idx} · ${this.level.name}` : bi.biome.name;
     this.ctx.ui.runnerStats(this.score, this.coins, this.mult, prog, Math.round(this.b.s), label);
+    if ((this._progT = (this._progT || 0) + 1) % 30 === 0) this.ctx.meta?.track?.('run_progress', { distance: Math.round(this.b.s), coins: this.coins });
     this.ctx.ui.runnerVitals({
       tier: this.tier, tiers: TIERS, grow: this.grow, gap: this.gap, yetiMax: RCFG.yetiMax,
       helmet: this.helmet, magnet: this.magnetT > 0, rocket: this.rocketT > 0,
@@ -1518,7 +1519,7 @@ export class Runner {
     const b = this.b;
     // Only when it's really on the track (at the very start it would be clamped onto the start line, right in
     // front of the camera).
-    const show = (this.gap < 45 || this.state !== 'play') && this.b.s - this.gap > 1;
+    const show = this.b.s - this.gap > 1;
     y.group.visible = show;
     this.avalanche.group.visible = show;
     if (!show) return;

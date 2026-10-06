@@ -1251,7 +1251,9 @@ Object.assign(Obstacles.prototype, {
         rows.push({ s, ext, free, jump, route: best, pat });
         this.rowsLog.push({ s, ext: Math.max(ext, 2), free });
       }
-      const dt = Math.max(0.8, rng.range(1.0, 1.7) * (1 - 0.3 * diff) * (late ? 0.85 : 1) / Math.pow(hk, 0.8));
+      // Gap between rows tightens with distance: ~1.4 s at the start → ~0.75 s by 3 km (the run must escalate).
+      const tight = 1.4 - 0.65 * Math.min(1, s / 3000);
+      const dt = Math.max(0.6, rng.range(0.85, 1.15) * tight * (1 - 0.15 * diff) * (late ? 0.9 : 1) / Math.pow(hk, 0.3));
       s += vs * dt + (made ? Math.min(ext, 3) : 0) + advanceExtra;
     }
     if (rows.length) { const r = rows[rows.length - 1]; this._carry = { s: r.s, ext: r.ext, route: r.route, free: r.free, persist: persist.slice() }; }
@@ -1352,7 +1354,7 @@ Object.assign(Obstacles.prototype, {
       this._mk(plan, { kind: 'portal', s: s0 + 15, u: 0, ext: 3, glow: pal.glow, biome: piece.biome });
     } else {
       let route = null, arcs = [], risky = 1, apex = null;
-      const early = s0 < 150;
+      const early = s0 < 40;
       switch (kind) {
         case 'straight': case 'curve': case 'slalom': {
           const dense = kind === 'slalom', F = T.features || {};

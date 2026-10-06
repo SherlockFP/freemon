@@ -70,7 +70,7 @@ export class UI {
   runnerStats(score, coins, mult, biomeT, dist, biomeName) {
     const s = Math.round(score).toLocaleString('tr-TR');
     if (s !== this.lastTonsText) { this.el.tons.textContent = s; this.lastTonsText = s; }
-    const c = `❄️ ${coins}`;
+    const c = `❄️ ${coins} · ${dist} m`;
     if (c !== this.lastCoins) { this.el.coins.textContent = c; this.lastCoins = c; }
     if (biomeName && biomeName !== this.lastBiome) { this.el.level.textContent = biomeName.toUpperCase(); this.lastBiome = biomeName; }
     if (mult > 1) { this.el.combo.textContent = `x${mult} SKOR`; this.el.combo.classList.add('on'); }
