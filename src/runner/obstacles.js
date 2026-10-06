@@ -1001,30 +1001,35 @@ Object.assign(Obstacles.prototype, {
       const F = T.features || {};
       const pats = ['single', 'double', 'low', 'train', 'mover', 'rolling', 'beat', 'swing', 'ice', 'melt', 'conveyor', 'rail', 'oncoming', 'duck', 'slide', 'combo', 'laser', 'missile', 'rest'];
       const nk0 = T._q && T._q[0], forcedNext = nk0 === 'narrow' || nk0 === 'split' || nk0 === 'hexHoles' || nk0 === 'gapRamp' || nk0 === 'gapJump' || nk0 === 'skiJump' || nk0 === 'chasm' || nk0 === 'iceBridge' || nk0 === 'zipline' || nk0 === 'loop' || nk0 === 'finish';
+      const nk1 = T._q && T._q[1], isForced = (k) => k === 'narrow' || k === 'split' || k === 'hexHoles' || k === 'gapRamp' || k === 'gapJump' || k === 'skiJump' || k === 'chasm' || k === 'iceBridge' || k === 'zipline' || k === 'loop' || k === 'finish';
+      // persistent blockers (trains, missiles, rolling logs) must end before a lane-forcing piece starts: sB when it is next, the end of this piece when it is the one after
+      const lim = forcedNext ? sB : isForced(nk1) ? piece.s1 : Infinity;
       const adj = free0.length === 3 || (free0.length === 2 && Math.abs(free0[0] - free0[1]) === 1);
       const zone = plan.zone, zmap = zone ? ZONE_M[zone] : null, zown = zone ? ZONE_OWN[zone] : null;
+      const split2 = (tm & 2) !== 0;            // a persistent blocker in the middle lane splits the track: only jump / duck / floor patterns then
       const wfn = (p) => {
+        if (split2 && p !== 'low' && p !== 'duck' && p !== 'rest' && p !== 'ice' && p !== 'melt' && p !== 'conveyor' && p !== 'rail' && p !== 'laser') return 0;
         const diff = zown && zown.indexOf(p) >= 0 ? Math.max(plan.diff, 0.35) : plan.diff;
         switch (p) {
           case 'single': return free0.length >= 2 ? 3 : 0;
           case 'double': return open3 && diff >= 0.2 ? 1.2 + 1.6 * diff + (dense ? 0.6 : 0) : 0;
           case 'low': return 2.6;
-          case 'train': return diff >= 0.25 && persist.length === 0 && room > 30 && allowed.length === 3 && !(allowed.length < 3) ? 0.8 + 0.8 * diff + (dense ? 0.4 : 0) : 0;
+          case 'train': return diff >= 0.25 && persist.length === 0 && room > 30 && s + 26 <= lim && allowed.length === 3 && !(allowed.length < 3) ? 0.8 + 0.8 * diff + (dense ? 0.4 : 0) : 0;
           case 'mover': return diff >= 0.1 && free0.length >= 2 && room > 6 && free0.some((l, i) => free0.indexOf(l + 1) >= 0) ? 1.1 : 0;
-          case 'rolling': return diff >= 0.2 && room > 18 && persist.length === 0 && free0.length >= 2 ? 0.8 : 0;
+          case 'rolling': return diff >= 0.2 && room > 18 && persist.length === 0 && s + 30 <= lim && free0.length >= 2 ? 0.8 : 0;
           case 'beat': return diff >= 0.25 && room > 6 && open3 ? 0.9 + (dense ? 0.5 : 0) : 0;
           case 'swing': return diff >= 0.3 && room > 6 && free0.length >= 2 ? 0.8 : 0;
           case 'ice': return diff >= 0.05 ? 0.5 : 0;
           case 'melt': return (piece.biome === 3 || piece.biome === 6) ? 1.6 : (diff >= 0.3 ? 0.12 : 0);
           case 'conveyor': return F.conveyor !== false && diff >= 0.15 ? 0.6 : 0;
           case 'rail': return T.allows('rail') && diff >= 0.2 && room > 30 ? 0.5 : 0;
-          case 'oncoming': return T.allows('oncoming') && diff >= 0.2 && room > 22 && !forcedNext && persist.length === 0 && free0.length >= 2 ? 1.8 + 1.6 * diff : 0;
+          case 'oncoming': return T.allows('oncoming') && diff >= 0.2 && room > 22 && !forcedNext && s + 52 <= lim && persist.length === 0 && free0.length >= 2 ? 1.8 + 1.6 * diff : 0;
           case 'duck': return T.allows('duck') && diff >= 0.12 && room > 8 ? 1.5 + 0.8 * diff : 0;
           case 'slide': return T.allows('slideWall') && diff >= 0.25 && room > 12 && adj ? 0.9 + 0.8 * diff : 0;
-          case 'combo': return late && T.allows('oncoming') && T.allows('slideWall') && room > 40 && !forcedNext && persist.length === 0 && open3 ? 3.2 : 0;
+          case 'combo': return late && T.allows('oncoming') && T.allows('slideWall') && room > 40 && !forcedNext && s + 66 <= lim && persist.length === 0 && open3 ? 3.2 : 0;
           case 'rest': return lastRest ? 0 : (late ? 0.08 : 0.35);
           case 'laser': return T.allows('lasers') && diff >= 0.08 && room > 8 ? 1.4 + 1.2 * diff : 0;
-          case 'missile': return T.allows('missiles') && diff >= 0.18 && !forcedNext && room > 30 ? 1.0 + 1.2 * diff : 0;
+          case 'missile': return T.allows('missiles') && diff >= 0.18 && !forcedNext && room > 30 && tm === 0 && s + vs * 3.6 + 10 <= lim ? 1.0 + 1.2 * diff : 0;
           default: return 0;
         }
       };
@@ -1197,8 +1202,8 @@ Object.assign(Obstacles.prototype, {
           const dd = zown && zown.indexOf('laser') >= 0 ? Math.max(diff, 0.35) : diff, hwE = Math.min(piece.hw, 3.8);
           const sg = rng.chance(0.5) ? -1 : 1, farLane = sg < 0 ? 2 : 0, farOk = inAllowed(farLane) && !(tm & bit(farLane)) && (prevFree & bit(farLane));
           const v = wpick(rng, ['low', 'high', 'curtain', 'rotating', 'blink'], (x) => ({
-            low: dd >= 0.08 ? 3 : 0, high: dd >= 0.12 ? 2.5 : 0, curtain: free0.length >= 2 && dd >= 0.2 ? 2 : 0,
-            rotating: farOk && room > 10 && dd >= 0.3 ? 1.5 : 0, blink: open3 && room > 10 && dd >= 0.35 && T.allows('lasers') ? 1.4 : 0 }[x]));
+            low: dd >= 0.08 ? 3 : 0, high: dd >= 0.12 ? 2.5 : 0, curtain: free0.length >= 2 && !split2 && dd >= 0.2 ? 2 : 0,
+            rotating: farOk && !split2 && room > 10 && dd >= 0.3 ? 1.5 : 0, blink: open3 && room > 10 && dd >= 0.35 && T.allows('lasers') ? 1.4 : 0 }[x]));
           if (!v) { made = false; break; }
           const base = { kind: 'laser', variant: v, s, u: 0, hw: hwE, ext: 3.2 };
           if (v === 'low') { Object.assign(base, { hb: 0.5 }); jump = true; ext = 1.6; }

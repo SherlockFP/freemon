@@ -72,5 +72,5 @@ export const LABEL = {
   k_sedan: 'ARABA', k_sports: 'SPOR ARABA', k_suv: 'CİP', k_taxi: 'TAKSİ', k_police: 'POLİS ARABASI', k_van: 'MİNİBÜS',
   k_ambulance: 'AMBULANS', k_pickup: 'KAMYONET', k_tractor: 'TRAKTÖR', k_truck: 'KAMYON', k_delivery: 'KARGO KAMYONU',
   k_garbage_truck: 'ÇÖP KAMYONU', k_firetruck: 'İTFAİYE', k_snowman: 'KARDAN ADAM', k_snowman_hat: 'KARDAN ADAM',
-  k_tent: 'ÇADIR', k_canoe: 'KANO', k_sled: 'KIZAK', k_gingerbread: 'ZENCEFİLLİ ADAM', k_pine_a_big: 'DEV ÇAM', k_pine_b_big: 'DEV ÇAM',
+  cp_snowman: 'KARDAN ADAM ORDUSU', k_tent: 'ÇADIR', k_canoe: 'KANO', k_sled: 'KIZAK', k_gingerbread: 'ZENCEFİLLİ ADAM', k_pine_a_big: 'DEV ÇAM', k_pine_b_big: 'DEV ÇAM',
 };

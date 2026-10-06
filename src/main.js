@@ -19,6 +19,7 @@ import { meta } from './meta.js';
 import { createMenus } from './menus.js';
 import { levelById, evalGoals, countStars } from './campaign.js';
 import { openShop } from './shop.js';
+import { CigPlus } from './cigplus.js';
 // Endless mode is loaded on demand (keeps the first load small and ÇIĞ mode independent of it).
 let Runner = null;
 let music = { duck() {}, setMuted() {} };
@@ -93,6 +94,7 @@ let world = null;
 let fx = null;
 let runner = null;
 let scenery = null;
+let plus = null;
 // Particles in endless mode fall into the void instead of bouncing on the ÇIĞ terrain.
 const groundless = { groundY: () => -1e9, rampAt: () => 0 };
 
@@ -188,18 +190,67 @@ input.onRelease(() => audio.init());
 
 // ---------- flow ----------
 function buildWorld(seed, level, daily) {
+  plus?.dispose();
   if (world) world.dispose();
   world = new World(scene, lib, { seed, level, daily });
   scenery?.dispose();
   scenery = new Scenery(scene, { world, lib, theme: themeForLevel(level, daily), onEgg: (id) => meta.egg(id) });
+  plus = new CigPlus(scene, world, { seed, lib, level: daily ? 7 : level });
+  plus.hooks = plusHooks;
   if (!fx) { fx = new Fx(scene, world); applyTrail(save.selected('trail')); }
   fx.world = world;
   fx.reset();
 }
 
 // Show/hide everything that belongs to the ÇIĞ mountain mode.
+// ÇIĞ+ (power-ups, slides, flips, updrafts, mushrooms, portals, snowman army, gravity gate) → main hooks.
+const plusHooks = {
+  onPower(kind) { if (kind === 'rainbow') fx.setTrailStyle({ rainbow: true, glow: true }); meta.track('powerup', { kind }); },
+  onPowerEnd(kind) { if (kind === 'rainbow') applyTrail(save.selected('trail')); },
+  onLaunch(vy, o) {
+    const b = ball;
+    b.airborne = true; b.airTime = 0; b.vy = vy;
+    if (o.flip) G.timeScale = Math.min(G.timeScale, 0.6);
+    else if (o.updraft) G.timeScale = Math.min(G.timeScale, 0.75);
+    if (!o.slide) audio.whoosh();
+    platform.haptic('medium');
+  },
+  onSlide(on) { if (on) ui.flash?.('white'); },
+  onFlip() {
+    const b = ball;
+    b.setRadius(Math.cbrt(b.r ** 3 + 0.35 * b.r ** 3));
+    G.swallowed += snowTons() * 0.25;
+    G.shake += 0.9;
+    fx.burst(b.x, b.y, b.d, 30, 0xff4fd8, 12 + b.r, 0.35 + b.r * 0.06, 8);
+    checkMilestones();
+  },
+  onTeleport(dx, dd, dy) {
+    camera.position.x += dx; camera.position.z -= dd; camera.position.y += dy;
+    camLook.x += dx; camLook.z -= dd; camLook.y += dy;
+    fx.trailPts.length = 0;
+    ui.flash?.('white');
+  },
+  float(text, cls) { popText(text, ball, cls); },
+  haptic(kind) { platform.haptic(kind); },
+  burst(x, y, d, n, color, speed, size, up) { fx.burst(x, y, d, n, color, speed, size, up); },
+  sfx(name) {
+    switch (name) {
+      case 'power': audio.milestone(1); break;
+      case 'freeze': audio.ui('toggle'); audio.whoosh(); break;
+      case 'shield': audio.bump(0.4); break;
+      case 'portal': audio.whoosh(); audio.milestone(2); break;
+      case 'slide': case 'whoosh': audio.whoosh(); break;
+      case 'flip': audio.milestone(3); break;
+      case 'boing': audio.pop(0.2, 14); break;
+      case 'rumble': audio.crash(0.3); break;
+      default: break;
+    }
+  },
+};
+
 function setCigVisible(on) {
   if (world) world.group.visible = on;
+  if (plus) plus.group.visible = on;
   if (scenery) scenery.group.visible = on;
   if (fx) { fx.trail.visible = on; fx.shadow.visible = on; }
 }
@@ -432,6 +483,7 @@ function totalTons() {
 
 function updatePlay(dt) {
   const b = ball, w = world;
+  const M = plus.mods;
   const dx = input.consumeDx();
   if ((dx !== 0 || input.keyAxis() !== 0) && !G.hinted) { G.hinted = true; ui.hint(false); }
   const hw = w.halfWidth(b.d);
@@ -442,14 +494,15 @@ function updatePlay(dt) {
   G.targetX = clamp(G.targetX, -lim, lim);
 
   const mass = 1 + b.r * CFG.steerMass;
-  const k = CFG.steerStiff / mass;
+  const k = (CFG.steerStiff / mass) * M.steerMul;
   const c = 2 * Math.sqrt(k) * 0.9;
   b.vx += ((G.targetX - b.x) * k - b.vx * c) * dt;
 
   const inTown = b.d > w.L;
   let target = Math.min(CFG.maxSpeed, CFG.baseSpeed + CFG.sizeSpeed * Math.sqrt(b.r));
   if (inTown) target *= 0.8;
-  b.speed += clamp(target - b.speed, -CFG.accel * 3 * dt, CFG.accel * dt);
+  target *= M.speedMul;
+  b.speed += clamp(target - b.speed, -CFG.accel * 3 * dt, CFG.accel * M.accelMul * dt);
 
   const steps = Math.max(1, Math.ceil((b.speed * dt) / Math.max(0.3, b.r * 0.45)));
   for (let i = 0; i < steps; i++) step(dt / steps, lim);
@@ -504,15 +557,16 @@ function updatePlay(dt) {
 
 function step(dt, lim) {
   const b = ball, w = world;
+  const M = plus.mods;
   const px = b.x, pd = b.d;
   b.x += b.vx * dt;
   b.d += b.speed * dt;
   if (b.x < -lim || b.x > lim) { b.x = clamp(b.x, -lim, lim); b.vx *= -0.2; }
 
   const ramp = w.rampAt(b.x, b.d);
-  const rest = w.groundY(b.x, b.d) + ramp + b.r * 0.92;
+  const rest = w.groundY(b.x, b.d) + ramp + plus.lift(b.x, b.d) + b.r * 0.92;
   if (b.airborne) {
-    b.vy -= CFG.gravity * dt;
+    b.vy -= CFG.gravity * M.gravityMul * dt;
     b.y += b.vy * dt;
     b.airTime += dt;
     if (b.y <= rest && b.vy < 0) land(rest);
@@ -526,8 +580,9 @@ function step(dt, lim) {
   b.roll(b.x - px, b.d - pd);
 
   if (!b.airborne) {
-    if (w.inPatch(b.x, b.d)) melt(dt);
-    else if (b.d < w.L) {
+    const inP = w.inPatch(b.x, b.d);
+    if (inP && !M.noMelt) melt(dt); // slides, kickers and mushroom domes never melt
+    else if (!inP && b.d < w.L) {
       b.setRadius(b.r + (CFG.passiveGrow * b.speed * dt * Math.min(2, rubberBand())) / Math.max(1, b.r));
       checkMilestones();
     }
@@ -583,6 +638,7 @@ function melt(dt) {
 
 function collide() {
   const b = ball, w = world;
+  const M = plus.mods;
   const reachK = 1 + CFG.townReach * G.avl;
   w.query(b.x, b.d, b.r * reachK + 2, near);
   for (let i = 0; i < near.length; i++) {
@@ -599,7 +655,8 @@ function collide() {
     }
     const contact = b.r + p.r * CFG.contactK;
     if (dist > contact) continue;
-    if (p.kind === 'chunk' || p.r <= b.r * CFG.eatRatio) swallow(p);
+    if (p.kind === 'chunk' || p.r <= b.r * CFG.eatRatio * plus.eatMulFor(p)) swallow(p);
+    else if (M.ghost) continue; // rocket / slide ploughs through obstacles
     else if (p.r <= b.r * CFG.smashRatio) smash(p, G.momentumT > 0);
     else bump(p, dx, dd, dist, false, contact);
   }
@@ -609,6 +666,7 @@ function collide() {
 // Right after a hit the ball keeps momentum for a moment: anything else in the way is ploughed through for free,
 // so a dense field costs one hit instead of draining the ball to nothing.
 function smash(p, free = false) {
+  if (!free && plus.consumeShield()) free = true;
   const b = ball;
   world.kill(p);
   const col = world.avgColor[p.type];
@@ -660,7 +718,7 @@ function swallow(p) {
     _v.set(p.x, p.y + p.h * 0.5, -p.d);
     b.stick(p.def, _v, p.s);
   }
-  G.swallowed += p.mass;
+  G.swallowed += p.mass * plus.mods.tonMul;
   G.combo = G.comboT > 0 ? G.combo + 1 : 1;
   G.comboT = CFG.comboWindow;
   ui.setCombo(G.combo);
@@ -679,7 +737,7 @@ function destroy(p) {
   world.kill(p);
   meta.track('destroy', { type: p.type });
   G.destroyed++;
-  G.townTons += p.mass;
+  G.townTons += p.mass * plus.mods.tonMul;
   const col = world.avgColor[p.type];
   fx.burst(p.x, p.y + p.h * 0.5, p.d, 14, col, 9 + p.r * 0.4, 0.5 + p.r * 0.07, 8);
   fx.burst(p.x, p.y + p.h * 0.8, p.d, 6, 0xffffff, 6, 0.4 + p.r * 0.05, 7);
@@ -710,6 +768,7 @@ function bump(p, dx, dd, dist, hard, contact = ball.r + p.r * 0.55) {
   G.bumpCd = 0.5;
   // Slide the steering target clear of the obstacle once per bump (not every substep, so the player keeps control).
   G.targetX = clamp(p.x + side * (contact + 0.8), -lim, lim);
+  if (plus.consumeShield()) { audio.bump(0.3); G.shake += 0.3; return; }
   b.speed *= hard ? 0.35 : 0.5;
   loseSnow(CFG.bumpLoss);
   G.combo = 0;
@@ -855,7 +914,7 @@ function updateCamera(dt, snap = false) {
     camera.position.y += (Math.random() - 0.5) * s;
     G.shake = Math.max(0, G.shake - dt * 3.5);
   }
-  camera.lookAt(camLook);
+  plus ? plus.lookAt(camera, camLook) : camera.lookAt(camLook);
   sky.position.copy(camera.position);
   const fs = scenery?.theme?.fogScale ?? 1;
   scene.fog.near = (70 + r * 8) * fs;
@@ -879,6 +938,7 @@ function frame(now) {
     if (G.timeScale < 1) G.timeScale = Math.min(1, G.timeScale + dt * 0.5);
     if (G.state === 'play') updatePlay(gdt);
     else if (G.state === 'end' || G.state === 'result') updateEnd(gdt);
+    plus?.update(gdt, ball, G, input);
     ball.sync();
     world.update(gdt, ball.d, Math.max(CFG.viewAhead, scene.fog.far + 20), Math.max(CFG.viewBehind, camBack + 15));
     fx.update(gdt, ball);
@@ -952,6 +1012,7 @@ if (DEBUG) {
         if (G.timeScale < 1) G.timeScale = Math.min(1, G.timeScale + step * 0.5);
         if (G.state === 'play') updatePlay(gdt);
         else if (G.state === 'end' || G.state === 'result') updateEnd(gdt);
+    plus?.update(gdt, ball, G, input);
         ball.sync();
         world.update(gdt, ball.d, Math.max(CFG.viewAhead, scene.fog.far + 20), Math.max(CFG.viewBehind, camBack + 15));
         fx.update(gdt, ball);
@@ -972,6 +1033,7 @@ if (DEBUG) {
       return { state: runner.state, s: +b.s.toFixed(1), u: +b.u.toFixed(2), h: +b.h.toFixed(2), v: +b.vs.toFixed(1), r: +b.r.toFixed(2), gap: +runner.gap.toFixed(1), score: Math.round(runner.score), coins: runner.coins, cause: runner.cause };
     },
     get runner() { return runner; },
+    get plus() { return plus; },
   };
 }
 
