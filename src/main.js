@@ -181,6 +181,7 @@ platform.onPause(() => { if (G.state === 'play') pause(true); audio.suspend(); }
 platform.onResume(() => audio.resume());
 platform.onBack(() => {
   if (closeShop) { closeShop(); return; }
+  if (menus.back()) return; // MOD SEÇ planet screen / lobby panels / cards close first
   if (G.state === 'play' || G.state === 'runner') pause(!G.paused);
   else if (G.state === 'result' || G.state === 'end') toMenu();
   else if (G.state === 'menu' && platform.isNative) import('@capacitor/app').then(({ App }) => App.exitApp()).catch(() => {});

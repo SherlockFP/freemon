@@ -4,6 +4,7 @@
 //   const menus = createMenus({ save, meta, root: document.getElementById('app'), callbacks });
 //   menus.showMain(info); menus.hideMain(); menus.toastAchievement(a); menus.showDailyIfAvailable();
 //   menus.openBoxes(n, onDone); menus.refresh(); menus.isOpen();
+//   menus.back();  // Esc / Android Back: closes the top overlay (planet screen, panel, card), true if it closed one
 //
 // Importing this module never touches `document`; everything happens inside createMenus().
 import { SKINS, TRAILS } from './skins.js';
@@ -20,7 +21,7 @@ const KONAMI = ['up', 'up', 'down', 'down', 'left', 'right', 'left', 'right', 'b
 // ================================================================================================================ CSS
 
 const CSS = `
-.fm-main, .fm-ov, .fm-modal, .fm-toasts, .fm-fx, .fm-boxov, .fm-sheetov, .fm-resov {
+.fm-main, .fm-ov, .fm-modal, .fm-toasts, .fm-fx, .fm-boxov, .fm-plov, .fm-resov {
   --ink: #17345c; --ink2: #0d1f3c; --orange: #ff7a2f; --orange-dark: #d2541a; --blue: #2f7dff; --blue-dark: #1d55b8; --gold: #ffcf3a;
   --purple: #7a3cf0; --green: #35c46a; --red: #ff4d4d;
   --fm-font: "Lilita One", "Baloo 2", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -29,12 +30,12 @@ const CSS = `
   font-family: var(--fm-font); font-weight: 900; font-synthesis: none; letter-spacing: 0.02em; color: #fff; text-shadow: var(--ol-sm);
   user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
 }
-.fm-main *, .fm-ov *, .fm-modal *, .fm-toasts *, .fm-fx *, .fm-boxov *, .fm-sheetov *, .fm-resov * { box-sizing: border-box; }
-.fm-main button, .fm-ov button, .fm-modal button, .fm-boxov button, .fm-sheetov button, .fm-resov button {
+.fm-main *, .fm-ov *, .fm-modal *, .fm-toasts *, .fm-fx *, .fm-boxov *, .fm-plov *, .fm-resov * { box-sizing: border-box; }
+.fm-main button, .fm-ov button, .fm-modal button, .fm-boxov button, .fm-plov button, .fm-resov button {
   font-family: inherit; font-weight: inherit; letter-spacing: inherit; margin: 0; color: inherit; text-shadow: inherit; -webkit-appearance: none; appearance: none;
 }
-.fm-main button:focus, .fm-ov button:focus, .fm-modal button:focus, .fm-boxov button:focus, .fm-sheetov button:focus, .fm-resov button:focus { outline: none; }
-.fm-main button:focus-visible, .fm-ov button:focus-visible, .fm-modal button:focus-visible, .fm-boxov button:focus-visible, .fm-sheetov button:focus-visible, .fm-resov button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.fm-main button:focus, .fm-ov button:focus, .fm-modal button:focus, .fm-boxov button:focus, .fm-plov button:focus, .fm-resov button:focus { outline: none; }
+.fm-main button:focus-visible, .fm-ov button:focus-visible, .fm-modal button:focus-visible, .fm-boxov button:focus-visible, .fm-plov button:focus-visible, .fm-resov button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 .fm-ol { text-shadow: var(--ol); }
 @keyframes fmPopIn { 0% { opacity: 0; transform: scale(0.2); } 60% { opacity: 1; transform: scale(1.14); } 100% { opacity: 1; transform: scale(1); } }
 @keyframes fmDrop { 0% { opacity: 0; transform: translateY(-30px); } 60% { opacity: 1; transform: translateY(5px); } 100% { opacity: 1; transform: none; } }
@@ -47,6 +48,7 @@ const CSS = `
   background: linear-gradient(180deg, rgba(14, 38, 78, 0.55) 0%, rgba(14, 38, 78, 0) 26%, rgba(14, 38, 78, 0) 58%, rgba(14, 38, 78, 0.66) 100%);
 }
 .fm-main.fm-hide { display: none; }
+.fm-main.fm-under { visibility: hidden; }
 .fm-main > * { pointer-events: auto; }
 .fm-main > .fm-mid { pointer-events: none; }
 
@@ -170,25 +172,18 @@ const CSS = `
   background: linear-gradient(180deg, #ffe27a, var(--gold)); color: var(--ink); font-size: 14px; line-height: 1; text-shadow: none; box-shadow: 0 2px 0 var(--ink2); transform: rotate(6deg); pointer-events: none;
 }
 
-/* ---- bottom: mode pill + OYNA ---- */
+/* ---- bottom: OYNA (opens the planet screen) + map ---- */
 .fm-bot { flex: none; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 0 16px calc(var(--sab, env(safe-area-inset-bottom, 0px)) + 16px); }
-.fm-modes { display: flex; gap: 8px; width: min(100%, 360px); }
-.fm-mpill {
-  --c1: #ffb347; --c2: #ff7a2f; flex: 1 1 0; min-width: 0; min-height: 50px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 6px; cursor: pointer; text-align: left;
-  border-radius: 25px; border: 3px solid var(--ink); background: linear-gradient(180deg, rgba(34, 66, 120, 0.9), rgba(10, 25, 55, 0.9)); box-shadow: 0 4px 0 var(--ink2), inset 0 2px 0 rgba(255, 255, 255, 0.14);
-  transition: transform 0.06s, box-shadow 0.06s;
-}
-.fm-mpill:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink2); }
-.fm-mpill .mi { flex: none; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; border: 2.5px solid var(--ink); font-size: 20px; line-height: 1; background: linear-gradient(180deg, var(--c1), var(--c2)); text-shadow: none; }
-.fm-mpill .mt { flex: 1; min-width: 0; font-size: 17px; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: var(--ol-sm); }
-.fm-mpill .ch { flex: none; font-size: 13px; opacity: 0.85; }
+.fm-playrow { display: flex; align-items: stretch; gap: 10px; width: min(100%, 360px); }
 .fm-mapb {
-  flex: none; width: 54px; min-height: 50px; display: grid; place-items: center; padding: 0; cursor: pointer; font-size: 24px; line-height: 1; text-shadow: none;
-  border-radius: 18px; border: 3px solid var(--ink); background: linear-gradient(180deg, #7dc4ff, var(--blue)); box-shadow: 0 5px 0 var(--blue-dark), 0 7px 8px rgba(10, 30, 60, 0.3), inset 0 3px 0 rgba(255, 255, 255, 0.45);
+  flex: none; width: 70px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 0 0 4px; cursor: pointer; line-height: 1;
+  border-radius: 24px; border: 4px solid var(--ink); background: linear-gradient(180deg, #7dc4ff, var(--blue)); box-shadow: 0 8px 0 var(--blue-dark), 0 12px 16px rgba(10, 30, 60, 0.3), inset 0 4px 0 rgba(255, 255, 255, 0.45), inset 0 -5px 0 rgba(0, 0, 0, 0.1);
   transition: transform 0.06s, box-shadow 0.06s;
 }
-.fm-mapb:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--blue-dark); }
-.fm-playw { width: min(100%, 360px); animation: fmBreath 1.8s ease-in-out infinite; }
+.fm-mapb .mi { font-size: 30px; text-shadow: none; }
+.fm-mapb .ml { font-size: 12px; letter-spacing: 0.04em; text-shadow: var(--ol-sm); }
+.fm-mapb:active { transform: translateY(6px); box-shadow: 0 2px 0 var(--blue-dark), 0 4px 8px rgba(10, 30, 60, 0.25), inset 0 4px 0 rgba(255, 255, 255, 0.45); }
+.fm-playw { flex: 1 1 0; min-width: 0; animation: fmBreath 1.8s ease-in-out infinite; }
 @keyframes fmBreath { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
 .fm-play {
   position: relative; overflow: hidden; width: 100%; min-height: 80px; padding: 0; cursor: pointer; border: 4px solid var(--ink); border-radius: 28px; font-size: 48px; line-height: 1; letter-spacing: 0.05em; color: #fff;
@@ -205,8 +200,7 @@ const CSS = `
 .fm-main.enter .fm-rb { animation: fmPopIn 0.5s cubic-bezier(.2, 1.4, .4, 1) backwards; }
 .fm-main.enter .fm-side.l .fm-rb:nth-child(2), .fm-main.enter .fm-side.r .fm-rb:nth-child(2) { animation-delay: 0.07s; }
 .fm-main.enter .fm-side.l .fm-rb:nth-child(3), .fm-main.enter .fm-side.r .fm-rb:nth-child(3) { animation-delay: 0.14s; }
-.fm-main.enter .fm-modes { animation: fmUp 0.5s cubic-bezier(.2, 1.3, .4, 1) 0.1s backwards; }
-.fm-main.enter .fm-playw { animation: fmUp 0.55s cubic-bezier(.2, 1.3, .4, 1) 0.2s backwards; }
+.fm-main.enter .fm-playrow { animation: fmUp 0.55s cubic-bezier(.2, 1.3, .4, 1) 0.15s backwards; }
 
 @media (max-height: 700px) {
   .fm-rb .ic { width: 56px; height: 56px; font-size: 26px; }
@@ -450,32 +444,151 @@ const CSS = `
 .fm-lbest { font-size: 13.5px; color: #5a7196; margin-bottom: 10px; text-align: center; letter-spacing: 0.04em; }
 .fm-llock { text-align: center; font-size: 15px; margin-bottom: 10px; color: var(--orange-dark); }
 
-/* =============================================================== MODE SHEET */
-.fm-sheetov { position: absolute; inset: 0; z-index: 70; display: flex; align-items: flex-end; justify-content: center; background: rgba(10, 25, 55, 0.55); animation: fmFade 0.2s; }
-.fm-sheet {
-  width: 100%; max-width: 520px; padding: 14px 16px calc(var(--sab, env(safe-area-inset-bottom, 0px)) + 16px); border-radius: 28px 28px 0 0; border: 3px solid var(--ink); border-bottom: 0;
-  background: linear-gradient(180deg, #8fc6ff, #cfe6ff); box-shadow: 0 -8px 24px rgba(10, 30, 60, 0.35); animation: fmSheetIn 0.28s cubic-bezier(.2, 1.1, .4, 1);
+/* =============================================================== MODE SELECT (planets) */
+.fm-plov {
+  --u: min(100vw, 56vh); position: absolute; inset: 0; z-index: 55; display: flex; flex-direction: column; overflow: hidden;
+  padding-top: calc(var(--sat, env(safe-area-inset-top, 0px)) + 8px);
+  background: radial-gradient(ellipse 80% 50% at 50% 46%, rgba(86, 48, 170, 0.5), rgba(86, 48, 170, 0) 70%), linear-gradient(180deg, rgba(6, 11, 40, 0.94) 0%, rgba(20, 12, 60, 0.92) 58%, rgba(8, 20, 58, 0.95) 100%);
+  animation: fmFade 0.25s;
 }
-.fm-sheet .sh { display: flex; align-items: center; margin-bottom: 12px; }
-.fm-sheet .st { flex: 1; font-size: 28px; line-height: 1; text-shadow: var(--ol); transform: rotate(-2deg); transform-origin: left center; }
-.fm-sheet .fm-x { order: 0; }
-.fm-mlist { display: flex; flex-direction: column; gap: 10px; }
-.fm-mode {
-  --c1: #ffb06a; --c2: #ff7a2f; --sh: #a8400f; position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 70px; padding: 8px 14px 8px 10px; text-align: left; cursor: pointer; color: #fff;
-  border: 3px solid var(--ink); border-radius: 22px; background: linear-gradient(180deg, var(--c1), var(--c2)); box-shadow: 0 6px 0 var(--sh), inset 0 3px 0 rgba(255, 255, 255, 0.4); transition: transform 0.06s, box-shadow 0.06s;
+.fm-plov.go { opacity: 0; transition: opacity 0.14s linear 0.3s; }
+.fm-plov.go button { pointer-events: none; }
+
+/* night sky: tiled dot layers + two twinkling layers + a few sparkles */
+.fm-stars { position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.9) 0 1px, transparent 1.6px) 0 0 / 97px 89px, radial-gradient(circle, rgba(255, 255, 255, 0.7) 0 1px, transparent 1.6px) 31px 47px / 61px 73px,
+    radial-gradient(circle, rgba(190, 215, 255, 0.85) 0 1.3px, transparent 2px) 17px 23px / 131px 113px; }
+.fm-stars.tw { background: radial-gradient(circle, #fff 0 1.4px, transparent 2.2px) 11px 7px / 83px 101px, radial-gradient(circle, #ffe9a8 0 1.4px, transparent 2.2px) 53px 61px / 119px 97px; animation: fmTwinkle 2.8s ease-in-out infinite alternate; }
+.fm-stars.tw.b { background: radial-gradient(circle, #fff 0 1.5px, transparent 2.3px) 40px 29px / 107px 79px, radial-gradient(circle, #cfe2ff 0 1.3px, transparent 2px) 7px 71px / 71px 127px; animation-duration: 3.9s; animation-delay: -1.4s; }
+@keyframes fmTwinkle { from { opacity: 0.1; } to { opacity: 1; } }
+.fm-spark {
+  position: absolute; left: var(--x); top: var(--y); width: var(--s); height: var(--s); background: #fff; pointer-events: none; opacity: 0.3;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); animation: fmSpark 2.6s ease-in-out infinite; animation-delay: var(--dl);
 }
-.fm-mode:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--sh), inset 0 3px 0 rgba(255, 255, 255, 0.4); }
-.fm-mode.camp { --c1: #ffb06a; --c2: #ff7a2f; --sh: #a8400f; }
-.fm-mode.endless { --c1: #c79bff; --c2: #7a3cf0; --sh: #4b1fa8; }
-.fm-mode.cig { --c1: #7be89d; --c2: #22b86c; --sh: #136b3e; }
-.fm-mode.daily { --c1: #7dc4ff; --c2: #2f7dff; --sh: #1b4fae; min-height: 58px; }
-.fm-mode.sel { box-shadow: 0 6px 0 var(--sh), 0 0 0 4px var(--gold), 0 0 18px 4px rgba(255, 207, 58, 0.6), inset 0 3px 0 rgba(255, 255, 255, 0.4); }
-.fm-mode.locked { filter: grayscale(0.8) brightness(0.9); }
-.fm-mode .ico { flex: none; width: 50px; height: 50px; display: grid; place-items: center; font-size: 30px; line-height: 1; border-radius: 16px; background: rgba(255, 255, 255, 0.24); border: 2.5px solid rgba(23, 52, 92, 0.55); text-shadow: none; }
-.fm-mode .txt { flex: 1; min-width: 0; }
-.fm-mode .ttl { font-size: 23px; line-height: 1.05; text-shadow: var(--ol-sm); }
-.fm-mode .sub { margin-top: 3px; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.95; }
-.fm-mode .tick { flex: none; font-size: 24px; text-shadow: var(--ol-sm); }
+@keyframes fmSpark { 0%, 100% { opacity: 0.25; transform: scale(0.7) rotate(0deg); } 50% { opacity: 1; transform: scale(1.15) rotate(25deg); } }
+
+/* header: back + title */
+.fm-plhead { position: relative; z-index: 3; flex: none; display: grid; grid-template-columns: 46px 1fr 46px; align-items: center; gap: 8px; width: 100%; max-width: 520px; margin: 0 auto; padding: 0 16px; }
+.fm-plback {
+  width: 46px; height: 46px; padding: 0; border-radius: 15px; border: 3px solid var(--ink); cursor: pointer; font-size: 24px; line-height: 1; color: #fff; text-shadow: var(--ol-sm);
+  background: linear-gradient(180deg, #7dc4ff, var(--blue)); box-shadow: 0 4px 0 var(--blue-dark), inset 0 3px 0 rgba(255, 255, 255, 0.45); transition: transform 0.06s, box-shadow 0.06s;
+}
+.fm-plback:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--blue-dark); }
+.fm-pltitles { min-width: 0; text-align: center; }
+.fm-pltitle { font-size: clamp(28px, 9vw, 38px); line-height: 1; white-space: nowrap; transform: rotate(-2deg); text-shadow: var(--ol); }
+.fm-plsub { margin-top: 6px; font-size: 12px; letter-spacing: 0.14em; color: #b9c8ee; text-shadow: none; }
+
+/* stage: dashed orbits + the three planets (positioned by their centre) */
+.fm-plstage { position: relative; flex: 1 1 0; min-height: 0; width: min(100%, 520px); margin: 0 auto; }
+.fm-orbit { position: absolute; left: 10%; top: 26%; width: 80%; height: 50%; border: 2.5px dashed rgba(190, 210, 255, 0.3); border-radius: 50%; pointer-events: none; }
+.fm-orbit.o2 { left: -2%; top: 13%; width: 104%; height: 76%; border-width: 2px; border-color: rgba(190, 210, 255, 0.14); }
+.fm-pl {
+  --d: calc(var(--u) * 0.32); --gl: 255, 255, 255; --tc: #fff; position: absolute; left: var(--x); top: var(--y); z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 9px;
+  padding: 0; border: 0; border-radius: 28px; background: none; cursor: pointer; transform: translate(-50%, calc(var(--d) / -2));
+}
+.fm-pl.endless { --d: calc(var(--u) * 0.5); --x: 50%; --y: 26%; --gl: 160, 100, 255; --tc: #ead6ff; --bd: 5.2s; --sp: 30s; }
+.fm-pl.camp { --x: 26%; --y: 71%; --gl: 255, 150, 70; --tc: #ffe0b8; --bd: 4.4s; --ph: -1.7s; --sp: 24s; }
+.fm-pl.cig { --x: 74%; --y: 71%; --gl: 130, 240, 190; --tc: #d2ffe0; --bd: 4.9s; --ph: -3.2s; --sp: 28s; }
+.fm-pl .pwrap { position: relative; width: var(--d); height: var(--d); transform-origin: 50% 70%; transition: transform 0.09s ease-out; animation: fmPopIn 0.55s cubic-bezier(.2, 1.4, .4, 1) backwards; animation-delay: var(--dl, 0.05s); }
+.fm-pl .pwrap::before { content: ""; position: absolute; inset: -16%; border-radius: 50%; background: radial-gradient(circle, rgba(var(--gl), 0.42) 0 42%, rgba(var(--gl), 0) 70%); pointer-events: none; }
+.fm-pl:active .pwrap { transform: scale(0.93, 0.88) translateY(4px); }
+.fm-pl .pbody { position: absolute; inset: 0; isolation: isolate; animation: fmPlBob var(--bd, 4.8s) ease-in-out infinite; animation-delay: var(--ph, 0s); }
+@keyframes fmPlBob { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-9px) rotate(1.5deg); } }
+
+/* sphere: gradient body + scrolling surface (continents, storms, snow) + terminator shade + highlight */
+.fm-pl .orb {
+  --p1: #fff; --p2: #aaa; --p3: #555; position: absolute; inset: 0; z-index: 1; overflow: hidden; isolation: isolate; border-radius: 50%; border: 4px solid var(--ink);
+  background: linear-gradient(150deg, var(--p1) 0%, var(--p2) 48%, var(--p3) 100%); box-shadow: 0 6px 0 var(--ink2), 0 11px 14px rgba(0, 0, 0, 0.4);
+}
+.fm-pl.endless .orb { --p1: #e2c4ff; --p2: #8e4ff5; --p3: #4a1fa8; }
+.fm-pl.camp .orb { --p1: #ffd79a; --p2: #ff8f3a; --p3: #b84a12; }
+.fm-pl.cig .orb { --p1: #f2fff7; --p2: #86eaa6; --p3: #1f9d60; }
+.fm-pl .surf { position: absolute; left: 0; top: 0; width: 200%; height: 100%; background-repeat: repeat-x; background-size: 50% 100%; animation: fmPlSpin var(--sp, 26s) linear infinite; }
+@keyframes fmPlSpin { to { transform: translateX(-50%); } }
+.fm-pl.endless .surf { background-image:
+  radial-gradient(ellipse 15% 7% at 28% 34%, rgba(255, 255, 255, 0.55) 0 55%, transparent 62%), radial-gradient(ellipse 22% 5% at 68% 63%, rgba(255, 255, 255, 0.32) 0 60%, transparent 66%),
+  radial-gradient(ellipse 12% 6% at 60% 21%, rgba(60, 20, 140, 0.5) 0 60%, transparent 66%), radial-gradient(ellipse 9% 9% at 22% 78%, rgba(60, 20, 140, 0.35) 0 60%, transparent 68%),
+  linear-gradient(180deg, transparent 0 14%, rgba(255, 255, 255, 0.16) 14% 22%, transparent 22% 40%, rgba(60, 20, 140, 0.28) 40% 50%, transparent 50% 66%, rgba(255, 255, 255, 0.14) 66% 74%, transparent 74% 88%, rgba(60, 20, 140, 0.24) 88% 94%, transparent 94%); }
+.fm-pl.camp .surf { background-image:
+  radial-gradient(ellipse 22% 17% at 30% 36%, #c4561a 0 90%, transparent 94%), radial-gradient(ellipse 18% 13% at 30% 35%, #ffd98a 0 90%, transparent 94%),
+  radial-gradient(ellipse 20% 15% at 72% 66%, #c4561a 0 90%, transparent 94%), radial-gradient(ellipse 16% 11% at 72% 65%, #ffd98a 0 90%, transparent 94%),
+  radial-gradient(ellipse 6% 6% at 62% 24%, rgba(130, 40, 0, 0.35) 0 85%, transparent 95%), radial-gradient(ellipse 5% 5% at 12% 70%, rgba(130, 40, 0, 0.3) 0 85%, transparent 95%),
+  linear-gradient(0deg, transparent 32%, rgba(255, 255, 255, 0.2) 32% 33.5%, transparent 33.5% 65%, rgba(255, 255, 255, 0.2) 65% 66.5%, transparent 66.5%),
+  linear-gradient(90deg, rgba(255, 255, 255, 0.2) 0 1.4%, transparent 1.4% 49%, rgba(255, 255, 255, 0.2) 49% 50.4%, transparent 50.4%); }
+.fm-pl.cig .surf { background-image:
+  radial-gradient(ellipse 20% 13% at 28% 50%, #fff 0 88%, transparent 93%), radial-gradient(ellipse 16% 10% at 74% 60%, #fff 0 88%, transparent 93%),
+  radial-gradient(ellipse 14% 9% at 52% 76%, #168a52 0 88%, transparent 93%), radial-gradient(ellipse 11% 8% at 14% 74%, #168a52 0 88%, transparent 93%), radial-gradient(ellipse 10% 7% at 84% 82%, #168a52 0 88%, transparent 93%); }
+.fm-pl .cap {
+  position: absolute; left: 0; right: 0; top: 0; height: 40%;
+  background: radial-gradient(ellipse 17% 60% at 20% 40%, #fff 0 92%, transparent 96%), radial-gradient(ellipse 15% 70% at 47% 30%, #fff 0 92%, transparent 96%), radial-gradient(ellipse 18% 62% at 76% 38%, #fff 0 92%, transparent 96%), linear-gradient(180deg, #fff 0 38%, transparent 38.5%);
+}
+.fm-pl .shd {
+  position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle at 30% 26%, rgba(10, 8, 50, 0) 0 42%, rgba(10, 8, 50, 0.5) 100%), radial-gradient(circle at 80% 84%, rgba(5, 5, 40, 0.42), rgba(5, 5, 40, 0) 55%);
+  box-shadow: inset calc(var(--d) * -0.07) calc(var(--d) * -0.08) 0 rgba(0, 0, 30, 0.26), inset calc(var(--d) * 0.03) calc(var(--d) * 0.035) 0 rgba(255, 255, 255, 0.3);
+}
+.fm-pl .hl { position: absolute; left: 17%; top: 11%; width: 27%; height: 15%; border-radius: 50%; background: radial-gradient(ellipse at 45% 45%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 72%); transform: rotate(-30deg); pointer-events: none; }
+.fm-pl .gl { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-52%); text-align: center; font-size: calc(var(--d) * 0.4); font-weight: inherit; line-height: 1; text-shadow: none; filter: drop-shadow(0 3px 0 rgba(10, 20, 60, 0.45)); pointer-events: none; }
+.fm-pl.endless .gl { font-size: calc(var(--d) * 0.52); color: #fff; text-shadow: var(--ol); filter: none; }
+.fm-pl .fp { position: absolute; left: 13%; bottom: 14%; font-size: calc(var(--d) * 0.19); font-weight: inherit; line-height: 1; transform: rotate(-24deg); text-shadow: none; filter: drop-shadow(0 2px 0 rgba(10, 20, 60, 0.45)); pointer-events: none; }
+
+/* tilted Saturn-like ring: whole ellipse behind the sphere + its lower half drawn in front */
+.fm-pl .ring {
+  position: absolute; left: -26%; right: -26%; top: 31%; height: 38%; border-radius: 50%; border: calc(var(--d) * 0.045) solid #ffd36a; box-shadow: 0 0 0 3px var(--ink), inset 0 0 0 3px var(--ink);
+  transform: rotate(-20deg); pointer-events: none;
+}
+.fm-pl .ring.bk { z-index: 0; }
+.fm-pl .ring.fr { z-index: 2; clip-path: polygon(-10% 50%, 110% 50%, 110% 130%, -10% 130%); }
+
+/* label pill under each planet */
+.fm-pl .plab {
+  position: relative; z-index: 3; max-width: calc(var(--u) * 0.44); padding: 6px 12px 7px; text-align: center; border-radius: 16px; border: 3px solid var(--ink);
+  background: linear-gradient(180deg, rgba(34, 66, 120, 0.94), rgba(10, 25, 55, 0.94)); box-shadow: 0 4px 0 var(--ink2), inset 0 2px 0 rgba(255, 255, 255, 0.14);
+  animation: fmUp 0.5s cubic-bezier(.2, 1.3, .4, 1) backwards; animation-delay: calc(var(--dl, 0.05s) + 0.15s); transition: transform 0.06s, box-shadow 0.06s;
+}
+.fm-pl .plab b { display: block; font-size: 17px; font-weight: inherit; line-height: 1.05; color: var(--tc); white-space: nowrap; text-shadow: var(--ol-sm); }
+.fm-pl .plab i { display: block; margin-top: 3px; font-size: 12px; font-style: normal; line-height: 1.1; color: #cfe2ff; text-shadow: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fm-pl.endless .plab { max-width: calc(var(--u) * 0.64); }
+.fm-pl.endless .plab b { font-size: 23px; }
+.fm-pl:active .plab { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink2), inset 0 2px 0 rgba(255, 255, 255, 0.14); }
+.fm-pl.pick .plab, .fm-moon.pick::before { border-color: var(--gold); }
+
+/* GÜNÜN DAĞI: a small moon chip under the planets */
+.fm-moon {
+  position: relative; z-index: 2; isolation: isolate; flex: none; align-self: center; display: flex; align-items: center; gap: 10px; min-height: 54px; margin: 4px 0 calc(var(--sab, env(safe-area-inset-bottom, 0px)) + 18px); padding: 5px 20px 5px 5px;
+  border: 0; border-radius: 30px; background: none; cursor: pointer; text-align: left; animation: fmUp 0.5s cubic-bezier(.2, 1.3, .4, 1) 0.4s backwards; transition: transform 0.06s;
+}
+.fm-moon::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: 30px; border: 3px solid var(--ink); background: linear-gradient(180deg, #7dc4ff, var(--blue));
+  box-shadow: 0 5px 0 var(--blue-dark), 0 8px 10px rgba(10, 30, 60, 0.3), inset 0 3px 0 rgba(255, 255, 255, 0.4); transition: box-shadow 0.06s;
+}
+.fm-moon:active { transform: translateY(4px); }
+.fm-moon:active::before { box-shadow: 0 1px 0 var(--blue-dark), inset 0 3px 0 rgba(255, 255, 255, 0.4); }
+.fm-moon .mn {
+  flex: none; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; border: 3px solid var(--ink); font-size: 19px; line-height: 1; text-shadow: none;
+  background: radial-gradient(ellipse 14% 14% at 72% 30%, rgba(80, 100, 150, 0.35) 0 85%, transparent 95%), radial-gradient(ellipse 10% 10% at 26% 72%, rgba(80, 100, 150, 0.3) 0 85%, transparent 95%), radial-gradient(circle at 30% 26%, #fff 0 16%, #e6edf8 42%, #aab9d4 100%);
+  box-shadow: inset -5px -6px 0 rgba(70, 90, 140, 0.35); animation: fmPlBob 3.4s ease-in-out infinite;
+}
+.fm-moon .mt { min-width: 0; }
+.fm-moon .mt b { display: block; font-size: 17px; font-weight: inherit; line-height: 1; white-space: nowrap; text-shadow: var(--ol-sm); }
+.fm-moon .mt i { display: block; margin-top: 3px; font-size: 12px; font-style: normal; line-height: 1; color: #e4f1ff; text-shadow: none; white-space: nowrap; }
+
+/* tap: the chosen planet flies to the middle and grows over the screen while everything else fades */
+.fm-plov.go .fm-pl:not(.pick), .fm-plov.go .fm-moon:not(.pick), .fm-plov.go .fm-plhead, .fm-plov.go .fm-orbit { opacity: 0; transition: opacity 0.22s ease-out; }
+.fm-plov.go .fm-pl.pick, .fm-plov.go .fm-moon.pick { z-index: 5; }
+.fm-plov.go .fm-pl.pick .pwrap, .fm-plov.go .fm-moon.pick .mn { transform-origin: 50% 50%; transform: translate(var(--tx), var(--ty)) scale(var(--k)); transition: transform 0.42s cubic-bezier(.5, 0, .9, .4); }
+.fm-plov.go .fm-moon.pick .mn { animation: none; }
+.fm-plov.go .fm-pl.pick .plab, .fm-plov.go .fm-moon.pick .mt, .fm-plov.go .fm-moon.pick::before { opacity: 0; transition: opacity 0.12s; }
+
+@media (max-height: 600px) {
+  .fm-plsub { display: none; }
+  .fm-moon { margin-bottom: calc(var(--sab, env(safe-area-inset-bottom, 0px)) + 10px); }
+}
+@media (max-width: 350px) {
+  .fm-pl .plab { padding: 5px 9px 6px; }
+  .fm-pl .plab b { font-size: 15px; }
+  .fm-pl.endless .plab b { font-size: 20px; }
+}
 
 /* =============================================================== LEVEL RESULT / FAILED / INTRO */
 .fm-resov {
@@ -562,7 +675,7 @@ const CSS = `
 @keyframes fmCf { to { transform: translate(var(--dx), 112vh) rotate(var(--r)); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .fm-main *, .fm-ov *, .fm-modal *, .fm-boxov *, .fm-sheetov *, .fm-resov *, .fm-toast { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  .fm-main *, .fm-ov *, .fm-modal *, .fm-boxov *, .fm-plov *, .fm-resov *, .fm-toast { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
 `;
 
@@ -1427,47 +1540,37 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   const campInfo = () => { try { return meta.campaign(); } catch { return EMPTY_CAMP; } };
   const levelOf = (l) => (l && typeof l === 'object' ? l : levelById(l));
   const actTr = (n) => `Act ${n}'${ACT_SUF[Math.max(0, Math.min(9, n - 1))]}`;
-  const endlessOpen = () => { try { return !!meta.endlessUnlocked(); } catch { return true; } };
 
-  let sheetEl = null;
+  let worldEl = null;   // the MOD SEÇ planet screen
+  let worldTimer = 0;   // pending "zoom finished, start the mode" timeout; non-zero also means a pick is in flight (taps are ignored)
   let resultEl = null;
   let cardRef = null;
 
   const MODE_STYLE = {
-    camp: { icon: '🗺️', title: 'MACERA', cls: 'camp', c1: '#ffb06a', c2: '#ff7a2f' },
-    endless: { icon: '∞', title: 'YETİ KAÇIŞI', cls: 'endless', c1: '#c79bff', c2: '#7a3cf0' },
-    cig: { icon: '⛰️', title: 'ÇIĞ', cls: 'cig', c1: '#7be89d', c2: '#22b86c' },
-    daily: { icon: '🏔️', title: 'GÜNÜN DAĞI', cls: 'daily', c1: '#7dc4ff', c2: '#2f7dff' },
+    camp: { icon: '🗺️', title: 'MACERA', cls: 'camp' },
+    endless: { icon: '∞', title: 'YETİ KAÇIŞI', cls: 'endless' },
+    cig: { icon: '⛰️', title: 'ÇIĞ', cls: 'cig' },
+    daily: { icon: '🏔️', title: 'GÜNÜN DAĞI', cls: 'daily' },
   };
-  const MODE_ORDER = ['camp', 'endless', 'cig', 'daily'];
+  const WORLDS = ['endless', 'camp', 'cig']; // the three planets; GÜNÜN DAĞI is the small moon under them
+  const SPARKS = [[8, 14, 12, 0], [88, 9, 16, 1.1], [20, 40, 9, 0.6], [92, 46, 11, 1.7], [6, 66, 14, 2.1], [84, 80, 10, 0.3], [48, 5, 9, 1.4]]; // sky sparkles: x%, y%, px, delay s
 
+  // the mode played last (saved in meta): its planet gets the focus when the planet screen opens
   function selectedMode() {
     let m = 'camp';
     try { m = meta.mode ? meta.mode() : 'camp'; } catch { m = 'camp'; }
-    if (!MODE_STYLE[m]) m = 'camp';
-    if (m === 'endless' && !endlessOpen()) m = 'camp';
-    return m;
+    return MODE_STYLE[m] ? m : 'camp';
   }
 
-  function modePillText(m) {
-    if (m === 'camp') return `MACERA · Bölüm ${campInfo().current}`;
-    if (m === 'endless') return 'YETİ KAÇIŞI ∞';
-    if (m === 'cig') return `ÇIĞ · Dağ ${info.level}`;
-    return `GÜNÜN DAĞI #${info.dailyNum}`;
-  }
   function modeSubText(m) {
     if (m === 'camp') {
       const c = campInfo();
-      const lv = levelById(c.current);
-      return `${lv ? `ACT ${lv.act} · ${ACTS[lv.act - 1].name}` : ''} · ⭐ ${c.totalStars}/${c.maxStars}`;
+      return `Bölüm ${c.current} · ⭐ ${c.totalStars}`;
     }
-    if (m === 'endless') {
-      if (!endlessOpen()) return `${actTr(1)} bitir`;
-      return info.endlessBest > 0 ? `REKOR ${fmt(info.endlessBest)} · ${fmtDist(info.endlessBestDist)}` : 'Yeti seni kovalıyor!';
-    }
+    if (m === 'endless') return info.endlessBest > 0 ? `REKOR ${fmt(info.endlessBest)} · ${fmtDist(info.endlessBestDist)}` : 'Yeti seni kovalıyor!';
     if (m === 'cig') {
       const st = Math.max(0, Math.min(3, info.levelStars | 0));
-      return `${'⭐'.repeat(st)}${'☆'.repeat(3 - st)}${info.theme ? ` · ${info.theme}` : ''}`;
+      return `Dağ ${info.level} · ${'⭐'.repeat(st)}${'☆'.repeat(3 - st)}`;
     }
     return info.dailyBest > 0 ? `${fmtTons(info.dailyBest)} rekor` : 'Bugünün dağı';
   }
@@ -1478,64 +1581,113 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     if (!lv) return;
     const go = () => {
       closePanel(true);
-      closeSheet();
       if (cb.onPlayLevel) cb.onPlayLevel(lv.id);
       else if (cb.onLevels) cb.onLevels();
     };
     if (!showLevelIntro(lv, go)) go();
   }
 
-  function playSelected() {
-    const m = selectedMode();
-    sfx('confirm');
+  // remember the mode, then enter it
+  function playMode(m) {
+    try { meta.setMode(m); } catch { /* ignore */ }
     if (m === 'camp') startLevel(campInfo().current);
     else if (m === 'endless') { if (cb.onEndless) cb.onEndless(); }
     else if (m === 'cig') { if (cb.onLevels) cb.onLevels(); }
     else if (cb.onDaily) cb.onDaily();
   }
 
-  // ---------------------------------------------------------------------------------------------- mode sheet
+  // ---------------------------------------------------------------------------------------------- mode select (planets)
 
-  function closeSheet() {
-    if (sheetEl) { sheetEl.remove(); sheetEl = null; }
+  const reducedMotion = () => { try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch { return false; } };
+
+  function closeWorlds() {
+    if (worldTimer) { clearTimeout(worldTimer); worldTimer = 0; }
+    if (worldEl) { worldEl.remove(); worldEl = null; }
+    if (refs) refs.root.classList.remove('fm-under');
   }
-  function openModeSheet() {
-    closeSheet();
-    sfx('click');
-    const ov = el('div', 'fm-sheetov');
+  function leaveWorlds() {
+    sfx('back');
+    closeWorlds();
+    if (refs) { try { refs.play.focus({ preventScroll: true }); } catch { /* ignore */ } }
+  }
+
+  // one pure-CSS planet: glow, sphere (scrolling surface + shade + highlight + emblem), optional ring, label pill
+  function planetEl(id, delay, onPick) {
+    const ms = MODE_STYLE[id];
+    const sub = modeSubText(id);
+    const b = button(`fm-pl ${ms.cls}`, '', () => onPick(id, b), `${ms.title} modunu oyna. ${sub}`);
+    setCss(b, '--dl', `${delay}s`);
+    const orb = el('span', 'orb');
+    add(orb, el('i', 'surf'), id === 'cig' ? el('i', 'cap') : null, el('i', 'shd'), el('i', 'hl'), el('b', 'gl', ms.icon), id === 'endless' ? el('b', 'fp', '👣') : null);
+    const body = el('span', 'pbody');
+    add(body, id === 'endless' ? el('i', 'ring bk') : null, orb, id === 'endless' ? el('i', 'ring fr') : null);
+    add(b, add(el('span', 'pwrap'), body), add(el('span', 'plab'), el('b', '', ms.title), el('i', '', sub)));
+    return b;
+  }
+
+  function openWorlds() {
+    closeWorlds();
+    const ov = el('div', 'fm-plov');
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-modal', 'true');
-    ov.setAttribute('aria-label', 'Oyun modu');
-    ov.addEventListener('click', (e) => { if (e.target === ov) { sfx('back'); closeSheet(); } });
-    const sh = el('div', 'fm-sheet');
-    add(sh, add(el('div', 'sh'), el('div', 'st', 'OYUN MODU'), button('fm-x', '✕', () => { sfx('back'); closeSheet(); }, 'Kapat')));
-    const list = el('div', 'fm-mlist');
-    const cur = selectedMode();
-    for (const id of MODE_ORDER) {
-      const ms = MODE_STYLE[id];
-      const locked = id === 'endless' && !endlessOpen();
-      const b = button(`fm-mode ${ms.cls}${id === cur ? ' sel' : ''}${locked ? ' locked' : ''}`, '', () => {
-        if (locked) {
-          b.classList.add('fm-shake');
-          setTimeout(() => b.classList.remove('fm-shake'), 340);
-          sfx('back');
-          toast({ icon: '🔒', title: 'KİLİTLİ', sub: `${actTr(1)} bitir: Bölüm 10`, ms: 2200 });
-          return;
-        }
-        try { meta.setMode(id); } catch { /* ignore */ }
-        sfx('click');
-        closeSheet();
-        updateMain();
-      });
-      const txt = el('div', 'txt');
-      add(txt, el('div', 'ttl', ms.title), el('div', 'sub', modeSubText(id)));
-      add(b, el('div', 'ico', locked ? '🔒' : ms.icon), txt, id === cur ? el('div', 'tick', '✓') : null);
-      list.appendChild(b);
+    ov.setAttribute('aria-label', 'Mod seç');
+    add(ov, el('div', 'fm-stars'), el('div', 'fm-stars tw'), el('div', 'fm-stars tw b'));
+    for (const [x, y, s, d] of SPARKS) {
+      const sp = el('i', 'fm-spark');
+      setCss(sp, '--x', `${x}%`);
+      setCss(sp, '--y', `${y}%`);
+      setCss(sp, '--s', `${s}px`);
+      setCss(sp, '--dl', `${d}s`);
+      ov.appendChild(sp);
     }
-    sh.appendChild(list);
-    ov.appendChild(sh);
+    add(ov, add(el('div', 'fm-plhead'), button('fm-plback', '←', () => leaveWorlds(), 'Geri'),
+      add(el('div', 'fm-pltitles'), el('div', 'fm-pltitle', 'MOD SEÇ'), el('div', 'fm-plsub', 'BİR DÜNYA SEÇ')), el('span')));
+
+    // tap: squish (CSS :active), then the pick flies to the middle and grows over the screen while the rest fades, then the mode starts
+    const t0 = Date.now();
+    const pick = (id, b) => {
+      if (worldTimer || Date.now() - t0 < 380) return; // a pick is already on its way, or a double-tap on OYNA landed on the moon: ignore
+      sfx('confirm');
+      b.classList.add('pick');
+      let wait = 90;
+      if (!reducedMotion()) {
+        const t = b.querySelector('.pwrap, .mn').getBoundingClientRect();
+        const o = ov.getBoundingClientRect();
+        setCss(b, '--tx', `${Math.round(o.left + o.width / 2 - (t.left + t.width / 2))}px`);
+        setCss(b, '--ty', `${Math.round(o.top + o.height / 2 - (t.top + t.height / 2))}px`);
+        setCss(b, '--k', ((Math.hypot(o.width, o.height) / Math.max(1, t.width)) * 1.1).toFixed(2));
+        ov.classList.add('go');
+        wait = 430;
+      }
+      worldTimer = setTimeout(() => { worldTimer = 0; closeWorlds(); playMode(id); }, wait);
+    };
+
+    const stage = el('div', 'fm-plstage');
+    add(stage, el('div', 'fm-orbit'), el('div', 'fm-orbit o2'));
+    WORLDS.forEach((id, i) => stage.appendChild(planetEl(id, 0.04 + i * 0.08, pick)));
+    ov.appendChild(stage);
+
+    const dm = MODE_STYLE.daily;
+    const dsub = modeSubText('daily');
+    const moon = button('fm-moon', '', () => pick('daily', moon), `${dm.title} #${info.dailyNum}. ${dsub}`);
+    add(moon, el('span', 'mn', dm.icon), add(el('span', 'mt'), el('b', '', `${dm.title} #${info.dailyNum}`), el('i', '', dsub)));
+    ov.appendChild(moon);
+
     host.appendChild(ov);
-    sheetEl = ov;
+    worldEl = ov;
+    if (refs) refs.root.classList.add('fm-under'); // the lobby UI stays hidden behind the sky
+    const last = selectedMode();
+    try { (last === 'daily' ? moon : stage.querySelector(`.fm-pl.${MODE_STYLE[last].cls}`)).focus({ preventScroll: true }); } catch { /* ignore */ }
+  }
+
+  // Esc / Android Back: close the topmost overlay. Returns false when there is nothing to close (boxes and results are not cancellable).
+  function back() {
+    if (boxEl || resultEl) return false;
+    if (modalEl) { closeModal(); return true; }
+    if (cardRef) { closeCard(); return true; }
+    if (activePanel) { sfx('back'); closePanel(); return true; }
+    if (worldEl) { leaveWorlds(); return true; }
+    return false;
   }
 
   // ---------------------------------------------------------------------------------------------- campaign map
@@ -1988,17 +2140,12 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     add(mid, left, hero, right);
     root0.appendChild(mid);
 
-    // ---- bottom: mode pill + OYNA ----
+    // ---- bottom: OYNA (opens the MOD SEÇ planet screen) + map ----
     const bot = el('div', 'fm-bot');
-    const modes = el('div', 'fm-modes');
-    r.mpill = button('fm-mpill', '', () => openModeSheet(), 'Oyun modunu değiştir');
-    r.mi = el('span', 'mi', '🗺️');
-    r.mt = el('span', 'mt', 'MACERA');
-    add(r.mpill, r.mi, r.mt, el('span', 'ch', '▲'));
-    r.mapb = button('fm-mapb', '🗺️', () => openMap(), 'Harita');
-    add(modes, r.mpill, r.mapb);
-    r.play = button('fm-play', 'OYNA', () => playSelected(), 'Oyna');
-    add(bot, modes, add(el('div', 'fm-playw'), r.play));
+    r.mapb = button('fm-mapb', '', () => openMap(), 'Harita');
+    add(r.mapb, el('span', 'mi', '🗺️'), el('span', 'ml', 'HARİTA'));
+    r.play = button('fm-play', 'OYNA', () => { sfx('confirm'); openWorlds(); }, 'Oyna');
+    add(bot, add(el('div', 'fm-playrow'), add(el('div', 'fm-playw'), r.play), r.mapb));
     root0.appendChild(bot);
 
     host.appendChild(root0);
@@ -2015,13 +2162,6 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     setCss(r.xpFill, '--p', `${Math.round(li.frac * 100)}%`);
     r.coinsPill.set(coins(), false);
     r.crPill.set(meta.crystals, false);
-
-    const m = selectedMode();
-    const ms = MODE_STYLE[m];
-    r.mi.textContent = ms.icon;
-    setCss(r.mpill, '--c1', ms.c1);
-    setCss(r.mpill, '--c2', ms.c2);
-    r.mt.textContent = modePillText(m);
 
     r.xchip.textContent = `x${meta.multiplier()}`;
 
@@ -2155,19 +2295,12 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
   const onKey = (e) => {
     if (!e || e.repeat) return;
-    if (e.key === 'Escape') {
-      if (boxEl || resultEl) return; // not cancellable
-      if (modalEl) { closeModal(); return; }
-      if (sheetEl) { closeSheet(); return; }
-      if (cardRef) { closeCard(); return; }
-      if (activePanel) { sfx('back'); closePanel(); }
-      return;
-    }
+    if (e.key === 'Escape') { back(); return; }
     if (activePanel && activePanel.id === 'map' && activePanel.goAct && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       activePanel.goAct(activePanel.act + (e.key === 'ArrowRight' ? 1 : -1));
       return;
     }
-    if (!mainOpen || activePanel || modalEl || boxEl || sheetEl || resultEl) return;
+    if (!mainOpen || activePanel || modalEl || boxEl || worldEl || resultEl) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const k = String(e.key || '');
     const map = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
@@ -2193,7 +2326,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     stopMainTimers();
     mainTimer = setInterval(() => {
       tick++;
-      if (refs && tick % 4 === 0 && !activePanel && !sheetEl) updateMain();
+      if (refs && tick % 4 === 0 && !activePanel) updateMain();
     }, 5000);
     if (mainTimer && typeof mainTimer.unref === 'function') mainTimer.unref();
   }
@@ -2228,7 +2361,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     if (!refs) buildMain();
     closePanel(true);
     closeModal();
-    closeSheet();
+    closeWorlds();
     closeResult();
     refs.root.classList.remove('fm-hide');
     mainOpen = true;
@@ -2246,12 +2379,12 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     stopMainTimers();
     closePanel(true);
     closeModal();
-    closeSheet();
+    closeWorlds();
     if (refs) refs.root.classList.add('fm-hide');
   }
 
   function showDailyIfAvailable() {
-    if (!mainOpen || activePanel || modalEl || boxEl || sheetEl || resultEl) return false;
+    if (!mainOpen || activePanel || modalEl || boxEl || worldEl || resultEl) return false;
     let d = null;
     try { d = meta.daily(); } catch { d = null; }
     if (!d || !d.available) return false;
@@ -2265,7 +2398,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   }
 
   function isOpen() {
-    return !!(mainOpen || activePanel || modalEl || boxEl || sheetEl || resultEl);
+    return !!(mainOpen || activePanel || modalEl || boxEl || worldEl || resultEl);
   }
 
   function destroy() {
@@ -2281,9 +2414,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   }
 
   return {
-    showMain, hideMain, toastAchievement, showDailyIfAvailable, refresh, isOpen,
+    showMain, hideMain, toastAchievement, showDailyIfAvailable, refresh, isOpen, back,
     // campaign
-    showLevelComplete, showLevelFailed, showLevelIntro, openMap, openModeSheet,
+    showLevelComplete, showLevelFailed, showLevelIntro, openMap,
     // extras
     toast, confetti, openBoxes, openDaily, openAchievements, openMissions, openUpgrades, openHunt, openSettings, closePanel, destroy,
   };
