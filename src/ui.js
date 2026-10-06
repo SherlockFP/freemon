@@ -19,7 +19,7 @@ export class UI {
       next: $('btn-next'), toast: $('toast'), pause: $('pause'), debug: $('debug'),
       sound: $('btn-sound'), haptic: $('btn-haptic'),
       coins: $('hud-coins'), vitals: $('hud-vitals'), pips: $('hud-pips'), grow: $('hud-grow'), powers: $('hud-powers'),
-      yeti: $('hud-yeti'), yetiFill: $('hud-yetifill'),
+      yeti: $('hud-yeti'), yetiFill: $('hud-yetifill'), goal: $('hud-goal'), goalFill: $('hud-goal-fill'), goalLbl: $('hud-goal-lbl'),
       flow: $('hud-flow'), flowFill: $('hud-flow-fill'), flowLbl: $('hud-flow-lbl'), record: $('hud-record'), resExtra: $('res-extra'), resCoins: $('res-coins'), menuBest: $('menu-best'), resLabel: document.querySelector('.res-label'),
     };
     this.floatCount = 0;
@@ -53,7 +53,9 @@ export class UI {
     this.el.vitals.classList.toggle('hidden', !on);
     this.el.yeti.classList.toggle('hidden', !on);
     this.el.flow.classList.toggle('hidden', !on);
-    if (!on) this.runnerDanger(1, 1, false);
+    if (!on) this.runnerDanger(0, 0, 0);
+    this.runnerGoal(null); // the runner switches it on once it knows the next goal (endless only)
+    this.runnerSurge(false);
     this.el.record.classList.toggle('hidden', !on);
     this.lastFlow = this.lastRec = null;
     this.lastVitals = '';
@@ -97,11 +99,13 @@ export class UI {
     const close = 1 - Math.max(0, Math.min(1, gap / yetiMax));
     this.el.yetiFill.style.width = `${Math.round(close * 100)}%`;
     this.el.yeti.classList.toggle('close', gap < 14);
-    this.el.powers.textContent = `${sled ? '🛷' : ''}${helmet ? '⛑️' : ''}${magnet ? '🧲' : ''}${rocket ? '🚀' : ''}${x2 ? '✖️2' : ''}${superjump ? '👟' : ''}`;
+    this.el.powers.textContent = `${sled ? '🛷' : ''}${helmet ? '⛑️' : ''}${magnet ? '🧲' : ''}${rocket ? '🚀' : ''}${x2 ? '✖️+3' : ''}${superjump ? '👟' : ''}`;
   }
 
   showRunnerResult({ title, distance, score, coins, best, isBest, canRevive, reviveCost = 0, boxes = 0, rank = 0, toRecord = 0, missions = [], layer = 1, dailyBest = false, destruction = '', tons = 0 }) {
-    this.runnerDanger(1, 1, false);
+    this.runnerDanger(0, 0, 0);
+    this.runnerGoal(null);
+    this.runnerSurge(false);
     this.clearTimers();
     this.el.hud.classList.add('hidden');
     this.el.coins.classList.add('hidden');
@@ -182,18 +186,56 @@ export class UI {
     wrap.classList.remove('hidden');
   }
 
+  // Score bonuses are additive now (they add to the x-multiplier): danger / chain / risk are the +N each contributes.
   runnerDanger(danger, chain, risk) {
     const el = this.dangerEl || (this.dangerEl = document.getElementById('danger'));
     const parts = [];
-    if (risk) parts.push('RİSK ×5');
-    if (danger > 1) parts.push(`TEHLİKE ×${danger}`);
-    if (chain > 1) parts.push(`ZİNCİR ×${chain}`);
+    if (risk) parts.push(`RİSK +${risk}`);
+    if (danger > 0) parts.push(`TEHLİKE +${danger}`);
+    if (chain > 0) parts.push(`ZİNCİR +${chain}`);
     const t = parts.join(' · ');
     if (t !== this.lastDanger) {
       this.lastDanger = t;
       el.textContent = t;
       el.classList.toggle('hidden', !t);
     }
+  }
+
+  // Goal strip under the score: mode 'cp' = next checkpoint (val = its distance), 'rec' = record in reach (val = metres
+  // left), 'rage' = the Yeti's boulder barrage (fill = how much of it is behind you), 'new' = record just broken.
+  // mode null hides it (campaign, menus). Only touches the DOM when something visible changed.
+  runnerGoal(mode, val = 0, frac = 0) {
+    const pct = Math.round(Math.max(0, Math.min(1, frac)) * 100);
+    if (mode === this.gMode && val === this.gVal && pct === this.gPct) return;
+    const g = this.el.goal, mChanged = mode !== this.gMode;
+    if (mChanged) {
+      g.classList.toggle('hidden', !mode);
+      this.el.hud.classList.toggle('has-goal', !!mode);
+      g.classList.remove('cp', 'rec', 'rage', 'new');
+      if (mode) g.classList.add(mode);
+    }
+    if (mode && (mChanged || val !== this.gVal)) {
+      this.el.goalLbl.textContent = mode === 'cp' ? `SIRADAKİ: ${val} m` : mode === 'rec' ? `REKORA ${val} m` : mode === 'new' ? 'YENİ REKOR!' : '⚠ YETİ ÖFKESİ';
+    }
+    if (mode && (mChanged || pct !== this.gPct)) this.el.goalFill.style.width = `${pct}%`;
+    this.gMode = mode; this.gVal = val; this.gPct = pct;
+  }
+
+  // Checkpoint passed: the strip bounces.
+  runnerGoalPop() {
+    const g = this.el.goal;
+    g.classList.remove('pop');
+    void g.offsetWidth; // restart the animation
+    g.classList.add('pop');
+    clearTimeout(this.popT);
+    this.popT = setTimeout(() => g.classList.remove('pop'), 650); // so the rage / record pulse can take over again
+  }
+
+  // Yeti lunge window: the Yeti gauge shakes red.
+  runnerSurge(on) {
+    if (on === this.surgeOn) return;
+    this.surgeOn = on;
+    this.el.yeti.classList.toggle('surge', on);
   }
 
   runnerFlow(lvl, frac) {
@@ -238,6 +280,7 @@ export class UI {
     this.el.resCoins.classList.add('hidden');
     this.el.resLabel.textContent = 'kasaba yıkıldı';
     this.el.coins.classList.add('hidden');
+    this.runnerGoal(null);
     this.el.menu.classList.add('hidden');
     this.el.result.classList.add('hidden');
     this.el.hud.classList.remove('hidden');

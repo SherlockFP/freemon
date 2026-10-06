@@ -6,6 +6,7 @@ import * as Biomes from './biomes.js';
 import { PERKS, rollPerks, UPGRADES, DESTRUCTION, destructionTier } from './perks.js';
 import { music } from './music.js';
 import { patchMaterial } from '../shaders.js';
+import { scoreMult, chainBonus, dangerBonus, checkpointReward, rageScale, goalFor } from './goals.js';
 
 // SONSUZ İNİŞ — endless Temple-Run-style downhill run (RUNNER.md).
 // Core loop: the ball's SIZE is its health. Snow piles grow it; crashing knocks a layer off (and lets the Yeti
@@ -49,6 +50,20 @@ export const RCFG = {
   superJumpK: 1.55,
   rocketH: 6,
   closeCall: 5,          // metres: the Yeti got this close and you got away → close call
+  // Goals & pressure (endless only).
+  cpCoins: 25,           // checkpoint (every layerLen) pays this × layer (layer capped at 8)
+  recNear: 300,          // metres out: the goal strip switches to "REKORA n m"
+  recCoins: 50,          // one-off payout for passing your record distance
+  rageLen: 130,          // "YETİ ÖFKESİ": the Yeti throws boulders over the last N m of a layer (from layer 2 on) ...
+  rageSecs: 7,           // ... or the last N seconds of running, whichever is longer (so fast runs still get 2+ boulders)
+  rageEvery: [2.4, 3.3], // seconds between boulders (× 0.93 per layer, floor 0.6)
+  rageBack: 8,           // metres the Yeti falls back when you survive the barrage
+  surgeEvery: [25, 35],  // seconds between Yeti lunges
+  surgeTele: 0.8,        // telegraph (roar + red edge) before the lunge starts
+  surgeLunge: 1.5,       // seconds the lunge takes
+  surgePull: 6,          // metres the gap shrinks over the lunge unless you shake it off
+  surgeFloor: 4,         // a lunge never pulls the Yeti closer than this
+  multCap: 8,            // cap of the in-run score multiplier (permanent bonuses sit on top)
 };
 
 export const speedAt = (s) => {
@@ -68,6 +83,8 @@ const _s = new THREE.Vector3();
 const _x = new THREE.Vector3();
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 const _tp = new THREE.Vector3();
+const _goal = { mode: 'cp', val: 0, frac: 0 };
+const RAGE_SKIP = new Set(['zipline', 'rail', 'loop', 'corkscrew']); // sections where the Yeti keeps its boulders
 
 export class Runner {
   constructor(ctx) {
@@ -173,8 +190,17 @@ export class Runner {
     // Addictive layer: perks, power-ups, risk, chains, destruction, avalanche level.
     this.perks = new Set();
     this.perm = this.ctx.save.perm?.() ?? {};
-    this.nextPerkS = level ? Infinity : RCFG.layerLen;
+    this.nextPerkS = Infinity;   // set when a layer boundary makes a perk card due (see layerUp)
+    this.perkLayer = level ? Infinity : 1; // boundary number at which the next card is due (every 2nd layer)
+    this.perkDue = false;
     this.perkPause = false;
+    this.bannerQ = [];        // queued banners [text, level, hold, ...]: the 600 m cluster must not stomp itself
+    this.bannerT = 0;
+    this.later = [];          // delayed callbacks that follow game time (and die with the run)
+    this.rage = null;         // "YETİ ÖFKESİ" mini-boss { s0, B, t, n, crashes0, failed }
+    this.surge = null;        // Yeti lunge { t, applied, near }
+    this.surgeT = rand(RCFG.surgeEvery[0], RCFG.surgeEvery[1]);
+    this.newRecT = 0;
     this.nearChain = 0;
     this.nearT = 0;
     this.riskStack = 0;
@@ -211,38 +237,33 @@ export class Runner {
     music.start(musicStyleAt(0), bpmAt(0));
     music.setIntensity(0.3);
     this.ctx.ui.runnerHud(true, biomeAt(0).biome.name);
+    if (level) this.ctx.ui.runnerGoal?.(null); // campaign has its own finish-line progress bar
     this.ctx.ui.banner('3', 3);
     this.updateHud();
     this.placeBall(true);
   }
 
+  // Score multiplier: size, flow, near-miss chain, Yeti closeness and risky power-ups/perks all ADD to 1 (capped at
+  // RCFG.multCap); permanent progression (mission sets, upgrades) sits on top of the cap. No more compounding.
   get mult() {
-    const base = (this.ctx.meta?.multiplier?.() ?? 1) + this.tier + this.flowLvl;
-    return Math.round(base * (this.x2T > 0 ? 2 : 1) * this.riskMul() * 10) / 10;
-  }
-
-  // Risk/reward: Yeti close, near-miss chains, risky power-ups and perks all multiply the score.
-  dangerMul() {
-    const g = this.gap;
-    let m = g < 9 ? 3 : g < 16 ? 2 : 1;
-    if (m > 1 && this.perks?.has('tehlike')) m *= 2;
-    return m;
-  }
-
-  chainMul() {
-    const c = this.nearChain || 0;
-    return c >= 8 ? 5 : c >= 5 ? 3 : c >= 3 ? 2 : 1;
-  }
-
-  riskMul() {
     if (!this.perks) return 1;
-    let m = this.dangerMul() * this.chainMul();
-    if (this.riskT > 0) m *= 5;
-    if (this.clone) m *= 2;
-    if (this.perks.has('cam')) m *= 3;
-    if (this.perks.has('asiri')) m *= 1.3;
-    m *= 1 + this.riskStack;
-    m *= 1 + 0.05 * (this.perm.speed || 0);
+    return scoreMult(this.tier, this.flowLvl, this.chainBonus(), this.dangerBonus(), this.riskBonus(),
+      (this.ctx.meta?.multiplier?.() ?? 1) - 1 + 0.1 * (this.perm.speed || 0), RCFG.multCap);
+  }
+
+  dangerBonus() { return dangerBonus(this.gap, this.perks?.has('tehlike')); }
+
+  chainBonus() { return chainBonus(this.nearChain || 0); }
+
+  // Power-ups and risky perks: flat bonuses instead of multipliers.
+  riskBonus() {
+    if (!this.perks) return 0;
+    let m = this.riskStack * 5;
+    if (this.x2T > 0) m += 3;
+    if (this.riskT > 0) m += 4;
+    if (this.clone) m += 2;
+    if (this.perks.has('cam')) m += 3;
+    if (this.perks.has('asiri')) m += 1;
     return m;
   }
 
@@ -270,6 +291,7 @@ export class Runner {
       }
       dt = 0;
     }
+    if (this.state === 'play' && this.countT <= 0) this.tickBanner(rdt);
     const beat = music.beat;
     this.time += dt;
     if (this.state === 'play') this.updatePlay(dt, beat);
@@ -347,7 +369,9 @@ export class Runner {
     if (this.cloneT > 0) { this.cloneT -= dt; if (this.cloneT <= 0) this.endClone(false); }
     if (this.nearT > 0) { this.nearT -= dt; if (this.nearT <= 0) this.nearChain = 0; }
     this.punch = Math.max(0, this.punch - dt * 4);
-    if (b.s >= this.nextPerkS && this.grounded && !this.zip && !this.grind) this.offerPerks();
+    this.tickLater(dt);
+    // Perk cards: every 2nd layer, never while banners are still showing or the Yeti is raging.
+    if (this.perkDue && b.s >= this.nextPerkS && this.grounded && !this.zip && !this.grind && !this.rage && this.bannerQuiet()) this.offerPerks();
 
     // Double-tap: ride a sled (Subway's hoverboard) — one free crash for its duration.
     if (input.consumeDoubleTap() && this.sledT <= 0 && this.ctx.meta?.useSled?.()) {
@@ -379,6 +403,8 @@ export class Runner {
       this.roar();
     }
 
+    this.surgeTick(dt);
+    this.rageTick(dt);
     this.progression(dt);
     this.zoneTick();
     this.fogK += (this.fogTarget - this.fogK) * Math.min(1, dt * 2.5);
@@ -407,20 +433,7 @@ export class Runner {
     const b = this.b;
     const { ui, audio, platform } = this.ctx;
     const layer = this.level ? 0 : Math.floor(b.s / RCFG.layerLen);
-    if (layer > this.layer) {
-      this.layer = layer;
-      const k = Math.min(1.9, this.baseHard * (1 + 0.1 * layer));
-      this.obstacles.setHardness?.(k);
-      this.track.setHardness?.(k);
-      ui.banner(`KATMAN ${layer + 1}`, 4);
-      this.avLevel = layer + 1;
-      if (this.perks.has('kabuk')) this.kabuk = 1;
-      this.stageZone(layer);
-      setTimeout(() => this.float(`ÇIĞ SEVİYESİ ${this.avLevel}`, 'bad'), 900);
-      audio.milestone(Math.min(5, 2 + (layer >> 1)));
-      platform.haptic('success');
-      this.ctx.meta?.track?.('layer', { layer: layer + 1 });
-    }
+    if (layer > this.layer) this.layerUp(layer);
     const tier = Math.floor((speedAt(b.s) - RCFG.startSpeed) / 3.2);
     if (tier > this.speedTier) {
       this.speedTier = tier;
@@ -443,12 +456,18 @@ export class Runner {
     // Records.
     if (!this.passedDist && b.s > this.bestDist) {
       this.passedDist = true;
-      ui.banner('YENİ REKOR!', 5);
+      this.queueBanner('YENİ REKOR!', 5, 1.6, true);
       ui.flash?.('white');
       audio.win();
       platform.haptic('success');
       this.ctx.menus?.confetti?.(60);
+      if (!this.level) {
+        this.newRecT = 4;
+        this.coins += RCFG.recCoins;
+        this.after(0.5, () => this.float(`+${RCFG.recCoins} ❄️`, 'big'));
+      }
     }
+    if (this.newRecT > 0) this.newRecT -= dt;
     if (!this.passedScore && this.score > this.bestScore) {
       this.passedScore = true;
       this.float('REKOR SKOR!', 'big');
@@ -520,6 +539,161 @@ export class Runner {
     sh.material.opacity = 0.8 * k;
   }
 
+  // A layer boundary is also a checkpoint. Everything it fires is staggered (banner queue + delayed floats) and the
+  // perk card waits until the banners are done and, from layer 2 on, until the Yeti's barrage was survived.
+  layerUp(layer) {
+    const { ui, audio, platform } = this.ctx;
+    const rage = this.rageEnd(layer);   // 1 survived the barrage, -1 crashed in it, 0 no barrage
+    this.layer = layer;
+    const k = Math.min(1.9, this.baseHard * (1 + 0.1 * layer));
+    this.obstacles.setHardness?.(k);
+    this.track.setHardness?.(k);
+    this.avLevel = layer + 1;
+    if (this.perks.has('kabuk')) this.kabuk = 1;
+    this.stageZone(layer);
+    // Checkpoint: a few coins through the normal run-coin path (banked with the run, like flakes).
+    const pay = checkpointReward(layer, RCFG.cpCoins);
+    this.coins += pay;
+    this.queueBanner(`✔ ${layer * RCFG.layerLen} m`, 3);
+    this.after(rage > 0 ? 0.7 : 0, () => this.float(`+${pay} ❄️`, 'big'));
+    if (rage <= 0) audio.star(2);
+    platform.haptic('success');
+    ui.runnerGoalPop?.();
+    this.queueBanner(`KATMAN ${layer + 1}`, 4);
+    this.after(1.1, () => audio.milestone(Math.min(5, 2 + (layer >> 1))));
+    this.after(2.4, () => this.float(`ÇIĞ SEVİYESİ ${this.avLevel}`, 'bad'));
+    if (layer >= this.perkLayer && rage >= 0) { this.perkDue = true; this.nextPerkS = this.b.s + 30; }
+    this.ctx.meta?.track?.('layer', { layer: layer + 1 });
+  }
+
+  // ui.banner is a single slot: queue the 600 m cluster so the banners show one after another instead of stomping.
+  queueBanner(text, level, hold = 1.05, urgent = false) {
+    if (urgent || (this.bannerT <= 0 && !this.bannerQ.length)) { this.ctx.ui.banner(text, level); this.bannerT = hold; }
+    else this.bannerQ.push(text, level, hold);
+  }
+
+  tickBanner(rdt) {
+    if (this.bannerT > 0) this.bannerT -= rdt;
+    const q = this.bannerQ;
+    if (this.bannerT <= 0 && q.length) {
+      this.ctx.ui.banner(q.shift(), q.shift());
+      this.bannerT = q.shift();
+    }
+  }
+
+  bannerQuiet() { return this.bannerT <= 0 && !this.bannerQ.length; }
+
+  // Delayed callbacks that follow game time (setTimeout would outlive a restart and ignore pauses).
+  after(sec, fn) { this.later.push({ t: sec, fn }); }
+
+  tickLater(dt) {
+    const q = this.later;
+    for (let i = q.length - 1; i >= 0; i--) {
+      const l = q[i];
+      l.t -= dt;
+      if (l.t <= 0) { q.splice(i, 1); l.fn(); }
+    }
+  }
+
+  // "YETİ ÖFKESİ": over the last rageLen m of every layer (from layer 2 on) the Yeti throws boulders at your lane (the
+  // same throwBoulder path the boss zone uses). Survive without a crash → it gives up: bonus, and it falls back.
+  rageOk() {
+    if (this.inZone === 'boss' || this.zip || this.grind || this.rocketT > 0) return false; // boss zone / rope / rail already own the moment
+    return !RAGE_SKIP.has(this.track.pieceAt(this.b.s)?.kind);
+  }
+
+  rageTick(dt) {
+    if (this.level || this.layer < 1) return;       // campaign has no layers (its boss levels throw their own boulders)
+    const b = this.b, L = RCFG.layerLen;
+    const B = (Math.floor(b.s / L) + 1) * L;
+    let r = this.rage;
+    if (!r) {
+      if (b.s < B - Math.max(RCFG.rageLen, b.vs * RCFG.rageSecs) || b.s > B - 40 || !this.rageOk()) return;
+      r = this.rage = { s0: b.s, B, t: 0.7, n: 0, crashes0: this.crashes, failed: false };
+      this.roar(true);
+      this.queueBanner('YETİ ÖFKESİ!', 4, 1.1, true);
+      this.ctx.ui.flash?.('hit');
+      return;
+    }
+    if (r.failed) return;
+    if (this.crashes !== r.crashes0) {              // one crash ends it: no death spiral
+      r.failed = true;
+      this.float('ÖFKE SÜRÜYOR...', 'bad');
+      return;
+    }
+    r.t -= dt;
+    if (r.t > 0) return;
+    if (!this.rageOk()) { r.t = 0.5; return; }
+    const sLand = b.s + b.vs * 1.5 + 9;             // lands ~9 m ahead of where you will be
+    if (sLand > B - 6) { r.t = 1; return; }          // the last boulder lands before the boundary
+    const pl = this.lane + 1;
+    const lane = Math.random() < 0.65 ? pl : (pl + 1 + ((Math.random() * 2) | 0)) % 3;
+    if (this.obstacles.throwBoulder(lane, sLand) < 0) { r.t = 0.8; return; }
+    r.n++;
+    r.t = rand(RCFG.rageEvery[0], RCFG.rageEvery[1]) * rageScale(this.layer);
+    this.float('⚠ KAYA!', 'bad');
+    this.ctx.audio.bump(0.8);
+    this.ctx.platform.haptic('warning');
+  }
+
+  // At the layer boundary: 1 survived (bonus, the Yeti falls back), -1 crashed during it, 0 it never got to throw.
+  rageEnd(layer) {
+    const r = this.rage;
+    if (!r) return 0;
+    this.rage = null;
+    if (r.failed || this.crashes !== r.crashes0) return -1;
+    if (!r.n) return 0;
+    const bonus = Math.round(150 * layer * this.mult);
+    this.score += bonus;
+    this.gap = Math.min(RCFG.yetiMax, this.gap + RCFG.rageBack);
+    this.ctx.audio.win();
+    this.ctx.platform.haptic('success');
+    this.float('YETİ PES ETTİ!', 'big');
+    this.after(0.35, () => this.float(`+${bonus.toLocaleString('tr-TR')}`, 'big'));
+    return 1;
+  }
+
+  // Yeti surge: every ~30 s it roars and lunges (gap -surgePull over surgeLunge s). A boost strip, a jump pad or two
+  // near-misses while it winds up / lunges shake it off. It never gets closer than surgeFloor this way.
+  surgeTick(dt) {
+    if (this.level) return;
+    const s = this.surge;
+    if (!s) {
+      this.surgeT -= dt;
+      if (this.surgeT > 0) return;
+      if (this.rage || this.rocketT > 0 || this.zip || this.grind || this.gap < 7) { this.surgeT = 3; return; } // not mid-something / already close
+      this.surge = { t: 0, applied: 0, near: 0 };
+      this.roar(true);
+      this.float('YETİ ATILIYOR!', 'bad');
+      this.ctx.ui.flash?.('surge');
+      this.ctx.ui.runnerSurge?.(true);
+      return;
+    }
+    s.t += dt;
+    if (s.near >= 2) { this.surgeSave(); return; }
+    if (s.t > RCFG.surgeTele) {
+      const d = Math.min(Math.max(0, this.gap - RCFG.surgeFloor), (RCFG.surgePull / RCFG.surgeLunge) * dt);
+      this.gap -= d;
+      s.applied += d;
+    }
+    if (s.t >= RCFG.surgeTele + RCFG.surgeLunge) this.surgeEnd();
+  }
+
+  surgeEnd() {
+    this.surge = null;
+    this.surgeT = rand(RCFG.surgeEvery[0], RCFG.surgeEvery[1]);
+    this.ctx.ui.runnerSurge?.(false);
+  }
+
+  surgeSave() {
+    this.score += Math.round(150 * this.mult);
+    this.addFlow(3);
+    this.float('YETİ ISKALADI!', 'big');
+    this.ctx.audio.star(1);
+    this.ctx.platform.haptic('success');
+    this.surgeEnd();
+  }
+
   // Every layer the rules change (Jetpack Joyride-style zones) — announced ahead so you wonder what's next.
   stageZone(layer) {
     const ZONES = [
@@ -537,7 +711,7 @@ export class Runner {
     const from = Math.max(this.b.s + 320, (this.zone && this.zone.until > this.b.s ? this.zone.until + 60 : 0)), until = from + 420;
     if (!z.runner) this.obstacles.setZone?.(z.kind, { from, until });
     this.zone = { ...z, from, until, announced: false };
-    setTimeout(() => this.float(`SIRADAKİ: ${z.name}`, 'big'), 1600);
+    this.after(3.4, () => this.float(`GELİYOR: ${z.name}`, 'big')); // after the checkpoint / layer / biome banners
   }
 
   zoneTick() {
@@ -606,7 +780,9 @@ export class Runner {
 
   // ---------- perks / power-ups ----------
   offerPerks() {
-    this.nextPerkS += RCFG.layerLen;
+    this.perkDue = false;
+    this.nextPerkS = Infinity;
+    this.perkLayer = this.layer + 2;   // every 2nd layer
     const cards = rollPerks(this.perks);
     if (!cards.length || !this.ctx.ui.showPerks) return;
     this.perkPause = true;
@@ -652,7 +828,7 @@ export class Runner {
     m.needsUpdate = true;
   }
 
-  // İkiz Top: a twin rolls one lane over — it has to dodge too; while it lives, score ×2.
+  // İkiz Top: a twin rolls one lane over — it has to dodge too; while it lives, +2 on the multiplier.
   startClone(t) {
     this.cloneT = Math.max(this.cloneT, t);
     if (!this.clone) {
@@ -663,7 +839,7 @@ export class Runner {
       this.clone = { mesh, u: this.b.u, vu: 0, events: [], ball: { id: 'clone', s: 0, u: 0, h: 0, r: 0, vs: 0, size: 1 } };
     }
     this.ctx.audio.milestone(3);
-    this.float('İKİZ TOP! ×2', 'big');
+    this.float('İKİZ TOP! ÇARPAN +2', 'big');
   }
 
   endClone(popped) {
@@ -716,7 +892,8 @@ export class Runner {
   }
 
   updateHud() {
-    this.ctx.ui.runnerDanger?.(this.dangerMul(), this.chainMul(), this.riskT > 0);
+    this.ctx.ui.runnerDanger?.(this.dangerBonus(), this.chainBonus(), this.riskT > 0 ? 4 : 0);
+    this.updateGoal();
     const bi = biomeAt(this.b.s);
     const prog = this.level ? clamp(this.b.s / this.level.length, 0, 1) : bi.t;
     const label = this.level ? `${this.level.act}-${this.level.idx} · ${this.level.name}` : bi.biome.name;
@@ -727,6 +904,16 @@ export class Runner {
       helmet: this.helmet, magnet: this.magnetT > 0, rocket: this.rocketT > 0,
       x2: this.x2T > 0, superjump: this.superT > 0, sled: this.sledT > 0,
     });
+  }
+
+  // Goal strip: the next checkpoint (every layer), "REKORA n m" when your record is near, the Yeti's barrage while it lasts.
+  updateGoal() {
+    if (this.level) return;
+    const ui = this.ctx.ui, s = this.b.s, r = this.rage;
+    if (r && !r.failed) { ui.runnerGoal?.('rage', 0, (s - r.s0) / Math.max(1, r.B - r.s0)); return; }
+    if (this.newRecT > 0) { ui.runnerGoal?.('new', 0, 1); return; }
+    const g = goalFor(s, RCFG.layerLen, this.bestDist, this.passedDist, RCFG.recNear, _goal);
+    ui.runnerGoal?.(g.mode, g.val, g.frac);
   }
 
   step(dt, hw) {
@@ -1038,12 +1225,13 @@ export class Runner {
         const bonus = Math.round(50 * (this.perks.has('kilpayi') ? 3 : 1) * this.mult);
         this.score += bonus;
         if (this.perks.has('risk')) this.riskStack = Math.min(0.8, this.riskStack + 0.04);
-        const cm = this.chainMul();
-        this.float(cm > 1 ? `KIL PAYI +${bonus} · ZİNCİR ×${cm}` : `KIL PAYI +${bonus}`, cm > 1 ? 'big' : '');
+        const cm = this.chainBonus();
+        if (this.surge) this.surge.near++;
+        this.float(cm > 0 ? `KIL PAYI +${bonus} · ZİNCİR +${cm}` : `KIL PAYI +${bonus}`, cm > 0 ? 'big' : '');
         this.punch = Math.min(1.5, this.punch + 0.6);
         this.mistBurst(6, 0xbfe6ff, 4, 0.9);
         audio.whoosh();
-        if (cm > 1) audio.star(Math.min(2, cm - 2));
+        if (cm > 0) audio.star(Math.min(2, cm - 1));
         platform.haptic('light');
         this.ctx.meta?.track?.('near', {});
         break;
@@ -1125,7 +1313,7 @@ export class Runner {
         } else if (e.kind === 'x2') {
           this.x2T = this.dur('x2');
           audio.milestone(3);
-          this.float('2X SKOR!', 'big');
+          this.float('ÇARPAN +3!', 'big');
           this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'x2' });
         } else if (e.kind === 'superjump') {
           this.superT = this.dur('superjump');
@@ -1165,7 +1353,7 @@ export class Runner {
         } else if (e.kind === 'risk') {
           this.riskT = 10;
           audio.milestone(5);
-          this.float('RİSK MODU! HIZ ↑ SKOR ×5', 'big');
+          this.float('RİSK MODU! HIZ ↑ ÇARPAN +4', 'big');
           this.ctx.ui.flash?.('hit');
           this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'risk' });
         } else if (e.kind === 'clone') {
@@ -1194,6 +1382,7 @@ export class Runner {
         }
         break;
       case 'pad':
+        if (this.surge) this.surgeSave();   // boost strip / jump pad: the lunge misses
         if (e.kind === 'boost') {
           b.vs = Math.min(RCFG.maxSpeed + 6, b.vs + 7 * (e.power || 1));
           this.gap = Math.min(RCFG.yetiMax, this.gap + 4);
@@ -1222,7 +1411,7 @@ export class Runner {
         this.score += 200 * this.mult;
         music.stinger('portal');
         music.setStyle(musicStyleAt(b.s + 5));
-        this.ctx.ui.banner(bi.biome.name.toLocaleUpperCase('tr-TR'), 3);
+        this.queueBanner(bi.biome.name.toLocaleUpperCase('tr-TR'), 3, 1);
         this.ctx.meta?.track?.('portal', { biome: bi.biome.id });
         audio.milestone(3);
         this.gap = Math.min(RCFG.yetiMax, this.gap + 8);
@@ -1241,6 +1430,8 @@ export class Runner {
     if (this.state !== 'play') return;
     this.state = 'finished';
     this.finishT = 0;
+    this.surge = null;
+    this.ctx.ui.runnerSurge?.(false);
     this.ctx.ui.banner('BİTİŞ!', 5);
     this.ctx.ui.flash?.('white');
     this.ctx.audio.win();
@@ -1266,6 +1457,11 @@ export class Runner {
     if (this.state !== 'play') return;
     this.zip = null;
     this.grind = null;
+    this.rage = null;
+    this.surge = null;
+    this.bannerQ.length = 0;
+    this.later.length = 0;
+    this.ctx.ui.runnerSurge?.(false);
     this.state = 'dying';
     this.cause = cause;
     this.deadT = 0;
@@ -1369,6 +1565,7 @@ export class Runner {
     this.grounded = true;
     this.lastSurf = b.h;
     this.gap = RCFG.yetiStart;
+    this.surgeT = Math.max(this.surgeT, 10);
     this.invulnT = 2.5;
     this.state = 'play';
     this.ctx.ball.group.visible = true;
@@ -1505,13 +1702,13 @@ export class Runner {
     this.ctx.ui.float(text, (_v2.x * 0.5 + 0.5) * window.innerWidth, (-_v2.y * 0.5 + 0.35) * window.innerHeight, cls);
   }
 
-  roar() {
+  roar(quiet = false) {
     const { audio, platform } = this.ctx;
     audio.bump(1);
     audio.crash(0.25);
     platform.haptic('heavy');
     this.shake += 0.5;
-    this.float('GRRAAAH!', 'bad');
+    if (!quiet) this.float('GRRAAAH!', 'bad');
   }
 
   updateYeti(dt) {
@@ -1671,3 +1868,4 @@ function makeAvalanche(scene) {
 }
 
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function rand(a, b) { return a + Math.random() * (b - a); }
