@@ -31,13 +31,13 @@ export const COL = {
 // Event pool (reused plain objects)
 // ---------------------------------------------------------------------------
 const EVN = 192, EVP = [];
-for (let i = 0; i < EVN; i++) EVP.push({ type: '', ds: 0, du: 0, dh: 0, strength: 0, kind: '', value: 0, s: 0, u: 0, h: 0, onBeat: false, power: 0, color: 0, size: 0, ok: false, rate: 0, biome: 0, toughness: 0, headOn: false, id: 0, letter: '', active: false, s0: 0, s1: 0, minSpeed: 0, scale: 0, depth: 0, R: 0, done: false });
+for (let i = 0; i < EVN; i++) EVP.push({ type: '', ds: 0, du: 0, dh: 0, strength: 0, kind: '', value: 0, s: 0, u: 0, h: 0, onBeat: false, power: 0, color: 0, size: 0, ok: false, rate: 0, biome: 0, toughness: 0, headOn: false, id: 0, letter: '', active: false, s0: 0, s1: 0, minSpeed: 0, scale: 0, depth: 0, R: 0, done: false, lane: 0, t: 0, density: 0, ok: false, side: 0 });
 let evi = 0;
 export function ev(events, type) {
   const e = EVP[evi]; evi = (evi + 1) % EVN;
   e.type = type; e.ds = 0; e.du = 0; e.dh = 0; e.strength = 0; e.kind = ''; e.value = 0; e.s = 0; e.u = 0; e.h = 0;
   e.onBeat = false; e.power = 0; e.color = 0; e.size = 0; e.ok = false; e.rate = 0; e.biome = 0; e.toughness = 0; e.headOn = false; e.id = 0; e.letter = '';
-  e.active = false; e.s0 = 0; e.s1 = 0; e.minSpeed = 0; e.scale = 0; e.depth = 0; e.R = 0; e.done = false;
+  e.active = false; e.s0 = 0; e.s1 = 0; e.minSpeed = 0; e.scale = 0; e.depth = 0; e.R = 0; e.done = false; e.lane = 0; e.t = 0; e.density = 0; e.ok = false; e.side = 0;
   events.push(e);
   return e;
 }
@@ -166,13 +166,32 @@ function makeGeometries() {
   G.gift = merge([[B(0.6, 0.6, 0.6), 0xc23ad8], [B(0.64, 0.14, 0.64), 0xffd23a], [B(0.14, 0.64, 0.64), 0xffd23a], [B(0.64, 0.64, 0.14), 0xffd23a],
     [B(0.2, 0.2, 0.2), 0xffd23a, 0, 0.4, 0]], false);
   G.letter = letterGeometry('A');
+  G.disc = merge([[new THREE.CylinderGeometry(0.5, 0.5, 0.05, 22), null]], false);
+  {   // ramp wedge: low edge at local +z (behind), high edge at -z (ahead), unit box
+    const A = [-0.5, -0.5, 0.5], Bp = [0.5, -0.5, 0.5], C = [0.5, -0.5, -0.5], D = [-0.5, -0.5, -0.5], E = [-0.5, 0.5, -0.5], F = [0.5, 0.5, -0.5];
+    const tris = [[A, Bp, C], [A, C, D], [A, Bp, F], [A, F, E], [D, C, F], [D, F, E], [A, D, E], [Bp, F, C]];
+    const cen = [0, -0.1667, -0.1667], pos = [], col = [];
+    for (let [a, b, c] of tris) {
+      const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const mx = (a[0] + b[0] + c[0]) / 3 - cen[0], my = (a[1] + b[1] + c[1]) / 3 - cen[1], mz = (a[2] + b[2] + c[2]) / 3 - cen[2];
+      if (nx * mx + ny * my + nz * mz < 0) { const q = b; b = c; c = q; }
+      const l = Math.hypot(nx, ny, nz) || 1, k = 0.74 + 0.26 * ((Math.abs(ny / l) * Math.sign(ny * (nx * mx + ny * my + nz * mz)) ) * 0.5 + 0.5);
+      for (const p of [a, b, c]) { pos.push(p[0], p[1], p[2]); col.push(k, k, k); }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 3));
+    g.computeVertexNormals();
+    G.wedge = g;
+  }
   return G;
 }
 
 // pool: key -> [geometry key, material key, capacity]
 const POOLS = {
   box: ['box', 'lit', 1300], cyl: ['cyl', 'lit', 200], ball: ['ball', 'lit', 320], pine: ['pine', 'lit', 70], plow: ['plow', 'lit', 24],
-  ice: ['box', 'ice', 40],
+  ice: ['box', 'ice', 90], wedge: ['wedge', 'lit', 40], lamp: ['ball', 'glow', 90], disc: ['disc', 'glow', 24], puff: ['ball', 'ice', 60],
   ring: ['torus', 'pulse', 90], chev: ['chev', 'pulse', 300], hex: ['hex', 'pulse', 320],
   flake: ['flake', 'glow', 480], star: ['star', 'glow', 16], magnet: ['magnet', 'glow', 12], helmet: ['helmet', 'glow', 12],
   rocket: ['rocket', 'glow', 12], spring: ['spring', 'glow', 12], crystal: ['crystal', 'glow', 12], gift: ['gift', 'glow', 12], letter: ['letter', 'glow', 6],
@@ -215,6 +234,13 @@ export class Obstacles {
     this.nextLetter = null;
     this.jumpPadV = opts.jumpPadV ?? 11;     // runner RCFG.jumpPadV: spring / jump pad coin arcs are sized with it
     this.ballVs = 10; this.gateChain = 0;
+    this.platforms = [];       // rideable obstacles (train roofs + ramps): platformAt(s, u)
+    this.dyn = [];             // moving objects not tied to a piece: boulders
+    this.dynById = new Map();
+    this.warnQ = [];           // warn events queued by update(), flushed by the next collide()
+    this.rowsLog = [];         // {s, ext, free} of every row (used to keep boulders from trapping the player)
+    this._hk = null;           // explicit hardness override (else track.hardness)
+    this.nextBoulder = 1e9;
     this.rng = makeRng((this.seed ^ 0xa5a5a5a5) >>> 0);
     this.next = { power: 260, crystal: 520, box: 340, letter: 300 };   // distance accumulators for rare pickups
     this._tmpHit = { ds: 0, du: 0 };
@@ -309,6 +335,8 @@ export class Obstacles {
     ob.id = this._id++;
     ob.f = this._frameOf(ob.s);
     ob.parts = []; ob.cdUntil = 0; ob.alive = true; ob.hitDone = false; ob.pending = false;
+    ob.passDone = false; ob.minLat = Infinity; ob.over = false; ob.nearSide = 1;
+    ob.needsRefresh = ob.s > this.track.genEnd - 1;      // placed past the generated path (extrapolated frame): refresh once it exists
     if (ob.ext === undefined) ob.ext = 2;
     if (ob.ext > this.maxExt) this.maxExt = ob.ext;
     KIND[ob.kind].build.call(this, ob);
@@ -321,6 +349,7 @@ export class Obstacles {
   _freeOb(ob) {
     for (const p of ob.parts) if (p.idx >= 0) { this._release(p.key, p.idx); p.idx = -1; }
     this.byId.delete(ob.id);
+    if (ob.ride) { const i = this.platforms.indexOf(ob); if (i >= 0) this.platforms.splice(i, 1); }
   }
   _lb(arr, s) {
     let lo = 0, hi = arr.length;
@@ -370,6 +399,7 @@ export class Obstacles {
     for (let i = this._lb(obs, sMin - M); i < obs.length; i++) {
       const ob = obs[i];
       if (ob.s - M > sMax) break;
+      if (ob.needsRefresh && this.track.genEnd > ob.s + 25) { this._frameInto(ob.s, ob.f); ob.needsRefresh = false; }
       if (ob.alive && ob.s + ob.ext >= sMin && ob.s - ob.ext <= sMax) { const K = KIND[ob.kind]; if (K.anim) K.anim.call(this, ob, beat.beat, pulse); }
     }
     const pk = this.picks, t = this.time;
@@ -381,9 +411,11 @@ export class Obstacles {
       if (k.kind === 'flake') this._set('flake', k.idx, k.f, k.u, bob, t * 2.2 + k.ph, 0, 0.78, 0.78, 0.78);
       else this._set(k.pool, k.idx, k.f, k.u, bob + 0.1, t * 2.4 + k.ph, k.kind === 'rocket' ? 0.5 : 0, k.sc, k.sc, k.sc);
     }
+    this._updateDyn(dt, ball);
     this._updateDebris(dt);
     for (const key in this.pool) {
       const p = this.pool[key];
+      p.m.visible = p.hi - p.free.length > 0;          // pools with no live instance cost no draw call
       if (p.dirty) { p.m.instanceMatrix.needsUpdate = true; p.dirty = false; }
       if (p.cdirty) { p.m.instanceColor.needsUpdate = true; p.cdirty = false; }
     }
@@ -426,6 +458,8 @@ export class Obstacles {
   // ---------- collisions ----------
   collide(ball, events) {
     const cb = this._cb;
+    this._flushWarn(events);
+    cb.duck = !!ball.duck;
     cb.s = ball.s; cb.u = ball.u; cb.r = ball.r; cb.h = ball.h + ball.r; cb.size = ball.size || 1; cb.vs = ball.vs; cb.vu = ball.vu; cb.vh = ball.vh;
     const R = ball.r + 6.5, M = this.maxExt, obs = this.obs, t = this.time;
     for (let i = this._lb(obs, ball.s - R - M); i < obs.length; i++) {
@@ -434,6 +468,7 @@ export class Obstacles {
       if (!ob.alive || Math.abs(ball.s - ob.s) > ob.ext + R) continue;
       KIND[ob.kind].hit.call(this, ob, cb, events, t);
     }
+    this._collideDyn(cb, events);
     const mag = ball.magnet || 0, pk = this.picks, rr = ball.r + 1.3 + mag;
     for (let i = this._lb(pk, ball.s - rr); i < pk.length; i++) {
       const k = pk[i];
@@ -538,6 +573,11 @@ export class Obstacles {
     k = 0;
     while (k < pk.length && pk[k].s < sBehind) { const p = pk[k++]; if (p.alive) this._release(p.pool, p.idx); }
     if (k) pk.splice(0, k);
+    const rl = this.rowsLog;
+    k = 0;
+    while (k < rl.length && rl[k].s + rl[k].ext < sBehind - 40) k++;
+    if (k) rl.splice(0, k);
+    for (let i = this.dyn.length - 1; i >= 0; i--) if (this.dyn[i].s < sBehind - 20) this._freeDyn(this.dyn[i]);
   }
 
   dispose() {
@@ -611,13 +651,20 @@ const DEFS = {
     this._part(ob, 'box', COL.wood, uc, 0.35, 0, 0, w, 0.1, 0.06); this._part(ob, 'box', COL.wood, uc, 0.72, 0, 0, w, 0.1, 0.06);
   } },
   snowcat: { shape: 'box', tough: 5, color: COL.orange, ht: 2.6, hu: 1.05, ext: 12, train: true, build(ob) {
-    const L = ob.L, ns = Math.max(2, Math.round(L / SEG)), sl = L / ns;
+    const L = ob.L, ns = Math.max(2, Math.round(L / SEG)), sl = L / ns, ride = !!ob.ride;
     ob.hs = L / 2; ob.hu = 1.05;
+    if (ride) {   // flatbed tram car: flat roof you can ride after the ramp (see platformAt)
+      ob.H = 2.3; ob.rl = ob.rl || 9; ob.ht = ob.H; ob.cs = ob.s; ob.cu = ob.u;
+      const fr = this._frameOf(ob.s - L / 2 - ob.rl / 2);
+      this._part(ob, 'wedge', COL.wood2, ob.u, ob.H / 2, 0, 0, 2.0, ob.H, ob.rl, 0, 0, 0, fr);
+      this.platforms.push(ob);
+    }
     for (let k = 0; k < ns; k++) {
       const f = this._frameOf(ob.s - L / 2 + (k + 0.5) * sl);
-      this._part(ob, 'box', COL.orange, ob.u, 1.15, 0, 0, 2.0, 1.5, sl + 0.04, 0, 0, 0, f);
+      this._part(ob, 'box', COL.orange, ob.u, 1.15, 0, 0, 2.0, ride ? 2.3 : 1.5, sl + 0.04, 0, 0, 0, f);
       this._part(ob, 'box', COL.dark, ob.u - 0.95, 0.4, 0, 0, 0.6, 0.8, sl + 0.04, 0, 0, 0, f); this._part(ob, 'box', COL.dark, ob.u + 0.95, 0.4, 0, 0, 0.6, 0.8, sl + 0.04, 0, 0, 0, f);
-      if (k === 0) { this._part(ob, 'box', 0xbfe3ff, ob.u, 2.2, 0, 0, 1.7, 1.0, sl, 0, 0, 0, f); this._part(ob, 'box', 0xffd23a, ob.u, 2.85, 0, 0, 0.9, 0.18, 0.4, 0, 0, 0, f); }
+      if (ride) { this._part(ob, 'box', 0xbfe3ff, ob.u, 1.6, 0, 0, 2.06, 0.5, sl * 0.8, 0, 0, 0, f); this._part(ob, 'box', ob.glow || 0xffd23a, ob.u, 2.33, 0, 0, 1.9, 0.06, sl, 0, 0, 0, f); }
+      else if (k === 0) { this._part(ob, 'box', 0xbfe3ff, ob.u, 2.2, 0, 0, 1.7, 1.0, sl, 0, 0, 0, f); this._part(ob, 'box', 0xffd23a, ob.u, 2.85, 0, 0, 0.9, 0.18, 0.4, 0, 0, 0, f); }
       else this._part(ob, 'box', COL.rock, ob.u, 2.05, 0, 0, 1.6, 0.6, sl * 0.9, 0, 0, 0, f);
     }
   } },
@@ -648,7 +695,9 @@ KIND.static = {
     ob.cu = ob.u; ob.hc = ob.ht * 0.5;
   },
   hit(ob, ball, events) {
-    const d = ob.def, H = d.shape === 'cyl' ? this._cyl(ball, ob.s, ob.u, ob.rad, ob.ht)
+    const d = ob.def;
+    this._pass(ob, ball, events, ob.s, ob.u, d.shape === 'cyl' ? ob.rad : ob.hs, d.shape === 'cyl' ? ob.rad : ob.hu, ob.ht);
+    const H = d.shape === 'cyl' ? this._cyl(ball, ob.s, ob.u, ob.rad, ob.ht)
       : this._aabb(ball, ob.s - ob.hs, ob.s + ob.hs, ob.u - ob.hu, ob.u + ob.hu, 0, ob.ht);
     if (H && (H.ds !== 0 || H.du !== 0)) this._hit(ob, ball, events, H.ds, H.du);
   },
@@ -696,6 +745,7 @@ KIND.moving = {
   },
   hit(ob, ball, events) {
     if (ob.cs < -1e8) return;
+    this._pass(ob, ball, events, ob.cs, ob.cu, ob.type === 'skier' ? ob.rad : ob.hs, ob.type === 'skier' ? ob.rad : ob.hu, ob.ht);
     const H = ob.type === 'skier' ? this._cyl(ball, ob.cs, ob.cu, ob.rad, ob.ht)
       : this._aabb(ball, ob.cs - ob.hs, ob.cs + ob.hs, ob.cu - ob.hu, ob.cu + ob.hu, 0, ob.ht);
     if (H && (H.ds !== 0 || H.du !== 0)) this._hit(ob, ball, events, H.ds, H.du);
@@ -839,7 +889,8 @@ KIND.portal = {
 // ---------------------------------------------------------------------------
 const STATIC_W = [['snowman', 2.0, 0], ['sign', 1.4, 0], ['crate', 1.8, 0], ['sled', 1.0, 0.1], ['logpile', 1.0, 0.2], ['pine', 1.4, 0.1], ['rock', 1.0, 0.25], ['cabin', 0.5, 0.3]];
 const POWERS = ['magnet', 'x2', 'superjump', 'rocket', 'helmet'];
-const AIR_VH = 8.5, AIR_G = 28;
+const AIR_VH = 8.5;
+let AIR_G = 28;      // set from track.gravity() at the start of every spawn() (moon = low gravity -> longer arcs)
 const bit = (l) => 1 << l;
 
 function wpick(rng, items, w) {      // items weighted by w(item) (<=0 excluded)
@@ -871,7 +922,7 @@ Object.assign(Obstacles.prototype, {
 
   // ----- row patterns -----
   _rows(plan, sA, sB, dense, allowed) {
-    const { rng, diff, piece } = plan, T = this.track;
+    const { rng, diff, piece } = plan, T = this.track, hk = this.hk();
     const rows = plan.rows, persist = [], carry = this._carry;
     const amask = allowed.reduce((m, l) => m | bit(l), 0);
     let s = sA, prevRoute = allowed.indexOf(1) >= 0 ? 1 : allowed[0], lastRest = false;
@@ -883,7 +934,7 @@ Object.assign(Obstacles.prototype, {
     }
     const inAllowed = (l) => allowed.indexOf(l) >= 0;
     while (s < sB) {
-      const vs = T.speedAt(s);
+      const vs = T.speedAt(s), late = s * hk > 4000;       // late game: shorter rests + two mechanics at once
       let tm = 0;
       for (const p of persist) if (s >= p.s0 - 3 && s <= p.s1 + vs * 0.9) tm |= bit(p.lane);
       const free0 = allowed.filter((l) => !(tm & bit(l)));         // lanes not occupied by persistent blockers
@@ -892,7 +943,9 @@ Object.assign(Obstacles.prototype, {
       const open3 = free0.length === 3;
       const prevFree = rows.length ? rows[rows.length - 1].free : carry ? carry.free : 7;
       const F = T.features || {};
-      const pats = ['single', 'double', 'low', 'train', 'mover', 'rolling', 'beat', 'swing', 'ice', 'melt', 'conveyor', 'rail', 'rest'];
+      const pats = ['single', 'double', 'low', 'train', 'mover', 'rolling', 'beat', 'swing', 'ice', 'melt', 'conveyor', 'rail', 'oncoming', 'duck', 'slide', 'combo', 'rest'];
+      const nk0 = T._q && T._q[0], forcedNext = nk0 === 'narrow' || nk0 === 'split' || nk0 === 'hexHoles' || nk0 === 'gapRamp' || nk0 === 'gapJump' || nk0 === 'skiJump' || nk0 === 'chasm' || nk0 === 'iceBridge' || nk0 === 'zipline' || nk0 === 'loop' || nk0 === 'finish';
+      const adj = free0.length === 3 || (free0.length === 2 && Math.abs(free0[0] - free0[1]) === 1);
       const pat = wpick(rng, pats, (p) => {
         switch (p) {
           case 'single': return free0.length >= 2 ? 3 : 0;
@@ -906,8 +959,12 @@ Object.assign(Obstacles.prototype, {
           case 'ice': return diff >= 0.05 ? 0.5 : 0;
           case 'melt': return (piece.biome === 3 || piece.biome === 6) ? 1.6 : (diff >= 0.3 ? 0.12 : 0);
           case 'conveyor': return F.conveyor !== false && diff >= 0.15 ? 0.6 : 0;
-          case 'rail': return F.rail !== false && diff >= 0.2 && room > 30 ? 0.5 : 0;
-          case 'rest': return lastRest ? 0 : 0.35;
+          case 'rail': return T.allows('rail') && diff >= 0.2 && room > 30 ? 0.5 : 0;
+          case 'oncoming': return T.allows('oncoming') && diff >= 0.2 && room > 22 && !forcedNext && persist.length === 0 && free0.length >= 2 ? 1.8 + 1.6 * diff : 0;
+          case 'duck': return T.allows('duck') && diff >= 0.12 && room > 8 ? 1.5 + 0.8 * diff : 0;
+          case 'slide': return T.allows('slideWall') && diff >= 0.25 && room > 12 && adj ? 0.9 + 0.8 * diff : 0;
+          case 'combo': return late && T.allows('oncoming') && T.allows('slideWall') && room > 40 && !forcedNext && persist.length === 0 && open3 ? 3.2 : 0;
+          case 'rest': return lastRest ? 0 : (late ? 0.08 : 0.35);
           default: return 0;
         }
       });
@@ -951,9 +1008,17 @@ Object.assign(Obstacles.prototype, {
           const l = rng.chance(0.5) ? 0 : 2;
           const L = Math.min(rng.int(14, 22), Math.floor(room - 8));
           if (L < 10 || !(prevFree & ~bit(l) & amask)) { made = false; break; }
-          const type = rng.chance(0.6) ? 'snowcat' : 'longLogs';
-          this._static(plan, type, s + L / 2, LANES[l], { L, ext: L / 2 + 1.5 });
-          persist.push({ lane: l, s0: s, s1: s + L });
+          const type = rng.chance(0.6) ? 'snowcat' : 'longLogs', ride = type === 'snowcat' && diff >= 0.3 && rng.chance(0.4), rl = 9;
+          if (ride) {
+            if (s + rl + L > sB) { made = false; break; }
+            this._static(plan, type, s + rl + L / 2, LANES[l], { L, ride: true, rl, glow: this._pal(s).glow, ext: L / 2 + rl + 1.5 });
+            persist.push({ lane: l, s0: s, s1: s + rl + L });
+            const sp = this._sp(s);
+            for (let x = s + rl + 1.5; x < s + rl + L - 1; x += sp) this._pickup('flake', x, LANES[l], 3.2);   // roof coins
+          } else {
+            this._static(plan, type, s + L / 2, LANES[l], { L, ext: L / 2 + 1.5 });
+            persist.push({ lane: l, s0: s, s1: s + L });
+          }
           free = 7 & ~bit(l);
           ext = L + 1;      // route transitions begin after the train
           advanceExtra = 0;
@@ -967,7 +1032,7 @@ Object.assign(Obstacles.prototype, {
           if (!inAllowed(freeLane) || (tm & bit(freeLane))) { made = false; break; }
           const type = rng.chance(0.65) ? 'skier' : 'sled';
           const suits = [0x2f7de6, 0xe6492f, 0x35c46a, 0xe6b82f];
-          this._mk(plan, { kind: 'moving', type, s, u: LANES[pr[0]], ext: 1.8, laneA: pr[0], laneB: pr[1], per: diff > 0.6 ? 3 : 4, ph: rng.range(0, 1), suit: suits[rng.int(0, 3)] });
+          this._mk(plan, { kind: 'moving', type, s, u: LANES[pr[0]], ext: 1.8, laneA: pr[0], laneB: pr[1], per: Math.max(2.2, (diff > 0.6 ? 3 : 4) / hk), ph: rng.range(0, 1), suit: suits[rng.int(0, 3)] });
           free = bit(freeLane);
           ext = 1.8;
           break;
@@ -975,7 +1040,7 @@ Object.assign(Obstacles.prototype, {
         case 'rolling': {
           const l = free0[rng.int(0, free0.length - 1)], L = 28;
           if (s + L > piece.s1 - 3 || !(prevFree & ~bit(l) & amask)) { made = false; break; }
-          this._mk(plan, { kind: 'moving', type: 'rolling', s: s + L / 2, u: LANES[l], ext: L / 2 + 1.5, s0: s, L, per: 8, ph: rng.range(0, 1) });
+          this._mk(plan, { kind: 'moving', type: 'rolling', s: s + L / 2, u: LANES[l], ext: L / 2 + 1.5, s0: s, L, per: Math.max(4, 8 / hk), ph: rng.range(0, 1) });
           persist.push({ lane: l, s0: s, s1: s + L });
           free = 7 & ~bit(l);
           ext = 2;
@@ -986,13 +1051,13 @@ Object.assign(Obstacles.prototype, {
           const farLane = sigma < 0 ? 2 : 0;
           if (tm & bit(farLane) || !inAllowed(farLane)) { made = false; break; }
           const hw = Math.min(piece.hw, 3.8);
-          this._mk(plan, { kind: 'plow', s, u: sigma * (hw - 0.25), u0: sigma * (hw - 0.25), sigma, L: 4.4, per: diff > 0.7 ? 3 : 4, phi: rng.range(0, TAU), ext: 4.8 });
+          this._mk(plan, { kind: 'plow', s, u: sigma * (hw - 0.25), u0: sigma * (hw - 0.25), sigma, L: 4.4, per: Math.max(2.2, (diff > 0.7 ? 3 : 4) / hk), phi: rng.range(0, TAU), ext: 4.8 });
           free = bit(farLane);
           ext = 4.8;
           break;
         }
         case 'swing': {
-          this._mk(plan, { kind: 'swing', s, u: 0, hw: Math.min(piece.hw, 3.8), H: 4.2, Ls: 3.6, amp: 62 * PI / 180, per: diff > 0.6 ? 3 : 4, ext: 2.2 });
+          this._mk(plan, { kind: 'swing', s, u: 0, hw: Math.min(piece.hw, 3.8), H: 4.2, Ls: 3.6, amp: 62 * PI / 180, per: Math.max(2.2, (diff > 0.6 ? 3 : 4) / hk), ext: 2.2 });
           free = 7; ext = 2.2;
           break;
         }
@@ -1036,6 +1101,37 @@ Object.assign(Obstacles.prototype, {
           free = 7; ext = 3;
           break;
         }
+        case 'oncoming': {
+          const l = free0[rng.int(0, free0.length - 1)], sP = s + 42;
+          if (sP > sB + 20 || !(prevFree & ~bit(l) & amask)) { made = false; break; }
+          const vt = Math.min(12, rng.range(6, 10) * Math.sqrt(hk)), ride = diff >= 0.3 && rng.chance(0.45);
+          this._mk(plan, { kind: 'oncoming', s: sP, sP, u: LANES[l], lane: l, vt, ride, L: 12, ext: 74, glow: this._pal(sP).glow });
+          persist.push({ lane: l, s0: s, s1: sP + 8 });
+          free = 7 & ~bit(l); ext = 70;
+          break;
+        }
+        case 'duck': {
+          const lo = rng.int(0, 2), hi = rng.chance(0.4) ? 2 : rng.int(lo, 2), hb = rng.range(1.0, 1.6);
+          this._mk(plan, { kind: 'overhead', s, lo, hi, hb, u: (LANES[lo] + LANES[hi]) / 2, ext: 2.4, glow: this._pal(s).glow });
+          free = 7; ext = 1.5;
+          break;
+        }
+        case 'slide': {
+          const al = free0.length === 3 ? [0, 1, 2] : free0.slice();
+          this._mk(plan, { kind: 'slidewall', s, u: 0, pat: this._slidePattern(rng, al), per: diff < 0.45 / hk ? 2 : 1, ext: 2.6, glow: this._pal(s).glow });
+          free = 7; ext = 3;
+          break;
+        }
+        case 'combo': {
+          const l = rng.chance(0.5) ? 0 : 2, sP = s + 42, wS = sP + 16;
+          if (wS > sB + 20 || !(prevFree & ~bit(l) & amask)) { made = false; break; }
+          const al = [0, 1, 2].filter((x) => x !== l), vt = Math.min(12, rng.range(7, 11) * Math.sqrt(hk));
+          this._mk(plan, { kind: 'oncoming', s: sP, sP, u: LANES[l], lane: l, vt, ride: false, L: 12, ext: 74, glow: this._pal(sP).glow });
+          this._mk(plan, { kind: 'slidewall', s: wS, u: 0, pat: this._slidePattern(rng, al), per: 1, ext: 2.6, glow: this._pal(wS).glow });
+          persist.push({ lane: l, s0: s, s1: wS + 4 });
+          free = 7 & ~bit(l); ext = 70;
+          break;
+        }
         default: made = false;
       }
       lastRest = !made || pat === 'rest';
@@ -1047,8 +1143,9 @@ Object.assign(Obstacles.prototype, {
         for (const l of cand) { const d = Math.abs(l - prevRoute) + rng.next() * 0.3; if (d < bd) { bd = d; best = l; } }
         prevRoute = best;
         rows.push({ s, ext, free, jump, route: best, pat });
+        this.rowsLog.push({ s, ext: Math.max(ext, 2), free });
       }
-      const dt = Math.max(0.95, rng.range(1.0, 1.7) * (1 - 0.3 * diff));
+      const dt = Math.max(0.8, rng.range(1.0, 1.7) * (1 - 0.3 * diff) * (late ? 0.85 : 1) / Math.pow(hk, 0.8));
       s += vs * dt + (made ? Math.min(ext, 3) : 0) + advanceExtra;
     }
     if (rows.length) { const r = rows[rows.length - 1]; this._carry = { s: r.s, ext: r.ext, route: r.route, free: r.free, persist: persist.slice() }; }
@@ -1135,11 +1232,16 @@ Object.assign(Obstacles.prototype, {
 
   // ----- main entry -----
   spawn(piece, difficulty, biomeIndex) {
-    const T = this.track, rng = makeRng((Math.imul(piece.id + 1, 2654435761) ^ this.seed) >>> 0);
+    const T = this.track, rng = makeRng((Math.imul(piece.id + 1, 2654435761) ^ this.seed ^ (T.seed | 0)) >>> 0);
+    AIR_G = T.gravity ? T.gravity(piece.s0 + 10) : 28;
     const plan = { rng, piece, diff: clamp(difficulty ?? piece.diff ?? 0, 0, 1), biome: biomeIndex ?? piece.biome, rows: [], batch: [] };
     const n0 = this.picks.length;
     const kind = piece.kind, s0 = piece.s0, s1 = piece.s1;
-    if (kind === 'portal') {
+    if (kind === 'finish') {
+      this._mk(plan, { kind: 'finish', s: s0, u: 0, ext: 4 });
+    } else if (piece.noObs) {
+      // campaign run-out after the finish line: empty
+    } else if (kind === 'portal') {
       const pal = this._pal(s0 + 15);
       this._mk(plan, { kind: 'portal', s: s0 + 15, u: 0, ext: 3, glow: pal.glow, biome: piece.biome });
     } else {
@@ -1151,7 +1253,7 @@ Object.assign(Obstacles.prototype, {
           // every straight / curve / slalom piece after the first 150 m gets rows; before pieces that force a lane
           // (narrow / split / hexHoles) the rows stop early so the player has time to take the right lane
           const nk = T._q && T._q[0], forced = nk === 'narrow' || nk === 'split' || nk === 'hexHoles';
-          const rowEnd = s1 - (forced ? Math.max(14, 1.2 * T.speedAt(s1)) : 4);
+          const rowEnd = s1 - (forced ? Math.max(14, 1.2 * T.speedAt(s1)) : T.finishS === s1 ? 14 : 4);   // calm approach to the finish line
           const prev = T.pieces[T.pieces.length - 2], after = prev && (prev.kind === 'split' || prev.kind === 'hexHoles' || prev.kind === 'narrow');
           let rowStart = s0 + (after ? Math.max(8, 0.6 * T.speedAt(s0) + 4) : 5), padFlight = 0;
           // spring pad / jump pad (+ coin arc): rows resume after the landing
@@ -1245,6 +1347,17 @@ Object.assign(Obstacles.prototype, {
         const s = freeS(mid + 4);
         this._pickup('letter', s, LANES[offRoute(s)], 1.9, { letter: this.nextLetter, rad: 1.0 });
         this.next.letter = s + rng.range(450, 550);
+      }
+    }
+    // wind gusts / blizzard zones on plain pieces (not on cliff edges or narrow bridges)
+    if (!piece.noObs && kind !== 'finish' && (kind === 'straight' || kind === 'curve' || kind === 'slalom' || kind === 'waves')) {
+      const hk = this.hk(), len = piece.len;
+      if (T.allows('wind') && piece.curb && plan.diff >= 0.25 && len >= 36 && rng.chance(0.1 + 0.2 * plan.diff)) {
+        const l = Math.min(len - 6, rng.range(28, 44));
+        this._mk(plan, { kind: 'wind', s: s0 + len / 2, u: 0, len: l, ext: l / 2 + 1, dir: rng.sign(), strength: Math.min(5, rng.range(2.4, 3.8) * (0.8 + 0.25 * hk)), ph: rng.range(0, 6.28) });
+      } else if (T.allows('fog') && plan.diff >= 0.3 && len >= 40 && rng.chance(0.07 + 0.15 * plan.diff)) {
+        const l = Math.min(len - 4, rng.range(40, 70));
+        this._mk(plan, { kind: 'fog', s: s0 + len / 2, u: 0, len: l, ext: l / 2 + 8, maxD: rng.range(0.55, 0.9) });
       }
     }
     // register: obstacles and pickups sorted by s (pieces are generated in order)
@@ -1681,3 +1794,338 @@ Object.assign(Obstacles.prototype, {
     return { route: () => 0 };
   },
 });
+
+// ---------------------------------------------------------------------------
+// Difficulty mechanics: oncoming trains, overhead (duck) barriers, beat-sliding walls, wind gusts, fog zones,
+// yeti boulders, campaign finish; hardness; near / over skill events; rideable platforms (platformAt)
+// ---------------------------------------------------------------------------
+const bit6 = (l) => 1 << l;
+const ONC = { L: 12, SEG: 4, H: 2.3, RL: 9 };
+
+Object.assign(Obstacles.prototype, {
+  /** effective hardness: explicit setHardness(k), else track.hardness. Read at spawn time, so mid-run changes only touch new pieces. */
+  hk() { return this._hk != null ? this._hk : (this.track.hardness || 1); },
+  setHardness(k) { this._hk = clamp(+k || 1, 0.4, 3); },
+
+  /** 'near' (passed within r + 0.7 m laterally without a hit) and 'over' (passed above while airborne) skill events, once per obstacle */
+  _pass(ob, ball, events, cs, cu, hs, hu, ht) {
+    if (ob.passDone) return;
+    const ds = ball.s - cs, r = ball.r;
+    if (ds > -hs - r && ds < hs + r) {
+      const lat = Math.abs(ball.u - cu) - hu - r;
+      if (lat < ob.minLat) { ob.minLat = lat; ob.nearSide = ball.u >= cu ? 1 : -1; }
+      if (lat < 0 && ball.h - r > ht) ob.over = true;
+    } else if (ds >= hs + r) {
+      ob.passDone = true;
+      if (!ob.hitDone && ob.tough > 0) {
+        if (ob.over) { const e = ev(events, 'over'); e.toughness = ob.tough; e.s = cs; e.u = cu; }
+        else if (ob.minLat < 0.7) { const e = ev(events, 'near'); e.toughness = ob.tough; e.side = ob.nearSide; e.s = cs; e.u = cu; }
+      }
+    }
+  },
+
+  /**
+   * Rideable roofs: height of a platform (train roof / its ramp) at (s, u), or -Infinity.
+   * The runner should use max(track.surfaceAt(s, u), obstacles.platformAt(s, u)) as the ground height.
+   */
+  platformAt(s, u) {
+    let best = -Infinity;
+    const P = this.platforms;
+    for (let i = 0; i < P.length; i++) {
+      const ob = P[i];
+      if (!ob.alive) continue;
+      const cs = ob.cs !== undefined ? ob.cs : ob.s, cu = ob.cu !== undefined ? ob.cu : ob.u;
+      if (u < cu - 1.05 || u > cu + 1.05) continue;
+      const front = cs - ob.L / 2;
+      let h = -Infinity;
+      if (s >= front - ob.rl && s < front) h = (ob.H * (s - (front - ob.rl))) / ob.rl;
+      else if (s >= front && s <= front + ob.L) h = ob.H;
+      if (h > best) best = h;
+    }
+    return best;
+  },
+
+  /** forget everything (campaign level restart). Call together with track.setLevel(). */
+  reset() {
+    for (const ob of this.obs) this._freeOb(ob);
+    this.obs.length = 0;
+    for (const p of this.picks) if (p.alive) this._release(p.pool, p.idx);
+    this.picks.length = 0;
+    for (const b of this.dyn.slice()) this._freeDyn(b);
+    for (const d of this.deb) if (d.on) { d.on = false; this._release('box', d.idx); d.idx = -1; }
+    this.pending.length = 0; this.platforms.length = 0; this.rowsLog.length = 0; this.warnQ.length = 0; this.byId.clear();
+    this.maxExt = 4.6; this.gateChain = 0; this.nextBoulder = 1e9; this._bArmed = false;
+    this.next = { power: 260, crystal: 520, box: 340, letter: 300 };
+    this._carry = null;
+    this.rng = makeRng((this.seed ^ (this.track.seed | 0) ^ 0xa5a5a5a5) >>> 0);
+  },
+
+  // ----- boulders (yeti throws) -----
+  _forcedStretch(sA, sB) {
+    for (const p of this.track.pieces) {
+      if (p.s1 < sA || p.s0 > sB) continue;
+      const k = p.kind;
+      if (k === 'narrow' || k === 'split' || k === 'hexHoles' || k === 'iceBridge' || k === 'zipline' || k === 'gapRamp' || k === 'gapJump' || k === 'skiJump' || k === 'chasm' || k === 'loop' || k === 'finish') return true;
+    }
+    return false;
+  },
+  /** lanes a rolling boulder must not use: the only free lane of any row in the window */
+  _trapMask(sA, sB) {
+    let mask = 0;
+    for (const r of this.rowsLog) {
+      if (r.s + r.ext < sA || r.s - r.ext > sB) continue;
+      const f = r.free;
+      if (f === 0) mask |= 7; else if ((f & (f - 1)) === 0) mask |= f;
+    }
+    return mask;
+  },
+
+  /**
+   * Yeti boulder: arcs in from behind (1.5 s flight), lands in `lane` (0..2) at track distance `s`, then rolls downhill (toughness 5).
+   * A red shadow grows on the target 0.9 s before impact and a { type:'warn', kind:'boulder', lane, t } event is queued.
+   * Unless `force`, the lane is moved away from lanes that would trap the player. Returns the lane used, or -1.
+   */
+  throwBoulder(lane, s, force = false) {
+    let l = clamp(lane | 0, 0, 2);
+    if (!force) {
+      if (this._forcedStretch(s - 6, s + 100)) return -1;
+      const bad = this._trapMask(s - 8, s + 100);
+      if (bad & bit6(l)) {
+        const alt = [0, 1, 2].filter((x) => !(bad & bit6(x))).sort((a, b) => Math.abs(a - l) - Math.abs(b - l))[0];
+        if (alt === undefined) return -1;
+        l = alt;
+      }
+    }
+    const idx = this._alloc('ball');
+    if (idx < 0) return -1;
+    const dIdx = this._alloc('disc');
+    const sStart = this.lastS - 24;
+    const b = { id: this._id++, lane: l, u: LANES[l], sLand: s, t0: this.time, T: 1.5, sStart, phase: 0, s: sStart, h: 6, idx, dIdx, f: new Float64Array(12), fL: this._frameOf(s),
+      warned: false, hitDone: false, vr: Math.max(13, this.ballVs * 0.75), rot: 0, tRoll: 0 };
+    this._col('ball', idx, COL.rock, 1);
+    this._col('disc', dIdx, 0xff2a1a, 1);
+    this.dyn.push(b); this.dynById.set(b.id, b);
+    return l;
+  },
+  _freeDyn(b) {
+    this._release('ball', b.idx); if (b.dIdx >= 0) this._release('disc', b.dIdx);
+    b.idx = -1; b.dIdx = -1;
+    const i = this.dyn.indexOf(b); if (i >= 0) this.dyn.splice(i, 1);
+    this.dynById.delete(b.id);
+  },
+  _flushWarn(events) {
+    const q = this.warnQ;
+    while (q.length) { const e = ev(events, 'warn'); e.kind = q.shift(); e.lane = q.shift(); e.t = q.shift(); }
+  },
+  _updateDyn(dt, ball) {
+    const T = this.track, hk = this.hk();
+    // automatic throws: from ~1200 m (boss levels: from the start) at a rate that grows with hardness
+    const boss = T.level && T.level.boss, start = boss ? 150 : 1200 / Math.sqrt(hk);
+    if (T.allows('boulder') && ball.s >= start && !(T.finishS < Infinity && ball.s > T.finishS - 90)) {
+      if (!this._bArmed) { this._bArmed = true; this.nextBoulder = this.time + 5 + this.rng.next() * 6; }
+      else if (this.time >= this.nextBoulder) {
+        const rng = this.rng, vs = ball.vs || this.ballVs, sLand = ball.s + vs * 1.5 + 9, pl = clamp(Math.round(ball.u / LANE_W) + 1, 0, 2);
+        const got = this.throwBoulder(rng.chance(0.5) ? pl : rng.int(0, 2), sLand);
+        const diff = T._diff ? T._diff(ball.s) : 0.5;
+        this.nextBoulder = this.time + (got < 0 ? 1.2 : (boss ? rng.range(5, 9) : rng.range(16, 30) / (0.8 + 0.6 * diff)) / hk);
+      }
+    }
+    for (let i = this.dyn.length - 1; i >= 0; i--) {
+      const b = this.dyn[i], t = this.time - b.t0;
+      if (b.phase === 0) {
+        const x = t / b.T;
+        if (x >= 1) { b.phase = 1; b.tRoll = this.time; b.s = b.sLand; b.h = 0.95; if (b.dIdx >= 0) { this._release('disc', b.dIdx); b.dIdx = -1; } }
+        else {
+          b.s = b.sStart + (b.sLand - b.sStart) * x; b.h = 0.95 + 32 * x * (1 - x);
+          if (t >= b.T - 0.9) {
+            if (!b.warned) { b.warned = true; this.warnQ.push('boulder', b.lane, b.T - t); }
+            const k = (t - (b.T - 0.9)) / 0.9;
+            this._set('disc', b.dIdx, b.fL, b.u, 0.06, 0, 0, 0.8 + 2.6 * k, 1, 0.8 + 2.6 * k);
+          }
+        }
+      } else {
+        b.vr += 3 * dt; b.s += b.vr * dt; b.h = 0.95;
+        if (this.time - b.tRoll > 7 || b.s > this.lastS + 220) { this._freeDyn(b); continue; }
+      }
+      b.rot += dt * 7;
+      this._frameInto(b.s, b.f);
+      this._set('ball', b.idx, b.f, b.u, b.h, b.rot, 0, 1.9, 1.9, 1.9);
+    }
+  },
+  _collideDyn(cb, events) {
+    for (let i = 0; i < this.dyn.length; i++) {
+      const b = this.dyn[i];
+      if (b.hitDone || b.idx < 0) continue;
+      const ds = cb.s - b.s, du = cb.u - b.u, dh = cb.h - b.h, rad = cb.r + 0.92, d2 = ds * ds + du * du + dh * dh;
+      if (d2 >= rad * rad) continue;
+      b.hitDone = true;
+      const d = Math.sqrt(d2) || 1e-6, pen = rad - d, e = ev(events, 'hit');
+      e.toughness = 5; e.s = b.s; e.u = b.u; e.h = b.h; e.color = COL.rock; e.id = b.id;
+      e.ds = (ds / d) * pen; e.du = (du / d) * pen; e.headOn = e.ds < 0 && Math.abs(e.ds) >= 0.7 * Math.abs(e.du);
+    }
+  },
+
+  _slidePattern(rng, allowed) {
+    const n = rng.int(4, 8), pat = [];
+    let l = allowed[rng.int(0, allowed.length - 1)];
+    for (let i = 0; i < n; i++) {
+      pat.push(l);
+      if (rng.chance(0.65)) {
+        const opts = allowed.filter((x) => Math.abs(x - l) === 1);
+        if (opts.length) l = opts[rng.int(0, opts.length - 1)];
+      }
+    }
+    // cyclic: the wrap from the last step to the first must also be at most one lane
+    const f = pat[0], l2 = pat[pat.length - 1];
+    if (Math.abs(l2 - f) > 1) { const mid = allowed.filter((x) => Math.abs(x - f) <= 1 && Math.abs(x - l2) <= 1); if (mid.length) pat.push(mid[0]); else pat[pat.length - 1] = f; }
+    return pat;
+  },
+});
+
+// oncoming train: parked far ahead with glowing headlights, starts rolling uphill towards the player when the ball is
+// ~3.6 s from contact. warn { kind:'oncoming', lane, t } ~1.5 s before contact. ride: ramp + flat roof (platformAt)
+KIND.oncoming = {
+  build(ob) {
+    const L = ob.L, ns = Math.round(L / ONC.SEG), sl = L / ns, ride = !!ob.ride;
+    ob.tough = 5; ob.color = COL.orange; ob.hc = 1.2; ob.cs = ob.sP; ob.cu = ob.u; ob.state = 0; ob.warned = false;
+    ob.hs = L / 2; ob.hu = 1.05; ob.ht = ride ? ONC.H : 2.6; ob.ns = ns; ob.sl = sl;
+    ob.segF = []; for (let k = 0; k <= ns; k++) ob.segF.push(new Float64Array(12));
+    if (ride) { ob.H = ONC.H; ob.rl = ONC.RL; this.platforms.push(ob); this._part(ob, 'wedge', COL.wood2, ob.u, ONC.H / 2, 0, 0, 2.0, ONC.H, ONC.RL, 0, 0, 0, ob.segF[ns]); }
+    for (let k = 0; k < ns; k++) {
+      const f = ob.segF[k];
+      this._part(ob, 'box', ride ? 0x3a7de8 : COL.orange, ob.u, 1.15, 0, 0, 2.0, ride ? 2.3 : 1.5, sl + 0.04, 0, 0, 0, f);
+      this._part(ob, 'box', COL.dark, ob.u - 0.95, 0.4, 0, 0, 0.6, 0.8, sl + 0.04, 0, 0, 0, f); this._part(ob, 'box', COL.dark, ob.u + 0.95, 0.4, 0, 0, 0.6, 0.8, sl + 0.04, 0, 0, 0, f);
+      if (ride) this._part(ob, 'box', 0xbfe3ff, ob.u, 1.6, 0, 0, 2.06, 0.5, sl * 0.8, 0, 0, 0, f);
+      else if (k === 0) { this._part(ob, 'box', 0xbfe3ff, ob.u, 2.2, 0, 0, 1.7, 1.0, sl, 0, 0, 0, f); this._part(ob, 'box', 0xffd23a, ob.u, 2.85, 0, 0, 0.9, 0.18, 0.4, 0, 0, 0, f); }
+      else this._part(ob, 'box', COL.rock, ob.u, 2.05, 0, 0, 1.6, 0.6, sl * 0.9, 0, 0, 0, f);
+    }
+    // headlights (unlit, visible from far away) + translucent light cone ahead of the front (front = lower s = local +z)
+    const f0 = ob.segF[0];
+    for (const sg of [-1, 1]) this._part(ob, 'lamp', 0xfff2b0, ob.u + sg * 0.7, 0.95, 0, 0, 0.55, 0.55, 0.55, 0, 0, sl / 2 + 0.1, f0);
+    this._part(ob, 'ice', 0xfff0a0, ob.u, 0.8, 0, 0, 1.9, 0.9, 7, 0, 0, sl / 2 + 3.7, f0);
+  },
+  anim(ob) {
+    if (ob.state === 0 && this.lastS >= ob.sP - (this.ballVs + ob.vt) * 3.6) { ob.state = 1; ob.tStart = this.time; }
+    ob.cs = ob.state ? ob.sP - ob.vt * (this.time - ob.tStart) : ob.sP;
+    const front = ob.cs - ob.L / 2;
+    for (let k = 0; k < ob.ns; k++) this._frameInto(front + (k + 0.5) * ob.sl, ob.segF[k]);
+    this._frameInto(front - ONC.RL / 2, ob.segF[ob.ns]);
+    for (const p of ob.parts) if (p.idx >= 0) this._set(p.key, p.idx, p.f, p.u, p.h, p.yaw, p.roll, p.sx, p.sy, p.sz, p.ox, p.oy, p.oz);
+  },
+  hit(ob, ball, events) {
+    const front = ob.cs - ob.L / 2;
+    this._pass(ob, ball, events, ob.cs, ob.u, ob.L / 2, 1.05, ob.ht);
+    if (ob.state === 1 && !ob.warned) {
+      const gap = front - ball.s;
+      if (gap <= 0) ob.warned = true;
+      else {
+        const tc = gap / (ball.vs + ob.vt);
+        if (tc <= 1.5) { ob.warned = true; const e = ev(events, 'warn'); e.kind = 'oncoming'; e.lane = ob.lane; e.t = tc; }
+      }
+    }
+    const H = this._aabb(ball, front, ob.cs + ob.L / 2, ob.u - 1.05, ob.u + 1.05, 0, ob.ht);
+    if (H && (H.ds !== 0 || H.du !== 0)) this._hit(ob, ball, events, H.ds, H.du);
+  },
+};
+
+// overhead barrier (duck): beam bottom at hb across lanes lo..hi. Passed only with ball.duck, else 'hit' (toughness 5)
+KIND.overhead = {
+  build(ob) {
+    ob.tough = 5; ob.color = 0xffc21a; ob.hc = ob.hb + 0.2;
+    const u0 = LANES[ob.lo] - 1.25, u1 = LANES[ob.hi] + 1.25, uc = (u0 + u1) / 2;
+    ob.uMin = u0; ob.uMax = u1;
+    this._part(ob, 'box', COL.dark, u0 + 0.12, (ob.hb + 0.4) / 2, 0, 0, 0.24, ob.hb + 0.4, 0.3);
+    this._part(ob, 'box', COL.dark, u1 - 0.12, (ob.hb + 0.4) / 2, 0, 0, 0.24, ob.hb + 0.4, 0.3);
+    this._part(ob, 'plow', 0xffffff, uc, ob.hb + 0.2, 0, 0, u1 - u0, 0.4, 0.5);
+    // hanging flags make the height readable
+    for (let u = u0 + 0.7; u < u1 - 0.5; u += 1.4) this._part(ob, 'box', ob.glow, u, ob.hb - 0.1, 0, 0, 0.5, 0.2, 0.08);
+  },
+  hit(ob, ball, events) {
+    if (ob.hitDone || Math.abs(ball.s - ob.s) > 0.55 + ball.r * 0.4) return;
+    if (ball.u < ob.uMin - ball.r * 0.3 || ball.u > ob.uMax + ball.r * 0.3) return;
+    if (ball.duck || ball.h - ball.r > ob.hb + 0.45) return;     // ducking (or somehow above the beam) passes
+    this._hit(ob, ball, events, -0.6, 0);
+  },
+};
+
+// beat-sliding wall: a 3 m gap that moves one lane per step (pattern), eased in the first 40% of the step. Pure function of the beat
+KIND.slidewall = {
+  build(ob) {
+    ob.tough = 5; ob.color = 0xffc21a; ob.hc = 0.95; ob.gc = LANES[ob.pat[0]];
+    ob.pL = this._part(ob, 'plow', 0xffffff, -3, 0.95, 0, 0, 2, 1.9, 0.9);
+    ob.pR = this._part(ob, 'plow', 0xffffff, 3, 0.95, 0, 0, 2, 1.9, 0.9);
+  },
+  anim(ob, b) {
+    const n = ob.pat.length, x = b / ob.per, k = Math.floor(x), f = x - k;
+    const a = LANES[ob.pat[((k % n) + n) % n]], c = LANES[ob.pat[(((k + 1) % n) + n) % n]];
+    ob.gc = a + (c - a) * smooth(f / 0.4);
+    const gl = ob.gc - 1.5, gr = ob.gc + 1.5, LIM = 4.7;
+    const wl = Math.max(0, gl + LIM), wr = Math.max(0, LIM - gr);
+    this._repart(ob.pL, -LIM + wl / 2, 0.95, 0, 0, wl || 0.001, 1.9, 0.9);
+    this._repart(ob.pR, LIM - wr / 2, 0.95, 0, 0, wr || 0.001, 1.9, 0.9);
+  },
+  hit(ob, ball, events) {
+    if (ob.hitDone) return;
+    const gl = ob.gc - 1.5, gr = ob.gc + 1.5, LIM = 4.7;
+    for (const [u0, u1] of [[-LIM, gl], [gr, LIM]]) {
+      if (u1 - u0 <= 0.02) continue;
+      const H = this._aabb(ball, ob.s - 0.45, ob.s + 0.45, u0, u1, 0, 1.9);
+      if (H && (H.ds !== 0 || H.du !== 0)) { this._hit(ob, ball, events, H.ds, H.du); return; }
+    }
+  },
+};
+
+// wind gust zone: { type:'wind', du } (m/s sideways drift, gusting) while inside, with blowing snow streaks
+KIND.wind = {
+  build(ob) {
+    ob.tough = 0; ob.color = 0; ob.hc = 1;
+    const rng = this.rng, n = 22;
+    ob.streaks = [];
+    for (let i = 0; i < n; i++) {
+      const f = this._frameOf(ob.s - ob.len / 2 + rng.next() * ob.len);
+      const p = this._part(ob, 'box', 0xeaf6ff, 0, 0.4 + rng.next() * 2.8, 0, 0, 1.8 + rng.next() * 1.2, 0.035, 0.035, 0, 0, 0, f);
+      p.ph = rng.next() * 14; ob.streaks.push(p);
+    }
+  },
+  anim(ob) {
+    const t = this.time * 9;
+    for (const p of ob.streaks) {
+      const x = (((t + p.ph) % 14) + 14) % 14 - 7;
+      this._repart(p, ob.dir > 0 ? x : -x, p.h, 0, 0, p.sx, p.sy, p.sz);
+    }
+  },
+  hit(ob, ball, events) {
+    if (Math.abs(ball.s - ob.s) > ob.len / 2) return;
+    const gust = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(this.time * 1.9 + ob.ph)), e = ev(events, 'wind');
+    e.du = ob.dir * ob.strength * gust;
+  },
+};
+
+// fog / blizzard zone: { type:'fog', density 0..1 } while inside (ramps in and out over 12 m); drifting puffs beside / above the track
+KIND.fog = {
+  build(ob) {
+    ob.tough = 0; ob.color = 0; ob.hc = 3;
+    const rng = this.rng, n = 14;
+    for (let i = 0; i < n; i++) {
+      const f = this._frameOf(ob.s - ob.len / 2 + (i + rng.next()) * (ob.len / n)), sg = rng.chance(0.5) ? -1 : 1, sz = 4 + rng.next() * 3.5;
+      this._part(ob, 'puff', 0xf2f7ff, sg * (5.5 + rng.next() * 3), 2.2 + rng.next() * 3.5, 0, 0, sz * 1.5, sz * 0.8, sz, 0, 0, 0, f);
+    }
+  },
+  hit(ob, ball, events) {
+    const a = ob.s - ob.len / 2, b = ob.s + ob.len / 2;
+    if (ball.s < a || ball.s > b) return;
+    const d = Math.min(1, (ball.s - a) / 12, (b - ball.s) / 12), e = ev(events, 'fog');
+    e.density = ob.maxD * smooth(d);
+  },
+};
+
+// campaign finish line: { type:'finish' } once when the ball crosses it
+KIND.finish = {
+  build(ob) { ob.tough = 0; ob.color = 0; ob.hc = 0; ob.fired = false; },
+  hit(ob, ball, events) {
+    if (ob.fired || ball.s < ob.s) return;
+    ob.fired = true;
+    const e = ev(events, 'finish');
+    e.s = ob.s;
+  },
+};

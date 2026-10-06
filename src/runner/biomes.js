@@ -51,10 +51,14 @@ const CLOUD_BELOW = 9;    // clouds are kept at least this far below the surface
 const NSLOT = 12;         // flank mesh slots (one per live scenery chunk)
 const NSEC = CH / SP + 1; // cross-sections per chunk (both ends included)
 const NP = 11;            // vertices per flank cross-section (profile points)
+const CEIL_SEC = 16;       // quads across the arch per section
+const CEIL_ICI = 10;      // icicles per chunk
+const CEIL_B = [10.5, 10.6, 10.3, 9.8, 8.8, 7.4, 4.5, 0.0]; // ice cave arch: lateral distance beyond the track edge ...
+const CEIL_H = [0, 1.5, 5.0, 8.0, 10.0, 12.2, 13.6, 14.4, 14.8]; // ... and height above the higher track edge, per profile point (8 = crown)
 const WCOLS = 28;         // checkerboard bank wall: cells along a 50 m chunk (1.79 m each)
 const WROWS = 10;         // ... and rows down the slope (1.8 m of surface each)
 const WARC = 1.8;         // arc length of one wall row (m)
-const WMAXCH = 10;        // wall capacity in chunks
+const WMAXCH = 10;        // wall / ceiling capacity in chunks
 const MS = 6;             // floats of per-instance meta: x, z, footprint, bottom, top, offset above the terrain
 const OVL_R = 48;         // a path stretch passing within this plan distance of another (non-adjacent) one overlaps it
 const OVL_J = 80;         // ... searched this many samples either way (400 m)
@@ -92,7 +96,9 @@ function vnoise(x, y) {
   return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
 }
 
-const biomeIdx = (s) => (s > 0 ? Math.floor(s / BIOME_LENGTH) : 0);
+// Campaign levels are locked to one biome: setBiomeOverride(id) makes every s map to that biome (no portals).
+let OVR = -1, OVR_VER = 0;
+const biomeIdx = (s) => (OVR >= 0 ? OVR : s > 0 ? Math.floor(s / BIOME_LENGTH) : 0);
 
 // ---------------------------------------------------------------------------------------------
 // biome definitions (plain data; hex colours)
@@ -150,6 +156,23 @@ export const BIOMES = [
     },
   },
   {
+    id: 'kapadokya', name: 'Kapadokya', music: 'desert', depth: 56,
+    flank: { U: 72, e: 1.7, top: 0xe8b27a, mid: 0xd99468, rock: 0xb77a58, rockAmt: 0.5 },
+    sky: { top: 0x5b86d8, mid: 0xff9fa8, horizon: 0xffd9a8 },
+    fog: { color: 0xffcfa4, near: 70, far: 340 },
+    hemi: { sky: 0xffe6c8, ground: 0xd9a07a, intensity: 1.4 },
+    sun: { color: 0xffc890, intensity: 2.0, az: 2.3, el: 0.5 },
+    disc: { color: 0xffe4a8, size: 0.1, az: 0.25, el: 0.28, kind: 'sun' },
+    ground: [0xe9b98a, 0xd9a070, 0xf2cfa0],
+    track: { tileA: 0xc4704a, tileB: 0xa85a3a, edge: 0xffe9c8, rail: 0x7a4030, glow: 0xffb84a, under: 0x5a3020 },
+    clouds: 0xffd6c0, stars: 0, grid: 0, cloudAmt: 0.9,
+    pulse: { sky: 0.04, glow: 0, grid: 0, spark: 0.3, lava: 0 }, glowBase: 1,
+    particles: {
+      n: 140, size: 0.4, alpha: 0.6, add: false, twinkle: true,
+      groups: [{ f: 1, pal: [0xfff0d0, 0xffd8a0], v: [0.6, 0.3, 0.3], j: [0.8, 0.5, 0.8] }],
+    },
+  },
+  {
     id: 'town', name: 'Kasaba', music: 'town', depth: 48, flank: { U: 46, e: 1.9, top: 0x92d366, mid: 0x6bb04c, rock: 0xa89878, rockAmt: 0.4 },
     sky: { top: 0x4d9fee, mid: 0x98d2f6, horizon: 0xe2f2ff },
     fog: { color: 0xe0f0fb, near: 70, far: 330 },
@@ -182,6 +205,23 @@ export const BIOMES = [
     },
   },
   {
+    id: 'icecave', name: 'Buz Mağarası', music: 'volcano', depth: 50,
+    flank: { U: 55, e: 1.6, top: 0xbfeaff, mid: 0x4a9ad8, rock: 0x2a5ea0, rockAmt: 0.6, kind: 'ice' },
+    sky: { top: 0x061a3a, mid: 0x0d3a70, horizon: 0x1b5a9a },
+    fog: { color: 0x0a2a55, near: 20, far: 190 },
+    hemi: { sky: 0x8ac8ff, ground: 0x1a3a7a, intensity: 1.15 },
+    sun: { color: 0xbfe6ff, intensity: 1.3, az: 2.6, el: 0.9 },
+    disc: { color: 0xbfe6ff, size: 0.04, az: 0.3, el: 0.6, kind: 'sun' },
+    ground: [0x1a4a8a, 0x2a6ab0, 0x123a70],
+    track: { tileA: 0xcfeeff, tileB: 0x7cc4f0, edge: 0x1d6fd0, rail: 0x4aa8ff, glow: 0x7fe8ff, under: 0x1a3a6a },
+    clouds: 0x2a5a90, stars: 0, grid: 0, cloudAmt: 0.35,
+    pulse: { sky: 0.03, glow: 0.35, grid: 0, spark: 0.5, lava: 0 }, glowBase: 0.9,
+    particles: {
+      n: 220, size: 0.35, alpha: 0.9, add: true, twinkle: true,
+      groups: [{ f: 1, pal: [0x9ae8ff, 0xffffff, 0xb8c8ff], v: [0.2, -0.5, 0.2], j: [0.6, 0.4, 0.6] }],
+    },
+  },
+  {
     id: 'candy', name: 'Şeker Diyarı', music: 'candy', depth: 52, flank: { U: 100, e: 1.7, top: 0xfff0f8, mid: 0xff8fc4, rock: 0x8fe8c4, rockAmt: 0.8 },
     sky: { top: 0xb39cf5, mid: 0xf5b8e6, horizon: 0xfff0f7 },
     fog: { color: 0xfde6f2, near: 65, far: 330 },
@@ -198,6 +238,40 @@ export const BIOMES = [
     },
   },
   {
+    id: 'sakura', name: 'Sakura Vadisi', music: 'snow', depth: 52,
+    flank: { U: 70, e: 1.7, top: 0xf5b8d0, mid: 0xc87a98, rock: 0x9a6a7a, rockAmt: 0.4 },
+    sky: { top: 0xe6a6d8, mid: 0xffc6e0, horizon: 0xfff0f4 },
+    fog: { color: 0xffe4ee, near: 65, far: 330 },
+    hemi: { sky: 0xfff0f6, ground: 0xe8b0c8, intensity: 1.5 },
+    sun: { color: 0xfff2f0, intensity: 1.8, az: 2.5, el: 0.9 },
+    disc: { color: 0xfffaf0, size: 0.06, az: 0.3, el: 0.6, kind: 'sun' },
+    ground: [0xa8dc7a, 0xf2c0d6, 0x90cc68],
+    track: { tileA: 0x9a5a48, tileB: 0x7a4638, edge: 0xffe0ea, rail: 0xc03a4a, glow: 0xffb0c8, under: 0x4a2a28 },
+    clouds: 0xffeef6, stars: 0, grid: 0, cloudAmt: 1,
+    pulse: { sky: 0.04, glow: 0, grid: 0, spark: 0.6, lava: 0 }, glowBase: 1,
+    particles: {
+      n: 340, size: 0.6, alpha: 0.95, add: false, twinkle: false,
+      groups: [{ f: 1, pal: [0xffc0d8, 0xffa8c8, 0xffe0ec, 0xffd0e0], v: [1.3, -1.1, 0.6], j: [1.4, 0.6, 1.4] }],
+    },
+  },
+  {
+    id: 'istanbul', name: 'İstanbul Boğazı', music: 'desert', depth: 58,
+    flank: { U: 64, e: 1.7, top: 0xe0c8a0, mid: 0x9c8a6a, rock: 0x6a6a72, rockAmt: 0.5 },
+    sky: { top: 0x3a3a8a, mid: 0xe0608a, horizon: 0xffa860 },
+    fog: { color: 0xf09a78, near: 70, far: 340 },
+    hemi: { sky: 0xffc8a8, ground: 0x6a7aa8, intensity: 1.3 },
+    sun: { color: 0xff9a5a, intensity: 1.8, az: 2.4, el: 0.45 },
+    disc: { color: 0xffc070, size: 0.12, az: 0.2, el: 0.18, kind: 'sun' },
+    ground: [0x2a78b0, 0x3a90c8, 0x1e6498],
+    track: { tileA: 0xd8d2c8, tileB: 0xb8b0a4, edge: 0xe03a3a, rail: 0xf5f0e8, glow: 0xffd070, under: 0x6a5a58 },
+    clouds: 0xffb8a0, stars: 0, grid: 0, cloudAmt: 0.9,
+    pulse: { sky: 0.04, glow: 0, grid: 0, spark: 0.3, lava: 0 }, glowBase: 1,
+    particles: {
+      n: 120, size: 0.4, alpha: 0.7, add: true, twinkle: true,
+      groups: [{ f: 1, pal: [0xffd890, 0xffb070], v: [0.8, 0.3, 0.3], j: [1.0, 0.5, 1.0] }],
+    },
+  },
+  {
     id: 'neon', name: 'Neon Gece', music: 'neon', depth: 56, flank: { U: 90, e: 1.7, top: 0x00e5ff, mid: 0x1c0b4a, rock: 0x3d1a80, rockAmt: 0.8, kind: 'neon' },
     sky: { top: 0x04010e, mid: 0x1b0846, horizon: 0x6a1a9c },
     fog: { color: 0x6a1a9c, near: 50, far: 300 },
@@ -211,6 +285,40 @@ export const BIOMES = [
     particles: {
       n: 300, size: 0.42, alpha: 0.95, add: true, twinkle: true,
       groups: [{ f: 1, pal: [0x00f0ff, 0xff2bd6, 0xffffff, 0x8a5cff], v: [0, 0.7, 0], j: [0.8, 0.6, 0.8] }],
+    },
+  },
+  {
+    id: 'moon', name: 'Ay Yüzeyi', music: 'neon', depth: 56,
+    flank: { U: 80, e: 1.6, top: 0xb8b8c0, mid: 0x8a8a94, rock: 0x5a5a64, rockAmt: 0.8 },
+    sky: { top: 0x000003, mid: 0x01010a, horizon: 0x06061a },
+    fog: { color: 0x05050c, near: 120, far: 380 },
+    hemi: { sky: 0x9aa4c8, ground: 0x34343c, intensity: 0.9 },
+    sun: { color: 0xffffff, intensity: 2.3, az: 2.2, el: 0.5 },
+    disc: { color: 0xffffff, size: 0.12, az: 0.45, el: 0.42, kind: 'earth' },
+    ground: [0x8e8e98, 0x70707a, 0xa6a6b0],
+    track: { tileA: 0xdedee6, tileB: 0xb0b0bc, edge: 0xff7a1a, rail: 0x4a4a58, glow: 0x9ad8ff, under: 0x2a2a34 },
+    clouds: 0x1a1a22, stars: 1, grid: 0, cloudAmt: 0,
+    pulse: { sky: 0.02, glow: 0.2, grid: 0, spark: 0.3, lava: 0 }, glowBase: 1,
+    particles: {
+      n: 110, size: 0.35, alpha: 0.5, add: false, twinkle: false,
+      groups: [{ f: 1, pal: [0xb0b0b8, 0x909098], v: [0.3, 0.25, 0.2], j: [0.5, 0.4, 0.5] }],
+    },
+  },
+  {
+    id: 'pirate', name: 'Korsan Koyu', music: 'forest', depth: 54,
+    flank: { U: 70, e: 1.7, top: 0xf2dca0, mid: 0xc8a870, rock: 0x7a6a50, rockAmt: 0.5 },
+    sky: { top: 0x1aa0e8, mid: 0x70d8f4, horizon: 0xe8fbff },
+    fog: { color: 0xcdf2f8, near: 80, far: 350 },
+    hemi: { sky: 0xffffff, ground: 0x8ae0e0, intensity: 1.5 },
+    sun: { color: 0xfff4d0, intensity: 2.0, az: 2.5, el: 1.0 },
+    disc: { color: 0xfff0b0, size: 0.06, az: 0.3, el: 0.7, kind: 'sun' },
+    ground: [0x18c4c0, 0x20d8d0, 0x10a8b8],
+    track: { tileA: 0xa8723a, tileB: 0x8a5a2c, edge: 0xf0e0b0, rail: 0x4a2c18, glow: 0xffd24a, under: 0x3a2210 },
+    clouds: 0xffffff, stars: 0, grid: 0, cloudAmt: 1,
+    pulse: { sky: 0.04, glow: 0, grid: 0, spark: 0.4, lava: 0 }, glowBase: 1,
+    particles: {
+      n: 150, size: 0.5, alpha: 0.7, add: true, twinkle: true,
+      groups: [{ f: 1, pal: [0xffffff, 0xcff8ff], v: [0.8, 0.5, 0.4], j: [1.0, 0.7, 1.0] }],
     },
   },
   {
@@ -234,15 +342,51 @@ export const BIOMES = [
   },
 ];
 
+const TAGS = {
+  snow: 'Karlı zirvede ilk adım!', forest: 'Çam ormanında koşu!', greenhill: 'Yeşil tepelerde hız yap!',
+  kapadokya: 'Peri bacaları arasında!', town: 'Kasabanın çatıları üstünde!', desert: 'Kanyonun sıcağı sarıyor!',
+  icecave: 'Buz mağarası: yol kaygan!', candy: 'Şeker yağmuru başladı!', sakura: 'Kiraz çiçekleri yağıyor!',
+  istanbul: 'Boğaz\'da rüzgâr esiyor!', neon: 'Neon gecesi başlıyor!', moon: 'Ay\'da yerçekimi az!',
+  pirate: 'Korsan koyunda define peşinde!', volcano: 'Lavlar yükseliyor!',
+};
+const MODS = { moon: { gravity: 0.55 }, icecave: { grip: 0.6 }, istanbul: { wind: 0.3 } };
+for (const b of BIOMES) {
+  b.tagline = TAGS[b.id];
+  b.mods = Object.assign({ gravity: 1, grip: 1, fog: 0, wind: 0 }, MODS[b.id]);
+  if (b.id === 'snow') b.modsHard = Object.assign({}, b.mods, { fog: 0.3 }); // blizzard on the second lap and later
+  if (b.cloudAmt === undefined) b.cloudAmt = 1;
+}
+
+/**
+ * Lock the world to ONE biome (campaign levels): biomeAt / trackPalette / musicStyleAt / biomeMods / Environment all use it
+ * for every s, no portals. setBiomeOverride(null) restores the normal cycle. Accepts an id or a BIOMES index. Returns the
+ * active id or null. Call it before creating the Environment (a live one rebuilds itself on its next update).
+ */
+export function setBiomeOverride(idOrNull) {
+  let idx = -1;
+  if (idOrNull !== null && idOrNull !== undefined) {
+    idx = typeof idOrNull === 'number' ? idOrNull : BIOMES.findIndex((b) => b.id === idOrNull);
+    if (!(idx >= 0 && idx < BIOMES.length)) { if (typeof console !== 'undefined') console.warn('setBiomeOverride: unknown biome', idOrNull); idx = -1; }
+  }
+  if (idx !== OVR) { OVR = idx; OVR_VER++; }
+  return OVR >= 0 ? BIOMES[OVR].id : null;
+}
+export function getBiomeOverride() { return OVR >= 0 ? BIOMES[OVR].id : null; }
+
 export function biomeAt(s, out) {
   const index = biomeIdx(s);
   const n = BIOMES.length;
   const r = out || {};
   r.biome = BIOMES[index % n];
   r.index = index;
-  r.t = clamp((s - index * BIOME_LENGTH) / BIOME_LENGTH, 0, 1);
-  r.next = BIOMES[(index + 1) % n];
+  r.t = OVR >= 0 ? clamp(((s > 0 ? s : 0) % BIOME_LENGTH) / BIOME_LENGTH, 0, 1) : clamp((s - index * BIOME_LENGTH) / BIOME_LENGTH, 0, 1);
+  r.next = OVR >= 0 ? r.biome : BIOMES[(index + 1) % n];
   return r;
+}
+/** Gameplay modifiers { gravity, grip, fog, wind } at s (steps at the portal, no blending). Same object every call. */
+export function biomeMods(s) {
+  const index = biomeIdx(s), n = BIOMES.length, b = BIOMES[index % n];
+  return b.modsHard && index >= n ? b.modsHard : b.mods;
 }
 export function trackPalette(s) { return BIOMES[biomeIdx(s) % BIOMES.length].track; }
 export function musicStyleAt(s) { return BIOMES[biomeIdx(s) % BIOMES.length].music; }
@@ -263,6 +407,18 @@ const P = {
   ghSun: [0xffffff, 0xfff4c0, 0xfffbe0],
   ghEarth: [0xffffff, 0xfff0e0, 0xf3dcc4],
   ghWater: [0x2fb4ff, 0x4cc4ff],
+  ochre: [0xffffff, 0xffe6cc, 0xffd8b0, 0xf6cfa8],
+  ochreHill: [0xe8b88a, 0xd9a070, 0xf0c898],
+  balloon: [0xffffff, 0xffe0e0, 0xe0f0ff, 0xe8ffe0, 0xfff0c0],
+  iceGlow: [0x7fe8ff, 0x9ad0ff, 0xb8a8ff, 0xa0f0ff],
+  iceHill: [0xbfe4ff, 0x9ad0f5, 0xd0ecff],
+  iceRock: [0xa8d4f2, 0x8ec0e8, 0xc4e4ff],
+  sakTree: [0xffffff, 0xffe6f0, 0xffd0e4, 0xfff2f8],
+  sakHill: [0xf5b8d0, 0xb8e08a, 0xf2c8dc, 0xa8d878],
+  cypress: [0x4a7a46, 0x3a6a3a, 0x5a8a50],
+  moonRock: [0xb0b0b8, 0x909098, 0xc8c8d0, 0xa0a0aa],
+  moonHill: [0x9a9aa4, 0x84848e, 0xb0b0ba],
+  sandIsle: [0xf2dca0, 0xe8cc88, 0xf6e6b4],
   treeTint: [0xffffff, 0xe6ffd6, 0xd2f0b8, 0xffe9a8, 0xffd0a0, 0xd8ffc8],
   rockGrey: [0xa8aab2, 0x8e9098, 0xb6b2a8],
   hutWall: [0xfff1d6, 0xffd2d2, 0xd2f0d8, 0xd2e6ff, 0xfff2a8, 0xffc9a0, 0xe3d2ff],
@@ -673,6 +829,252 @@ BUILD.waterfall = () => {
   return g;
 };
 
+BUILD.chimney = () => { // fairy chimney: tuff cone, dark cap stone, cave windows
+  const m = new Mesher();
+  const body = CYL(0.34, 1.0, 4.2, 9, 4);
+  body.translate(0, 2.1, 0);
+  jit(body, 0.08, 31, true);
+  m.add(body, (nx, ny, nz, cx, cy, cz) => {
+    const h = ihash(Math.round(cx * 9), Math.round(cy * 5), Math.round(cz * 9));
+    const k = 0.8 + 0.2 * clamp(cy / 4.2, 0, 1) + (h - 0.5) * 0.1;
+    return [0.87 * k, 0.58 * k, 0.35 * k];
+  });
+  m.add(jit(ICO(0.72, 1), 0.1, 32), (nx, ny) => gray(0.1 + 0.07 * clamp(ny + 0.5, 0, 1.5)), { y: 4.45, sy: 0.6 });
+  for (const [y, x] of [[0.9, 0.25], [1.8, -0.2], [2.7, 0.08]]) m.add(BOX(0.18, 0.3, 0.1), 0x3a2a24, { x, y, z: (1 - (0.66 * y) / 4.2) * 0.96 });
+  m.add(BOX(0.34, 0.5, 0.1), 0x2a1c18, { y: 0.3, z: 0.97 });
+  return m.build();
+};
+
+BUILD.balloon = () => { // hot-air balloon: striped envelope, basket, ropes
+  const m = new Mesher();
+  const g = new THREE.SphereGeometry(1.6, 12, 8);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getY(i);
+    if (y < -0.4) { const f = 1 - 0.7 * smooth(-0.4, -1.6, y); p.setX(i, p.getX(i) * f); p.setZ(i, p.getZ(i) * f); }
+  }
+  g.scale(1, 1.2, 1);
+  g.translate(0, 3.5, 0);
+  const cols = [0xe8362f, 0xffc21a, 0x2f7de1, 0x2fb96a, 0xff8a2a, 0xf4f4f4];
+  m.add(g, (nx, ny, nz, cx, cy, cz) => cols[Math.floor((Math.atan2(cz, cx) + Math.PI) / (Math.PI / 6)) % 6]);
+  m.add(BOX(0.7, 0.5, 0.7), 0x8a5a2c, { y: 0.45 });
+  m.add(BOX(0.8, 0.1, 0.8), 0x6a4020, { y: 0.74 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) m.add(BOX(0.04, 0.9, 0.04), 0x3a2a20, { x: sx * 0.3, y: 1.2, z: sz * 0.3 });
+  return m.build();
+};
+
+BUILD.crystal = () => { // glowing ice crystal cluster (unlit)
+  const m = new Mesher();
+  const sp = [[0, 0, 1.0, 0.32, 0], [0.5, 0.2, 0.65, 0.22, 0.35], [-0.45, 0.1, 0.75, 0.24, -0.3], [0.1, -0.5, 0.55, 0.2, 0.2]];
+  for (const [x, z, h, r, tilt] of sp) {
+    const g = CYL(0.04, r, 2.2 * h, 6, 1);
+    g.translate(0, 1.1 * h, 0);
+    m.add(g, (px, py) => gray(0.35 + 0.9 * clamp(py / (2.2 * h), 0, 1)), { v: true, x, z, rz: tilt });
+  }
+  return m.build();
+};
+
+BUILD.sakuratree = () => {
+  const m = new Mesher();
+  m.add(CYL(0.25, 0.42, 2.8, 6), 0x5a3a2a, { y: 1.4 });
+  m.add(BOX(0.18, 1.3, 0.18), 0x5a3a2a, { x: 0.5, y: 3.0, rz: -0.6 });
+  m.add(BOX(0.18, 1.2, 0.18), 0x5a3a2a, { x: -0.45, y: 2.9, rz: 0.6 });
+  const petal = (nx, ny, nz, cx, cy, cz) => {
+    const h = ihash(Math.round(cx * 40), Math.round(cy * 40), Math.round(cz * 40));
+    const k = 0.82 + 0.18 * clamp(ny * 0.7 + 0.4, 0, 1) + (h - 0.5) * 0.08;
+    return [1.0 * k, 0.55 * k, 0.72 * k];
+  };
+  m.add(jit(ICO(1, 1), 0.12, 41), petal, { y: 4.0, sx: 2.5, sy: 1.4, sz: 2.5 });
+  m.add(jit(ICO(1, 0), 0.1, 42), petal, { x: 1.5, y: 3.3, z: 0.5, s: 1.3, sy: 0.8 });
+  m.add(jit(ICO(1, 0), 0.1, 43), petal, { x: -1.4, y: 3.4, z: -0.6, s: 1.4, sy: 0.8 });
+  m.add(jit(ICO(1, 0), 0.1, 44), petal, { x: 0.1, y: 4.9, z: 0.2, s: 1.3, sy: 0.8 });
+  return m.build();
+};
+
+BUILD.rbridge = () => { // little red arched footbridge, span along Z
+  const m = new Mesher();
+  const N = 8;
+  for (let i = 0; i < N; i++) {
+    const t = (i + 0.5) / N, z = -4 + 8 * t, y = 0.25 + 1.7 * Math.sin(Math.PI * t);
+    const dy = 1.7 * Math.PI * Math.cos(Math.PI * t) / N;
+    const ang = Math.atan2(dy, 1.0);
+    m.add(BOX(1.7, 0.22, 1.12), 0xc8322e, { y, z, rx: -ang });
+    for (const sx of [-1, 1]) m.add(BOX(0.1, 0.5, 1.1), 0xa82824, { x: sx * 0.8, y: y + 0.38, z, rx: -ang });
+  }
+  for (const sz of [-1, 1]) for (const sx of [-1, 1]) m.add(BOX(0.2, 0.8, 0.2), 0x7a2a22, { x: sx * 0.85, y: 0.4, z: sz * 4 });
+  return m.build();
+};
+
+BUILD.pavilion = () => { // tiered pavilion (no symbols)
+  const m = new Mesher();
+  m.add(BOX(5, 0.5, 5), 0xd8d0c0, { y: 0.25 });
+  m.add(BOX(3.6, 1.6, 3.6), 0xf0e4cc, { y: 1.3 });
+  m.add(new THREE.ConeGeometry(3.4, 1.0, 4, 1, true).rotateY(Math.PI / 4), 0x8a2a2a, { y: 2.6 });
+  m.add(BOX(2.8, 1.3, 2.8), 0xf0e4cc, { y: 3.4 });
+  m.add(new THREE.ConeGeometry(2.6, 0.9, 4, 1, true).rotateY(Math.PI / 4), 0x8a2a2a, { y: 4.5 });
+  m.add(BOX(1.9, 1.1, 1.9), 0xf0e4cc, { y: 5.15 });
+  m.add(new THREE.ConeGeometry(1.9, 0.9, 4, 1, true).rotateY(Math.PI / 4), 0x8a2a2a, { y: 6.1 });
+  m.add(CYL(0.05, 0.1, 0.8, 5), 0xe8b84a, { y: 6.9 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) m.add(BOX(0.22, 1.6, 0.22), 0xb02a28, { x: sx * 1.7, y: 1.3, z: sz * 1.7 });
+  return m.build();
+};
+
+BUILD.ferry = () => { // Bosphorus ferry, bow along +Z
+  const m = new Mesher();
+  m.add(BOX(1.6, 0.7, 5), 0x24344e, { y: 0.35 });
+  m.add(BOX(1.64, 0.14, 5.04), 0xc8302a, { y: 0.74 });
+  m.add(BOX(1.3, 0.7, 3.6), 0xf4f4f4, { y: 1.15 });
+  m.add(BOX(1.34, 0.2, 3.2), 0x6a8aa8, { y: 1.2 });
+  m.add(BOX(1.0, 0.5, 2.2), 0xf4f4f4, { y: 1.75, z: -0.2 });
+  m.add(CYL(0.2, 0.22, 0.7, 6), 0xc8302a, { y: 2.3, z: -0.5 });
+  m.add(CYL(0.21, 0.21, 0.12, 6), 0x1a1a1a, { y: 2.68, z: -0.5 });
+  m.add(new THREE.ConeGeometry(0.8, 1.0, 4).rotateY(Math.PI / 4).rotateX(Math.PI / 2), 0x24344e, { y: 0.35, z: 3.0, sy: 0.7 });
+  return m.build();
+};
+
+BUILD.gull = () => {
+  const m = new Mesher();
+  m.add(ICO(0.16, 0), 0xf2f2f2, { sz: 1.9, sy: 0.8 });
+  for (const sg of [-1, 1]) m.add(BOX(0.95, 0.03, 0.26), (nx, ny) => gray(ny > 0 ? 0.95 : 0.8), { x: sg * 0.5, y: 0.05, rz: sg * -0.28 });
+  m.add(BOX(0.1, 0.1, 0.14), 0xe8a020, { z: 0.34, y: 0 });
+  return m.build();
+};
+
+BUILD.galata = () => { // Galata Tower
+  const m = new Mesher();
+  m.add(CYL(1.0, 1.15, 5, 12, 2), (nx, ny, nz, cx, cy) => (Math.floor(cy * 2.4) % 2 ? 0xcdb48a : 0xc4aa80), { y: 2.5 });
+  m.add(CYL(1.35, 1.35, 0.25, 12), 0xb09a74, { y: 5.0 });
+  m.add(CYL(0.95, 0.95, 1.2, 12), 0xcdb48a, { y: 5.7 });
+  m.add(new THREE.ConeGeometry(1.15, 1.5, 12), 0x5a6a72, { y: 7.05 });
+  m.add(CYL(0.04, 0.06, 0.7, 5), 0x8a8a8a, { y: 8.1 });
+  for (const a of [0, 1.6, 3.1, 4.7]) m.add(BOX(0.16, 0.45, 0.1), 0x2a2420, { x: Math.sin(a) * 0.98, z: Math.cos(a) * 0.98, y: 5.7, ry: a });
+  for (const y of [1.6, 3.0, 4.2]) m.add(BOX(0.16, 0.4, 0.1), 0x2a2420, { y, z: 1.05 - y * 0.03 });
+  return m.build();
+};
+
+BUILD.kiz = () => { // Maiden's Tower on its islet
+  const m = new Mesher();
+  m.add(CYL(1.5, 1.8, 0.5, 10), 0x8a8478, { y: 0.1 });
+  m.add(CYL(0.62, 0.72, 2.2, 10), 0xeae6dc, { y: 1.6 });
+  m.add(CYL(0.85, 0.85, 0.18, 10), 0xd8d0c0, { y: 2.75 });
+  m.add(CYL(0.55, 0.58, 0.8, 10), 0xeae6dc, { y: 3.25 });
+  m.add(ICO(0.6, 1), 0xf4f0e8, { y: 3.65, sy: 0.8, minY: 3.6 });
+  m.add(new THREE.ConeGeometry(0.28, 0.5, 8), 0xb83a30, { y: 4.4 });
+  m.add(CYL(0.28, 0.28, 0.3, 8), 0xf2e8b0, { y: 4.05 });
+  return m.build();
+};
+
+BUILD.stall = () => { // street cart with a striped umbrella
+  const m = new Mesher();
+  m.add(BOX(1.1, 0.55, 0.7), 0xc23a2a, { y: 0.75 });
+  m.add(BOX(1.14, 0.1, 0.74), 0xe8d8b0, { y: 1.07 });
+  for (const sx of [-1, 1]) m.add(CYL(0.28, 0.28, 0.1, 8), 0x2a2a2a, { x: sx * 0.58, y: 0.3, rz: Math.PI / 2 });
+  m.add(CYL(0.03, 0.03, 1.6, 4), 0x6a5a48, { y: 1.8, x: 0.3 });
+  m.add(new THREE.ConeGeometry(0.95, 0.45, 8), (nx, ny, nz, cx, cy, cz) => (Math.floor((Math.atan2(cz, cx - 0.3) + Math.PI) / (Math.PI / 4)) % 2 ? 0xf4f4f4 : 0xe03a3a), { y: 2.6, x: 0.3 });
+  return m.build();
+};
+
+BUILD.susp = () => { // suspension bridge across the strait (half length 95 m), deck along Z
+  const m = new Mesher();
+  const L = 95, red = 0xb23a30, steel = 0x8a8f98;
+  m.add(BOX(14, 1.6, 2 * L), 0x5a5f68, { y: 20 });
+  for (const z of [-48, 48]) {
+    for (const x of [-5.5, 5.5]) m.add(BOX(2.2, 42, 2.6), red, { x, y: 21, z });
+    m.add(BOX(13, 1.8, 2.2), red, { y: 33, z });
+    m.add(BOX(13, 1.8, 2.2), red, { y: 40, z });
+  }
+  const cab = (z0, y0, z1, y1, x) => {
+    const dz = z1 - z0, dy = y1 - y0, len = Math.hypot(dz, dy);
+    m.add(BOX(0.45, 0.45, len + 0.2), steel, { x, y: (y0 + y1) / 2, z: (z0 + z1) / 2, rx: -Math.atan2(dy, dz) });
+  };
+  const mainY = (z) => 24 + 18 * (z / 48) * (z / 48);
+  for (const x of [-5.5, 5.5]) {
+    for (let i = 0; i < 8; i++) { const z0 = -48 + i * 12, z1 = z0 + 12; cab(z0, mainY(z0), z1, mainY(z1), x); }
+    for (const sg of [-1, 1]) for (let i = 0; i < 3; i++) {
+      const za = sg * (48 + i * 15.7), zb = sg * (48 + (i + 1) * 15.7);
+      const ya = 42 - (21 * i) / 3, yb = 42 - (21 * (i + 1)) / 3;
+      cab(za, ya, zb, yb, x);
+    }
+    for (let z = -40; z <= 40; z += 10) { const h = mainY(z) - 20.8; if (h > 0.6) m.add(BOX(0.14, h, 0.14), steel, { x, y: 20.8 + h / 2, z }); }
+  }
+  return m.build();
+};
+
+BUILD.crater = () => {
+  const m = new Mesher();
+  m.add(new THREE.CircleGeometry(0.92, 14).rotateX(-Math.PI / 2), gray(0.5), { y: 0.05 });
+  m.add(new THREE.TorusGeometry(1.0, 0.16, 4, 14).rotateX(Math.PI / 2), gray(1.1), { y: 0.1 });
+  return m.build();
+};
+
+BUILD.dome = () => { // habitat dome
+  const m = new Mesher();
+  m.add(ICO(1, 1), (nx, ny) => gray(0.7 + 0.28 * clamp(ny, 0, 1)), { minY: -0.02 });
+  m.add(CYL(1.12, 1.12, 0.18, 14), gray(0.5), { y: 0.09 });
+  m.add(BOX(0.5, 0.75, 0.3), 0x2a3a58, { z: 0.92, y: 0.38 });
+  for (const sx of [-1, 1]) m.add(BOX(0.3, 0.22, 0.08), 0x2a4a78, { x: sx * 0.52, y: 0.62, z: 0.78, ry: sx * 0.6 });
+  m.add(CYL(0.03, 0.03, 0.7, 4), gray(0.8), { y: 1.2 });
+  return m.build();
+};
+
+BUILD.flag = () => { // plain orange survey flag
+  const m = new Mesher();
+  m.add(CYL(0.05, 0.05, 3.2, 5), gray(0.8), { y: 1.6 });
+  m.add(BOX(1.1, 0.7, 0.04), 0xff7a1a, { x: 0.57, y: 2.8 });
+  m.add(BOX(0.34, 0.34, 0.05), 0xffffff, { x: 0.35, y: 2.8 });
+  m.add(CYL(0.4, 0.5, 0.15, 8), gray(0.5), { y: 0.07 });
+  return m.build();
+};
+
+BUILD.rover = () => {
+  const m = new Mesher();
+  m.add(BOX(1.4, 0.4, 2.2), 0xe8e8ee, { y: 0.9 });
+  m.add(BOX(1.9, 0.05, 1.1), 0x203a78, { y: 1.35, z: -0.2, rx: -0.15 });
+  m.add(CYL(0.04, 0.04, 0.8, 4), gray(0.7), { y: 1.5, z: 0.8 });
+  m.add(ICO(0.14, 0), gray(0.9), { y: 1.95, z: 0.8 });
+  for (const sx of [-1, 1]) for (const z of [-0.9, 0, 0.9]) m.add(CYL(0.32, 0.32, 0.25, 8), gray(0.12), { x: sx * 0.85, y: 0.34, z, rz: Math.PI / 2 });
+  return m.build();
+};
+
+BUILD.ship = () => { // pirate ship, bow +Z
+  const m = new Mesher();
+  const wood = 0x6a4020, wood2 = 0x4a2c16, sail = 0xf2e8c8;
+  m.add(BOX(2.4, 1.1, 6), wood, { y: 0.55 });
+  m.add(BOX(2.44, 0.12, 6.04), wood2, { y: 1.1 });
+  m.add(BOX(2.4, 0.9, 1.8), wood, { y: 1.55, z: -2.1 });
+  m.add(new THREE.ConeGeometry(1.2, 2.2, 4).rotateY(Math.PI / 4).rotateX(Math.PI / 2), wood, { y: 0.55, z: 4.0, sy: 0.9 });
+  m.add(CYL(0.1, 0.13, 6.2, 6), wood2, { y: 4.0, z: 0.8 });
+  m.add(CYL(0.09, 0.12, 4.6, 6), wood2, { y: 3.4, z: -1.7 });
+  m.add(BOX(3.2, 0.1, 0.1), wood2, { y: 6.2, z: 0.8 });
+  m.add(BOX(2.8, 0.1, 0.1), wood2, { y: 5.2, z: 0.8 });
+  m.add(BOX(2.9, 2.6, 0.06), sail, { y: 3.9, z: 0.95 });
+  m.add(BOX(2.4, 1.9, 0.06), sail, { y: 3.9, z: -1.55 });
+  m.add(BOX(0.9, 0.55, 0.04), 0x1a1a1a, { x: 0.5, y: 6.4, z: -1.7 });
+  m.add(CYL(0.04, 0.04, 1.6, 4), wood2, { y: 4.2, z: 4.2, rx: 0.5 });
+  return m.build();
+};
+
+BUILD.chest = () => {
+  const m = new Mesher();
+  m.add(BOX(1.2, 0.6, 0.8), 0x7a4a24, { y: 0.3 });
+  m.add(CYL(0.4, 0.4, 1.2, 8), 0x8a5a2c, { y: 0.6, rz: Math.PI / 2 });
+  for (const sx of [-1, 1]) m.add(BOX(0.12, 0.64, 0.84), 0xffc21a, { x: sx * 0.38, y: 0.32 });
+  m.add(BOX(0.16, 0.22, 0.06), 0xffd84a, { y: 0.55, z: 0.42 });
+  m.add(ICO(0.2, 0), 0xffd21f, { x: 0.8, y: 0.12, z: 0.3 });
+  m.add(ICO(0.16, 0), 0xffc21a, { x: 0.95, y: 0.1, z: 0.05 });
+  return m.build();
+};
+
+BUILD.lighthouse = () => {
+  const m = new Mesher();
+  m.add(jit(ICO(1, 1), 0.15, 51), (nx, ny) => gray(0.4 + 0.25 * clamp(ny, 0, 1)), { y: 0.1, sx: 1.9, sy: 0.7, sz: 1.9, minY: -0.1 });
+  m.add(CYL(0.7, 1.1, 6, 10, 3), (nx, ny, nz, cx, cy) => (Math.floor(cy * 1.2) % 2 ? 0xf4f0e8 : 0xd8302a), { y: 3.0 });
+  m.add(CYL(1.05, 1.05, 0.2, 10), 0x3a3a42, { y: 6.1 });
+  m.add(CYL(0.55, 0.55, 0.8, 10), [2.4, 2.1, 1.3], { y: 6.6 });
+  m.add(new THREE.ConeGeometry(0.75, 0.7, 10), 0xd8302a, { y: 7.35 });
+  return m.build();
+};
+
 BUILD.cloud = () => {
   const m = new Mesher();
   const paint = (nx, ny) => (ny > 0.15 ? gray(1) : [0.86, 0.9, 0.98]);
@@ -729,6 +1131,25 @@ const TDEF = {
   sunflower: { make: BUILD.sunflower, cap: 220, sink: 0.1 },
   islet: { make: BUILD.islet, cap: 40 },
   waterfall: { make: BUILD.waterfall, cap: 16, water: true },
+  chimney: { make: BUILD.chimney, cap: 170, sink: 0.3 },
+  balloon: { make: BUILD.balloon, cap: 70 },
+  crystal: { make: BUILD.crystal, cap: 170, glow: true, sink: 0.1 },
+  sakuratree: { make: BUILD.sakuratree, cap: 220, sink: 0.4 },
+  rbridge: { make: BUILD.rbridge, cap: 20 },
+  pavilion: { make: BUILD.pavilion, cap: 24 },
+  ferry: { make: BUILD.ferry, cap: 40 },
+  gull: { make: BUILD.gull, cap: 90 },
+  galata: { make: BUILD.galata, cap: 14, sink: 0.5 },
+  kiz: { make: BUILD.kiz, cap: 14 },
+  stall: { make: BUILD.stall, cap: 60 },
+  susp: { make: BUILD.susp, cap: 6 },
+  crater: { make: BUILD.crater, cap: 130 },
+  dome: { make: BUILD.dome, cap: 24 },
+  flag: { make: BUILD.flag, cap: 40 },
+  rover: { make: BUILD.rover, cap: 24 },
+  ship: { make: BUILD.ship, cap: 20 },
+  chest: { make: BUILD.chest, cap: 40 },
+  lighthouse: { make: BUILD.lighthouse, cap: 8, sink: 0.3 },
   cane: { make: BUILD.cane, cap: 150, sink: 0.4 },
   lollipop: { make: BUILD.lollipop, cap: 120, sink: 0.4 },
   donut: { make: BUILD.donut, cap: 60 },
@@ -766,6 +1187,12 @@ const BIOME_TYPES = {
   town: ['road', 'hut', 'house', 'house_tall', 'shop', 'apartment', 'car', 'car_blue', 'roundtree', 'pineG', 'clocktower'],
   greenhill: ['hill', 'roundtree', 'palm', 'sunflower', 'islet', 'waterfall', 'pond'],
   desert: ['hill', 'mesa', 'cactus', 'camel', 'rock', 'palm', 'pond'],
+  kapadokya: ['hill', 'chimney', 'rock', 'balloon'],
+  icecave: ['hill', 'crystal', 'rock', 'pond'],
+  sakura: ['hill', 'sakuratree', 'pavilion', 'rbridge', 'pond', 'rock'],
+  istanbul: ['hut', 'stall', 'roundtree', 'galata', 'ferry', 'kiz', 'susp', 'gull', 'rock'],
+  moon: ['crater', 'hill', 'rock', 'dome', 'flag', 'rover'],
+  pirate: ['hill', 'palm', 'ship', 'lighthouse', 'chest', 'rock'],
   candy: ['hill', 'cane', 'lollipop', 'donut', 'icecream', 'pond'],
   neon: ['pillar', 'tower', 'pyramid', 'ring', 'peak'],
   volcano: ['volcano', 'hill', 'lava', 'rock', 'spire'],
@@ -816,6 +1243,31 @@ const retroSunTexture = () => canvasTex(256, 256, (g, w, h) => {
   g.fillRect(0, 0, w, h);
   g.globalCompositeOperation = 'destination-out';
   for (let i = 0; i < 7; i++) g.fillRect(cx - R, cy + R * 0.02 + i * R * 0.15, R * 2, 1.5 + i * 1.3);
+  g.restore();
+});
+const earthTexture = () => canvasTex(256, 256, (g, w, h) => {
+  const cx = w / 2, cy = h / 2, R = (w / 2) * DISC_F;
+  const halo = g.createRadialGradient(cx, cy, R * 0.95, cx, cy, w / 2);
+  halo.addColorStop(0, 'rgba(120,180,255,0.35)');
+  halo.addColorStop(1, 'rgba(120,180,255,0)');
+  g.fillStyle = halo;
+  g.fillRect(0, 0, w, h);
+  g.save();
+  g.beginPath();
+  g.arc(cx, cy, R, 0, Math.PI * 2);
+  g.clip();
+  g.fillStyle = '#2a6ad8';
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = '#3aa85a';
+  for (const [x, y, r] of [[-0.3, -0.2, 0.45], [0.35, 0.15, 0.4], [-0.1, 0.5, 0.25], [0.2, -0.55, 0.2]]) { g.beginPath(); g.arc(cx + x * R, cy + y * R, r * R, 0, Math.PI * 2); g.fill(); }
+  g.fillStyle = 'rgba(255,255,255,0.75)';
+  for (const [x, y, r] of [[-0.45, 0.1, 0.22], [0.1, -0.1, 0.3], [0.5, 0.45, 0.18], [-0.1, -0.6, 0.18]]) { g.beginPath(); g.arc(cx + x * R, cy + y * R, r * R, 0, Math.PI * 2); g.fill(); }
+  const sh = g.createLinearGradient(cx - R, 0, cx + R, 0);
+  sh.addColorStop(0, 'rgba(0,0,20,0)');
+  sh.addColorStop(0.55, 'rgba(0,0,20,0.15)');
+  sh.addColorStop(1, 'rgba(0,0,20,0.75)');
+  g.fillStyle = sh;
+  g.fillRect(0, 0, w, h);
   g.restore();
 });
 const dotTexture = () => canvasTex(32, 32, (g, w, h) => {
@@ -986,6 +1438,93 @@ const GEN = {
     E._sc('islet', 1.1, 15, 100, 5, 9, { rel: true, floor: true, fm: 4, pal: P.ghEarth, liftR: [14, 32], ov: 0.9 });
   },
 
+  kapadokya(E, R) {
+    const U = E._cU + 3.5;
+    E._sc('hill', 3, 25, 110, 22, 42, { rel: true, my: 0.3, pal: P.ochreHill, ov: 0.6, lift: -0.4 });
+    E._sc('chimney', 6, 17, U - 4, 2.4, 4.5, { pal: P.ochre, clump: 0.25 });
+    E._sc('chimney', 7, 6, 95, 5, 10, { rel: true, pal: P.ochre, clump: 0.25, ov: 0.8 });
+    E._sc('rock', 4, 15, U, 1.0, 2.6, { pal: P.sandRock });
+    E._sc('rock', 3, 6, 100, 1.4, 3.4, { rel: true, pal: P.sandRock });
+    E._sc('balloon', 6, 18, 170, 3.5, 6, { pal: P.balloon, liftR: [10, 85], block: false });
+  },
+
+  icecave(E, R) {
+    const U = E._cU + 3.5;
+    E._sc('hill', 2, 40, 110, 22, 40, { rel: true, my: 0.3, pal: P.iceHill, ov: 0.6, lift: -0.4 });
+    if (R.next() < 0.4) E._sc('pond', 1, 15, 80, 12, 26, { rel: true, floor: true, pal: P.ice, mz: 0.8, lift: 0.5, ov: 0.9 });
+    E._sc('crystal', 9, 15, U - 2, 1.4, 3.2, { pal: P.iceGlow });
+    E._sc('crystal', 8, 6, 90, 2.2, 5, { rel: true, pal: P.iceGlow, ov: 0.8 });
+    E._sc('rock', 5, 15, U, 1.0, 2.6, { pal: P.iceRock });
+    E._sc('rock', 4, 6, 100, 1.4, 3.6, { rel: true, pal: P.iceRock });
+  },
+
+  sakura(E, R) {
+    const U = E._cU + 3.5;
+    if (R.next() < 0.5) { // a pond with a little red bridge
+      const side = R.next() < 0.5 ? -1 : 1;
+      const s = E._ch.s0 + 10 + R.next() * 30, u = side * (U + 18 + R.next() * 40), rr = 10 + R.next() * 5;
+      if (E._put('pond', s, u, rr, 1, rr * 0.8, undefined, P.water[0], { lift: 0.5, ov: 1, floor: true, fm: 6 })) {
+        const k = rr * 0.22;
+        E._put('rbridge', s, u, k, k, k, 'path', null, { lift: 0.5, block: false });
+      }
+    }
+    E._sc('hill', 2.5, 30, 120, 22, 42, { rel: true, my: 0.3, pal: P.sakHill, ov: 0.6, lift: -0.4 });
+    E._sc('sakuratree', 9, 17, U - 4, 1.1, 1.9, { pal: P.sakTree, clump: 0.25 });
+    E._sc('sakuratree', 14, 6, 95, 1.5, 2.7, { rel: true, pal: P.sakTree, clump: 0.25 });
+    E._sc('pavilion', 0.5, 15, 90, 1.8, 2.6, { rel: true, floor: true, yaw: 'face' });
+    E._sc('rock', 2, 15, U, 1.0, 2.2, { pal: P.rockGrey });
+  },
+
+  istanbul(E, R) {
+    const s0 = E._ch.s0, U = E._cU + 3.5;
+    // hillside above the strait: houses, carts, cypresses, Galata Tower
+    E._sc('hut', 9, 17, U - 4, 7.5, 10.5, { pal: P.hutWall, yaw: 'face', ov: 0.8 });
+    E._sc('stall', 3, 17, U - 4, 2.4, 3.4, { yaw: 'face' });
+    E._sc('roundtree', 4, 17, U - 4, 0.9, 1.5, { pal: P.cypress });
+    if (R.next() < 0.3) E._sc('galata', 1, 17, U - 6, 4.5, 6, { yaw: 'face' });
+    // the strait: ferries, Maiden's Tower, the suspension bridge, gulls
+    E._sc('ferry', 1.6, 6, 110, 2.8, 4, { rel: true, floor: true, yaw: 'path', ov: 0.9 });
+    E._sc('ferry', 1.2, 6, 110, 2.8, 4, { rel: true, floor: true, yaw: 'pathR', ov: 0.9 });
+    if (R.next() < 0.25) E._sc('kiz', 1, 25, 100, 3, 4, { rel: true, floor: true });
+    if (R.next() < 0.3) {
+      const side = R.next() < 0.5 ? -1 : 1, k = 0.9 + R.next() * 0.25;
+      E._put('susp', s0 + 25, side * (U + 100 + R.next() * 20), k, k, k, 'right', null, { floor: true, fm: 20, block: false });
+    }
+    E._sc('gull', 7, 15, 160, 3, 5, { liftR: [10, 55], block: false });
+    E._sc('rock', 2, 6, 100, 1.5, 3.5, { rel: true, floor: true, pal: P.rockGrey });
+  },
+
+  moon(E, R) {
+    const U = E._cU + 3.5;
+    E._sc('crater', 9, 6, 110, 6, 16, { rel: true, floor: true, pal: P.moonRock, lift: 0.15, ov: 0.9 });
+    E._sc('hill', 2, 30, 130, 24, 46, { rel: true, my: 0.28, pal: P.moonHill, ov: 0.6, lift: -0.4 });
+    E._sc('rock', 7, 15, U, 1.0, 3.2, { pal: P.moonRock });
+    E._sc('rock', 8, 6, 110, 1.2, 4.2, { rel: true, pal: P.moonRock });
+    if (R.next() < 0.6) E._sc('dome', 1, 15, 90, 3.5, 6, { rel: true, floor: true, pal: P.white, ov: 0.9 });
+    E._sc('flag', 1.2, 15, U, 1.5, 2.5, {});
+    E._sc('rover', 0.9, 8, 100, 2, 3, { rel: true, floor: true });
+  },
+
+  pirate(E, R) {
+    const s0 = E._ch.s0, U = E._cU + 3.5;
+    // palm islands in the turquoise sea
+    if (R.next() < 0.9) {
+      const side = R.next() < 0.5 ? -1 : 1;
+      const s = s0 + 8 + R.next() * 34, u = side * (U + 22 + R.next() * 60), rr = 9 + R.next() * 9;
+      if (E._put('hill', s, u, rr, rr * 0.22, rr, undefined, P.sandIsle[(R.next() * 3) | 0], { lift: -0.3, ov: 0.9, floor: true, fm: 6 })) {
+        for (let p = 0; p < 3; p++) {
+          const a = R.next() * 6.28, d = rr * (0.1 + R.next() * 0.5), sc = 1.8 + R.next() * 0.9;
+          E._put('palm', s + Math.cos(a) * d, u + Math.sin(a) * d, sc, sc, sc);
+        }
+      }
+    }
+    E._sc('ship', 1.1, 10, 100, 2.5, 3.4, { rel: true, floor: true, ov: 0.9 });
+    if (R.next() < 0.3) E._sc('lighthouse', 1, 25, 90, 4, 5.5, { rel: true, floor: true });
+    E._sc('palm', 4, 17, U - 4, 1.3, 2.2, { pal: P.ghTree });
+    E._sc('chest', 2, 17, U - 4, 2, 3, { yaw: 'face' });
+    E._sc('rock', 5, 15, U, 1.0, 2.6, { pal: P.sandRock });
+  },
+
   desert(E, R) {
     const s0 = E._ch.s0, U = E._cU + 3.5;
     // valley: dunes, mesas, cacti; slope: rocks and a few cacti
@@ -1084,7 +1623,7 @@ const lavaSlope = (s) => (52 / 150) * Math.cos(s / 150 + 2.4) + (16 / 53) * Math
 // Environment
 // ---------------------------------------------------------------------------------------------
 const NC = 9;   // colour channels:  skyTop skyMid skyHor fog hemiSky hemiGnd sunCol discCol cloud
-const NN = 16;  // numeric channels: fogNear fogFar hemiI sunI lightAz lightEl discAz discEl discSize stars pSky pGlow pGrid pSpark glowBase pLava
+const NN = 17;  // numeric channels: fogNear fogFar hemiI sunI lightAz lightEl discAz discEl discSize stars pSky pGlow pGrid pSpark glowBase pLava cloudAmt
 
 export class Environment {
   /**
@@ -1133,6 +1672,7 @@ export class Environment {
     this.matLit = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
     this.matGlow = new THREE.MeshBasicMaterial({ vertexColors: true });
     this.cloudMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    this.matIce = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, emissive: 0x0a2c55 });
     this.matWall = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     this._wfTex = waterfallTexture();
     this.matWater = new THREE.MeshBasicMaterial({ map: this._wfTex, transparent: true, opacity: 0.82, depthWrite: false, side: THREE.DoubleSide, color: 0xdff6ff });
@@ -1165,7 +1705,9 @@ export class Environment {
     this._srx = new Float32Array(NS); this._srz = new Float32Array(NS);
     this._shw = new Float32Array(NS).fill(3.5); this._se = new Float32Array(NS);
     this._sed = new Float32Array(NS); this._sov = new Float32Array(NS).fill(Infinity);
+    this._shole = new Uint8Array(NS);
     this._ovDirty = false; this._revalNeeded = false;
+    this._fm = 0; this._fmT = 0; this._fmWas = false; this._ovrVer = OVR_VER;
     this._stag = new Int32Array(NS).fill(-1);
     this._iBase = Infinity; this._iHi = 0; this._sNow = 0;
     this._nI = 0; this._nT = 0; this._nD = 0;
@@ -1232,6 +1774,7 @@ export class Environment {
     // sun / moon sprite
     this._sunTexA = sunTexture();
     this._sunTexB = retroSunTexture();
+    this._sunTexC = earthTexture();
     this.discMat = new THREE.MeshBasicMaterial({
       map: this._sunTexA, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending,
     });
@@ -1240,7 +1783,7 @@ export class Environment {
     this.disc.renderOrder = -90;
     this.disc.frustumCulled = false;
     this.group.add(this.disc);
-    this._discRetro = false;
+    this._discKind = 'sun';
 
     // stars
     const sp = new Float32Array(NSTAR * 3), sc = new Float32Array(NSTAR * 3);
@@ -1418,6 +1961,7 @@ export class Environment {
     }));
     this._gLip = [new THREE.Color(0x52d92f), new THREE.Color(0x3fc424)];
     this._buildWall();
+    this._buildCeil();
     this._strata = [0xe8a560, 0xcf7339, 0xb4552d, 0xe39b54, 0xc4693a, 0xf0c07a].map((h) => new THREE.Color(h));
   }
 
@@ -1448,6 +1992,144 @@ export class Environment {
     this._wrx = new Float32Array(WCOLS + 1);
     this._wrz = new Float32Array(WCOLS + 1);
     this._wo = new Int32Array(6);
+  }
+
+  /**
+   * Ice cave ceiling: a translucent-looking arch of blue ice over the corridor (crown >= 13 m above the track, walls >= 8 m
+   * from the edge, base on the terrain) plus hanging icicles. Left open wherever another pass of the path (loop, helix) comes
+   * near. Non-indexed, appended per chunk like the bank wall.
+   */
+  _buildCeil() {
+    this._cper = (NSEC - 1) * CEIL_SEC * 6 + CEIL_ICI * 18;
+    const cap = WMAXCH * this._cper;
+    this._cpos = new Float32Array(cap * 3);
+    this._ccol = new Float32Array(cap * 3);
+    this._cnor = new Float32Array(cap * 3);
+    this._ccap = cap;
+    this._cn = 0;
+    const geo = new THREE.BufferGeometry();
+    this._cposAttr = new THREE.BufferAttribute(this._cpos, 3);
+    this._ccolAttr = new THREE.BufferAttribute(this._ccol, 3);
+    this._cnorAttr = new THREE.BufferAttribute(this._cnor, 3);
+    for (const a of [this._cposAttr, this._ccolAttr, this._cnorAttr]) a.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('position', this._cposAttr);
+    geo.setAttribute('normal', this._cnorAttr);
+    geo.setAttribute('color', this._ccolAttr);
+    geo.setDrawRange(0, 0);
+    this.ceil = new THREE.Mesh(geo, this.matIce);
+    this.ceil.frustumCulled = false;
+    this.ceil.visible = false;
+    this.ceil.name = 'icecave';
+    this.group.add(this.ceil);
+    this._cv = new Float32Array(NSEC * (2 * 8 + 1) * 3);
+    this._cc = new Float32Array(NSEC * 3);
+    this._chole = new Uint8Array(NSEC);
+  }
+
+  _genCeil(ch, off) {
+    const bi = biomeIdx(ch.s0), n = BIOMES.length;
+    if (BIOMES[bi % n].flank.kind !== 'ice') { if (off === undefined) ch.ceilV = 0; return; }
+    const per = this._cper;
+    if (off === undefined && this._cn + per > this._ccap) { ch.ceilV = 0; return; }
+    const V = this._cv, C = this._cc, H = this._chole;
+    const pos = this._cpos, col = this._ccol, nor = this._cnor;
+    const i0 = Math.round(ch.s0 / SP);
+    const NQ = 2 * 8 + 1;
+    for (let k = 0; k < NSEC; k++) {
+      const i = i0 + k, sk = this._sample(i);
+      let hole = sk < 0 ? 1 : 0;
+      for (let d = -2; d <= 2 && !hole; d++) {
+        const j = i + d;
+        if (j < 0) continue;
+        const kj = ((j % NS) + NS) % NS;
+        if (this._stag[kj] === j && (this._shole[kj] || this._sov[kj] < this._sy[kj] - 5)) hole = 1; // another pass below: not a cave there
+      }
+      H[k] = hole;
+      if (sk < 0) { for (let q = 0; q < NQ * 3; q++) V[k * NQ * 3 + q] = 0; continue; }
+      const px = this._sx[sk], py = this._sy[sk], pz = this._sz[sk], rx = this._srx[sk], rz = this._srz[sk], hw = this._shw[sk];
+      const hb = py + Math.abs(this._sed[sk]);
+      C[k * 3] = px; C[k * 3 + 1] = py + 7; C[k * 3 + 2] = pz;
+      for (let q = 0; q < NQ; q++) {
+        const sg = q < 8 ? -1 : q === 8 ? 0 : 1;
+        const p = q <= 8 ? q : 16 - q;
+        const u = p === 8 ? 0 : hw + CEIL_B[p];
+        const x = px + rx * sg * u, z = pz + rz * sg * u;
+        let y;
+        if (p === 8) y = hb + CEIL_H[8];
+        else if (p === 0) y = Math.min(this._field(x, z, i), py - 3) - 0.4; // the arch stands on the terrain
+        else y = hb + CEIL_H[p];
+        const v = (k * NQ + q) * 3;
+        V[v] = x; V[v + 1] = y; V[v + 2] = z;
+      }
+    }
+    let w = (off === undefined ? this._cn : off) * 3;
+    const tri = (x0, y0, z0, x1, y1, z1, x2, y2, z2, r, g, b) => {
+      let nx = (y1 - y0) * (z2 - z0) - (z1 - z0) * (y2 - y0);
+      let ny = (z1 - z0) * (x2 - x0) - (x1 - x0) * (z2 - z0);
+      let nz = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0);
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      nx /= nl; ny /= nl; nz /= nl;
+      const P3 = [x0, y0, z0, x1, y1, z1, x2, y2, z2];
+      for (let t = 0; t < 3; t++, w += 3) {
+        pos[w] = P3[t * 3]; pos[w + 1] = P3[t * 3 + 1]; pos[w + 2] = P3[t * 3 + 2];
+        col[w] = r; col[w + 1] = g; col[w + 2] = b;
+        nor[w] = nx; nor[w + 1] = ny; nor[w + 2] = nz;
+      }
+    };
+    const zero = () => { for (let t = 0; t < 3; t++, w += 3) { pos[w] = pos[w + 1] = pos[w + 2] = 0; col[w] = col[w + 1] = col[w + 2] = 0; nor[w] = 0; nor[w + 1] = 1; nor[w + 2] = 0; } };
+    for (let k = 0; k < NSEC - 1; k++) {
+      for (let q = 0; q < CEIL_SEC; q++) {
+        if (H[k] || H[k + 1]) { zero(); zero(); continue; }
+        const a = (k * NQ + q) * 3, b = ((k + 1) * NQ + q) * 3, c = (k * NQ + q + 1) * 3, d = ((k + 1) * NQ + q + 1) * 3;
+        const hh = ihash(ch.id * 10 + k, q, 7);
+        const t = Math.min(q, 16 - q) / 8;
+        const m = 0.78 + 0.32 * hh;
+        const r = (0.22 + 0.5 * t) * m, g = (0.5 + 0.42 * t) * m, bl = (0.95 + 0.1 * t) * m;
+        // face the inside of the cave
+        const mx = (V[a] + V[d]) * 0.5, my = (V[a + 1] + V[d + 1]) * 0.5, mz = (V[a + 2] + V[d + 2]) * 0.5;
+        const nx = (V[c + 1] - V[a + 1]) * (V[b + 2] - V[a + 2]) - (V[c + 2] - V[a + 2]) * (V[b + 1] - V[a + 1]);
+        const ny = (V[c + 2] - V[a + 2]) * (V[b] - V[a]) - (V[c] - V[a]) * (V[b + 2] - V[a + 2]);
+        const nz = (V[c] - V[a]) * (V[b + 1] - V[a + 1]) - (V[c + 1] - V[a + 1]) * (V[b] - V[a]);
+        const hx = C[k * 3] - mx, hy = C[k * 3 + 1] - my, hz = C[k * 3 + 2] - mz;
+        if (nx * hx + ny * hy + nz * hz >= 0) {
+          tri(V[a], V[a + 1], V[a + 2], V[c], V[c + 1], V[c + 2], V[b], V[b + 1], V[b + 2], r, g, bl);
+          tri(V[b], V[b + 1], V[b + 2], V[c], V[c + 1], V[c + 2], V[d], V[d + 1], V[d + 2], r, g, bl);
+        } else {
+          tri(V[a], V[a + 1], V[a + 2], V[b], V[b + 1], V[b + 2], V[c], V[c + 1], V[c + 2], r, g, bl);
+          tri(V[b], V[b + 1], V[b + 2], V[d], V[d + 1], V[d + 2], V[c], V[c + 1], V[c + 2], r, g, bl);
+        }
+      }
+    }
+    // icicles: small pyramids hanging from the upper arch (both windings, so they read from any side)
+    for (let ic = 0; ic < CEIL_ICI; ic++) {
+      const k = Math.min(NSEC - 2, Math.floor(ihash(ch.id, ic, 11) * (NSEC - 1)));
+      const q = 6 + Math.floor(ihash(ch.id, ic, 12) * 5); // 6..10: the crown region
+      if (H[k] || H[k + 1]) { for (let t = 0; t < 6; t++) zero(); continue; }
+      const a = (k * NQ + q) * 3, b = ((k + 1) * NQ + q) * 3, c = (k * NQ + q + 1) * 3;
+      const Ax = V[a], Ay = V[a + 1], Az = V[a + 2];
+      const Bx = Ax + (V[b] - Ax) * 0.18, By = Ay + (V[b + 1] - Ay) * 0.18, Bz = Az + (V[b + 2] - Az) * 0.18;
+      const Cx = Ax + (V[c] - Ax) * 0.3, Cy = Ay + (V[c + 1] - Ay) * 0.3, Cz = Az + (V[c + 2] - Az) * 0.3;
+      const len = Math.min(2 + 2.5 * ihash(ch.id, ic, 13), CEIL_H[q <= 8 ? q : 16 - q] - 9.4); // tips stay above the 9 m line
+      const Tx = (Ax + Bx + Cx) / 3, Ty = (Ay + By + Cy) / 3 - len, Tz = (Az + Bz + Cz) / 3;
+      const r = 0.8, g = 0.95, bl = 1.25;
+      tri(Ax, Ay, Az, Bx, By, Bz, Tx, Ty, Tz, r, g, bl);
+      tri(Bx, By, Bz, Cx, Cy, Cz, Tx, Ty, Tz, r, g, bl);
+      tri(Cx, Cy, Cz, Ax, Ay, Az, Tx, Ty, Tz, r, g, bl);
+      tri(Bx, By, Bz, Ax, Ay, Az, Tx, Ty, Tz, r, g, bl);
+      tri(Cx, Cy, Cz, Bx, By, Bz, Tx, Ty, Tz, r, g, bl);
+      tri(Ax, Ay, Az, Cx, Cy, Cz, Tx, Ty, Tz, r, g, bl);
+    }
+    if (off === undefined) { ch.ceilOff = this._cn; ch.ceilV = per; this._cn += per; }
+    this._ceilFlush();
+  }
+
+  _ceilFlush() {
+    this.ceil.geometry.setDrawRange(0, this._cn);
+    this.ceil.visible = this._cn > 0;
+    for (const a of [this._cposAttr, this._ccolAttr, this._cnorAttr]) {
+      if (a.clearUpdateRanges) { a.clearUpdateRanges(); a.addUpdateRange(0, Math.max(3, this._cn * 3)); }
+      a.needsUpdate = true;
+    }
   }
 
   /** Interpolated cross-section data at path length s (needs samples floor(s/SP) and +1). */
@@ -1676,6 +2358,7 @@ export class Environment {
       this._sed[k] = hw * (f.right.y / rl3); // height of the right-hand edge above the centre line (bank)
       this._se[k] = cl;
       this._sov[k] = Infinity;
+      this._shole[k] = 0;
       this._stag[k] = i;
       if (i < this._iBase) this._iBase = i;
       this._overlap(i, k);
@@ -1699,6 +2382,10 @@ export class Environment {
       if (pd >= OVL_R) continue;
       const ds = Math.abs(j - i) * SP;
       if (ds <= 1.35 * pd + 8) continue;
+      if (pd < 22) { // another pass comes close: no ice ceiling over the lower one
+        if (this._sy[kj] > this._sy[k] - 6) this._shole[k] = 1;
+        if (this._sy[k] > this._sy[kj] - 6 && !this._shole[kj]) { this._shole[kj] = 1; this._ovDirty = true; }
+      }
       const yj = this._sy[kj] - Math.abs(this._sed[kj]);
       if (yj < this._sov[k]) this._sov[k] = yj;
       if (yi < this._sov[kj] - 0.25) { this._sov[kj] = yi; this._ovDirty = true; }
@@ -1750,6 +2437,7 @@ export class Environment {
   /** Piecewise-constant-per-biome value blended across each portal (+-60 m). */
   _bblend(s, arr) {
     const n = arr.length;
+    if (OVR >= 0) return arr[OVR % n];
     const kb = Math.round(s / BIOME_LENGTH), bs = kb * BIOME_LENGTH;
     if (kb >= 1 && s > bs - 60 && s < bs + 60) return lerp(arr[(kb - 1) % n], arr[kb % n], smooth(bs - 60, bs + 60, s));
     return arr[biomeIdx(s) % n];
@@ -1980,7 +2668,7 @@ export class Environment {
   }
 
   _genChunk(id) {
-    const ch = this._pool.pop() || { id: 0, s0: 0, s1: 0, cnt: new Int32Array(MAXT), circ: new Float32Array(480 * 3), nc: 0, wallV: 0, wallOff: 0, dirty: false };
+    const ch = this._pool.pop() || { id: 0, s0: 0, s1: 0, cnt: new Int32Array(MAXT), circ: new Float32Array(480 * 3), nc: 0, wallV: 0, wallOff: 0, ceilV: 0, ceilOff: 0, dirty: false };
     ch.id = id; ch.s0 = id * CH; ch.s1 = ch.s0 + CH; ch.cnt.fill(0); ch.nc = 0; ch.dirty = false;
     this._prev = this._chunks.length ? this._chunks[this._chunks.length - 1] : null;
     this._ch = ch;
@@ -1989,6 +2677,7 @@ export class Environment {
     this._cU = this._flankU(ch.s0 + CH * 0.5);
     this._genFlank(ch);
     this._genWall(ch);
+    this._genCeil(ch);
     GEN[b.id](this, this._r);
     this._chunks.push(ch);
     for (let i = 0; i < this._types.length; i++) {
@@ -2026,6 +2715,14 @@ export class Environment {
       ch.wallV = 0;
       this._wallFlush();
     }
+    if (ch.ceilV) {
+      const n = ch.ceilV * 3, end = this._cn * 3;
+      this._cpos.copyWithin(0, n, end); this._ccol.copyWithin(0, n, end); this._cnor.copyWithin(0, n, end);
+      for (const c of this._chunks) if (c.ceilV) c.ceilOff -= ch.ceilV;
+      this._cn -= ch.ceilV;
+      ch.ceilV = 0;
+      this._ceilFlush();
+    }
     this._pool.push(ch);
   }
 
@@ -2048,6 +2745,7 @@ export class Environment {
       ch.dirty = false;
       this._genFlank(ch);
       if (ch.wallV) this._genWall(ch, ch.wallOff);
+      if (ch.ceilV) this._genCeil(ch, ch.ceilOff);
     }
     if (!this._revalNeeded) return;
     this._revalNeeded = false;
@@ -2057,7 +2755,7 @@ export class Environment {
       let changed = false;
       for (let i = 0, n = T.count; i < n; i++) {
         const j = i * MS;
-        if (meta[j + 2] < 0) continue;
+        if (meta[j + 2] < 0 || meta[j + 5] > 4) continue; // dead, or floating (balloons, islands, gulls keep their height)
         const yNew = this._field(meta[j], meta[j + 1], hint) + meta[j + 5];
         const dy = yNew - m[i * 16 + 13];
         if (dy < -1) { m[i * 16 + 13] += dy; meta[j + 3] += dy; meta[j + 4] += dy; changed = true; }
@@ -2101,12 +2799,15 @@ export class Environment {
     this._lookDirty = true;
     this._warm = (BIOME_TYPES[BIOMES[(bi + 1) % n].id] || []).filter((nm) => this._T[nm] === undefined);
     // sun sprite flavour
-    const retro = this.biome.disc.kind === 'retro';
-    if (retro !== this._discRetro) {
-      this._discRetro = retro;
-      const t = retro ? this._sunTexB : this._sunTexA;
+    const kind = this.biome.disc.kind;
+    if (kind !== this._discKind) {
+      this._discKind = kind;
+      const t = kind === 'retro' ? this._sunTexB : kind === 'earth' ? this._sunTexC : this._sunTexA;
       if (t) this.discMat.map = t;
     }
+    const mods = (this.biome.modsHard && bi >= n) ? this.biome.modsHard : this.biome.mods;
+    this._fmT = mods.fog;
+    if (snap) this._fm = this._fmT;
     this._setParticles(this.biome, snap || !this._pInit);
   }
 
@@ -2232,6 +2933,8 @@ export class Environment {
       this.clouds.visible = true;
     }
     const t = this.time;
+    const camt = this.nCur[16];
+    this.clouds.visible = camt > 0.03;
     for (let i = 0; i < N; i++) {
       cl.x[i] += cl.vx[i] * dt;
       cl.z[i] += cl.vz[i] * dt;
@@ -2255,10 +2958,11 @@ export class Environment {
       const r = cl.r[i];
       const a = cl.yaw[i], c = Math.cos(a), sn = Math.sin(a);
       const b = i * 16;
-      const sy = r * cl.sq[i];
-      m[b] = c * r; m[b + 1] = 0; m[b + 2] = -sn * r; m[b + 3] = 0;
+      const ra = r * camt;
+      const sy = ra * cl.sq[i];
+      m[b] = c * ra; m[b + 1] = 0; m[b + 2] = -sn * ra; m[b + 3] = 0;
       m[b + 4] = 0; m[b + 5] = sy; m[b + 6] = 0; m[b + 7] = 0;
-      m[b + 8] = sn * r; m[b + 9] = 0; m[b + 10] = c * r; m[b + 11] = 0;
+      m[b + 8] = sn * ra; m[b + 9] = 0; m[b + 10] = c * ra; m[b + 11] = 0;
       m[b + 12] = cl.x[i]; m[b + 13] = cl.y[i] + Math.sin(t * 0.25 + cl.ph[i]) * 1.2; m[b + 14] = cl.z[i]; m[b + 15] = 1;
     }
     this.clouds.instanceMatrix.needsUpdate = true;
@@ -2313,11 +3017,12 @@ export class Environment {
     this.ground.position.set(sx, 0, sz);
     this.grid.position.set(sx, GRID_LIFT, sz);
     const n = BIOMES.length;
-    const b0 = bi >= 1 ? this._boundary(bi, s) : null;
-    const b1 = this._boundary(bi + 1, s);
-    const gMay = this._gridOK && (BIOMES[bi % n].grid || BIOMES[(bi + 1) % n].grid || (bi >= 1 && BIOMES[(bi - 1) % n].grid));
+    const ov = OVR >= 0;
+    const b0 = !ov && bi >= 1 ? this._boundary(bi, s) : null;
+    const b1 = ov ? null : this._boundary(bi + 1, s);
+    const gMay = this._gridOK && (BIOMES[bi % n].grid || (!ov && (BIOMES[(bi + 1) % n].grid || (bi >= 1 && BIOMES[(bi - 1) % n].grid))));
     let anyG = false;
-    const gcur = BIOMES[bi % n].grid, gprev = bi >= 1 ? BIOMES[(bi - 1) % n].grid : 0, gnext = BIOMES[(bi + 1) % n].grid;
+    const gcur = BIOMES[bi % n].grid, gprev = !ov && bi >= 1 ? BIOMES[(bi - 1) % n].grid : 0, gnext = ov ? 0 : BIOMES[(bi + 1) % n].grid;
     const pos = this._gpos, col = this._gcol, gcol = this._gridcol;
     const A = this._vtmp, B = this._vtmp2;
     const cy = this._cyan, mg = this._magenta;
@@ -2439,6 +3144,7 @@ export class Environment {
     let s = ball && ball.s > 0 ? ball.s : 0;
     this._sNow = s;
     camera.getWorldPosition(this._cp);
+    if (this._ovrVer !== OVR_VER) { this._ovrVer = OVR_VER; if (this._inited) this.reset(); } // campaign biome lock changed
     const cp = this._cp;
     this._frontier = Math.floor((s + AHEAD) / CH) * CH; // last generated chunk ends here (<= s + AHEAD)
     if (this._frontier < s + 60) this._frontier = s + 60;
@@ -2465,6 +3171,13 @@ export class Environment {
     if (this._blendT < 1) { this._blendT = Math.min(1, this._blendT + dt / BLEND); this._mixLook(); }
     if (this._lookDirty) this._applyLook();
 
+    // fog gameplay modifier (blizzard): pulls the fog in, eased
+    this._fm += (this._fmT - this._fm) * Math.min(1, dt * 1.5);
+    if (this._fm > 0.001 || this._fmWas) {
+      this.fog.near = this.nCur[0] * (1 - 0.6 * this._fm);
+      this.fog.far = this.nCur[1] * (1 - 0.45 * this._fm);
+      this._fmWas = this._fm > 0.001;
+    }
     // follow the camera
     this.sky.position.copy(cp);
     this.sky.scale.setScalar(this._domeR);
@@ -2547,8 +3260,8 @@ export class Environment {
       geos.delete(T.geo);
     }
     for (const g of geos) g.dispose();
-    for (const m of [this.matLit, this.matGlow, this.cloudMat, this.skyMat, this.discMat, this.starMat, this.groundMat, this.gridMat, this.partMat, this.matWall, this.matWater]) m.dispose();
-    for (const t of [this._sunTexA, this._sunTexB, this._dotTex, this._gridTex, this._wfTex]) if (t) t.dispose();
+    for (const m of [this.matLit, this.matGlow, this.cloudMat, this.skyMat, this.discMat, this.starMat, this.groundMat, this.gridMat, this.partMat, this.matWall, this.matWater, this.matIce]) m.dispose();
+    for (const t of [this._sunTexA, this._sunTexB, this._sunTexC, this._dotTex, this._gridTex, this._wfTex]) if (t) t.dispose();
     if (this._ownLib && this.lib) for (const k in this.lib) this.lib[k].geometry.dispose();
     this.hemi.dispose && this.hemi.dispose();
     this.sunL.dispose && this.sunL.dispose();
@@ -2574,5 +3287,6 @@ function makeLook(b) {
   n[9] = b.stars;
   n[10] = b.pulse.sky; n[11] = b.pulse.glow; n[12] = b.pulse.grid; n[13] = b.pulse.spark;
   n[14] = b.glowBase; n[15] = b.pulse.lava;
+  n[16] = b.cloudAmt === undefined ? 1 : b.cloudAmt;
   return { c, n };
 }

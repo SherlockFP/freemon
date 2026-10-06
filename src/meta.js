@@ -8,7 +8,7 @@
 // corrupted blob falls back to a fresh state. Importing this module never touches `document` / `localStorage`.
 // Rewards that touch the shop economy (❄️, skins, trails) go through the `save` object handed to init().
 import { SKINS, TRAILS } from './skins.js';
-import { ACTS, CAMPAIGN_SIZE, LEVELS_PER_ACT, levelById } from './campaign.js';
+import { ACTS, CAMPAIGN_SIZE, LEVELS_PER_ACT, levelById, evalGoals } from './campaign.js';
 
 const KEY = 'freemon.meta.v1';
 const MAX_MULT = 30;
@@ -275,7 +275,7 @@ function fresh() {
     m: { n: 0, mult: 1, cur: [], awarded: false, skipDay: '' },
     h: { day: '', found: [0, 0, 0, 0, 0, 0, 0], done: false, last: '', streak: 0 },
     recent: [],
-    c: { stars: {}, b: {}, unlocked: 1, seen: {}, chest: new Array(10).fill(0), perfect: new Array(10).fill(0) },
+    c: { stars: {}, b: {}, g: {}, unlocked: 1, seen: {}, chest: new Array(10).fill(0), perfect: new Array(10).fill(0) },
     mode: 'camp',
   };
 }
@@ -333,13 +333,14 @@ function sanitize(p) {
         if (Array.isArray(e)) C.b[id] = [Math.min(100, Math.floor(nz(e[0]))), Math.floor(nz(e[1]))];
       }
     }
+    if (isObj(p.c.g)) for (let id = 1; id <= CAMPAIGN_SIZE; id++) { const v = Math.floor(nz(p.c.g[id])) & 7; if (v) C.g[id] = v; }
     if (isObj(p.c.seen)) for (let id = 1; id <= CAMPAIGN_SIZE; id++) if (p.c.seen[id]) C.seen[id] = 1;
     for (const k of ['chest', 'perfect']) if (Array.isArray(p.c[k])) for (let i = 0; i < 10; i++) C[k][i] = p.c[k][i] ? 1 : 0;
     let hi = 0;
     for (const k in C.stars) hi = Math.max(hi, +k);
     C.unlocked = Math.max(1, Math.min(CAMPAIGN_SIZE, Math.max(Math.floor(nz(p.c.unlocked)), hi + 1)));
   }
-  if (p.mode === 'camp' || p.mode === 'endless' || p.mode === 'cig') s.mode = p.mode;
+  if (p.mode === 'camp' || p.mode === 'endless' || p.mode === 'cig' || p.mode === 'daily') s.mode = p.mode;
   if (Array.isArray(p.recent)) s.recent = p.recent.filter((x) => x === 'e' || x === 'c').slice(-6);
   return s;
 }
@@ -1045,7 +1046,8 @@ export const meta = {
     const st = S.c.stars[id] || 0;
     if (!st) return null;
     const b = S.c.b[id] || [0, 0];
-    return { stars: st, flakesPct: b[0], time: b[1] };
+    const m = S.c.g[id] || 0;
+    return { stars: st, flakesPct: b[0], time: b[1], goals: [!!(m & 1), !!(m & 2), !!(m & 4)] };
   },
   // Call when a campaign level ends successfully (stars >= 1; the runner decides stars via campaign.evalGoals).
   // Grants rewards immediately and returns them (or null for stars < 1 / bad id): { coins, crystals, boxes, skin, trail,
@@ -1068,6 +1070,12 @@ export const meta = {
     const tm = Math.round(num(st.time));
     if (tm > 0 && (!b[1] || tm < b[1])) b[1] = tm;
     if (id < CAMPAIGN_SIZE) C.unlocked = Math.max(C.unlocked, id + 1);
+    // which goals were met: from stats.goalsMet / stats via campaign.evalGoals, else the first N goals
+    let met = Array.isArray(st.goalsMet) ? st.goalsMet : (Object.keys(st).length ? evalGoals(lv, st) : null);
+    let mask = 0;
+    if (met && met.filter(Boolean).length === stars) { for (let i = 0; i < 3; i++) if (met[i]) mask |= 1 << i; }
+    else mask = (1 << stars) - 1;
+    if (mask) C.g[id] = (C.g[id] || 0) | mask;
 
     const parts = [grant({ coins: (firstClear ? 25 + Math.round(id * 1.2) : 5) + newStars * 20 })];
     let chest = null;
@@ -1105,9 +1113,9 @@ export const meta = {
   },
   introSeen(id) { return !!S.c.seen[id]; },
   markIntroSeen(id) { if (levelById(id)) { S.c.seen[id] = 1; markDirty(); } },
-  // last mode picked on the main screen: 'camp' | 'endless' | 'cig'
+  // last mode picked on the main screen: 'camp' | 'endless' | 'cig' | 'daily'
   mode() { return S.mode; },
-  setMode(m) { if (m === 'camp' || m === 'endless' || m === 'cig') { S.mode = m; markDirty(); } },
+  setMode(m) { if (m === 'camp' || m === 'endless' || m === 'cig' || m === 'daily') { S.mode = m; markDirty(); } },
 
   // ---- testing hooks ----
   _setRandom(fn) { rand = typeof fn === 'function' ? fn : Math.random; },

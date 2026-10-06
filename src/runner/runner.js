@@ -130,6 +130,9 @@ export class Runner {
     this.zip = null;
     this.grind = null;
     this.diveT = 0;
+    this.duckT = 0;
+    this.fogK = 0;
+    this.fogTarget = 0;
     this.gateChain = 0;
     this.ctx.meta?.track?.('run_start', { mode: 'endless' });
     this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.().nextLetter ?? null);
@@ -209,6 +212,13 @@ export class Runner {
     this.time += dt;
     if (this.state === 'play') this.updatePlay(dt, beat);
     else if (this.state === 'dying') this.updateDying(dt);
+    else if (this.state === 'finished') {
+      this.finishT += dt;
+      this.b.vs *= Math.exp(-1.2 * dt);
+      this.b.s += this.b.vs * dt;
+      this.gap = Math.min(RCFG.yetiMax, this.gap + 20 * dt);
+      this.rollS += this.b.vs * dt;
+    }
 
     this.track.ensure(this.b.s + 320);
     this.track.trim(this.b.s - 70);
@@ -244,8 +254,14 @@ export class Runner {
     if (input.consumeDive()) {
       this.diveT = 0.7;
       if (!this.grounded && !this.zip && b.vh > RCFG.diveV) b.vh = RCFG.diveV;
+      else if (this.grounded) {
+        this.duckT = 0.65;
+        this.ctx.audio.whoosh();
+        this.mistBurst(5, 0xffffff, 2, 0.8);
+      }
     }
     this.diveT -= dt;
+    this.duckT -= dt;
 
     // ---- speed: downhill pace + size bonus; rocket overrides ----
     const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1);
@@ -279,6 +295,7 @@ export class Runner {
     if (b.vs >= top * RCFG.yetiStumbleSpeed) this.gap = Math.min(RCFG.yetiMax, this.gap + RCFG.yetiRecover * dt);
     else this.gap -= (top * RCFG.yetiStumbleSpeed - b.vs) * 0.35 * dt;
     if (this.gap <= 0) this.die('yeti');
+    this.minGap = Math.min(this.minGap ?? Infinity, this.gap);
     if (this.gap < RCFG.closeCall) this.closeArmed = true;
     else if (this.closeArmed && this.gap > 15) {
       this.closeArmed = false;
@@ -293,6 +310,10 @@ export class Runner {
     }
 
     this.progression(dt);
+    this.fogK += (this.fogTarget - this.fogK) * Math.min(1, dt * 2.5);
+    this.fogTarget = 0;
+    const fog = this.ctx.scene.fog;
+    if (fog) { fog.near = 60 * (1 - 0.85 * this.fogK) + 4; fog.far = 330 * (1 - 0.8 * this.fogK) + 20; }
 
     // ---- scoring / music ----
     this.score += b.vs * dt * this.mult;
@@ -512,8 +533,10 @@ export class Runner {
       while (Math.abs(this.lane * RCFG.laneW) > lim + 0.01 && this.lane !== 0) this.lane -= Math.sign(this.lane);
     }
 
-    // Vertical.
-    const surf = tr.surfaceAt(b.s, b.u);
+    // Vertical. Rideable train roofs/ramps count as ground too.
+    const ts = tr.surfaceAt(b.s, b.u);
+    const ps = this.obstacles.platformAt ? this.obstacles.platformAt(b.s, b.u) : -Infinity;
+    const surf = Math.max(ts, ps ?? -Infinity);
     if (this.zip) {
       // Hanging from the rope: centre lane, fixed height, no gravity until the far end.
       this.grounded = false;
@@ -556,6 +579,7 @@ export class Runner {
 
     // Collisions.
     b.size = this.tier + 1;
+    b.duck = this.duckT > 0;
     b.magnet = this.magnetRadius();   // obstacles.collide may widen flake pickup radius by this
     const ev = this.events;
     ev.length = 0;
@@ -742,6 +766,27 @@ export class Runner {
       case 'ice':
         this.iceT = 0.15;
         break;
+      case 'warn':
+        if (!this.warned || this.warned !== e.kind + e.lane + Math.round(e.t * 10)) {
+          this.warned = e.kind + e.lane + Math.round(e.t * 10);
+          this.ctx.ui.laneWarn?.(e.lane, e.kind);
+          if (e.kind === 'oncoming') audio.ui('back');
+          platform.haptic('light');
+        }
+        break;
+      case 'wind':
+        b.u += (e.du || 0) * this.stepDt;
+        if (Math.random() < this.stepDt * 20) {
+          const p = this.ctx.ball.group.position;
+          this.ctx.fx.puff(p.x - (e.du || 0) * 4, p.y + 1 + Math.random() * 2, p.z, (e.du || 0) * 6, 0, 0, 0.4, 0.6, 0xffffff, 0.5);
+        }
+        break;
+      case 'fog':
+        this.fogTarget = Math.max(this.fogTarget, e.density || 0);
+        break;
+      case 'finish':
+        this.finish();
+        break;
       case 'near':
         this.addFlow(4);
         this.score += 60 * this.mult;
@@ -914,6 +959,27 @@ export class Runner {
   // Falls back to a wider collision radius for flakes only.
   magnetRadius() { return this.magnetT > 0 ? 4.5 : 0; }
 
+  finish() {
+    if (this.state !== 'play') return;
+    this.state = 'finished';
+    this.finishT = 0;
+    this.ctx.ui.banner('BİTİŞ!', 5);
+    this.ctx.ui.flash?.('white');
+    this.ctx.audio.win();
+    this.ctx.platform.haptic('success');
+    this.ctx.menus?.confetti?.(80);
+    this.ctx.audio.setRoll(0, 0);
+    music.duck(true);
+    this.onFinish?.(this.levelStats());
+  }
+
+  levelStats() {
+    return {
+      distance: Math.round(this.b.s), score: Math.round(this.score), coins: this.coins, crashes: this.crashes,
+      maxTier: this.maxTier, tier: this.tier, minGap: this.minGap ?? this.gap, flakesTotal: this.obstacles.stats?.flakes ?? 0,
+    };
+  }
+
   die(cause) {
     if (this.state !== 'play') return;
     this.zip = null;
@@ -1022,7 +1088,7 @@ export class Runner {
     const b = this.b;
     const tr = this.track;
     tr.frame(b.s, _f);
-    tr.toWorld(b.s, b.u, b.h + this.rShown * 0.96, _v);
+    tr.toWorld(b.s, b.u, b.h + this.rShown * (this.duckT > 0 ? 0.5 : 0.96), _v);
     const ball = this.ctx.ball;
     // Rolling: forward motion turns about -right, sideways motion about the tangent.
     ball.rollAxis(_f.right, -this.rollS / Math.max(0.2, this.rShown));
@@ -1033,7 +1099,8 @@ export class Runner {
     // Squash & stretch (world-vertical), springing back.
     this.squash *= Math.exp(-10 * (1 / 60));
     const sq = this.squash;
-    ball.group.scale.set(1 + sq * 0.25, 1 - sq * 0.3, 1 + sq * 0.25);
+    if (this.duckT > 0) ball.group.scale.set(1.35, 0.5, 1.35);
+    else ball.group.scale.set(1 + sq * 0.25, 1 - sq * 0.3, 1 + sq * 0.25);
     this.juiceFrame(_f, _v);
     this.placeShadow();
     ball.airborne = !this.grounded;

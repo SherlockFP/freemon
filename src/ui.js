@@ -150,6 +150,16 @@ export class UI {
     this.lastVitals = '';
   }
 
+  // A red "!" over the lane something is coming down/at you (boulder shadow, oncoming snowcat).
+  laneWarn(lane, kind) {
+    const d = document.createElement('div');
+    d.className = 'lane-warn';
+    d.textContent = kind === 'boulder' ? '⚠' : '❗';
+    d.style.left = `${50 + (lane - 1) * 26}%`;
+    this.el.floats.appendChild(d);
+    setTimeout(() => d.remove(), 1100);
+  }
+
   runnerFlow(lvl, frac) {
     const key = lvl * 100 + Math.round(frac * 50);
     if (key === this.lastFlow) return;

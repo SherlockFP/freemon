@@ -720,7 +720,7 @@ Object.assign(Track.prototype, {
       this._lastBiome = bNow;
       p = this._spec('portal', s0, diff, bNow, true);
     } else {
-      if (L && L.boss && !this._bossStarted && s0 >= L.length - 270) {
+      if (L && L.boss && !this._bossStarted && s0 >= L.length - 225) {
         this._bossStarted = true; this._forced = ['chasm', 'straight', 'skiJump']; this._q.length = 0;
       }
       while (this._q.length < 2) this._q.push(this._qPick(s0 + 40 * (this._q.length + 1)));

@@ -48,7 +48,7 @@ const NAMES = [
 // Level id at which each set-piece / mechanic first appears (it stays unlocked afterwards).
 export const FEATURE_INTRO = {
   waves: 4, skiJump: 6, duck: 8, boulder: 10, chasm: 12, iceBridge: 14, oncoming: 17, halfpipe: 19, slideWall: 24,
-  tube: 28, rail: 33, wind: 38, zipline: 44, fog: 51, loop: 58, corkscrew: 67,
+  helix: 21, tube: 28, rail: 33, wind: 38, zipline: 44, fog: 51, loop: 58, corkscrew: 67,
 };
 const FEATURE_ORDER = Object.keys(FEATURE_INTRO).sort((a, b) => FEATURE_INTRO[a] - FEATURE_INTRO[b]);
 
@@ -68,6 +68,7 @@ const INTROS = {
   15: { icon: '🛷', text: 'Kızak: çift dokun, bir çarpışmayı affeder.', feature: null },
   17: { icon: '🚗', text: 'Karşıdan gelenler var! Şerit değiştir.', feature: 'oncoming' },
   19: { icon: '🛹', text: 'Yarım boru! Duvarlarda kay, havaya fırla.', feature: 'halfpipe' },
+  21: { icon: '🌪️', text: 'Sarmal! Dönerek aşağı kay, ritmi kaybetme.', feature: 'helix' },
   24: { icon: '🧱', text: 'Kayan duvarlar! Boşluğu kolla.', feature: 'slideWall' },
   28: { icon: '🌀', text: 'Tünel! İçinde dönersin, dengeni koru.', feature: 'tube' },
   33: { icon: '🚃', text: 'Ray! Üstüne zıpla, kayarak ilerle.', feature: 'rail' },
