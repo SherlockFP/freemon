@@ -9,6 +9,8 @@
 // hazards and collect flakes + snow (not power-ups, pads or triggers).
 // APIs: setZone(kind, {from, until}), setHardness(k), setPowerupWeights(map), throwBoulder(lane, s), platformAt(s, u), reset(), resolve(id, smashed).
 // Constructor opts: { seed, jumpPadV } (jumpPadV = runner RCFG.jumpPadV, used to size spring / jump-pad coin arcs).
+// Row spawning (_rows): random weighted patterns + authored multi-row PHRASES + a 600 m layer rhythm (tensionK: calm / steady / intense, breather on
+// the boundary). track.features.tension / .phrases = false switch them off; campaign levels run without the rhythm and take phrases only with features.phrases = true.
 //
 // Everything lives in track-local coordinates (s, u, h). ball.h is the height of the ball BOTTOM above the
 // surface plane, exactly like the runner (resting on flat snow: h = 0); internally centre = h + r. Lanes are u = LANES (from track.js).
@@ -943,12 +945,12 @@ const POWERS = ['magnet', 'x2', 'superjump', 'rocket', 'helmet', 'timewarp', 'gh
 // zone multipliers of the row-pattern weights (default 1); the zone's own patterns also ignore the difficulty gate
 const ZONE_OWN = { lasers: ['laser'], missiles: ['missile'], movers: ['mover', 'rolling'], boss: ['oncoming', 'rolling'] };
 const ZONE_M = {
-  lasers: { laser: 8, rest: 0.5, _: 0.22 },
-  missiles: { missile: 8, single: 0.6, low: 0.6, duck: 0.6, _: 0.15 },
-  movers: { mover: 6, rolling: 5, single: 0.4, _: 0.2 },
+  lasers: { laser: 8, rest: 0.5, phrase: 0.4, _: 0.22 },
+  missiles: { missile: 8, single: 0.6, low: 0.6, duck: 0.6, phrase: 0.4, _: 0.15 },
+  movers: { mover: 6, rolling: 5, single: 0.4, phrase: 0.5, _: 0.2 },
   coinRain: { rest: 2, single: 0.5, _: 0.1 },
-  boss: { oncoming: 4, rolling: 1.5, _: 0.5 },
-  storm: { rest: 1.2, _: 0.35 },
+  boss: { oncoming: 4, rolling: 1.5, phrase: 0.8, _: 0.5 },
+  storm: { rest: 1.2, phrase: 0.6, _: 0.35 },
 };
 const AIR_VH = 8.5;
 let AIR_G = 28;      // set from track.gravity() at the start of every spawn() (moon = low gravity -> longer arcs)
@@ -962,6 +964,58 @@ function wpick(rng, items, w) {      // items weighted by w(item) (<=0 excluded)
   for (const it of items) { r -= Math.max(0, w(it)); if (r <= 0) return it; }
   return items[items.length - 1];
 }
+
+// Layer rhythm (endless runs): every 600 m layer opens calm (1.3x row spacing), settles (1.0x) and ends intense (0.75x, more phrases);
+// the first 2.5 s after the boundary are a breather without rows. Layer 0 keeps full density (rows only start at 40 m anyway).
+const LAYER_LEN = 600, BREATHER_T = 2.5;
+const tensionK = (p) => p < 135 ? 1.3 : p < 165 ? 1.3 - 0.01 * (p - 135) : p < 435 ? 1 : p < 465 ? 1 - (p - 435) / 120 : 0.75;
+// patterns that can never leave a free lane out of reach when the previous row is < 0.5 s behind (see _rows: tightRow)
+const TIGHT_OK = ['single', 'low', 'duck', 'slide', 'swing', 'ice', 'conveyor', 'rail', 'rest', 'laser'];
+// a row that asks for a jump / duck (a jump needs ~0.6 s of air + landing: no jump or duck row may follow within that time)
+const vertRow = (r) => r.jump === true || r.pat === 'duck' || (r.pat === 'laser' && r.free === 7);
+
+// Authored phrases: 2-4 rows 0.5-0.75 s apart, picked like a row pattern (weight w(diff), unlocked by min difficulty).
+// ok(c) / build(c) get the row context built in _rows; a step is { t, g } with g = seconds to the next row (raised to the lane-swap time, see _rows) and
+// t = 'blk' (single on lane, -1 = the route lane) | 'wall' (all lanes but `free`) | 'hurdle' (wall + low log on `lane`) | 'low' | 'duck' (full width) | 'train' (outer `lane`)
+const PH_PAT = { blk: 'single', wall: 'double', hurdle: 'low', low: 'low', duck: 'duck', train: 'train' };      // row pattern a step stands for (coin arcs, stats)
+const outerLane = (c) => c.prevRoute === 1 ? (c.rng.chance(0.5) ? 0 : 2) : c.prevRoute;
+const PHRASES = [
+  // zig-zag singles: each blocks the lane you are in, so every row is a swap
+  { name: 'zigzag', min: 0.05, w: (d) => Math.max(0.4, 1.6 - 1.2 * d), ok: (c) => c.free0.length >= 2 && c.fit(3), build: (c) => {
+    const st = [];
+    for (let i = 0, n = c.diff > 0.45 ? 4 : 3; i < n; i++) st.push({ t: 'blk', lane: -1, g: 0.6 });
+    return st;
+  } },
+  // two-lane walls whose gap flips between the outer lanes: two quick double swaps
+  { name: 'switchback', min: 0.3, w: (d) => 1.0 + d, ok: (c) => c.open3 && c.fit(3), build: (c) => {
+    const a = outerLane(c), st = [];
+    for (let i = 0, n = c.diff > 0.55 ? 4 : 3; i < n; i++) st.push({ t: 'wall', free: i & 1 ? 2 - a : a, g: 0.7 });
+    return st;
+  } },
+  // jump, then duck right after the landing (+ another hurdle when hard)
+  { name: 'lowDuck', min: 0.15, w: () => 1.2, ok: (c) => c.open3 && c.T.allows('duck') && !c.vq && c.fit(2), build: (c) => {
+    const st = [{ t: 'low', g: 0.7 }, { t: 'duck', g: 0.7 }];
+    if (c.diff > 0.55) st.push({ t: 'low', g: 0.6 });
+    return st;
+  } },
+  // two-lane wall, then the free lane gets a hurdle: be in it and jump
+  { name: 'wallGap', min: 0.25, w: () => 1.4, ok: (c) => c.open3 && c.fit(2), build: (c) => {
+    const l = c.rng.int(0, 2);
+    return [{ t: 'wall', free: l, g: 0.6 }, { t: 'hurdle', lane: l, g: 0.6 }];
+  } },
+  // long train in an outer lane, then singles that keep swapping you between the two lanes beside it
+  { name: 'trainSide', min: 0.3, w: () => 1.1, ok: (c) => c.open3 && c.persist.length === 0 && c.fit(3), build: (c) => {
+    const st = [{ t: 'train', lane: c.rng.chance(0.5) ? 0 : 2, g: 0.58 }];
+    for (let i = 0, n = c.diff > 0.55 ? 3 : 2; i < n; i++) st.push({ t: 'blk', lane: -1, g: 0.58 });
+    return st;
+  } },
+  // staircase: the free lane steps one lane per row (0,1,2 and back to the middle when hard)
+  { name: 'stair', min: 0.2, w: () => 1.3, ok: (c) => c.open3 && c.fit(3), build: (c) => {
+    const a = outerLane(c), st = [{ t: 'wall', free: a, g: 0.55 }, { t: 'wall', free: 1, g: 0.55 }, { t: 'wall', free: 2 - a, g: 0.6 }];
+    if (c.diff > 0.55) st.push({ t: 'wall', free: 1, g: 0.6 });
+    return st;
+  } },
+];
 
 Object.assign(Obstacles.prototype, {
   // ----- creation helpers -----
@@ -981,39 +1035,115 @@ Object.assign(Obstacles.prototype, {
     return this._static(plan, type, s, LANES[lane], extra);
   },
 
+  /**
+   * One row of a phrase step (c = row context of _rows). Returns false (nothing placed) when the step no longer fits the lanes /
+   * reach / persistent blockers; otherwise sets c.free / c.ext / c.jump like a row pattern does.
+   */
+  _phraseRow(plan, c, st) {
+    const rng = plan.rng, s = c.s, f0 = c.free0;
+    c.free = 7; c.ext = 1.5; c.jump = false;
+    const open = (l) => f0.indexOf(l) >= 0;
+    switch (st.t) {
+      case 'blk': {
+        let l = st.lane < 0 ? c.prevRoute : st.lane;
+        if (!open(l) || !(c.rm & ~bit(l))) l = f0.find((q) => c.rm & ~bit(q));
+        if (l === undefined) return false;
+        const type = this._pickStatic(plan, () => true);
+        this._scaled(plan, type, s, l);
+        c.free = 7 & ~bit(l); c.ext = DEFS[type].ext;
+        return true;
+      }
+      case 'wall': case 'hurdle': {
+        const f = st.t === 'wall' ? st.free : st.lane, lanes = [0, 1, 2].filter((l) => l !== f);
+        if (!(c.rm & bit(f)) || !lanes.every(open)) return false;
+        for (const l of lanes) this._scaled(plan, this._pickStatic(plan, (t) => t !== 'cabin'), s + rng.range(-0.6, 0.6), l);
+        if (st.t === 'hurdle') { this._static(plan, rng.chance(0.65) ? 'fallenLog' : 'fence', s, 0, { uMin: LANES[f] - 1.2, uMax: LANES[f] + 1.2 }); c.jump = true; }
+        c.free = bit(f); c.ext = 2;
+        return true;
+      }
+      case 'low': {
+        if (f0.length < 3) return false;
+        this._static(plan, rng.chance(0.65) ? 'fallenLog' : 'fence', s, 0, { uMin: LANES[0] - 1.2, uMax: LANES[2] + 1.2 });
+        c.free = 0; c.jump = true; c.ext = 1.2;
+        return true;
+      }
+      case 'duck':
+        this._mk(plan, { kind: 'overhead', s, lo: 0, hi: 2, hb: rng.range(1.0, 1.5), u: 0, ext: 2.4, glow: this._pal(s).glow });
+        return true;
+      case 'train': {
+        const l = st.lane, L = Math.min(rng.int(16, 24), Math.floor(c.room - 6));
+        if (L < 12 || !open(l) || !(c.rm & ~bit(l)) || c.persist.length || s + L + 4 > c.lim) return false;
+        this._static(plan, rng.chance(0.6) ? 'snowcat' : 'longLogs', s + L / 2, LANES[l], { L, ext: L / 2 + 1.5 });
+        c.persist.push({ lane: l, s0: s, s1: s + L });
+        c.free = 7 & ~bit(l); c.ext = L + 1;      // route transitions begin after the train
+        return true;
+      }
+    }
+    return false;
+  },
+
   // ----- row patterns -----
   _rows(plan, sA, sB, dense, allowed) {
     const { rng, diff, piece } = plan, T = this.track, hk = this.hk();
-    const rows = plan.rows, persist = [], carry = this._carry;
+    const rows = plan.rows, persist = [], carry = this._carry, F = T.features || {};
     const amask = allowed.reduce((m, l) => m | bit(l), 0);
-    let s = sA, prevRoute = allowed.indexOf(1) >= 0 ? 1 : allowed[0], lastRest = false;
+    const cyc = !T.level && F.tension !== false;                                  // layer rhythm: endless runs only (campaign levels have no layers)
+    const phOn = (!T.level || F.phrases === true) && F.phrases !== false;         // authored phrases: campaign levels opt in with features.phrases
+    const c = { rng, diff, T, persist, s: 0, vs: 0, free0: null, rm: 0, room: 0, lim: 0, prevRoute: 0, open3: false, plain: false, vq: false, free: 7, ext: 1.5, jump: false,
+      fit: (n) => c.plain || (n - 1) * (c.vs * 0.65 + 2.5) <= c.room - 2 };   // row context for phrases (fit: a phrase of n rows fits in this piece or flows into a plain next one)
+    let s = sA, prevRoute = allowed.indexOf(1) >= 0 ? 1 : allowed[0], lastRest = false, ph = null;
     if (carry) {
       // continue the previous piece's rhythm: spacing, persistent blockers and route lane carry over
       for (const p of carry.persist) if (p.s1 + 60 > sA) persist.push(p);
       if (allowed.indexOf(carry.route) >= 0) prevRoute = carry.route;
       s = Math.max(sA, carry.s + T.speedAt(sA) * 1.1 + Math.min(carry.ext, 3));
+      if (carry.ph && phOn && sA - piece.s0 <= 5.5) {
+        // a phrase cut by the piece boundary resumes at its own spacing (unless the join would stretch it by > 0.45 s)
+        const vsA = T.speedAt(sA), sr = carry.s + vsA * carry.ph.g + Math.min(carry.ext, 3);
+        if (piece.s0 + 2.5 - sr <= 0.45 * vsA) { ph = carry.ph; s = Math.max(piece.s0 + 2.5, sr); }
+      }
     }
     const inAllowed = (l) => allowed.indexOf(l) >= 0;
     while (s < sB) {
       const vs = T.speedAt(s), late = s * hk > 4000;       // late game: shorter rests + two mechanics at once
-      let tm = 0;
-      for (const p of persist) if (s >= p.s0 - 3 && s <= p.s1 + vs * 0.9) tm |= bit(p.lane);
+      if (cyc && s >= LAYER_LEN) {
+        // breather: no rows for ~2.5 s after every layer boundary (the portal piece sits inside it)
+        const bEnd = Math.floor(s / LAYER_LEN) * LAYER_LEN + BREATHER_T * vs;
+        if (s < bEnd) { s = bEnd; ph = null; continue; }
+      }
+      const tn = !cyc ? 1 : s >= LAYER_LEN ? tensionK(s % LAYER_LEN) : Math.min(1, tensionK(s));     // row spacing multiplier of the layer rhythm (layer 0: no calm opening)
+      let tm = 0, tmHard = 0;
+      for (const p of persist) {
+        if (s < p.s0 - 3 || s > p.s1 + vs * 0.9) continue;
+        tm |= bit(p.lane);
+        if (!(p.mm && s > p.mm + 6)) tmHard |= bit(p.lane);      // a missile that already hit only keeps its lane off-limits for new rows; it no longer stops a new volley
+      }
       const free0 = allowed.filter((l) => !(tm & bit(l)));         // lanes not occupied by persistent blockers
       if (free0.length === 0) { s += vs * 1.2; continue; }
       const room = sB - s;
       const open3 = free0.length === 3;
       const prevFree = rows.length ? rows[rows.length - 1].free : carry ? carry.free : 7;
-      const F = T.features || {};
-      const pats = ['single', 'double', 'low', 'train', 'mover', 'rolling', 'beat', 'swing', 'ice', 'melt', 'conveyor', 'rail', 'oncoming', 'duck', 'slide', 'combo', 'laser', 'missile', 'rest'];
+      // lane-swap budget (~0.25 s per lane): when the last row is < 0.5 s behind only the lanes next to the route are reachable;
+      // a "tight" row may then only use patterns that cannot hide the last reachable lane (TIGHT_OK)
+      const lastR = rows.length ? rows[rows.length - 1] : carry, gapT = lastR ? (s - lastR.s - Math.min(lastR.ext, 3) - 2.4) / vs : 9;
+      let rm = 0, f0m = 0;
+      for (const l of free0) { f0m |= bit(l); if (Math.abs(l - prevRoute) <= (gapT >= 0.5 ? 2 : 1)) rm |= bit(l); }
+      if (!rm) rm = f0m;
+      const tightRow = rm !== f0m, vq = lastR && vertRow(lastR) && (s - lastR.s) / vs < 0.62;
+      const pats = ['single', 'double', 'low', 'train', 'mover', 'rolling', 'beat', 'swing', 'ice', 'melt', 'conveyor', 'rail', 'oncoming', 'duck', 'slide', 'combo', 'laser', 'missile', 'phrase', 'rest'];
       const nk0 = T._q && T._q[0], forcedNext = nk0 === 'narrow' || nk0 === 'split' || nk0 === 'hexHoles' || nk0 === 'gapRamp' || nk0 === 'gapJump' || nk0 === 'skiJump' || nk0 === 'chasm' || nk0 === 'iceBridge' || nk0 === 'zipline' || nk0 === 'loop' || nk0 === 'finish';
       const nk1 = T._q && T._q[1], isForced = (k) => k === 'narrow' || k === 'split' || k === 'hexHoles' || k === 'gapRamp' || k === 'gapJump' || k === 'skiJump' || k === 'chasm' || k === 'iceBridge' || k === 'zipline' || k === 'loop' || k === 'finish';
       // persistent blockers (trains, missiles, rolling logs) must end before a lane-forcing piece starts: sB when it is next, the end of this piece when it is the one after
       const lim = forcedNext ? sB : isForced(nk1) ? piece.s1 : Infinity;
+      // missiles: the volley (contact ~2 s ahead) must be over before the run-in of a lane-forcing piece (~40 m per piece)
+      const limM = forcedNext ? sB : isForced(nk1) ? piece.s1 : isForced(T._q && T._q[2]) ? piece.s1 + 40 : Infinity;
       const adj = free0.length === 3 || (free0.length === 2 && Math.abs(free0[0] - free0[1]) === 1);
       const zone = plan.zone, zmap = zone ? ZONE_M[zone] : null, zown = zone ? ZONE_OWN[zone] : null;
       const split2 = (tm & 2) !== 0;            // a persistent blocker in the middle lane splits the track: only jump / duck / floor patterns then
       const wfn = (p) => {
         if (split2 && p !== 'low' && p !== 'duck' && p !== 'rest' && p !== 'ice' && p !== 'melt' && p !== 'conveyor' && p !== 'rail' && p !== 'laser') return 0;
+        if (tightRow && TIGHT_OK.indexOf(p) < 0) return 0;
+        if (vq && (p === 'low' || p === 'duck' || p === 'laser')) return 0;
         const diff = zown && zown.indexOf(p) >= 0 ? Math.max(plan.diff, 0.35) : plan.diff;
         switch (p) {
           case 'single': return free0.length >= 2 ? 3 : 0;
@@ -1034,16 +1164,21 @@ Object.assign(Obstacles.prototype, {
           case 'combo': return late && T.allows('oncoming') && T.allows('slideWall') && room > 40 && !forcedNext && s + 66 <= lim && persist.length === 0 && open3 ? 3.2 : 0;
           case 'rest': return lastRest ? 0 : (late ? 0.08 : 0.35);
           case 'laser': return T.allows('lasers') && diff >= 0.08 && room > 8 ? 1.4 + 1.2 * diff : 0;
-          case 'missile': return T.allows('missiles') && diff >= 0.18 && !forcedNext && room > 30 && tm === 0 && s + vs * 3.6 + 10 <= lim ? 1.0 + 1.2 * diff : 0;
+          // a volley is launched 2 s before contact (reticle + warning), anywhere in a piece as long as its contact is clear of a lane-forcing
+          // run-in and no other blocker persists (a missile that already hit does not count); rare in normal play (late), the missiles zone's main course
+          case 'missile': return T.allows('missiles') && diff >= (zone === 'missiles' ? 0.18 : 0.55) && room > 4 && tmHard === 0 && s + vs * 2.9 + 12 <= limM ? (zone === 'missiles' ? 1.0 + 1.2 * diff : 0.4 + 0.5 * diff) : 0;
+          case 'phrase': return phOn && tm === 0 && room > 8 && diff >= 0.05 ? (0.3 + 9.0 * diff) * (tn < 1 ? 1.7 : tn > 1 ? 0.6 : 1) : 0;
           default: return 0;
         }
       };
-      const pat = wpick(rng, pats, (p) => wfn(p) * (zmap ? (zmap[p] !== undefined ? zmap[p] : zmap._) : 1));
-      let free = 7, ext = 1.5, jump = false, advanceExtra = 0, made = true;
+      c.s = s; c.vs = vs; c.free0 = free0; c.rm = rm; c.room = room; c.lim = lim; c.prevRoute = prevRoute; c.open3 = open3; c.plain = nk0 === 'straight' || nk0 === 'curve'; c.vq = vq;
+      const pat = ph ? 'phrase' : wpick(rng, pats, (p) => wfn(p) * (zmap ? (zmap[p] !== undefined ? zmap[p] : zmap._) : 1));
+      let free = 7, ext = 1.5, jump = false, advanceExtra = 0, made = true, phK = 0, phI = 0, rowPat = pat;
       switch (pat) {
         case 'single': {
           // 'single' favours the lane the player is most likely in (the previous route lane) ~50% of the time
-          const l = free0.indexOf(prevRoute) >= 0 && rng.chance(0.5) ? prevRoute : free0[rng.int(0, free0.length - 1)];
+          let l = free0.indexOf(prevRoute) >= 0 && rng.chance(0.5) ? prevRoute : free0[rng.int(0, free0.length - 1)];
+          if (!(rm & ~bit(l))) l = free0.find((q) => q !== l);        // never hide the only reachable lane
           const type = this._pickStatic(plan, () => true);
           this._scaled(plan, type, s, l);
           free = bit(0) | bit(1) | bit(2); free &= ~bit(l);
@@ -1071,7 +1206,8 @@ Object.assign(Obstacles.prototype, {
           const type = rng.chance(0.65) ? 'fallenLog' : 'fence';
           this._static(plan, type, s, 0, { uMin: LANES[lo] - 1.2, uMax: LANES[hi] + 1.2 });
           free = 7 & ~(((1 << (hi + 1)) - 1) ^ ((1 << lo) - 1));
-          jump = free0.length > 0 && (free & allowed.reduce((m, l) => m | bit(l), 0) & ~tm) === 0;
+          jump = free0.length > 0 && (free & amask & ~tm & rm) === 0;       // no free lane in reach: must jump
+          if (jump) free = 0;
           ext = 1.2;
           break;
         }
@@ -1150,7 +1286,7 @@ Object.assign(Obstacles.prototype, {
           for (const l of lanes) { if (groups.length && l === groups[groups.length - 1].hi + 1) groups[groups.length - 1].hi = l; else groups.push({ lo: l, hi: l }); }
           const len = rng.range(10, 14);
           this._mk(plan, { kind: 'melt', s, u: 0, len, ext: len / 2 + 0.5, rate: 0.18 + 0.12 * diff, groups: groups.map((g) => ({ uMin: LANES[g.lo] - 1.2, uMax: LANES[g.hi] + 1.2 })) });
-          free = 7 & ~lanes.reduce((m, l) => m | bit(l), 0); if (!free) free = 7;
+          free = 7 & ~lanes.reduce((m, l) => m | bit(l), 0); if (!(free & ~tm)) free = 7;      // (a floor patch is not a blocker: never the only open lane)
           ext = len / 2;
           break;
         }
@@ -1207,8 +1343,8 @@ Object.assign(Obstacles.prototype, {
           const dd = zown && zown.indexOf('laser') >= 0 ? Math.max(diff, 0.35) : diff, hwE = Math.min(piece.hw, 3.8);
           const sg = rng.chance(0.5) ? -1 : 1, farLane = sg < 0 ? 2 : 0, farOk = inAllowed(farLane) && !(tm & bit(farLane)) && (prevFree & bit(farLane));
           const v = wpick(rng, ['low', 'high', 'curtain', 'rotating', 'blink'], (x) => ({
-            low: dd >= 0.08 ? 3 : 0, high: dd >= 0.12 ? 2.5 : 0, curtain: free0.length >= 2 && !split2 && dd >= 0.2 ? 2 : 0,
-            rotating: farOk && !split2 && room > 10 && dd >= 0.3 ? 1.5 : 0, blink: open3 && room > 10 && dd >= 0.35 && T.allows('lasers') ? 1.4 : 0 }[x]));
+            low: dd >= 0.08 ? 3 : 0, high: dd >= 0.12 ? 2.5 : 0, curtain: free0.length >= 2 && !split2 && !tightRow && dd >= 0.2 ? 2 : 0,
+            rotating: farOk && !split2 && !tightRow && room > 10 && dd >= 0.3 ? 1.5 : 0, blink: open3 && room > 10 && dd >= 0.35 && T.allows('lasers') ? 1.4 : 0 }[x]));
           if (!v) { made = false; break; }
           const base = { kind: 'laser', variant: v, s, u: 0, hw: hwE, ext: 3.2 };
           if (v === 'low') { Object.assign(base, { hb: 0.5 }); jump = true; ext = 1.6; }
@@ -1227,36 +1363,59 @@ Object.assign(Obstacles.prototype, {
         }
         case 'missile': {
           const nMax = Math.min(free0.length - 1, plan.diff > 0.5 ? 2 : 1);
-          if (nMax < 1 || !(prevFree & ~tm & amask)) { made = false; break; }
+          if (nMax < 1) { made = false; break; }       // (no prevFree test: a volley has no obstacle on the row itself, the player has 2 s to leave the lane)
           const n = rng.int(1, nMax), lanes = free0.slice().sort(() => rng.next() - 0.5).slice(0, n);
           const vm = Math.min(40, rng.range(26, 34) * Math.sqrt(hk)), closing = vs + vm, m = s + vs * 2.0;
           lanes.forEach((l, i) => {
             const dm = i * vs * rng.range(0.5, 0.9), mm = m + dm, sP = mm + vm * 2.0 + dm * 0;
             this._mk(plan, { kind: 'missile', s: mm, sP, u: LANES[l], lane: l, vm, ext: 90, p0: s - 3, p1: mm + vs * 0.6 + 8 });
-            persist.push({ lane: l, s0: s - 3, s1: mm + vs * 0.6 + 8 });
+            persist.push({ lane: l, s0: s - 3, s1: mm + vs * 0.6 + 8, mm });
           });
           free = 7 & ~lanes.reduce((a, l) => a | bit(l), 0); ext = 3;
+          break;
+        }
+        case 'phrase': {
+          // authored multi-row phrase: the first row picks it, each following iteration places the next row (it may continue in the next piece)
+          if (!ph) {
+            const pk = wpick(rng, PHRASES, (e) => diff >= e.min && e.ok(c) ? e.w(diff) : 0);
+            if (!pk) { made = false; break; }
+            ph = { k: PHRASES.indexOf(pk), steps: pk.build(c), i: 0, g: 0.6 };
+            const gk = 1 + 0.25 * Math.max(0, 1 - diff / 0.4);      // early phrases are looser (~0.7 s), from diff 0.4 on they run at their own pace
+            for (const st of ph.steps) st.g *= gk;
+          }
+          if (!(made = this._phraseRow(plan, c, ph.steps[ph.i]))) { ph = null; break; }
+          free = c.free; ext = c.ext; jump = c.jump; phK = ph.k + 1; phI = ph.i + 1; rowPat = PH_PAT[ph.steps[ph.i].t];
+          ph.g = ph.steps[ph.i].g;
+          if (++ph.i >= ph.steps.length) ph = null;
           break;
         }
         default: made = false;
       }
       lastRest = !made || pat === 'rest';
       if (made) {
-        const mask = allowed.reduce((m, l) => m | bit(l), 0) & ~tm;
-        let cand = [0, 1, 2].filter((l) => (free & bit(l)) && (mask & bit(l)));
+        const mask = amask & ~tm;
+        // the route goes to a free lane that is within reach, else (jump rows) to any lane in reach, else any free / open lane
+        let cand = [0, 1, 2].filter((l) => (free & bit(l)) && (mask & bit(l)) && (rm & bit(l)));
+        if (!cand.length) cand = [0, 1, 2].filter((l) => (jump ? rm : free) & bit(l) && (mask & bit(l)));
         if (!cand.length) cand = [0, 1, 2].filter((l) => mask & bit(l));
         let best = cand[0], bd = 9;
         for (const l of cand) { const d = Math.abs(l - prevRoute) + rng.next() * 0.3; if (d < bd) { bd = d; best = l; } }
         prevRoute = best;
-        rows.push({ s, ext, free, jump, route: best, pat });
+        rows.push({ s, ext, free, jump, route: best, pat: rowPat, tm, ph: phK, pi: phI });
         this.rowsLog.push({ s, ext: Math.max(ext, 2), free });
+        if (ph) {
+          // next phrase row: its planned gap, raised to the lane-swap time (0.25 s per lane + the obstacle depth) of the swap it asks for
+          const nx = ph.steps[ph.i], dl = nx.free !== undefined ? Math.abs(nx.free - best) : nx.t === 'hurdle' ? Math.abs(nx.lane - best) : 1;
+          ph.g = Math.max(ph.g, 0.25 * dl + 2.0 / vs + 0.05);
+        }
       }
       // Gap between rows tightens with distance: ~1.4 s at the start → ~0.75 s by 3 km (the run must escalate).
+      // The layer rhythm scales it (calm 1.3x .. intense 0.75x, whose floor is 0.45 s: tight rows are restricted, see tightRow).
       const tight = 1.4 - 0.65 * Math.min(1, s / 3000);
-      const dt = Math.max(0.6, rng.range(0.85, 1.15) * tight * (1 - 0.15 * diff) * (late ? 0.9 : 1) / Math.pow(hk, 0.3));
-      s += vs * dt + (made ? Math.min(ext, 3) : 0) + advanceExtra;
+      const dt = Math.max(0.6 * Math.min(1, tn), rng.range(0.85, 1.15) * tight * (1 - 0.15 * diff) * (late ? 0.9 : 1) * tn / Math.pow(hk, 0.3));
+      s += (made && ph ? vs * ph.g : vs * dt) + (made ? Math.min(ext, 3) : 0) + advanceExtra;
     }
-    if (rows.length) { const r = rows[rows.length - 1]; this._carry = { s: r.s, ext: r.ext, route: r.route, free: r.free, persist: persist.slice() }; }
+    if (rows.length) { const r = rows[rows.length - 1]; this._carry = { s: r.s, ext: r.ext, route: r.route, free: r.free, jump: r.jump, pat: r.pat, persist: persist.slice(), ph }; }
   },
 
   /** Lane-centre route through the rows (smooth lane changes between rows). */
