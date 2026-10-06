@@ -3,6 +3,7 @@ import { Track } from './track.js';
 import { Obstacles } from './obstacles.js';
 import { Environment, biomeAt, trackPalette, musicStyleAt } from './biomes.js';
 import { music } from './music.js';
+import { patchMaterial } from '../shaders.js';
 
 // SONSUZ İNİŞ — endless Temple-Run-style downhill run (RUNNER.md).
 // Core loop: the ball's SIZE is its health. Snow piles grow it; crashing knocks a layer off (and lets the Yeti
@@ -156,6 +157,8 @@ export class Runner {
     this.obstacles.setHardness?.(this.baseHard);
     this.track.setHardness?.(this.baseHard);
     this.makeRecordFlag();
+    this.makeShadow();
+    this.patchedCount = -1;
     this.hitStop = 0;
     this.squash = 0;
     this.trailN = 0;
@@ -356,6 +359,69 @@ export class Runner {
     }
     ui.runnerRecord?.(this.passedScore ? 0 : this.bestScore);
     this.placeRecordFlag();
+    this.patchScene();
+  }
+
+  // Hook the runner's meshes into the shared shader look (visual modes, snow sparkle). Cheap: only re-walks
+  // the groups when their child count changes (new track pieces).
+  patchScene() {
+    const groups = [this.track?.group, this.obstacles?.group, this.env?.group].filter(Boolean);
+    let n = 0;
+    for (const g of groups) n += g.children.length;
+    if (n === this.patchedCount) return;
+    this.patchedCount = n;
+    for (const g of groups) {
+      g.traverse((o) => {
+        if (!o.isMesh || o.isPoints) return;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          if (m && (m.isMeshLambertMaterial || m.isMeshPhongMaterial) && !m.userData.noPatch && !m.onBeforeCompile.toString().includes('CIG')) {
+            const snowy = g === this.track?.group;
+            patchMaterial(m, { snow: snowy });
+          }
+        }
+      });
+    }
+  }
+
+  // Soft blob shadow on the track surface under the ball (grounds it visually; shrinks as it flies).
+  makeShadow() {
+    if (this.shadow) return;
+    let tex = null;
+    if (typeof document !== 'undefined') {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 64;
+      const c = cv.getContext('2d');
+      const grd = c.createRadialGradient(32, 32, 3, 32, 32, 32);
+      grd.addColorStop(0, 'rgba(20,40,80,0.6)');
+      grd.addColorStop(1, 'rgba(20,40,80,0)');
+      c.fillStyle = grd;
+      c.fillRect(0, 0, 64, 64);
+      tex = new THREE.CanvasTexture(cv);
+    }
+    this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: tex, color: tex ? 0xffffff : 0x203050, transparent: true, opacity: 0.8, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+    this.shadow.frustumCulled = false;
+    this.shadow.renderOrder = 1;
+    this.ctx.scene.add(this.shadow);
+  }
+
+  placeShadow() {
+    const sh = this.shadow;
+    if (!sh) return;
+    const b = this.b;
+    const surf = this.track.surfaceAt(b.s, b.u);
+    sh.visible = surf !== -Infinity && this.state !== 'idle' && !this.zip;
+    if (!sh.visible) return;
+    this.track.frame(b.s, _f);
+    this.track.toWorld(b.s, b.u, surf + 0.05, _v);
+    sh.position.copy(_v);
+    _x.crossVectors(_f.right, _f.up);
+    _m.makeBasis(_f.right, _x.negate(), _f.up);
+    sh.quaternion.setFromRotationMatrix(_m);
+    const lift = Math.max(0, b.h - surf);
+    const k = 1 / (1 + lift * 0.18);
+    sh.scale.setScalar(this.rShown * 2.6 * (0.6 + 0.4 * k));
+    sh.material.opacity = 0.8 * k;
   }
 
   addFlow(n) {
@@ -969,6 +1035,7 @@ export class Runner {
     const sq = this.squash;
     ball.group.scale.set(1 + sq * 0.25, 1 - sq * 0.3, 1 + sq * 0.25);
     this.juiceFrame(_f, _v);
+    this.placeShadow();
     ball.airborne = !this.grounded;
     if (this.state === 'play') {
       // Blink while invulnerable after a crash/revive.
@@ -1003,7 +1070,7 @@ export class Runner {
   }
 
   updateTrail(f, pos) {
-    const TN = 70;
+    const TN = 18; // ~12 m: a long ribbon reaches under the chase camera and reads as a giant wedge
     if (!this.trail) {
       const g = new THREE.BufferGeometry();
       this.trailPos = new Float32Array(TN * 2 * 3);
@@ -1020,7 +1087,7 @@ export class Runner {
       this.trailPts = [];
     }
     const pts = this.trailPts;
-    const hw = this.rShown * 0.7;
+    const hw = this.rShown * 0.5;
     const off = this.grounded ? 0.04 - this.rShown * 0.96 : null;
     if (off === null) {
       if (pts.length && !pts[pts.length - 1].gap) pts.push({ gap: true });
@@ -1086,7 +1153,9 @@ export class Runner {
   updateYeti(dt) {
     const y = this.yeti;
     const b = this.b;
-    const show = this.gap < 45 || this.state !== 'play';
+    // Only when it's really on the track (at the very start it would be clamped onto the start line, right in
+    // front of the camera).
+    const show = (this.gap < 45 || this.state !== 'play') && this.b.s - this.gap > 1;
     y.group.visible = show;
     this.avalanche.group.visible = show;
     if (!show) return;
@@ -1184,6 +1253,7 @@ export class Runner {
     this.obstacles?.dispose();
     this.env?.dispose();
     if (this.trail) { this.ctx.scene.remove(this.trail); this.trail.geometry.dispose(); this.trail = null; }
+    if (this.shadow) { this.ctx.scene.remove(this.shadow); this.shadow.geometry.dispose(); this.shadow.material.map?.dispose(); this.shadow.material.dispose(); this.shadow = null; }
     if (this.recFlag) {
       this.ctx.scene.remove(this.recFlag);
       this.recFlag.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.map?.dispose(); o.material.dispose(); } });
