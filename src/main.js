@@ -17,6 +17,7 @@ import { Scenery, themeForLevel } from './scenery.js';
 import { loadModels } from './assets.js';
 import { meta } from './meta.js';
 import { createMenus } from './menus.js';
+import { levelById, evalGoals, countStars } from './campaign.js';
 import { openShop } from './shop.js';
 // Endless mode is loaded on demand (keeps the first load small and ÇIĞ mode independent of it).
 let Runner = null;
@@ -156,6 +157,8 @@ const menus = createMenus({
   root: document.getElementById('app'),
   callbacks: {
     onEndless: () => startEndless(),
+    onPlayLevel: (id) => startLevel(id),
+    onSneeze: () => { fx?.burst(ball.x, ball.y + ball.r, ball.d, 30, 0xffffff, 6, 0.15, 6); audio.pop(0.2, 4); },
     onLevels: () => startRun(false),
     onDaily: () => startRun(true),
     onShop: () => openWardrobe(),
@@ -201,7 +204,38 @@ function setCigVisible(on) {
   if (fx) { fx.trail.visible = on; fx.shadow.visible = on; }
 }
 
-async function startEndless() {
+// Campaign level (1..100): an endless-mode run locked to one biome with a finish line.
+function startLevel(id) {
+  const lv = levelById(id);
+  if (!lv) return;
+  startEndless(lv);
+}
+
+function levelDone(lv, stats) {
+  const goalsMet = evalGoals(lv, { ...stats, finished: true });
+  const stars = Math.max(1, countStars(goalsMet));
+  meta.track('endless_end', { distance: stats.distance, score: stats.score, coins: stats.coins, crashes: stats.crashes, cause: 'finish', maxTier: stats.maxTier, campaign: true });
+  save.addCoins(stats.coins);
+  const rewards = meta.completeLevel(lv.id, stars, { ...stats, goalsMet });
+  setTimeout(() => {
+    ui.runnerHud(false, '');
+    menus.showLevelComplete({ level: lv, stars, goalsMet, rewards, hasNext: !!(rewards && rewards.next) }, {
+      onNext: () => { const n = levelById(rewards.next); if (n && !menus.showLevelIntro(n, () => startLevel(n.id))) startLevel(n.id); },
+      onRetry: () => startLevel(lv.id),
+      onMap: () => { toMenu(); menus.openMap(lv.id); },
+    });
+  }, 1600);
+}
+
+function levelFailed(lv, cause) {
+  ui.runnerHud(false, '');
+  menus.showLevelFailed({ level: lv, cause }, {
+    onRetry: () => startLevel(lv.id),
+    onMap: () => { toMenu(); menus.openMap(lv.id); },
+  });
+}
+
+async function startEndless(level = null) {
   audio.init();
   audio.ui();
   try {
@@ -225,7 +259,9 @@ async function startEndless() {
   input.consumeLane();
   input.consumeDive();
   input.consumeDoubleTap();
-  runner.start();
+  runner.onFinish = level ? (stats) => levelDone(level, stats) : null;
+  runner.onFail = level ? (cause) => levelFailed(level, cause) : null;
+  runner.start(undefined, level);
 }
 
 function leaveEndless() {
@@ -316,7 +352,7 @@ ui.on('btn-restart', () => {
   audio.ui();
   G.paused = false;
   ui.showPause(false);
-  if (G.mode === 'runner') { music.duck(false); startEndless(); } else startRun(G.daily);
+  if (G.mode === 'runner') { music.duck(false); startEndless(runner?.level || null); } else startRun(G.daily);
 });
 function syncPauseToggles() {
   for (const [id, on] of [['btn-p-sound', !audio.isMuted()], ['btn-p-music', musicOn], ['btn-p-haptic', platform.hapticsEnabled()]]) {
@@ -792,8 +828,10 @@ function updateCamera(dt, snap = false) {
   let up = 6 + r * 2.5 + town * r * 1.8;
   let ox = b.x * 0.7;
   if (G.state === 'menu') {
-    const t = performance.now() * 0.00015;
-    back = 9 + Math.sin(t) * 2; up = 5.5; ox = Math.sin(t * 1.3) * 3;
+    // Lobby: the ball is the hero — close, centred, slowly orbited, spinning on the snow.
+    const t = performance.now() * 0.00025;
+    back = 2.6 + r * 2.2; up = 0.55 + r * 0.9; ox = b.x + Math.sin(t) * 1.4;
+    ball.spin.rotateY(dt * 0.7);
   }
   if (G.state === 'end' || G.state === 'result') {
     const et = Math.min(G.endT, 6);
@@ -808,6 +846,7 @@ function updateCamera(dt, snap = false) {
   const k = snap ? 1 : 1 - Math.exp(-dt * 6);
   camera.position.lerp(camPos, k);
   _v.set(b.x * 0.85, b.y + r * 0.2, -(b.d + 9 + r * 2.2));
+  if (G.state === 'menu') _v.set(b.x, b.y + r * 0.35, -(b.d - 0.2));
   if (G.state === 'end' || G.state === 'result') _v.set(b.x, b.y, -b.d);
   camLook.lerp(_v, snap ? 1 : 1 - Math.exp(-dt * 8));
   if (G.shake > 0) {
@@ -924,6 +963,7 @@ if (DEBUG) {
     },
     start: (daily = false) => startRun(daily),
     endless: () => startEndless(),
+    level: (id) => startEndless(levelById(id)),
     simEndless(seconds, step = 1 / 60) {
       const n = Math.round(seconds / step);
       for (let i = 0; i < n && runner; i++) runner.update(step);

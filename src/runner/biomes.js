@@ -2144,6 +2144,7 @@ export class Environment {
     x.rx = rx / rl; x.rz = rz / rl;
     x.hw = lerp(this._shw[k0], this._shw[k1], t);
     x.ed = Math.max(Math.abs(this._sed[k0]), Math.abs(this._sed[k1]));
+    x.ed += 0.5 * (x.ed > 2.5 ? 1 : x.ed / 2.5);
     x.lo = Math.min(this._sov[k0], this._sov[k1]);
     x.c = t > 1e-6 ? lerp(this._cliffAt(i), this._cliffAt(i + 1), t) : this._cliffAt(i);
     x.D = this._depthAt(s); x.U = this._flankU(s); x.E = this._flankE(s);
@@ -2279,7 +2280,7 @@ export class Environment {
       const cl = this._cliffAt(i);
       for (let side = 0; side < 2; side++) {
         const sg = side ? 1 : -1;
-        const edgeY = py - Math.abs(ed);
+        const edgeY = py - Math.abs(ed) - 0.5 * (Math.abs(ed) > 2.5 ? 1 : Math.abs(ed) / 2.5);
         for (let p = 0; p < NP; p++) {
           const du = p === 0 ? -0.3 : p === 1 ? 1.4 : U * FLANK_TAU[p - 2];
           const u = hw + du;
@@ -2337,6 +2338,13 @@ export class Environment {
   // ------------------------------------------------------------------------------------------
   // path sample cache (10 m): basis of the corridor tests, the terrain function and the flank cross-sections
   // ------------------------------------------------------------------------------------------
+  /** Horizontal unit vector to the right of the path at frame f, from the tangent (the track's own right flips during rolls). */
+  _hright(f) {
+    const th = Math.hypot(f.tan.x, f.tan.z);
+    if (th > 0.25) { this._hrx = -f.tan.z / th; this._hrz = f.tan.x / th; }
+    else { const rl = Math.hypot(f.right.x, f.right.z) || 1e-4; this._hrx = f.right.x / rl; this._hrz = f.right.z / rl; }
+  }
+
   /** Ring slot of path sample i, computing it if needed; -1 if it is too far behind for the track to answer. */
   _sample(i) {
     const k = ((i % NS) + NS) % NS;
@@ -2346,15 +2354,15 @@ export class Environment {
       tr.frame(s, f);
       this._sx[k] = f.pos.x; this._sy[k] = f.pos.y; this._sz[k] = f.pos.z;
       const rl3 = Math.hypot(f.right.x, f.right.y, f.right.z) || 1;
-      const rlh = Math.hypot(f.right.x, f.right.z) || 1e-4;
-      this._srx[k] = f.right.x / rlh; this._srz[k] = f.right.z / rlh;
+      this._hright(f); // lateral axis from the tangent (stable through corkscrew rolls)
+      this._srx[k] = this._hrx; this._srz[k] = this._hrz;
       // half width + cliff flag; taps are clamped to what the track is guaranteed to have generated
       const smax = this._sNow + 315;
       let hw = 3.5;
       if (tr.halfWidth) { const h = tr.halfWidth(s < smax ? s : smax); if (h > 0.5) hw = h; } // a gap reports 0 -> nominal width
       let cl = 0;
       if (tr.edgeAt) for (let q = -1; q <= 1; q++) { const t = s + q * 5; if (tr.edgeAt(t < 0 ? 0 : t > smax ? smax : t) <= 0) cl += 1 / 3; }
-      this._shw[k] = hw * (rlh / rl3);       // half width measured horizontally (banked turns are narrower in plan)
+      this._shw[k] = hw * Math.abs(f.right.x * this._hrx + f.right.z * this._hrz) / rl3; // half width measured horizontally (banked / rolled track is narrower in plan)
       this._sed[k] = hw * (f.right.y / rl3); // height of the right-hand edge above the centre line (bank)
       this._se[k] = cl;
       this._sov[k] = Infinity;
@@ -2522,7 +2530,8 @@ export class Environment {
     this._ff = Math.min(py, lo) - D; this._fpy = py; this._fs = sS; this._fdu = du;
     if (du >= U) { this._fy = this._ff; return this._fy; }
     // banked turns: the two edges are at different heights
-    const ed = Math.max(Math.abs(this._sed[ka]), Math.abs(this._sed[kb])); // banked turn: hang from the LOWER edge
+    let ed = Math.max(Math.abs(this._sed[ka]), Math.abs(this._sed[kb])); // banked / rolled track: hang from the LOWER edge
+    ed += 0.5 * (ed > 2.5 ? 1 : ed / 2.5);
     const c = this._cliffAt(a) * (1 - tc) + this._cliffAt(a + 1) * tc;
     const dr = this._drop(du < 0 ? 0 : du, D, U, this._flankE(sS), c);
     let y = py - ed + dr;
@@ -2584,9 +2593,8 @@ export class Environment {
     if (!T || T.count >= T.cap) return false;
     const f = this._f;
     this.track.frame(s, f);
-    let rx = f.right.x, rz = f.right.z;
-    const rl = Math.hypot(rx, rz) || 1;
-    rx /= rl; rz /= rl;
+    this._hright(f);
+    const rx = this._hrx, rz = this._hrz;
     const x = f.pos.x + rx * u, z = f.pos.z + rz * u;
     const lift = (o && o.lift) || 0;
     const hr = T.hr * Math.max(sx, sz);
@@ -2892,9 +2900,8 @@ export class Environment {
     const r = high ? 11 + rnd(3) * 9 : 8 + rnd(3) * 9;
     const f = this._f;
     this.track.frame(sSp, f);
-    let rx = f.right.x, rz = f.right.z;
-    const rl = Math.hypot(rx, rz) || 1;
-    rx /= rl; rz /= rl;
+    this._hright(f);
+    const rx = this._hrx, rz = this._hrz;
     const sq = 0.55 + rnd(4) * 0.2;       // vertical squash of the puff
     const half = this._cloudH * r * sq + 1.3; // half height (+ the vertical bob)
     const py = f.pos.y, hint = Math.floor(sSp / SP);

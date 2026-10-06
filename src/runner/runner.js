@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Track } from './track.js';
 import { Obstacles } from './obstacles.js';
 import { Environment, biomeAt, trackPalette, musicStyleAt } from './biomes.js';
+import * as Biomes from './biomes.js';
 import { music } from './music.js';
 import { patchMaterial } from '../shaders.js';
 
@@ -77,10 +78,13 @@ export class Runner {
     this.state = 'idle';
   }
 
-  start(seed = (Math.random() * 1e9) | 0) {
+  start(seed = (Math.random() * 1e9) | 0, level = null) {
     const { scene } = this.ctx;
     this.dispose();
+    this.level = level;
+    if (level) seed = level.seed >>> 0;
     this.seed = seed;
+    Biomes.setBiomeOverride?.(level ? level.biome : null);
     this.track = new Track(scene, {
       seed,
       palette: trackPalette,
@@ -90,14 +94,19 @@ export class Runner {
     });
     this.obstacles = new Obstacles(scene, this.track, { seed: seed ^ 0x9e3779b9, jumpPadV: RCFG.jumpPadV });
     this.track.onPiece = (piece) => this.obstacles.spawn(piece, piece.diff ?? Math.min(1, piece.s0 / 5000), piece.biome ?? biomeAt(piece.s0).index);
+    if (level) {
+      this.track.setLevel?.({ length: level.length, features: level.features, hardness: level.hardness, seed, boss: level.boss });
+      this.obstacles.reset?.();
+      this.obstacles.setHardness?.(level.hardness);
+    }
     this.track.ensure(320);
     this.env = new Environment(scene, this.track, { lib: this.ctx.lib });
     this.yeti = makeYeti(scene, this.ctx.lib);
     this.avalanche = makeAvalanche(scene);
 
-    this.tier = 1;            // start one layer above "fragile" so the first crash is a lesson, not a game over
+    this.tier = level ? Math.max(0, Math.min(4, level.startTier ?? 1)) : 1; // one layer above "fragile" so the first crash is a lesson
     this.grow = 0;            // progress to the next tier (0..1)
-    const b = (this.b = { s: 2, u: 0, h: 0, r: RCFG.tierR[1], vs: RCFG.startSpeed * 0.6, vu: 0, ve: 0, vh: 0, size: 2 });
+    const b = (this.b = { s: 2, u: 0, h: 0, r: RCFG.tierR[this.tier], vs: RCFG.startSpeed * 0.6, vu: 0, ve: 0, vh: 0, size: 2 });
     this.rShown = b.r;
     this.grounded = true;
     this.coyoteT = 0;
@@ -156,7 +165,10 @@ export class Runner {
     this.bestScore = this.ctx.save.runnerBest?.() ?? 0;
     this.passedDist = this.bestDist < 50;
     this.passedScore = this.bestScore < 100;
-    this.baseHard = this.ctx.meta?.hardness?.() ?? 1;
+    this.baseHard = level ? level.hardness : this.ctx.meta?.hardness?.() ?? 1;
+    this.perfects = 0;
+    this.powerups = 0;
+    this.layersLost = 0;
     this.obstacles.setHardness?.(this.baseHard);
     this.track.setHardness?.(this.baseHard);
     this.makeRecordFlag();
@@ -284,7 +296,7 @@ export class Runner {
       this.sledT = this.dur('sled');
       this.ctx.audio.milestone(2);
       this.float('KIZAK!', 'big');
-      this.ctx.meta?.track?.('powerup', { kind: 'sled' });
+      this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'sled' });
     }
 
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
@@ -335,7 +347,7 @@ export class Runner {
   progression(dt) {
     const b = this.b;
     const { ui, audio, platform } = this.ctx;
-    const layer = Math.floor(b.s / RCFG.layerLen);
+    const layer = this.level ? 0 : Math.floor(b.s / RCFG.layerLen);
     if (layer > this.layer) {
       this.layer = layer;
       const k = Math.min(1.9, this.baseHard * (1 + 0.1 * layer));
@@ -497,7 +509,9 @@ export class Runner {
 
   updateHud() {
     const bi = biomeAt(this.b.s);
-    this.ctx.ui.runnerStats(this.score, this.coins, this.mult, bi.t, Math.round(this.b.s), bi.biome.name);
+    const prog = this.level ? clamp(this.b.s / this.level.length, 0, 1) : bi.t;
+    const label = this.level ? `${this.level.act}-${this.level.idx} · ${this.level.name}` : bi.biome.name;
+    this.ctx.ui.runnerStats(this.score, this.coins, this.mult, prog, Math.round(this.b.s), label);
     this.ctx.ui.runnerVitals({
       tier: this.tier, tiers: TIERS, grow: this.grow, gap: this.gap, yetiMax: RCFG.yetiMax,
       helmet: this.helmet, magnet: this.magnetT > 0, rocket: this.rocketT > 0,
@@ -702,6 +716,7 @@ export class Runner {
     this.flow = 0;
     this.flowLvl = 0;
     this.ctx.meta?.track?.('crash', {});
+    this.layersLost++;
     this.debris(e, 10);
     if (this.tier === 0) {
       this.explode();
@@ -870,12 +885,12 @@ export class Runner {
           this.x2T = this.dur('x2');
           audio.milestone(3);
           this.float('2X SKOR!', 'big');
-          this.ctx.meta?.track?.('powerup', { kind: 'x2' });
+          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'x2' });
         } else if (e.kind === 'superjump') {
           this.superT = this.dur('superjump');
           audio.milestone(3);
           this.float('SÜPER ZIPLAMA!', 'big');
-          this.ctx.meta?.track?.('powerup', { kind: 'superjump' });
+          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'superjump' });
         } else if (e.kind === 'crystal') {
           this.crystals++;
           this.ctx.meta?.addCrystals?.(1);
@@ -895,19 +910,19 @@ export class Runner {
           this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.().nextLetter ?? null);
           if (res && res.complete) this.ctx.ui.banner('FREEMON TAMAM!', 4);
         } else if (e.kind === 'helmet') {
-          this.ctx.meta?.track?.('powerup', { kind: 'helmet' });
+          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'helmet' });
           this.helmet = true;
           audio.milestone(3);
           platform.haptic('success');
           this.float('KASK!', 'big');
         } else if (e.kind === 'magnet') {
           this.magnetT = this.dur('magnet');
-          this.ctx.meta?.track?.('powerup', { kind: 'magnet' });
+          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'magnet' });
           audio.milestone(3);
           this.float('MIKNATIS!', 'big');
         } else if (e.kind === 'rocket') {
           this.rocketT = this.dur('rocket');
-          this.ctx.meta?.track?.('powerup', { kind: 'rocket' });
+          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'rocket' });
           // Sky lane of snowflakes for the flight (if the obstacles module supports it).
           this.obstacles.spawnSkyCoins?.(b.s + 12, b.s + 12 + this.rocketT * b.vs * 1.2);
           this.gap = Math.min(RCFG.yetiMax, this.gap + 12);
@@ -922,6 +937,7 @@ export class Runner {
           this.gap = Math.min(RCFG.yetiMax, this.gap + 4);
         } else this.jump(RCFG.jumpPadV * (e.onBeat ? 1.15 : 1) * (e.power || 1), true);
         if (e.onBeat) {
+          this.perfects++;
           this.addFlow(5);
           this.ctx.meta?.track?.('perfect', {});
           this.score += 100 * this.mult;
@@ -974,9 +990,13 @@ export class Runner {
   }
 
   levelStats() {
+    const len = this.level ? this.level.length : this.b.s;
     return {
-      distance: Math.round(this.b.s), score: Math.round(this.score), coins: this.coins, crashes: this.crashes,
-      maxTier: this.maxTier, tier: this.tier, minGap: this.minGap ?? this.gap, flakesTotal: this.obstacles.stats?.flakes ?? 0,
+      finished: this.state === 'finished',
+      distance: Math.round(this.b.s), score: Math.round(this.score), coins: this.coins,
+      flakes: this.coins, flakesPct: clamp(this.coins / Math.max(1, len / 8), 0, 1),
+      crashes: this.crashes, layersLost: this.layersLost, maxTier: this.maxTier,
+      minYetiGap: this.minGap ?? this.gap, perfects: this.perfects, powerups: this.powerups, time: this.time,
     };
   }
 
@@ -1010,6 +1030,13 @@ export class Runner {
       if (this.deadT > 0.5) this.ctx.ball.group.visible = false;
     } else {
       b.vs *= Math.exp(-4 * dt);
+    }
+    if (this.deadT > 1.4 && this.state === 'dying' && this.level) {
+      this.state = 'over';
+      this.ctx.save.addCoins(this.coins);
+      this.ctx.meta?.track?.('endless_end', { distance: Math.round(b.s), score: Math.round(this.score), coins: this.coins, crashes: this.crashes, cause: this.cause, maxTier: this.maxTier, campaign: true });
+      this.onFail?.(this.cause, this.levelStats());
+      return;
     }
     if (this.deadT > 1.4 && this.state === 'dying') {
       this.state = 'over';
@@ -1337,6 +1364,7 @@ export class Runner {
     this.ctx.camera.userData.fovBoost = 0;
     if (this.ctx.ball) this.ctx.ball.group.visible = true;
     music.stop();
+    Biomes.setBiomeOverride?.(null);
     this.state = 'idle';
   }
 }
