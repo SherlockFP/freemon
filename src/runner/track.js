@@ -13,6 +13,7 @@
 //   piece fields: helix{R,dir,turns,bank} wave{k,A,base}+valleyAt(s) slowmo{s0,s1,scale} ice{state,...} pipe{} tube{}
 //   zip{s0,s1,u,h} (needsZip) loop{s0,s1,R,minSpeed,plannedSpeed,shift} corkscrew{s0,s1,dir}
 //   palette(s).checker = true -> Green Hill checkerboard (tileA/tileB top, earthA/earthB flanks).
+// Zones: track.setZone('lasers'|'missiles'|'narrow'|'movers'|'coinRain'|'boss'|'storm'|null, { from, until }) stages a rule-change stretch.
 // Every piece owns ONE merged vertex-coloured mesh (world-space vertices, shared material).
 // Path samples are stored at 1 m spacing and interpolated.
 

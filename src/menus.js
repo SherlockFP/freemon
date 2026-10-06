@@ -1,4 +1,4 @@
-// menus.js — FREEMON lobby (mobile-game style main menu) + panels (campaign map, daily reward, achievements, missions, upgrades,
+// menus.js — PATPAT lobby (mobile-game style main menu) + panels (campaign map, daily reward, achievements, missions, upgrades,
 // letter hunt, settings, mystery boxes, level complete/failed, toasts, easter eggs). Self-contained DOM + injected CSS (<style id="freemon-menus-style">).
 //
 //   const menus = createMenus({ save, meta, root: document.getElementById('app'), callbacks });
@@ -14,7 +14,7 @@ const STYLE_ID = 'freemon-menus-style';
 const VERSION = '0.3.0';
 const LEVELS_PER_ACT = 10;
 const ACT_SUF = ['i', 'yi', 'ü', 'ü', 'i', 'yı', 'yi', 'i', 'u', 'u']; // Turkish accusative: Act 1'i, 2'yi, 3'ü ...
-const WORD = 'FREEMON';
+const WORD = 'PATPAT';
 const KONAMI = ['up', 'up', 'down', 'down', 'left', 'right', 'left', 'right', 'b', 'a'];
 
 // ================================================================================================================ CSS
@@ -1085,7 +1085,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
   function openSettings() {
     sfx('click');
-    const p = openPanel({ id: 'settings', title: 'AYARLAR', sub: `FREEMON v${VERSION}`, pills: [] });
+    const p = openPanel({ id: 'settings', title: 'AYARLAR', sub: `PATPAT v${VERSION}`, pills: [] });
 
     function toggleRow(icon, label, key, fn) {
       const r = el('div', 'fm-row');
@@ -1127,8 +1127,8 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     p.list.appendChild(grid);
 
     const cr = el('div', 'fm-credits');
-    cr.appendChild(el('div', '', '3D modeller: Kenney (kenney.nl) — CC0 · Ses efektleri: Kenney, rubberduck (OpenGameArt) — CC0 · Müzik ve kod: FREEMON ekibi'));
-    cr.appendChild(el('em', '', `FREEMON v${VERSION}`));
+    cr.appendChild(el('div', '', '3D modeller: Kenney (kenney.nl) — CC0 · Ses efektleri: Kenney, rubberduck (OpenGameArt) — CC0 · Müzik ve kod: PATPAT ekibi'));
+    cr.appendChild(el('em', '', `PATPAT v${VERSION}`));
     p.list.appendChild(cr);
     return p;
   }
@@ -1940,19 +1940,12 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     add(top, r.av, r.coinsPill.el, r.crPill.el);
     root0.appendChild(top);
 
-    // ---- small logo + FREEMON letter-hunt ribbon ----
+    // ---- small logo + PATPAT letter-hunt ribbon ----
     const logo = el('div', 'fm-logo');
     logo.setAttribute('role', 'img');
-    logo.setAttribute('aria-label', 'FREEMON');
-    const COL = [['#ff7a8a', '#ff2d55'], ['#ffc457', '#ff8a00'], ['#ffec6a', '#ffc400'], ['#7cf0a2', '#22b86c'], ['#6fd0ff', '#2f7dff'], null, ['#c79bff', '#7a3cf0']];
+    logo.setAttribute('aria-label', 'PATPAT');
+    const COL = [['#ff7a8a', '#ff2d55'], ['#ffc457', '#ff8a00'], ['#ffec6a', '#ffc400'], ['#7cf0a2', '#22b86c'], ['#6fd0ff', '#2f7dff'], ['#c79bff', '#7a3cf0']];
     WORD.split('').forEach((ch, i) => {
-      if (i === 5) {
-        const ball = el('span', 'fm-ball');
-        setCss(ball, '--i', String(i));
-        add(ball, el('i', 'e l'), el('i', 'e r'), el('i', 'n'));
-        logo.appendChild(ball);
-        return;
-      }
       const c = el('span', 'fm-ch', ch);
       c.setAttribute('data-t', ch);
       setCss(c, '--i', String(i));
@@ -1960,6 +1953,11 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       setCss(c, '--c2', COL[i][1]);
       logo.appendChild(c);
     });
+    // The snowball mascot rides along after the word.
+    const ball = el('span', 'fm-ball');
+    setCss(ball, '--i', String(WORD.length));
+    add(ball, el('i', 'e l'), el('i', 'e r'), el('i', 'n'));
+    logo.appendChild(ball);
     r.logo = logo;
     root0.appendChild(add(el('div', 'fm-logorow'), logo));
 
@@ -2182,7 +2180,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
         typed = '';
         confetti(110);
         sfx('confirm');
-        eggToast('⌨️', 'SİHİRLİ KELİME!', 'FREEMON! Konfeti yağsın.');
+        eggToast('⌨️', 'SİHİRLİ KELİME!', 'PATPAT! Konfeti yağsın.');
         meta.egg('typed');
       }
     }
@@ -2216,7 +2214,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     if (cb.onReward) { try { cb.onReward('missions', s.reward); } catch { /* ignore */ } }
     if (mainOpen) { confetti(50); updateMain(); }
   }));
-  offs.push(meta.on('letter', (l) => toast({ icon: '🔤', title: `HARF: ${l.letter}`, sub: `FREEMON ${l.count}/7`, ms: 1800 })));
+  offs.push(meta.on('letter', (l) => toast({ icon: '🔤', title: `HARF: ${l.letter}`, sub: `${WORD} ${l.count}/${WORD.length}`, ms: 1800 })));
   offs.push(meta.on('hunt', (res) => {
     toast({ icon: '🔤', title: 'KELİME TAMAM!', sub: `GÜNÜN KELİMESİ · ${rewardLine(res.reward)}`, kind: 'gold', ms: 3200 });
     if (cb.onReward) { try { cb.onReward('hunt', res.reward); } catch { /* ignore */ } }

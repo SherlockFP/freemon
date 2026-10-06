@@ -1,7 +1,7 @@
-# Render Blueprint: FREEMON as a static site (Render → New → Blueprint → this repo)
+# Render Blueprint: PATPAT as a static site (Render → New → Blueprint → this repo)
 services:
   - type: web
-    name: freemon
+    name: patpat
     runtime: static
     buildCommand: npm ci && npm run build
     staticPublishPath: ./dist

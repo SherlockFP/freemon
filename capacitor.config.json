@@ -1,6 +1,6 @@
 {
-  "appId": "com.freemon.game",
-  "appName": "FREEMON",
+  "appId": "com.patpat.game",
+  "appName": "PATPAT",
   "webDir": "dist",
   "backgroundColor": "#bfe3ff",
   "zoomEnabled": false,

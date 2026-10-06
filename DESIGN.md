@@ -1,6 +1,6 @@
-# FREEMON (eski çalışma adı: ÇIĞ! — Kartopu)
+# PATPAT (eski adlar: FREEMON, ÇIĞ! — Kartopu)
 
-Oyunun adı FREEMON. İki mod var: **YETİ KAÇIŞI** (sonsuz, RUNNER.md) ve **ÇIĞ** (bölümler, bu belge).
+Oyunun adı PATPAT. İki mod var: **YETİ KAÇIŞI** (sonsuz, RUNNER.md) ve **ÇIĞ** (bölümler, bu belge).
 
 Dikey (portrait), tek parmak, Three.js ile 3D mobil oyun. Capacitor 8 ile Android/iOS.
 

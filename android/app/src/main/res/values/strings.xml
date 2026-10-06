@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">FREEMON</string>
-    <string name="title_activity_main">FREEMON</string>
-    <string name="package_name">com.freemon.game</string>
-    <string name="custom_url_scheme">com.freemon.game</string>
+    <string name="app_name">PATPAT</string>
+    <string name="title_activity_main">PATPAT</string>
+    <string name="package_name">com.patpat.game</string>
+    <string name="custom_url_scheme">com.patpat.game</string>
 </resources>

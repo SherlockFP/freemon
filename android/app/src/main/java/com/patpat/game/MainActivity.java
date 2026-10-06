@@ -1,4 +1,4 @@
-package com.freemon.game;
+package com.patpat.game;
 
 import com.getcapacitor.BridgeActivity;
 

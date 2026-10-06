@@ -128,7 +128,7 @@ function applyTrail(id) {
 let closeShop = null;
 window.__cigSfx = audio;
 
-// ---------- meta (missions, achievements, daily rewards) + FREEMON main menu ----------
+// ---------- meta (missions, achievements, daily rewards) + PATPAT main menu ----------
 meta.init(save);
 let musicOn = true;
 try { musicOn = localStorage.getItem('cig.music.muted') !== '1'; } catch { /* ignore */ }
@@ -336,7 +336,7 @@ function toMenu() {
   const ds = dailySeed();
   const best = save.dailyFor(ds);
   ui.showMenu({ level: G.level, stars: save.starsFor(G.level), dailyNum: dailyNumber(), dailyBest: best ? best.tons : 0, theme: scenery.theme.name });
-  ui.el.menu.classList.add('hidden'); // the FREEMON menu (menus.js) replaces the old screen
+  ui.el.menu.classList.add('hidden'); // the PATPAT menu (menus.js) replaces the old screen
   menus.showMain({
     level: G.level,
     levelStars: save.starsFor(G.level),
@@ -432,7 +432,7 @@ ui.on('btn-share', async () => {
   audio.ui();
   let text;
   if (G.mode === 'runner' && runner) {
-    text = `❄️ FREEMON · Yeti Kaçışı
+    text = `❄️ PATPAT · Yeti Kaçışı
 📏 ${Math.round(runner.b.s).toLocaleString('tr-TR')} m
 🏆 Skor ${Math.round(runner.score).toLocaleString('tr-TR')}
 ❄️ ${runner.coins}
@@ -872,7 +872,7 @@ function shareText(r) {
   const filled = Math.floor(r.pct * 10);
   const bar = '🟥'.repeat(filled) + '⬜'.repeat(10 - filled);
   const snow = '❄️'.repeat(r.avl) + '▫️'.repeat(CFG.milestones.length - r.avl);
-  const head = r.daily ? `❄️ FREEMON · Günün Dağı #${G.dailyNo}` : `❄️ FREEMON · Çığ Dağ ${r.level}`;
+  const head = r.daily ? `❄️ PATPAT · Günün Dağı #${G.dailyNo}` : `❄️ PATPAT · Çığ Dağ ${r.level}`;
   return `${head}\n${snow}\n🏘️ ${bar} %${Math.round(r.pct * 100)}\n⚖️ ${fmtTons(r.tons)}\n${'⭐'.repeat(r.stars) || '💧'}`;
 }
 

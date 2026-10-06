@@ -1,0 +1,2 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./web-D-OtPHsi.js","./index-DYmeTM-K.js","./index-iE8sUAbg.css"])))=>i.map(i=>d[i]);
+import{r as e,t}from"./index-DYmeTM-K.js";var n=e(`App`,{web:()=>t(()=>import(`./web-D-OtPHsi.js`).then(e=>new e.AppWeb),__vite__mapDeps([0,1,2]),import.meta.url)});export{n as App};

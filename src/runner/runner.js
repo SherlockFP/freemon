@@ -190,6 +190,8 @@ export class Runner {
     this.avLevel = 1;
     this.punch = 0;
     this.magnetPerm = false;
+    this.zone = null;      // staged rule change { kind, from, until, name, announced }
+    this.invertT = 0;
     this.obstacles.setHardness?.(this.baseHard);
     this.track.setHardness?.(this.baseHard);
     this.makeRecordFlag();
@@ -305,7 +307,7 @@ export class Runner {
     const lane = input.consumeLane();
     if (lane) {
       ui.hint(false);
-      this.lane = clamp(this.lane + lane, -1, 1);
+      this.lane = clamp(this.lane + (this.inZone === 'invert' ? -lane : lane), -1, 1);
       this.ctx.platform.haptic('select');
       this.mistBurst(4, 0xffffff, 2, 0.8);
     }
@@ -378,6 +380,7 @@ export class Runner {
     }
 
     this.progression(dt);
+    this.zoneTick();
     this.fogK += (this.fogTarget - this.fogK) * Math.min(1, dt * 2.5);
     this.fogTarget = 0;
     const fog = this.ctx.scene.fog;
@@ -412,6 +415,7 @@ export class Runner {
       ui.banner(`KATMAN ${layer + 1}`, 4);
       this.avLevel = layer + 1;
       if (this.perks.has('kabuk')) this.kabuk = 1;
+      this.stageZone(layer);
       setTimeout(() => this.float(`ÇIĞ SEVİYESİ ${this.avLevel}`, 'bad'), 900);
       audio.milestone(Math.min(5, 2 + (layer >> 1)));
       platform.haptic('success');
@@ -514,6 +518,40 @@ export class Runner {
     const k = 1 / (1 + lift * 0.18);
     sh.scale.setScalar(this.rShown * 2.6 * (0.6 + 0.4 * k));
     sh.material.opacity = 0.8 * k;
+  }
+
+  // Every layer the rules change (Jetpack Joyride-style zones) — announced ahead so you wonder what's next.
+  stageZone(layer) {
+    const ZONES = [
+      { kind: 'movers', name: 'HAREKETLİ ENGELLER' },
+      { kind: 'lasers', name: 'BUZ LAZERLERİ' },
+      { kind: 'narrow', name: 'DAR KÖPRÜLER' },
+      { kind: 'missiles', name: 'KAR FÜZELERİ' },
+      { kind: 'invert', name: 'TERS KONTROL', runner: true },
+      { kind: 'coinRain', name: 'KAR TANESİ YAĞMURU' },
+      { kind: 'storm', name: 'FIRTINA' },
+      { kind: 'lowgrav', name: 'DÜŞÜK YERÇEKİMİ', runner: true },
+      { kind: 'boss', name: 'YETİ ÖFKESİ' },
+    ];
+    const z = layer <= ZONES.length ? ZONES[layer - 1] : ZONES[Math.floor(Math.random() * ZONES.length)];
+    const from = this.b.s + 320, until = from + 420;
+    if (!z.runner) this.obstacles.setZone?.(z.kind, { from, until });
+    this.zone = { ...z, from, until, announced: false };
+    setTimeout(() => this.float(`SIRADAKİ: ${z.name}`, 'big'), 1600);
+  }
+
+  zoneTick() {
+    const z = this.zone;
+    if (!z) return;
+    const s = this.b.s;
+    if (!z.announced && s >= z.from) {
+      z.announced = true;
+      this.ctx.ui.banner(z.name, 4);
+      this.ctx.audio.milestone(4);
+      this.ctx.platform.haptic('success');
+    }
+    this.inZone = s >= z.from && s < z.until ? z.kind : null;
+    if (s >= z.until) { this.zone = null; this.inZone = null; this.float('BÖLGE BİTTİ', ''); }
   }
 
   addFlow(n) {
@@ -757,7 +795,7 @@ export class Runner {
       }
       if (surf !== -Infinity) this.lastSurf = surf;
     } else {
-      b.vh -= RCFG.gravity * dt;
+      b.vh -= RCFG.gravity * (this.inZone === 'lowgrav' ? 0.5 : 1) * dt;
       b.h += b.vh * dt;
       if (surf !== -Infinity && b.vh <= 0 && b.h <= surf && b.h > surf - 1.2) this.land(surf);
       if (b.h < RCFG.fallDeath) this.die('fall');
@@ -1110,7 +1148,7 @@ export class Runner {
           platform.haptic('success');
           this.float(`HARF: ${e.letter ?? '?'}`, 'big');
           this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.().nextLetter ?? null);
-          if (res && res.complete) this.ctx.ui.banner('FREEMON TAMAM!', 4);
+          if (res && res.complete) this.ctx.ui.banner('PATPAT TAMAM!', 4);
         } else if (e.kind === 'timewarp') {
           this.warpT = 3.5;
           audio.milestone(3);

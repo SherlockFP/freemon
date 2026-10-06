@@ -1,4 +1,4 @@
-// meta.js — FREEMON progression brain.
+// meta.js — PATPAT progression brain.
 //
 //   import { meta, ACHIEVEMENTS, DAILY_REWARDS, EGGS, UPGRADES } from './meta.js';
 //   meta.init(save);                       // once, after save.js is ready
@@ -12,7 +12,7 @@ import { ACTS, CAMPAIGN_SIZE, LEVELS_PER_ACT, levelById, evalGoals } from './cam
 
 const KEY = 'freemon.meta.v1';
 const MAX_MULT = 30;
-const WORD = 'FREEMON';
+const WORD = 'PATPAT';
 const MAX_UP = 5;
 const XP_K = 260;
 const XP_P = 1.8;
@@ -90,10 +90,10 @@ export const HOLIDAYS = [
 
 // ---- easter eggs. where:'ui' ones live in menus.js; where:'world' ones must be triggered by the game via meta.egg(id) ----
 export const EGGS = [
-  { id: 'logo', where: 'ui', name: 'Gökkuşağı Avcısı', hint: 'FREEMON yazısı sevilmeye bayılır. Yedi kez.', how: 'Logoya 7 kez dokun' },
+  { id: 'logo', where: 'ui', name: 'Gökkuşağı Avcısı', hint: 'PATPAT yazısı sevilmeye bayılır. Yedi kez.', how: 'Logoya 7 kez dokun' },
   { id: 'konami', where: 'ui', name: 'Hile Yok!', hint: 'Eski kafa oyuncular bilir: yukarı yukarı aşağı aşağı...', how: '↑ ↑ ↓ ↓ ← → ← → B A' },
   { id: 'sneeze', where: 'ui', name: 'Hapşuu!', hint: 'Menüdeki kartopu burnunu çok seviyor. Gıdıkla.', how: 'Menüdeki kartopuna 3 sn basılı tut' },
-  { id: 'typed', where: 'ui', name: 'Sihirli Kelime', hint: 'Klavyen varsa oyunun adını yaz.', how: 'Menüde "freemon" yaz' },
+  { id: 'typed', where: 'ui', name: 'Sihirli Kelime', hint: 'Klavyen varsa oyunun adını yaz.', how: 'Menüde "patpat" yaz' },
   { id: 'holiday', where: 'ui', name: 'Bayram Ruhu', hint: 'Takvimde kırmızı bir gün.', how: '1 Ocak / 23 Nisan / 29 Ekim günü oyunu aç' },
   { id: 'nasreddin', where: 'world', name: "Hoca'ya Selam", hint: 'Bir hoca eşeğine yanlış binmiş olabilir.', how: 'Nasreddin Hoca, eşeğine ters binmiş halde nadir bir yamaçta' },
   { id: 'ufo', where: 'world', name: 'Yakın Karşılaşma', hint: 'Gece gökyüzüne dikkat.', how: 'Gece temasında gökyüzünde UFO' },
@@ -158,7 +158,7 @@ ach('hoard', 'Kış Hazırlığı', 'Aynı anda 5.000 ❄️ biriktir.', '🐿�
 ach('share', 'Sesini Duyur', 'Sonucunu paylaş.', '📣', 1, { coins: 50 }, ['share'], (S) => S.st.shares);
 ach('missions3', 'Görev Adamı', '3 görev seti tamamla.', '🎯', 3, { coins: 150, crystals: 1 }, ['@derive'], (S) => S.m.n);
 ach('mult10', 'Çarpan Ustası', 'Kalıcı skor çarpanını x10 yap.', '✖️', 10, { coins: 300, crystals: 2 }, ['@derive'], (S) => S.m.mult);
-ach('hunt1', 'Kelime Avcısı', 'FREEMON harflerini bir günde topla.', '🔤', 1, { coins: 150 }, ['@derive'], (S) => S.st.huntsDone);
+ach('hunt1', 'Kelime Avcısı', 'PATPAT harflerini bir günde topla.', '🔤', 1, { coins: 150 }, ['@derive'], (S) => S.st.huntsDone);
 
 // ---------------- campaign (state lives in S.c; all derived) ----------------
 const ACT_NAMES = ['Buzları Kırdın', 'Orman Kurdu', 'Çimen Kralı', 'Peri Bacası Ustası', 'Kasaba Fatihi', 'Çöl Yolcusu', 'Buz Kralı', 'Şeker Krizi', 'Neon Işığı', 'Yanardağ Fatihi'];
@@ -177,10 +177,10 @@ function eggAch(id, name, desc, icon, reward) {
   const e = EGG_BY_ID[id];
   ach(`egg_${id}`, name, desc, icon, 1, reward, ['@egg'], (S) => (S.eggs[id] ? 1 : 0), { secret: true, hint: e.hint, auto: true });
 }
-eggAch('logo', 'Gökkuşağı Avcısı', 'FREEMON logosuna 7 kez dokundun!', '🌈', { trail: 'rainbow' });
+eggAch('logo', 'Gökkuşağı Avcısı', 'PATPAT logosuna 7 kez dokundun!', '🌈', { trail: 'rainbow' });
 eggAch('konami', 'Hile Yok!', 'Efsanevi kodu girdin. Ama hile yok!', '🎮', { coins: 100 });
 eggAch('sneeze', 'Hapşuu!', 'Kartopunu 3 saniye gıdıkladın.', '🤧', { coins: 60 });
-eggAch('typed', 'Sihirli Kelime', "Klavyede 'freemon' yazdın.", '⌨️', { coins: 60 });
+eggAch('typed', 'Sihirli Kelime', "Klavyede 'patpat' yazdın.", '⌨️', { coins: 60 });
 eggAch('holiday', 'Bayram Ruhu', 'Milli bir bayramda oyunu açtın.', '🎊', { coins: 100 });
 eggAch('nasreddin', "Hoca'ya Selam", "Nasreddin Hoca'yı eşeğine ters binerken gördün.", '🐴', { coins: 150 });
 eggAch('ufo', 'Yakın Karşılaşma', 'Gece gökyüzünde bir UFO gördün.', '🛸', { coins: 150, crystals: 1 });
@@ -273,7 +273,7 @@ function fresh() {
     d: { last: '', streak: 0, pos: 0, total: 0 },
     u: { magnet: 0, x2: 0, jump: 0, rocket: 0 },
     m: { n: 0, mult: 1, cur: [], awarded: false, skipDay: '' },
-    h: { day: '', found: [0, 0, 0, 0, 0, 0, 0], done: false, last: '', streak: 0 },
+    h: { day: '', found: new Array(WORD.length).fill(0), done: false, last: '', streak: 0 },
     recent: [],
     c: { stars: {}, b: {}, g: {}, unlocked: 1, seen: {}, chest: new Array(10).fill(0), perfect: new Array(10).fill(0) },
     mode: 'camp',
@@ -603,11 +603,13 @@ function huntReward(k) {
 function rollHunt(t = now()) {
   const H = S.h;
   const today = dateKey(t);
+  // The word changed length (FREEMON → PATPAT): re-arm today's hunt with the right number of tiles.
+  if (!Array.isArray(H.found) || H.found.length !== WORD.length) { H.found = new Array(WORD.length).fill(0); H.done = false; }
   if (H.day === today) return;
   if (H.day && dayDiff(H.day, today) < 0) return; // clock moved backwards: don't re-arm the hunt
   if (!H.last || dayDiff(H.last, today) > 1) H.streak = 0;
   H.day = today;
-  H.found = [0, 0, 0, 0, 0, 0, 0];
+  H.found = new Array(WORD.length).fill(0);
   H.done = false;
 }
 
@@ -1011,7 +1013,7 @@ export const meta = {
     S.st.lettersFound++;
     const res = { index: idx, letter: WORD[idx], count: idx + 1, complete: false, reward: null };
     fire('letter', res);
-    if (idx === 6) {
+    if (idx === WORD.length - 1) {
       const today = dateKey();
       H.streak = H.last && dayDiff(H.last, today) === 1 ? H.streak + 1 : 1;
       H.last = today;

@@ -1,10 +1,10 @@
-# ❄️ FREEMON
+# ❄️ PATPAT
 
 **Kartopu ol, büyü, Yeti'den kaç!** Three.js ile yapılmış, telefonda oynanan dikey bir mobil oyun.
 
 ## ▶ Hemen oyna
-- **GitHub Pages:** https://sherlockfp.github.io/freemon/
-- **Render:** https://freemon.onrender.com/
+- **GitHub Pages:** https://sherlockfp.github.io/patpat/
+- **Render:** https://patpat.onrender.com/
 
 Telefonda linki açman yeterli. Tam ekran için tarayıcı menüsünden "Ana ekrana ekle" seçebilirsin.
 
@@ -28,7 +28,7 @@ Telefonda linki açman yeterli. Tam ekran için tarayıcı menüsünden "Ana ekr
 - **Engeller:** üstüne doğru gelen kar ezicileri, Yeti'nin attığı kayalar, ritme göre kayan duvarlar, rüzgar ve sis.
 - **Dünyalar:** 14 dünya. Aralarında Kapadokya, İstanbul Boğazı, Ay (düşük yerçekimi) ve Korsan Koyu var.
 - **Kostümler:** 35 top ve 12 iz, 4 nadirlik seviyesinde. Köfte, Simit, İznik Çinisi, Nazar Boncuğu, Kara Sıvı, Kızıl Kaos ve daha fazlası.
-- **İlerleme:** günlük ödüller, 59 başarım, görev setleri ve ×30'a kadar çıkan çarpan, sürpriz kutular, FREEMON harf avı, gizli sürprizler.
+- **İlerleme:** günlük ödüller, 59 başarım, görev setleri ve ×30'a kadar çıkan çarpan, sürpriz kutular, PATPAT harf avı, gizli sürprizler.
 - **Görünüm:** Normal, Çizgi Film, Piksel ve Kartpostal modları.
 
 ## Geliştirme
@@ -42,4 +42,4 @@ Mobil (Capacitor 8, Android/iOS) kurulumu için [MOBILE.md](MOBILE.md) dosyasın
 ## Krediler
 - 3D modeller: [Kenney](https://kenney.nl) (CC0).
 - Ses efektleri: Kenney ve rubberduck (OpenGameArt) (CC0).
-- Müzik, kod ve prosedürel içerik: FREEMON.
+- Müzik, kod ve prosedürel içerik: PATPAT.

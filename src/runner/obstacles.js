@@ -3,6 +3,11 @@
 // Events emitted by collide(): hit, knock, ice, melt, push {du}, pad {kind boost|jump|spring, onBeat, power}, portal {biome},
 // pickup {kind flake|snow|gate|crystal|box|letter|magnet|x2|superjump|rocket|helmet}, grind {active, done, s0, s1, u, h},
 // zip {s0,s1,u,h}, loop {minSpeed,s0,s1,R}, valley {depth, ok=first frame}, slowmo {s0,s1,scale}, crack {s,u}.
+// More events: warn {kind:'oncoming'|'boulder'|'missile', lane, t}, wind {du}, fog {density}, near {toughness, side}, over {toughness},
+// finish. Every event carries e.ball = ball.id ('main' by default): collide() may be called several times per frame (main + clone):
+// each ball id has its own once-per-obstacle hit / near / over memory; clone hits never auto-resolve; clones only collide with
+// hazards and collect flakes + snow (not power-ups, pads or triggers).
+// APIs: setZone(kind, {from, until}), setHardness(k), setPowerupWeights(map), throwBoulder(lane, s), platformAt(s, u), reset(), resolve(id, smashed).
 // Constructor opts: { seed, jumpPadV } (jumpPadV = runner RCFG.jumpPadV, used to size spring / jump-pad coin arcs).
 //
 // Everything lives in track-local coordinates (s, u, h). ball.h is the height of the ball BOTTOM above the
