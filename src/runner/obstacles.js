@@ -31,13 +31,14 @@ export const COL = {
 // Event pool (reused plain objects)
 // ---------------------------------------------------------------------------
 const EVN = 192, EVP = [];
-for (let i = 0; i < EVN; i++) EVP.push({ type: '', ds: 0, du: 0, dh: 0, strength: 0, kind: '', value: 0, s: 0, u: 0, h: 0, onBeat: false, power: 0, color: 0, size: 0, ok: false, rate: 0, biome: 0, toughness: 0, headOn: false, id: 0, letter: '', active: false, s0: 0, s1: 0, minSpeed: 0, scale: 0, depth: 0, R: 0, done: false, lane: 0, t: 0, density: 0, ok: false, side: 0 });
+for (let i = 0; i < EVN; i++) EVP.push({ type: '', ds: 0, du: 0, dh: 0, strength: 0, kind: '', value: 0, s: 0, u: 0, h: 0, onBeat: false, power: 0, color: 0, size: 0, ok: false, rate: 0, biome: 0, toughness: 0, headOn: false, id: 0, letter: '', active: false, s0: 0, s1: 0, minSpeed: 0, scale: 0, depth: 0, R: 0, done: false, lane: 0, t: 0, density: 0, ok: false, side: 0, ball: 'main' });
 let evi = 0;
+let CUR_ID = 'main';       // id of the ball currently being collided (events carry it as e.ball)
 export function ev(events, type) {
   const e = EVP[evi]; evi = (evi + 1) % EVN;
   e.type = type; e.ds = 0; e.du = 0; e.dh = 0; e.strength = 0; e.kind = ''; e.value = 0; e.s = 0; e.u = 0; e.h = 0;
   e.onBeat = false; e.power = 0; e.color = 0; e.size = 0; e.ok = false; e.rate = 0; e.biome = 0; e.toughness = 0; e.headOn = false; e.id = 0; e.letter = '';
-  e.active = false; e.s0 = 0; e.s1 = 0; e.minSpeed = 0; e.scale = 0; e.depth = 0; e.R = 0; e.done = false; e.lane = 0; e.t = 0; e.density = 0; e.ok = false; e.side = 0;
+  e.active = false; e.s0 = 0; e.s1 = 0; e.minSpeed = 0; e.scale = 0; e.depth = 0; e.R = 0; e.done = false; e.lane = 0; e.t = 0; e.density = 0; e.ok = false; e.side = 0; e.ball = CUR_ID;
   events.push(e);
   return e;
 }
@@ -166,6 +167,15 @@ function makeGeometries() {
   G.gift = merge([[B(0.6, 0.6, 0.6), 0xc23ad8], [B(0.64, 0.14, 0.64), 0xffd23a], [B(0.14, 0.64, 0.64), 0xffd23a], [B(0.64, 0.64, 0.14), 0xffd23a],
     [B(0.2, 0.2, 0.2), 0xffd23a, 0, 0.4, 0]], false);
   G.letter = letterGeometry('A');
+  G.beamBox = merge([[B(1, 1, 1), null]], false);
+  G.timewarp = merge([[new THREE.ConeGeometry(0.3, 0.38, 8), 0x6ad8ff, 0, 0.19, 0, PI, 0, 0], [new THREE.ConeGeometry(0.3, 0.38, 8), 0xffd23a, 0, -0.19, 0],
+    [B(0.8, 0.09, 0.8), 0xb07a42, 0, 0.45, 0], [B(0.8, 0.09, 0.8), 0xb07a42, 0, -0.45, 0], [B(0.07, 0.9, 0.07), 0xdddddd, 0.36, 0, 0.36], [B(0.07, 0.9, 0.07), 0xdddddd, -0.36, 0, -0.36]], false);
+  G.ghost = merge([[new THREE.SphereGeometry(0.36, 10, 8), 0xeaf4ff, 0, 0.12, 0], [new THREE.CylinderGeometry(0.36, 0.36, 0.42, 10), 0xeaf4ff, 0, -0.08, 0],
+    [new THREE.ConeGeometry(0.12, 0.2, 6), 0xeaf4ff, -0.24, -0.38, 0, PI, 0, 0], [new THREE.ConeGeometry(0.12, 0.2, 6), 0xeaf4ff, 0, -0.38, 0, PI, 0, 0], [new THREE.ConeGeometry(0.12, 0.2, 6), 0xeaf4ff, 0.24, -0.38, 0, PI, 0, 0],
+    [B(0.1, 0.16, 0.06), 0x1a1f2e, -0.13, 0.16, 0.34], [B(0.1, 0.16, 0.06), 0x1a1f2e, 0.13, 0.16, 0.34]], false);
+  G.risk = merge([[B(0.62, 0.62, 0.62), 0xf3f3f3, 0, 0, 0, 0.5, 0.6, 0.0], [B(0.1, 0.1, 0.05), 0xd9302f, 0, 0.18, 0.33, 0.5, 0.6, 0], [B(0.1, 0.1, 0.05), 0xd9302f, -0.15, 0.04, 0.33, 0.5, 0.6, 0],
+    [B(0.1, 0.1, 0.05), 0xd9302f, 0.15, 0.04, 0.33, 0.5, 0.6, 0], [B(0.05, 0.1, 0.1), 0x1a1f2e, 0.33, 0.1, 0.1, 0.5, 0.6, 0], [B(0.05, 0.1, 0.1), 0x1a1f2e, 0.33, -0.1, -0.1, 0.5, 0.6, 0]], false);
+  G.clone = merge([[new THREE.IcosahedronGeometry(0.3, 1), 0xffffff, -0.22, 0.08, 0], [new THREE.IcosahedronGeometry(0.3, 1), 0x8fd0ff, 0.22, -0.08, 0]], false);
   G.disc = merge([[new THREE.CylinderGeometry(0.5, 0.5, 0.05, 22), null]], false);
   {   // ramp wedge: low edge at local +z (behind), high edge at -z (ahead), unit box
     const A = [-0.5, -0.5, 0.5], Bp = [0.5, -0.5, 0.5], C = [0.5, -0.5, -0.5], D = [-0.5, -0.5, -0.5], E = [-0.5, 0.5, -0.5], F = [0.5, 0.5, -0.5];
@@ -195,16 +205,20 @@ const POOLS = {
   ring: ['torus', 'pulse', 90], chev: ['chev', 'pulse', 300], hex: ['hex', 'pulse', 320],
   flake: ['flake', 'glow', 480], star: ['star', 'glow', 16], magnet: ['magnet', 'glow', 12], helmet: ['helmet', 'glow', 12],
   rocket: ['rocket', 'glow', 12], spring: ['spring', 'glow', 12], crystal: ['crystal', 'glow', 12], gift: ['gift', 'glow', 12], letter: ['letter', 'glow', 6],
+  timewarp: ['timewarp', 'glow', 12], ghost: ['ghost', 'glow', 12], risk: ['risk', 'glow', 12], clone: ['clone', 'glow', 12],
+  beam: ['beamBox', 'glow', 220],
 };
 // pickup kind -> pool
-const PICK_POOL = { flake: 'flake', snow: 'ball', x2: 'star', crystal: 'crystal', box: 'gift', letter: 'letter', magnet: 'magnet', helmet: 'helmet', rocket: 'rocket', superjump: 'spring' };
+const PICK_POOL = { flake: 'flake', snow: 'ball', x2: 'star', crystal: 'crystal', box: 'gift', letter: 'letter', magnet: 'magnet', helmet: 'helmet', rocket: 'rocket', superjump: 'spring', timewarp: 'timewarp', ghost: 'ghost', risk: 'risk', clone: 'clone' };
 
 export function pulseOf(phase) {
   const p = phase > 0.5 ? phase - 1 : phase, a = 1 - Math.abs(p) / 0.3;
   return a > 0 ? a * a : 0;
 }
 
-export const KIND = {};   // obstacle kinds (filled in part 2)
+export const KIND = {};
+// obstacle kinds a clone / ghost ball also collides with (the rest are triggers for the main ball only)
+const CLONE_OK = { static: 1, moving: 1, plow: 1, swing: 1, overhead: 1, slidewall: 1, oncoming: 1, laser: 1, missile: 1, ice: 1, melt: 1, conveyor: 1, wind: 1 };   // obstacle kinds (filled in part 2)
 
 export class Obstacles {
   constructor(scene, track, opts = {}) {
@@ -241,6 +255,8 @@ export class Obstacles {
     this.rowsLog = [];         // {s, ext, free} of every row (used to keep boulders from trapping the player)
     this._hk = null;           // explicit hardness override (else track.hardness)
     this.nextBoulder = 1e9;
+    this.powerW = { magnet: 1, x2: 1, superjump: 1, rocket: 1, helmet: 1, timewarp: 1, ghost: 1, risk: 1, clone: 1 };
+    this._cid = 'main';
     this.rng = makeRng((this.seed ^ 0xa5a5a5a5) >>> 0);
     this.next = { power: 260, crystal: 520, box: 340, letter: 300 };   // distance accumulators for rare pickups
     this._tmpHit = { ds: 0, du: 0 };
@@ -357,6 +373,25 @@ export class Obstacles {
     return lo;
   }
 
+  // ---------- per-ball memory (clone / ghost balls) ----------
+  _mem(ob, id) {
+    const M = ob.mem || (ob.mem = {});
+    return M[id] || (M[id] = { hitDone: false, passDone: false, minLat: Infinity, over: false, nearSide: 1, cdUntil: 0 });
+  }
+  _swapMem(ob, m) {
+    let x;
+    x = ob.hitDone; ob.hitDone = m.hitDone; m.hitDone = x;
+    x = ob.passDone; ob.passDone = m.passDone; m.passDone = x;
+    x = ob.minLat; ob.minLat = m.minLat; m.minLat = x;
+    x = ob.over; ob.over = m.over; m.over = x;
+    x = ob.nearSide; ob.nearSide = m.nearSide; m.nearSide = x;
+    x = ob.cdUntil; ob.cdUntil = m.cdUntil; m.cdUntil = x;
+  }
+  /** weights of the rotating power-up pickups: setPowerupWeights({ magnet: 2, clone: 0 }) */
+  setPowerupWeights(map) { Object.assign(this.powerW, map || {}); }
+  /** stage a rule-change zone (delegates to the track, which owns piece selection). Pieces already generated are unaffected. */
+  setZone(kind, opts = {}) { return this.track.setZone ? this.track.setZone(kind, opts) : null; }
+
   // ---------- hits ----------
   /** Emit the one-and-only 'hit' event of an obstacle (toughness 1..5). ds,du = separation the ball needs (track-local metres). */
   _hit(ob, ball, events, ds, du) {
@@ -366,6 +401,8 @@ export class Obstacles {
     e.toughness = ob.tough; e.s = ob.cs !== undefined ? ob.cs : ob.s; e.u = ob.cu !== undefined ? ob.cu : ob.u; e.h = ob.hc || 0.8;
     e.color = ob.color; e.ds = ds; e.du = du; e.id = ob.id;
     e.headOn = ds < 0 && Math.abs(ds) >= 0.7 * Math.abs(du);
+    e.ball = this._cid;
+    if (this._cid !== 'main') return;                  // a clone's hit never auto-resolves (the obstacle stays for the main ball)
     ob.pending = true; ob.hitSize = ball.size || 1; ob.autoAt = this.time + 0.06;
     this.pending.push(ob);
   }
@@ -457,16 +494,24 @@ export class Obstacles {
 
   // ---------- collisions ----------
   collide(ball, events) {
-    const cb = this._cb;
-    this._flushWarn(events);
+    const id = ball.id || 'main', main = id === 'main', cb = this._cb;
+    CUR_ID = id; this._cid = id;
+    if (main) this._flushWarn(events);
     cb.duck = !!ball.duck;
+    cb.id = id;
     cb.s = ball.s; cb.u = ball.u; cb.r = ball.r; cb.h = ball.h + ball.r; cb.size = ball.size || 1; cb.vs = ball.vs; cb.vu = ball.vu; cb.vh = ball.vh;
     const R = ball.r + 6.5, M = this.maxExt, obs = this.obs, t = this.time;
     for (let i = this._lb(obs, ball.s - R - M); i < obs.length; i++) {
       const ob = obs[i];
       if (ob.s - M > ball.s + R) break;
       if (!ob.alive || Math.abs(ball.s - ob.s) > ob.ext + R) continue;
-      KIND[ob.kind].hit.call(this, ob, cb, events, t);
+      if (main) KIND[ob.kind].hit.call(this, ob, cb, events, t);
+      else if (CLONE_OK[ob.kind]) {
+        const m = this._mem(ob, id);
+        this._swapMem(ob, m);
+        KIND[ob.kind].hit.call(this, ob, cb, events, t);
+        this._swapMem(ob, m);
+      }
     }
     this._collideDyn(cb, events);
     const mag = ball.magnet || 0, pk = this.picks, rr = ball.r + 1.3 + mag;
@@ -474,8 +519,8 @@ export class Obstacles {
       const k = pk[i];
       if (k.s > ball.s + rr) break;
       if (!k.alive) continue;
+      if (!main && k.kind !== 'flake' && k.kind !== 'snow') continue;     // clones only collect flakes and snow
       const ds = cb.s - k.s, du = cb.u - k.u, dh = cb.h - k.h;
-      // the magnet power-up widens the pickup radius of flakes (and a bit of snow)
       const rad = cb.r + k.rad + (k.kind === 'flake' ? mag : k.kind === 'snow' ? mag * 0.4 : 0);
       if (ds * ds + du * du + dh * dh > rad * rad) continue;
       k.alive = false;
@@ -484,6 +529,7 @@ export class Obstacles {
       e.kind = k.kind; e.value = k.value; e.s = k.s; e.u = k.u; e.h = k.h;
       if (k.kind === 'letter') e.letter = k.letter || this.nextLetter || '';
     }
+    CUR_ID = 'main'; this._cid = 'main';
   }
 
   // ---------- geometry helpers for kinds ----------
@@ -888,7 +934,17 @@ KIND.portal = {
 // Spawning: Subway-Surfers style lane patterns, flake routes / arcs, snow piles, pads, rare pickups
 // ---------------------------------------------------------------------------
 const STATIC_W = [['snowman', 2.0, 0], ['sign', 1.4, 0], ['crate', 1.8, 0], ['sled', 1.0, 0.1], ['logpile', 1.0, 0.2], ['pine', 1.4, 0.1], ['rock', 1.0, 0.25], ['cabin', 0.5, 0.3]];
-const POWERS = ['magnet', 'x2', 'superjump', 'rocket', 'helmet'];
+const POWERS = ['magnet', 'x2', 'superjump', 'rocket', 'helmet', 'timewarp', 'ghost', 'risk', 'clone'];
+// zone multipliers of the row-pattern weights (default 1); the zone's own patterns also ignore the difficulty gate
+const ZONE_OWN = { lasers: ['laser'], missiles: ['missile'], movers: ['mover', 'rolling'], boss: ['oncoming', 'rolling'] };
+const ZONE_M = {
+  lasers: { laser: 8, rest: 0.5, _: 0.22 },
+  missiles: { missile: 8, single: 0.6, low: 0.6, duck: 0.6, _: 0.15 },
+  movers: { mover: 6, rolling: 5, single: 0.4, _: 0.2 },
+  coinRain: { rest: 2, single: 0.5, _: 0.1 },
+  boss: { oncoming: 4, rolling: 1.5, _: 0.5 },
+  storm: { rest: 1.2, _: 0.35 },
+};
 const AIR_VH = 8.5;
 let AIR_G = 28;      // set from track.gravity() at the start of every spawn() (moon = low gravity -> longer arcs)
 const bit = (l) => 1 << l;
@@ -943,10 +999,12 @@ Object.assign(Obstacles.prototype, {
       const open3 = free0.length === 3;
       const prevFree = rows.length ? rows[rows.length - 1].free : carry ? carry.free : 7;
       const F = T.features || {};
-      const pats = ['single', 'double', 'low', 'train', 'mover', 'rolling', 'beat', 'swing', 'ice', 'melt', 'conveyor', 'rail', 'oncoming', 'duck', 'slide', 'combo', 'rest'];
+      const pats = ['single', 'double', 'low', 'train', 'mover', 'rolling', 'beat', 'swing', 'ice', 'melt', 'conveyor', 'rail', 'oncoming', 'duck', 'slide', 'combo', 'laser', 'missile', 'rest'];
       const nk0 = T._q && T._q[0], forcedNext = nk0 === 'narrow' || nk0 === 'split' || nk0 === 'hexHoles' || nk0 === 'gapRamp' || nk0 === 'gapJump' || nk0 === 'skiJump' || nk0 === 'chasm' || nk0 === 'iceBridge' || nk0 === 'zipline' || nk0 === 'loop' || nk0 === 'finish';
       const adj = free0.length === 3 || (free0.length === 2 && Math.abs(free0[0] - free0[1]) === 1);
-      const pat = wpick(rng, pats, (p) => {
+      const zone = plan.zone, zmap = zone ? ZONE_M[zone] : null, zown = zone ? ZONE_OWN[zone] : null;
+      const wfn = (p) => {
+        const diff = zown && zown.indexOf(p) >= 0 ? Math.max(plan.diff, 0.35) : plan.diff;
         switch (p) {
           case 'single': return free0.length >= 2 ? 3 : 0;
           case 'double': return open3 && diff >= 0.2 ? 1.2 + 1.6 * diff + (dense ? 0.6 : 0) : 0;
@@ -965,9 +1023,12 @@ Object.assign(Obstacles.prototype, {
           case 'slide': return T.allows('slideWall') && diff >= 0.25 && room > 12 && adj ? 0.9 + 0.8 * diff : 0;
           case 'combo': return late && T.allows('oncoming') && T.allows('slideWall') && room > 40 && !forcedNext && persist.length === 0 && open3 ? 3.2 : 0;
           case 'rest': return lastRest ? 0 : (late ? 0.08 : 0.35);
+          case 'laser': return T.allows('lasers') && diff >= 0.08 && room > 8 ? 1.4 + 1.2 * diff : 0;
+          case 'missile': return T.allows('missiles') && diff >= 0.18 && !forcedNext && room > 30 ? 1.0 + 1.2 * diff : 0;
           default: return 0;
         }
-      });
+      };
+      const pat = wpick(rng, pats, (p) => wfn(p) * (zmap ? (zmap[p] !== undefined ? zmap[p] : zmap._) : 1));
       let free = 7, ext = 1.5, jump = false, advanceExtra = 0, made = true;
       switch (pat) {
         case 'single': {
@@ -1132,6 +1193,41 @@ Object.assign(Obstacles.prototype, {
           free = 7 & ~bit(l); ext = 70;
           break;
         }
+        case 'laser': {
+          const dd = zown && zown.indexOf('laser') >= 0 ? Math.max(diff, 0.35) : diff, hwE = Math.min(piece.hw, 3.8);
+          const sg = rng.chance(0.5) ? -1 : 1, farLane = sg < 0 ? 2 : 0, farOk = inAllowed(farLane) && !(tm & bit(farLane)) && (prevFree & bit(farLane));
+          const v = wpick(rng, ['low', 'high', 'curtain', 'rotating', 'blink'], (x) => ({
+            low: dd >= 0.08 ? 3 : 0, high: dd >= 0.12 ? 2.5 : 0, curtain: free0.length >= 2 && dd >= 0.2 ? 2 : 0,
+            rotating: farOk && room > 10 && dd >= 0.3 ? 1.5 : 0, blink: open3 && room > 10 && dd >= 0.35 && T.allows('lasers') ? 1.4 : 0 }[x]));
+          if (!v) { made = false; break; }
+          const base = { kind: 'laser', variant: v, s, u: 0, hw: hwE, ext: 3.2 };
+          if (v === 'low') { Object.assign(base, { hb: 0.5 }); jump = true; ext = 1.6; }
+          else if (v === 'high') { Object.assign(base, { hb: 1.3 }); ext = 1.6; }
+          else if (v === 'curtain') {
+            const runs = []; let cur = null;
+            for (let l = 0; l < 3; l++) { if (free0.indexOf(l) >= 0) { if (cur && l === cur.hi + 1) cur.hi = l; else { cur = { lo: l, hi: l }; runs.push(cur); } } else cur = null; }
+            const run = runs[rng.int(0, runs.length - 1)];
+            let lo = run.lo, hi = run.hi; if (hi - lo >= 1 && (free0.length < 3 || rng.chance(0.6))) { lo = rng.int(run.lo, run.hi - (free0.length === 3 ? 1 : 0)); hi = free0.length === 3 && rng.chance(0.5) ? Math.min(2, lo + 1) : lo; }
+            if (hi - lo + 1 >= free0.length) hi = lo;
+            Object.assign(base, { lo, hi }); free = 7 & ~(((1 << (hi + 1)) - 1) ^ ((1 << lo) - 1)); ext = 1.5;
+          } else if (v === 'rotating') Object.assign(base, { sigma: sg, L: 2 * hwE - 2.7, per: Math.max(2.2, (dd > 0.6 ? 3 : 4) / hk), phi: rng.range(0, TAU), ext: 5 }), free = bit(farLane), ext = 5;
+          else Object.assign(base, { pat: this._slidePattern(rng, [0, 1, 2]), per: dd < 0.5 / hk ? 2 : 1, ext: 3 });
+          this._mk(plan, base);
+          break;
+        }
+        case 'missile': {
+          const nMax = Math.min(free0.length - 1, plan.diff > 0.5 ? 2 : 1);
+          if (nMax < 1 || !(prevFree & ~tm & amask)) { made = false; break; }
+          const n = rng.int(1, nMax), lanes = free0.slice().sort(() => rng.next() - 0.5).slice(0, n);
+          const vm = Math.min(40, rng.range(26, 34) * Math.sqrt(hk)), closing = vs + vm, m = s + vs * 2.0;
+          lanes.forEach((l, i) => {
+            const dm = i * vs * rng.range(0.5, 0.9), mm = m + dm, sP = mm + vm * 2.0 + dm * 0;
+            this._mk(plan, { kind: 'missile', s: mm, sP, u: LANES[l], lane: l, vm, ext: 90, p0: s - 3, p1: mm + vs * 0.6 + 8 });
+            persist.push({ lane: l, s0: s - 3, s1: mm + vs * 0.6 + 8 });
+          });
+          free = 7 & ~lanes.reduce((a, l) => a | bit(l), 0); ext = 3;
+          break;
+        }
         default: made = false;
       }
       lastRest = !made || pat === 'rest';
@@ -1234,7 +1330,7 @@ Object.assign(Obstacles.prototype, {
   spawn(piece, difficulty, biomeIndex) {
     const T = this.track, rng = makeRng((Math.imul(piece.id + 1, 2654435761) ^ this.seed ^ (T.seed | 0)) >>> 0);
     AIR_G = T.gravity ? T.gravity(piece.s0 + 10) : 28;
-    const plan = { rng, piece, diff: clamp(difficulty ?? piece.diff ?? 0, 0, 1), biome: biomeIndex ?? piece.biome, rows: [], batch: [] };
+    const plan = { rng, piece, diff: clamp(difficulty ?? piece.diff ?? 0, 0, 1), biome: biomeIndex ?? piece.biome, rows: [], batch: [], zone: T.zoneAt ? T.zoneAt(piece.s0 + piece.len / 2) : null };
     const n0 = this.picks.length;
     const kind = piece.kind, s0 = piece.s0, s1 = piece.s1;
     if (kind === 'finish') {
@@ -1267,12 +1363,14 @@ Object.assign(Obstacles.prototype, {
               rowStart = s0 + 7 + padFlight + 7;
             }
           }
-          if (kind === 'slalom' && !early && F.gates !== false && rng.chance(0.55)) this._gates(plan, s0 + 9, s1 - 6);
+          if (plan.zone === 'coinRain') { if (!early && rng.chance(0.3)) this._rows(plan, rowStart, rowEnd, false, [0, 1, 2]); }
+          else if (kind === 'slalom' && !early && F.gates !== false && rng.chance(0.55)) this._gates(plan, s0 + 9, s1 - 6);
           else if (!early) this._rows(plan, rowStart, rowEnd, dense, [0, 1, 2]);
           route = plan.gates ? this._gateRoute(plan, 1) : this._routeFn(plan, 1);
           arcs = this._rowArcs(plan);
           if (kind === 'straight' && !early && F.boost !== false && !padFlight && rng.chance(0.22)) this._placeStrip(plan, route, s0 + 6, s1 - 6);
-          this._flakeRuns(plan, route, padFlight ? s0 + 7 + padFlight + 5 : s0 + 4, s1 - 3, arcs);
+          if (plan.zone === 'coinRain') this._coinRain(plan, route, s0 + 3, s1 - 2);
+          else this._flakeRuns(plan, route, padFlight ? s0 + 7 + padFlight + 5 : s0 + 4, s1 - 3, arcs);
           break;
         }
         case 'narrow':
@@ -1330,7 +1428,7 @@ Object.assign(Obstacles.prototype, {
       const freeS = (want) => { let s = want; for (const r of plan.rows) if (Math.abs(s - r.s) < r.ext + 3.5) s = r.s + r.ext + 4; return Math.min(s, s1 - 3); };
       const offRoute = (s) => { const rl = Math.round((route(s) / LANE_W) + 1); const o = [0, 1, 2].filter((l) => l !== rl); return o[rng.int(0, 1)]; };
       if (s0 >= 150 && normal && s1 > this.next.power) {
-        const k = POWERS[rng.int(0, POWERS.length - 1)], s = freeS(mid);
+        const k = wpick(rng, POWERS, (x) => this.powerW[x] ?? 1) || 'magnet', s = freeS(mid);
         this._powerUp(plan, k, s, rng.chance(0.5) ? offRoute(s) : Math.round(route(s) / LANE_W) + 1);
         this.next.power = s + rng.range(250, 350);
       }
@@ -1352,10 +1450,12 @@ Object.assign(Obstacles.prototype, {
     // wind gusts / blizzard zones on plain pieces (not on cliff edges or narrow bridges)
     if (!piece.noObs && kind !== 'finish' && (kind === 'straight' || kind === 'curve' || kind === 'slalom' || kind === 'waves')) {
       const hk = this.hk(), len = piece.len;
-      if (T.allows('wind') && piece.curb && plan.diff >= 0.25 && len >= 36 && rng.chance(0.1 + 0.2 * plan.diff)) {
+      const storm = plan.zone === 'storm';
+      if (T.allows('wind') && piece.curb && (storm || plan.diff >= 0.25) && len >= 36 && rng.chance(storm ? 0.85 : 0.1 + 0.2 * plan.diff)) {
         const l = Math.min(len - 6, rng.range(28, 44));
         this._mk(plan, { kind: 'wind', s: s0 + len / 2, u: 0, len: l, ext: l / 2 + 1, dir: rng.sign(), strength: Math.min(5, rng.range(2.4, 3.8) * (0.8 + 0.25 * hk)), ph: rng.range(0, 6.28) });
-      } else if (T.allows('fog') && plan.diff >= 0.3 && len >= 40 && rng.chance(0.07 + 0.15 * plan.diff)) {
+      }
+      if (T.allows('fog') && (storm || plan.diff >= 0.3) && len >= 40 && rng.chance(storm ? 0.7 : 0.07 + 0.15 * plan.diff)) {
         const l = Math.min(len - 4, rng.range(40, 70));
         this._mk(plan, { kind: 'fog', s: s0 + len / 2, u: 0, len: l, ext: l / 2 + 8, maxD: rng.range(0.55, 0.9) });
       }
@@ -1707,6 +1807,17 @@ Object.assign(Obstacles.prototype, {
     return ol;
   },
 
+  /** coinRain relief zone: two weaving coin lines (offset half a wave) filling most of the piece */
+  _coinRain(plan, route, sA, sB) {
+    const T = this.track, rng = plan.rng, sp = this._sp(sA);
+    const ph = rng.range(0, TAU), lam = rng.range(24, 36), uA = (s) => clamp(route(s) + 1.6 * Math.sin(TAU * (s - sA) / lam + ph), -2.4, 2.4);
+    for (let s = sA; s < sB; s += sp) {
+      this._pickup('flake', s, uA(s), 0.95);
+      const s2 = s + sp * 0.5;
+      if (s2 < sB) this._pickup('flake', s2, clamp(-uA(s2), -2.4, 2.4), 0.95);
+    }
+  },
+
   // ----- helix: beat-shifting pinwheel of coins in the first half, rows (by angle) in the second -----
   _spawn_helix(plan, p) {
     const sp = this._sp(p.s0 + 30), mid = p.s0 + 0.45 * p.len;
@@ -1901,7 +2012,7 @@ Object.assign(Obstacles.prototype, {
     const dIdx = this._alloc('disc');
     const sStart = this.lastS - 24;
     const b = { id: this._id++, lane: l, u: LANES[l], sLand: s, t0: this.time, T: 1.5, sStart, phase: 0, s: sStart, h: 6, idx, dIdx, f: new Float64Array(12), fL: this._frameOf(s),
-      warned: false, hitDone: false, vr: Math.max(13, this.ballVs * 0.75), rot: 0, tRoll: 0 };
+      warned: false, hits: {}, vr: Math.max(13, this.ballVs * 0.75), rot: 0, tRoll: 0 };
     this._col('ball', idx, COL.rock, 1);
     this._col('disc', dIdx, 0xff2a1a, 1);
     this.dyn.push(b); this.dynById.set(b.id, b);
@@ -1920,7 +2031,7 @@ Object.assign(Obstacles.prototype, {
   _updateDyn(dt, ball) {
     const T = this.track, hk = this.hk();
     // automatic throws: from ~1200 m (boss levels: from the start) at a rate that grows with hardness
-    const boss = T.level && T.level.boss, start = boss ? 150 : 1200 / Math.sqrt(hk);
+    const boss = (T.level && T.level.boss) || (T.zoneAt && T.zoneAt(ball.s) === 'boss'), start = boss ? (T.level && T.level.boss ? 150 : 0) : 1200 / Math.sqrt(hk);
     if (T.allows('boulder') && ball.s >= start && !(T.finishS < Infinity && ball.s > T.finishS - 90)) {
       if (!this._bArmed) { this._bArmed = true; this.nextBoulder = this.time + 5 + this.rng.next() * 6; }
       else if (this.time >= this.nextBoulder) {
@@ -1955,12 +2066,13 @@ Object.assign(Obstacles.prototype, {
   _collideDyn(cb, events) {
     for (let i = 0; i < this.dyn.length; i++) {
       const b = this.dyn[i];
-      if (b.hitDone || b.idx < 0) continue;
+      if (b.idx < 0 || b.hits[this._cid]) continue;
       const ds = cb.s - b.s, du = cb.u - b.u, dh = cb.h - b.h, rad = cb.r + 0.92, d2 = ds * ds + du * du + dh * dh;
       if (d2 >= rad * rad) continue;
-      b.hitDone = true;
+      b.hits[this._cid] = true;
       const d = Math.sqrt(d2) || 1e-6, pen = rad - d, e = ev(events, 'hit');
       e.toughness = 5; e.s = b.s; e.u = b.u; e.h = b.h; e.color = COL.rock; e.id = b.id;
+      e.ball = this._cid;
       e.ds = (ds / d) * pen; e.du = (du / d) * pen; e.headOn = e.ds < 0 && Math.abs(e.ds) >= 0.7 * Math.abs(e.du);
     }
   },
@@ -2015,7 +2127,7 @@ KIND.oncoming = {
   hit(ob, ball, events) {
     const front = ob.cs - ob.L / 2;
     this._pass(ob, ball, events, ob.cs, ob.u, ob.L / 2, 1.05, ob.ht);
-    if (ob.state === 1 && !ob.warned) {
+    if (ob.state === 1 && !ob.warned && this._cid === 'main') {
       const gap = front - ball.s;
       if (gap <= 0) ob.warned = true;
       else {
@@ -2127,5 +2239,185 @@ KIND.finish = {
     ob.fired = true;
     const e = ev(events, 'finish');
     e.s = ob.s;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Ice lasers (Jetpack Joyride zappers) and snow missiles
+// ---------------------------------------------------------------------------
+const LASER_COL = 0x6ff2ff, LASER_HALO = 0x2a8fb0;
+
+// ice laser: emitters on posts at the track edges, beam across the lanes
+//   low      beam h 0.2-0.8  (jump over it)            high     beam h 1.0-1.6 (duck: ball.duck)
+//   curtain  full-height beam across lanes lo..hi (dodge sideways)
+//   rotating beam hinged at an edge post, sweeping on the beat (far lane always clear)
+//   blink    three lane beams, one lane 'off' at a time; the off lane moves one lane per step on the beat; flicker telegraphs
+KIND.laser = {
+  build(ob) {
+    ob.tough = 5; ob.color = LASER_COL; ob.hc = ob.hb || 0.9;
+    const hw = ob.hw, v = ob.variant;
+    const post = (u, H) => {
+      this._part(ob, 'box', COL.dark, u, H / 2, 0, 0, 0.45, H, 0.45);
+      this._part(ob, 'box', 0x39445a, u, 0.15, 0, 0, 0.7, 0.3, 0.7);
+    };
+    ob.beams = [];
+    const beam = (u, h, sx, sy, sz, hex) => { const p = this._part(ob, 'beam', hex, u, h, 0, 0, sx, sy, sz); p.hex = hex; return p; };
+    if (v === 'low' || v === 'high') {
+      const hb = ob.hb, H = hb + 0.7;
+      post(-hw - 0.3, H); post(hw + 0.3, H);
+      for (const sg of [-1, 1]) this._part(ob, 'lamp', LASER_COL, sg * (hw + 0.05), hb, 0, 0, 0.45, 0.45, 0.45);
+      ob.core = beam(0, hb, 2 * hw, 0.14, 0.14, LASER_COL);
+      ob.halo = beam(0, hb, 2 * hw, 0.62, 0.3, LASER_HALO);
+      ob.bl = v === 'low' ? 0.2 : 1.0; ob.bh = v === 'low' ? 0.8 : 1.6;
+    } else if (v === 'curtain') {
+      const u0 = LANES[ob.lo] - 1.25, u1 = LANES[ob.hi] + 1.25, uc = (u0 + u1) / 2, w = u1 - u0;
+      ob.uMin = u0; ob.uMax = u1; ob.cu = uc;
+      post(u0 - 0.12, 2.6); post(u1 + 0.12, 2.6);
+      ob.halo = beam(uc, 1.15, w, 2.3, 0.12, LASER_HALO);
+      ob.core = beam(uc, 0.25, w, 0.12, 0.14, LASER_COL); ob.core2 = beam(uc, 2.05, w, 0.12, 0.14, LASER_COL);
+    } else if (v === 'rotating') {
+      const sg = ob.sigma, u0 = sg * (hw + 0.05);
+      ob.u0 = u0; ob.cu = u0;
+      post(u0 + sg * 0.25, 1.3);
+      this._part(ob, 'lamp', LASER_COL, u0, 0.5, 0, 0, 0.55, 0.55, 0.55);
+      ob.core = beam(u0, 0.5, ob.L, 0.14, 0.14, LASER_COL);
+      ob.halo = beam(u0, 0.5, ob.L, 0.62, 0.3, LASER_HALO);
+    } else {   // blink
+      post(-hw - 0.3, 2.5); post(hw + 0.3, 2.5);
+      ob.lane = [];
+      for (let l = 0; l < 3; l++) {
+        const u = LANES[l];
+        ob.lane.push({ halo: beam(u, 1.05, 2.3, 2.1, 0.12, LASER_HALO), core: beam(u, 0.2, 2.3, 0.12, 0.14, LASER_COL), core2: beam(u, 1.95, 2.3, 0.12, 0.14, LASER_COL), on: true });
+      }
+    }
+  },
+
+  anim(ob, b, pulse) {
+    const v = ob.variant, shimmer = 0.82 + 0.18 * Math.sin(this.time * 38 + ob.id);
+    if (v === 'low' || v === 'high' || v === 'curtain') {
+      this._col('beam', ob.core.idx, LASER_COL, shimmer);
+      this._col('beam', ob.halo.idx, LASER_HALO, 0.55 + 0.35 * pulse);
+      if (ob.core2) this._col('beam', ob.core2.idx, LASER_COL, shimmer);
+    } else if (v === 'rotating') {
+      const th = TAU * b / ob.per + ob.phi, off = ob.L / 2;
+      ob.th = th;
+      this._repart(ob.core, ob.u0, 0.5, th, 0, ob.L, 0.14, 0.14, off, 0, 0);
+      this._repart(ob.halo, ob.u0, 0.5, th, 0, ob.L, 0.62, 0.3, off, 0, 0);
+      this._col('beam', ob.core.idx, LASER_COL, shimmer);
+    } else {
+      // blink: the off lane follows pat (one lane per step, eased flag for the flicker). x = step index, f = position in the step
+      const n = ob.pat.length, x = b / ob.per, k = Math.floor(x), f = x - k;
+      const cur = ob.pat[((k % n) + n) % n], nxt = ob.pat[(((k + 1) % n) + n) % n];
+      ob.offLane = cur; ob.nextOff = nxt;
+      for (let l = 0; l < 3; l++) {
+        const L = ob.lane[l];
+        // lane l is ON when it is not the current off lane; the lane that is about to switch on (cur != nxt) flickers in the last 30% of the step
+        const flicker = l === cur && nxt !== cur && f > 0.7;
+        const on = l !== cur;
+        const vis = on || (flicker && Math.sin(f * 90) > 0);
+        L.on = on;
+        const u = LANES[l];
+        if (vis) {
+          const dim = on ? 1 : 0.55;
+          this._repart(L.halo, u, 1.05, 0, 0, 2.3, 2.1, 0.12); this._repart(L.core, u, 0.2, 0, 0, 2.3, 0.12, 0.14); this._repart(L.core2, u, 1.95, 0, 0, 2.3, 0.12, 0.14);
+          this._col('beam', L.halo.idx, LASER_HALO, dim * (0.55 + 0.35 * pulse)); this._col('beam', L.core.idx, LASER_COL, dim * shimmer); this._col('beam', L.core2.idx, LASER_COL, dim * shimmer);
+        } else {
+          this._repart(L.halo, u, 1.05, 0, 0, 0.001, 0.001, 0.001); this._repart(L.core, u, 0.2, 0, 0, 0.001, 0.001, 0.001); this._repart(L.core2, u, 1.95, 0, 0, 0.001, 0.001, 0.001);
+        }
+      }
+    }
+  },
+
+  hit(ob, ball, events, t) {
+    const v = ob.variant, r = ball.r;
+    if (v === 'low' || v === 'high') {
+      const ds = ball.s - ob.s;
+      const bottom = ball.h - r, top = bottom + (ball.duck ? 0.9 * r : 2 * r);
+      if (!ob.hitDone && Math.abs(ds) < 0.1 + 0.8 * r && top > ob.bl && bottom < ob.bh) { this._hit(ob, ball, events, ds < 0 ? -0.6 : 0.6, 0); return; }
+      // skill events: closest vertical clearance while crossing the beam
+      if (ob.passDone) return;
+      if (Math.abs(ds) < 0.1 + 0.8 * r + 0.3) {
+        const clr = v === 'low' ? bottom - ob.bh : ob.bl - top;
+        if (clr >= 0 && clr < ob.minLat) { ob.minLat = clr; ob.nearSide = v === 'low' ? 1 : -1; if (v === 'low') ob.over = true; }
+      } else if (ds > 0.5) {
+        ob.passDone = true;
+        if (!ob.hitDone && ob.minLat < 0.5) { const e = ev(events, 'near'); e.toughness = 5; e.side = ob.nearSide; e.s = ob.s; e.u = ball.u; }
+        else if (!ob.hitDone && ob.over) { const e = ev(events, 'over'); e.toughness = 5; e.s = ob.s; e.u = ball.u; }
+      }
+      return;
+    }
+    if (v === 'curtain') {
+      this._pass(ob, ball, events, ob.s, ob.cu, 0.25, (ob.uMax - ob.uMin) / 2, 2.3);
+      const H = this._aabb(ball, ob.s - 0.1, ob.s + 0.1, ob.uMin, ob.uMax, 0, 2.3);
+      if (H && (H.ds !== 0 || H.du !== 0)) this._hit(ob, ball, events, H.ds, H.du);
+      return;
+    }
+    if (v === 'rotating') {
+      const th = ob.th, off = ob.L / 2;
+      if (this._obb(ball, ob.u0 + Math.cos(th) * off, ob.s + Math.sin(th) * off, th, off, 0.12, 0.2, 0.8)) { if (!ob.hitDone) this._hit(ob, ball, events, -0.5, ob.sigma > 0 ? -0.5 : 0.5); }
+      return;
+    }
+    // blink: ON lanes are full-height curtains
+    if (ob.hitDone || !ob.lane) return;
+    for (let l = 0; l < 3; l++) {
+      if (!ob.lane[l].on) continue;
+      const H = this._aabb(ball, ob.s - 0.1, ob.s + 0.1, LANES[l] - 1.2, LANES[l] + 1.2, 0, 2.1);
+      if (H && (H.ds !== 0 || H.du !== 0)) { this._hit(ob, ball, events, H.ds, H.du); return; }
+    }
+  },
+};
+
+// snow missile: flies uphill (towards -s) down one lane from far ahead. A red reticle pulses on the lane at the predicted contact
+// point and { type:'warn', kind:'missile', lane, t } fires ~1.2 s before contact. Toughness 5
+KIND.missile = {
+  build(ob) {
+    ob.tough = 5; ob.color = COL.red; ob.hc = 0.8; ob.state = 0; ob.warned = false; ob.cs = ob.sP; ob.cu = ob.u; ob.mf = new Float64Array(12);
+    const f = ob.mf, P = PI / 2;
+    ob.body = this._part(ob, 'cyl', 0xf4f7fb, ob.u, 0.8, P, P, 0.62, 2.0, 0.62, 0, 0, 0, f);
+    ob.nose = this._part(ob, 'ball', COL.red, ob.u, 0.8, 0, 0, 0.62, 0.62, 0.95, 0, 0, 1.1, f);        // nose points towards -s (local +z)
+    ob.finA = this._part(ob, 'box', COL.red, ob.u, 0.8, 0, 0, 0.06, 0.9, 0.5, 0, 0, -0.85, f);
+    ob.finB = this._part(ob, 'box', COL.red, ob.u, 0.8, 0, 0, 0.9, 0.06, 0.5, 0, 0, -0.85, f);
+    ob.flame = this._part(ob, 'lamp', 0xffa23a, ob.u, 0.8, 0, 0, 0.5, 0.5, 1.1, 0, 0, -1.35, f);
+    ob.ret = this._part(ob, 'ring', 0xff2a2a, ob.u, 0.9, 0, 0, 0.001, 0.001, 0.001, 0, 0, 0, ob.mf);
+    ob.retF = new Float64Array(12);
+  },
+  anim(ob, b, pulse) {
+    const T = this.track, closing = this.ballVs + ob.vm;
+    if (ob.state === 0 && this.lastS >= ob.sP - closing * 2.0) { ob.state = 1; ob.tStart = this.time; }
+    if (ob.state === 0) {      // parked far ahead, invisible
+      for (const p of ob.parts) if (p.idx >= 0) this._set(p.key, p.idx, p.f, p.u, p.h, p.yaw, p.roll, 0.0001, 0.0001, 0.0001, 0, 0, 0);
+      return;
+    }
+    ob.cs = ob.sP - ob.vm * (this.time - ob.tStart);
+    if (ob.cs < this.lastS - 25) {     // gone past the player
+      for (const p of ob.parts) if (p.idx >= 0) { this._release(p.key, p.idx); p.idx = -1; }
+      ob.alive = false;
+      return;
+    }
+    this._frameInto(ob.cs, ob.mf);
+    const wob = 0.04 * Math.sin(this.time * 31), fl = 0.8 + 0.5 * Math.sin(this.time * 47);
+    this._repart(ob.body, ob.u, 0.8, PI / 2, PI / 2, 0.62, 2.0, 0.62, 0, 0, 0, 0, ob.mf);
+    this._repart(ob.nose, ob.u, 0.8, 0, 0, 0.62, 0.62, 0.95, 0, 0, 1.1, 0, ob.mf);
+    this._repart(ob.finA, ob.u, 0.8, 0, wob, 0.06, 0.9, 0.5, 0, 0, -0.85, 0, ob.mf);
+    this._repart(ob.finB, ob.u, 0.8, 0, wob, 0.9, 0.06, 0.5, 0, 0, -0.85, 0, ob.mf);
+    this._repart(ob.flame, ob.u, 0.8, 0, 0, 0.5 * fl, 0.5 * fl, 1.2 * fl, 0, 0, -1.35 - 0.3 * fl, 0, ob.mf);
+    // reticle on the lane at the predicted contact point
+    const tc = (ob.cs - this.lastS) / closing;
+    if (tc > 0) {
+      const sC = this.lastS + this.ballVs * tc, k = 1.0 + 0.25 * Math.sin(this.time * 16) + 0.9 * (1 - tc / 2.0);
+      this._frameInto(sC, ob.retF);
+      this._repart(ob.ret, ob.u, 0.9, 0, 0, 1.1 * k, 1.1 * k, 0.5, 0, 0, 0, 0, ob.retF);
+    } else this._repart(ob.ret, ob.u, 0.9, 0, 0, 0.001, 0.001, 0.001, 0, 0, 0, 0, ob.retF);
+  },
+  hit(ob, ball, events) {
+    if (ob.state !== 1) return;
+    const closing = ball.vs + ob.vm;
+    if (!ob.warned && this._cid === 'main') {
+      const tc = (ob.cs - 1.2 - ball.s) / closing;
+      if (tc <= 1.2) { ob.warned = true; const e = ev(events, 'warn'); e.kind = 'missile'; e.lane = ob.lane; e.t = Math.max(0, tc); }
+    }
+    this._pass(ob, ball, events, ob.cs, ob.u, 1.2, 0.45, 1.3);
+    const H = this._aabb(ball, ob.cs - 1.3, ob.cs + 1.3, ob.u - 0.5, ob.u + 0.5, 0.25, 1.35);
+    if (H && (H.ds !== 0 || H.du !== 0)) this._hit(ob, ball, events, H.ds, H.du);
   },
 };

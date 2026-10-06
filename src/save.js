@@ -73,6 +73,28 @@ export const save = {
     persist();
     return r.top.indexOf(entry) + 1;
   },
+  perm: () => ({ size: 0, speed: 0, smash: 0, coin: 0, yeti: 0, flow: 0, ...(data.perm || {}) }),
+  addPerm(id) {
+    if (!data.perm) data.perm = {};
+    data.perm[id] = Math.min(10, (data.perm[id] || 0) + 1);
+    persist();
+    return data.perm[id];
+  },
+  // Today's best endless score; returns true when this run set it.
+  recordDailyRunner(score) {
+    const d = new Date();
+    const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    if (!data.dailyRunner || data.dailyRunner.key !== key) data.dailyRunner = { key, best: 0 };
+    const isBest = score > data.dailyRunner.best;
+    if (isBest) data.dailyRunner.best = score;
+    persist();
+    return isBest;
+  },
+  dailyRunnerBest() {
+    const d = new Date();
+    const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    return data.dailyRunner && data.dailyRunner.key === key ? data.dailyRunner.best : 0;
+  },
   runnerTop: () => (Array.isArray(data.runner?.top) ? data.runner.top.slice() : []),
 
   // ---- economy / customization ----

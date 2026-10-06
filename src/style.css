@@ -265,3 +265,29 @@ html, body {
   color: #ff4a3a; text-shadow: 0 3px 0 var(--ink); animation: laneWarn 1.1s ease-out forwards; pointer-events: none;
 }
 @keyframes laneWarn { 0% { opacity: 0; transform: translateX(-50%) scale(0.4); } 15% { opacity: 1; transform: translateX(-50%) scale(1.2); } 70% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) scale(1); } }
+
+/* ---------- roguelite perk cards ---------- */
+#perks {
+  position: absolute; inset: 0; z-index: 45; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: rgba(10, 22, 44, 0.55); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); padding: 16px;
+}
+.perk-title { font-weight: 900; font-size: 30px; color: #fff; text-shadow: 0 3px 0 var(--ink), 2px 2px 0 var(--ink), -2px 2px 0 var(--ink); letter-spacing: 0.04em; }
+.perk-cards { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 340px; }
+.perk-card {
+  display: flex; align-items: center; gap: 12px; text-align: left; cursor: pointer; font-family: inherit;
+  background: linear-gradient(180deg, #ffffff, #dfeeff); border: 3px solid var(--ink); border-radius: 18px; padding: 12px 14px;
+  box-shadow: 0 6px 0 var(--ink); animation: perkIn 0.35s cubic-bezier(.2, 1.6, .4, 1) both;
+}
+.perk-card:nth-child(2) { animation-delay: 0.08s; } .perk-card:nth-child(3) { animation-delay: 0.16s; }
+.perk-card:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--ink); }
+.perk-card .pi { font-size: 34px; width: 48px; text-align: center; }
+.perk-card .pn { font-weight: 900; font-size: 18px; color: var(--ink); }
+.perk-card .pd { font-weight: 700; font-size: 13px; color: #3a5a86; }
+.perk-card.rare { background: linear-gradient(180deg, #fff3c4, #ffd36b); }
+@keyframes perkIn { from { transform: scale(0.6) translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+#danger {
+  position: absolute; left: 50%; top: calc(var(--sat) + 158px); transform: translateX(-50%); pointer-events: none;
+  font-weight: 900; font-size: 15px; letter-spacing: 0.06em; color: #fff; padding: 3px 10px; border-radius: 10px; border: 2px solid var(--ink);
+  background: linear-gradient(90deg, #ff5a3a, #ff9a3a); text-shadow: 0 2px 0 var(--ink); animation: dangerPulse 0.5s infinite alternate;
+}
+@keyframes dangerPulse { to { transform: translateX(-50%) scale(1.08); } }

@@ -58,7 +58,7 @@ const scl = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
 const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 // kinds a campaign level can allow / forbid (everything else is always allowed)
-const LEVEL_CTRL = Object.fromEntries(['waves', 'helix', 'skiJump', 'chasm', 'iceBridge', 'halfpipe', 'tube', 'rail', 'zipline', 'loop', 'corkscrew', 'oncoming', 'duck', 'boulder', 'slideWall', 'wind', 'fog'].map((k) => [k, 1]));
+const LEVEL_CTRL = Object.fromEntries(['waves', 'helix', 'skiJump', 'chasm', 'iceBridge', 'halfpipe', 'tube', 'rail', 'zipline', 'loop', 'corkscrew', 'oncoming', 'duck', 'boulder', 'slideWall', 'wind', 'fog', 'lasers', 'missiles'].map((k) => [k, 1]));
 const CH = ['X', 'Y', 'Z', 'YW', 'PT', 'TX', 'TY', 'TZ', 'UX', 'UY', 'UZ', 'RL'];
 const DEFAULT_PAL = { tileA: 0xe8f1fb, tileB: 0xc9d9ee, edge: 0x7fb4e8, rail: 0x4a6a92, glow: 0xffd24a, under: 0x3a4f70 };
 
@@ -180,7 +180,7 @@ export class Track {
     this.onReset = null;
     this.features = Object.assign({ helix: true, boost: true, spring: true, skiJump: true, chasm: true, waves: true, gates: true, iceBridge: true,
       conveyor: true, halfpipe: true, tube: true, rail: true, zipline: true, loop: true, corkscrew: true, checker: true,
-      oncoming: true, duck: true, boulder: true, slideWall: true, wind: true, fog: true }, opts.features || {});
+      oncoming: true, duck: true, boulder: true, slideWall: true, wind: true, fog: true, lasers: true, missiles: true }, opts.features || {});
     this._f = new Float64Array(12);
     this.disposedGeometries = 0;
     this._init();
@@ -207,7 +207,24 @@ export class Track {
     this._frS = NaN; this._frV = -1; this._ver = (this._ver || 0) + 1;     // frame cache (station, sample version)
     this._ss = []; this._hh = [];
     this._bossStarted = false; this._forced = []; this.finishS = Infinity; this._finished = false;
+    this.zone = null;
   }
+
+  /**
+   * Stage a rule-change zone: setZone('lasers' | 'missiles' | 'narrow' | 'movers' | 'coinRain' | 'boss' | 'storm' | null, { until, from }).
+   * Pieces generated from `from` (default: the end of what is already generated, so a zone set now starts ~300 m ahead of the ball)
+   * until s >= `until` follow the zone: 'narrow' = narrow bridges / split pieces / hex platforms, every other zone = plain pieces
+   * (no set pieces) while obstacles.js biases its content. Returns { kind, from, until } (null when cleared).
+   */
+  setZone(kind, opts = {}) {
+    if (!kind) { this.zone = null; return null; }
+    const from = opts.from != null ? opts.from : this.genEnd;
+    this.zone = { kind, from, until: opts.until != null ? opts.until : from + 400 };
+    this._q.length = 0;
+    return this.zone;
+  }
+  /** zone kind covering s, or null */
+  zoneAt(s) { const z = this.zone; return z && s >= z.from && s < z.until ? z.kind : null; }
 
   /** gravity (m/s^2) at s, from the optional gravityAt callback */
   gravity(s) { return this.gravityAt ? this.gravityAt(s) : T.G; }
@@ -433,7 +450,14 @@ Object.assign(Track.prototype, {
   _diff(s) { s *= this.hardness; return s <= 100 ? 0 : 1 - Math.exp(-(s - 100) / 1587); },
 
   _pickKind(s0, diff, since) {
-    const rng = this.rng;
+    const rng = this.rng, zk = this.zoneAt(s0);
+    if (zk && s0 >= 150) {
+      const w = zk === 'narrow' ? { narrow: 3, split: 2, hexHoles: 1, straight: 1.2, curve: 0.8 } : { straight: 4, curve: 3, slalom: 2 };
+      let tot = 0; for (const k in w) tot += w[k];
+      let r = rng.next() * tot, kind = 'straight';
+      for (const k in w) { r -= w[k]; if (r <= 0) { kind = k; break; } }
+      return kind;
+    }
     if (s0 < 150) return rng.chance(0.55) ? 'straight' : 'curve';
     const sk = s0 * this.hardness;     // hardness unlocks the hard pieces earlier (Kabus) / later (Kolay)
     const w = { straight: 5 - 3 * diff, curve: 4, slalom: 1.6 + 1.4 * diff, narrow: 0, gapRamp: 1.5 + diff, gapJump: 0, hexHoles: 0, split: 0, stairs: 0 };
@@ -467,7 +491,7 @@ Object.assign(Track.prototype, {
     if (this._bossStarted) return this._forced.length ? this._forced.shift() : 'straight';   // boss finale: chasm, straight, skiJump, then run-in
     if (L && sEst > L.length - 150) return 'straight';                                         // calm run-in before the finish
 
-    let kind = sEst >= this._nextSet && this.rng.chance(0.8) ? this._pickSet(sEst, diff) : null;
+    let kind = sEst >= this._nextSet && !this.zoneAt(sEst) && this.rng.chance(0.8) ? this._pickSet(sEst, diff) : null;
     if (!kind) kind = this._pickKind(sEst, diff, this._qSince);
     this._qSince = HAZARD[kind] ? 0 : this._qSince + 1;
     return kind;

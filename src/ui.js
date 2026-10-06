@@ -53,6 +53,7 @@ export class UI {
     this.el.vitals.classList.toggle('hidden', !on);
     this.el.yeti.classList.toggle('hidden', !on);
     this.el.flow.classList.toggle('hidden', !on);
+    if (!on) this.runnerDanger(1, 1, false);
     this.el.record.classList.toggle('hidden', !on);
     this.lastFlow = this.lastRec = null;
     this.lastVitals = '';
@@ -99,7 +100,8 @@ export class UI {
     this.el.powers.textContent = `${sled ? '🛷' : ''}${helmet ? '⛑️' : ''}${magnet ? '🧲' : ''}${rocket ? '🚀' : ''}${x2 ? '✖️2' : ''}${superjump ? '👟' : ''}`;
   }
 
-  showRunnerResult({ title, distance, score, coins, best, isBest, canRevive, reviveCost = 0, boxes = 0, rank = 0, toRecord = 0, missions = [], layer = 1 }) {
+  showRunnerResult({ title, distance, score, coins, best, isBest, canRevive, reviveCost = 0, boxes = 0, rank = 0, toRecord = 0, missions = [], layer = 1, dailyBest = false, destruction = '', tons = 0 }) {
+    this.runnerDanger(1, 1, false);
     this.clearTimers();
     this.el.hud.classList.add('hidden');
     this.el.coins.classList.add('hidden');
@@ -111,7 +113,8 @@ export class UI {
     if (isBest) html += '<div class="rx-line">🏆 EN İYİ KOŞUN!</div>';
     else if (toRecord > 0 && toRecord < Math.max(400, distance * 0.6)) html += `<div class="rx-line">Rekora ${toRecord.toLocaleString('tr-TR')} m kaldı!</div>`;
     else if (rank > 0 && rank <= 10) html += `<div class="rx-line">#${rank}. en iyi koşun</div>`;
-    html += `<div class="rx-line" style="font-size:14px;color:#cfe6ff">KATMAN ${layer}</div>`;
+    if (dailyBest && !isBest) html += '<div class="rx-line">☀️ BUGÜNÜN REKORU!</div>';
+    html += `<div class="rx-line" style="font-size:14px;color:#cfe6ff">KATMAN ${layer}${tons ? ` · YIKIM: ${destruction} (${tons.toLocaleString('tr-TR')} ton)` : ''}</div>`;
     for (const m of missions.slice(0, 3)) {
       const f = Math.max(0, Math.min(1, (m.value || 0) / (m.goal || 1)));
       html += `<div class="rx-m ${m.done ? 'done' : ''}"><span>${m.icon || '📜'}</span><span class="rx-t">${m.text}</span><span class="rx-b"><i style="width:${Math.round(f * 100)}%"></i></span></div>`;
@@ -158,6 +161,39 @@ export class UI {
     d.style.left = `${50 + (lane - 1) * 26}%`;
     this.el.floats.appendChild(d);
     setTimeout(() => d.remove(), 1100);
+  }
+
+  showPerks(cards, title, onPick) {
+    const wrap = document.getElementById('perks');
+    document.getElementById('perk-title').textContent = title;
+    const box = document.getElementById('perk-cards');
+    box.innerHTML = '';
+    for (const c of cards) {
+      const el = document.createElement('button');
+      el.className = `perk-card ${c.rare ? 'rare' : ''}`;
+      el.innerHTML = `<span class="pi">${c.icon}</span><span><div class="pn">${c.name}</div><div class="pd">${c.desc}</div></span>`;
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        wrap.classList.add('hidden');
+        onPick(c);
+      }, { once: true });
+      box.appendChild(el);
+    }
+    wrap.classList.remove('hidden');
+  }
+
+  runnerDanger(danger, chain, risk) {
+    const el = this.dangerEl || (this.dangerEl = document.getElementById('danger'));
+    const parts = [];
+    if (risk) parts.push('RİSK ×5');
+    if (danger > 1) parts.push(`TEHLİKE ×${danger}`);
+    if (chain > 1) parts.push(`ZİNCİR ×${chain}`);
+    const t = parts.join(' · ');
+    if (t !== this.lastDanger) {
+      this.lastDanger = t;
+      el.textContent = t;
+      el.classList.toggle('hidden', !t);
+    }
   }
 
   runnerFlow(lvl, frac) {

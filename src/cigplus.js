@@ -375,7 +375,7 @@ export class CigPlus {
         let moved = false;
         for (let i = 0; i < blk.length; i++) {
           const e = blk[i];
-          if (e[2] & mask && a - pad < e[1] && a + len + pad > e[0]) { a = e[1] + pad; moved = true; }
+          if (e[2] & mask && a - pad < e[1] && a + len + pad > e[0]) { a = e[1] + pad + 0.01; moved = true; }
         }
         if (!moved) return a + len <= hi ? a : -1;
       }
@@ -1027,11 +1027,15 @@ export class CigPlus {
     this._call('onLaunch', vy, opt);
   }
 
+  _endWings() {
+    if (this.T.wings > 0) { this.T.wings = 0; this._call('onPowerEnd', 'wings'); }
+  }
+
   _flight(dt, b) {
     const f = this.fly;
     if (!f.on) return;
     f.t += dt;
-    if (!b.airborne) { if (f.t > 0.15) { f.on = false; this.T.wings = 0; } return; }
+    if (!b.airborne) { if (f.t > 0.15) { f.on = false; this._endWings(); } return; }
     if (this.T.wings <= 0 && f.t > f.up) { f.on = false; return; }
     if (b.vy > 11) b.vy = 11;
     if (f.t > f.up && b.vy < -4) b.vy = -4;
