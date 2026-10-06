@@ -16,14 +16,17 @@
 // LOWEST pass where the path overlaps itself in plan (helix, loop, corkscrew), so nothing is ever above any track surface.
 // The flank ribbons, the valley floor plane and every scenery item sample the SAME function, so things sit on the ground.
 //
-// Budgets (measured with the real track, 4.5 km run): 11-21 draw calls (limit 25), <= 60k triangles (limit 80k), ~0.3 ms
-// CPU per update, no per-frame allocations (scenery chunks are built every ~50 m of travel, a handful of tiny temp
-// objects at that moment only), scenery deterministic per s.
+// Budgets (measured with the real track.js, 4 km runs, 6 seeds): 11-23 draw calls (limit 25), <= 61k triangles (limit 80k),
+// ~0.4 ms CPU per steady update (chunk builds ~2 ms every 50 m), no per-frame allocations (a chunk build allocates a few
+// small temporaries), scenery deterministic per s.
 //
-// Corridor rule (director's downhill version): nothing solid within 12 m laterally of the centre line rises above the
-// track surface (the flanks, clouds, trees, everything stays >= 3 m below it, or >= 34 m above), and the whole area
-// behind the ball is clear. Scenery that would violate it - including because the path bends back towards it later -
-// is never placed, or is switched off when the new stretch of path becomes known (always far inside the fog).
+// Corridor rule: nothing solid within 12 m (plan) of the centre line rises above the track surface: scenery, trees, clouds
+// and terrain stay >= 3 m below it (clouds / floating rocks may also hover >= 34 m above). It holds for paths that overlap
+// themselves in plan (helix, loop, corkscrew) and for banked turns: terrain hangs from the LOWEST pass of the path, and when
+// a lower pass becomes known (always 150-300 m ahead, inside the fog) the affected terrain is rebuilt (2 chunks per frame)
+// and decor left hovering is lowered; scenery that would intrude on a stretch of path discovered later is switched off.
+//
+// Track palette extras: greenhill sets checker: true + checkerA / checkerB (brown / orange) for the track's bank sides.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -1473,7 +1476,7 @@ export class Environment {
     if (du > 0.5) y += this._rug(wx, wz, du, X.U);
     if (X.lo < X.py) {
       const yl = X.lo - 0.5 + dr;
-      if (yl < y) y += (yl - y) * smooth(0.2, 1.6, du < 0 ? 0 : du);
+      if (yl < y) y = yl;
     }
     return y;
   }
@@ -1687,7 +1690,7 @@ export class Environment {
    * gets lowered after its chunk was built marks the chunk dirty (it is rebuilt in _fixDirty, always far ahead in the fog).
    */
   _overlap(i, k) {
-    const yi = this._sy[k], xi = this._sx[k], zi = this._sz[k];
+    const yi = this._sy[k] - Math.abs(this._sed[k]), xi = this._sx[k], zi = this._sz[k]; // height of the pass's lower edge
     for (let j = i - OVL_J; j <= i + OVL_J; j++) {
       if (j === i || j < 0) continue;
       const kj = ((j % NS) + NS) % NS;
@@ -1696,7 +1699,8 @@ export class Environment {
       if (pd >= OVL_R) continue;
       const ds = Math.abs(j - i) * SP;
       if (ds <= 1.35 * pd + 8) continue;
-      if (this._sy[kj] < this._sov[k]) this._sov[k] = this._sy[kj];
+      const yj = this._sy[kj] - Math.abs(this._sed[kj]);
+      if (yj < this._sov[k]) this._sov[k] = yj;
       if (yi < this._sov[kj] - 0.25) { this._sov[kj] = yi; this._ovDirty = true; }
     }
   }
@@ -1837,7 +1841,7 @@ export class Environment {
     if (du > 0.5) y += this._rug(x, z, du, U);
     if (lo < py) { // another pass of the path lies below (helix, loop): hang the terrain from it, 0.5 m under its centre line
       const yl = lo - 0.5 + dr;
-      if (yl < y) y += (yl - y) * smooth(0.2, 1.6, du < 0 ? 0 : du);
+      if (yl < y) y = yl;
     }
     this._fy = y;
     return y;
