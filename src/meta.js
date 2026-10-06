@@ -8,6 +8,7 @@
 // corrupted blob falls back to a fresh state. Importing this module never touches `document` / `localStorage`.
 // Rewards that touch the shop economy (❄️, skins, trails) go through the `save` object handed to init().
 import { SKINS, TRAILS } from './skins.js';
+import { ACTS, CAMPAIGN_SIZE, LEVELS_PER_ACT, levelById } from './campaign.js';
 
 const KEY = 'freemon.meta.v1';
 const MAX_MULT = 30;
@@ -72,6 +73,13 @@ const upId = (k) => (UP_BY_ID[k] ? k : UP_ALIAS[k] || null);
 
 // Sled (kızak) = Subway "hoverboard": consumable one-hit shield, activated by double-tap during a run.
 export const SLED_PACK = { count: 3, price: 270 };
+
+// ---- act chests: given once, on the first clear of an act's boss level (already-owned items convert to coins) ----
+export const ACT_CHEST = [
+  { coins: 300, crystals: 1, boxes: 1 }, { coins: 200, trail: 'neon' }, { coins: 200, skin: 'karpuz' }, { coins: 250, skin: 'nazar' },
+  { coins: 250, trail: 'gold' }, { coins: 300, skin: 'kofte' }, { coins: 300, skin: 'ice', crystals: 1 }, { coins: 350, skin: 'pamuk' },
+  { coins: 400, skin: 'disko', crystals: 1 }, { coins: 600, skin: 'lav', crystals: 3, boxes: 2 },
+];
 
 // ---- holidays (fixed-date only; moving religious holidays are intentionally not here) ----
 export const HOLIDAYS = [
@@ -152,6 +160,18 @@ ach('missions3', 'Görev Adamı', '3 görev seti tamamla.', '🎯', 3, { coins: 
 ach('mult10', 'Çarpan Ustası', 'Kalıcı skor çarpanını x10 yap.', '✖️', 10, { coins: 300, crystals: 2 }, ['@derive'], (S) => S.m.mult);
 ach('hunt1', 'Kelime Avcısı', 'FREEMON harflerini bir günde topla.', '🔤', 1, { coins: 150 }, ['@derive'], (S) => S.st.huntsDone);
 
+// ---------------- campaign (state lives in S.c; all derived) ----------------
+const ACT_NAMES = ['Buzları Kırdın', 'Orman Kurdu', 'Çimen Kralı', 'Peri Bacası Ustası', 'Kasaba Fatihi', 'Çöl Yolcusu', 'Buz Kralı', 'Şeker Krizi', 'Neon Işığı', 'Yanardağ Fatihi'];
+const TR_SUFFIX = ['i', 'yi', 'ü', 'ü', 'i', 'yı', 'yi', 'i', 'u', 'u'];
+for (let a = 1; a <= 10; a++) {
+  ach('act_' + a, ACT_NAMES[a - 1], "Act " + a + "'" + TR_SUFFIX[a - 1] + ' bitir: ' + ACTS[a - 1].name + '.', ACTS[a - 1].icon, 1, { coins: 50 + 25 * a }, ['@derive'], (S) => (S.c.stars[a * LEVELS_PER_ACT] > 0 ? 1 : 0));
+}
+ach('stars30', 'Yıldız Tozu', 'Macerada toplam 30 yıldız topla.', '🌟', 30, { coins: 100 }, ['@derive'], (S) => campStars(S));
+ach('stars100', 'Yıldız Yağmuru', 'Macerada toplam 100 yıldız topla.', '💫', 100, { coins: 250, crystals: 1 }, ['@derive'], (S) => campStars(S));
+ach('stars300', 'Takımyıldız', 'Macerada 300 yıldızın hepsini topla.', '🌌', 300, { coins: 1000, crystals: 5 }, ['@derive'], (S) => campStars(S));
+ach('camp_all', 'Efsane', 'Macerada 100 bölümü de bitir.', '👑', CAMPAIGN_SIZE, { coins: 500, crystals: 3 }, ['@derive'], (S) => campCleared(S));
+ach('act_perfect', 'Kusursuz Act', "Bir act'in 10 bölümünü de 3 yıldızla bitir.", '💎', 1, { coins: 300, crystals: 1 }, ['@derive'], (S) => (S.c.perfect.some(Boolean) ? 1 : 0));
+
 // ---------------- secrets (easter eggs; unlocked through meta.egg(id), auto-claimed) ----------------
 function eggAch(id, name, desc, icon, reward) {
   const e = EGG_BY_ID[id];
@@ -175,6 +195,17 @@ const ACH_IDS = DEFS.map((d) => d.id);
 
 const BY_EVENT = {};
 for (const id of ACH_IDS) for (const ev of RULES[id].on) (BY_EVENT[ev] || (BY_EVENT[ev] = [])).push(id);
+
+function campStars(S) {
+  let n = 0;
+  for (const k in S.c.stars) n += S.c.stars[k];
+  return n;
+}
+function campCleared(S) {
+  let n = 0;
+  for (const k in S.c.stars) if (S.c.stars[k] > 0) n++;
+  return n;
+}
 
 function countThreeStar() {
   if (!sv || typeof sv.starsFor !== 'function') return 0;
@@ -244,6 +275,8 @@ function fresh() {
     m: { n: 0, mult: 1, cur: [], awarded: false, skipDay: '' },
     h: { day: '', found: [0, 0, 0, 0, 0, 0, 0], done: false, last: '', streak: 0 },
     recent: [],
+    c: { stars: {}, b: {}, unlocked: 1, seen: {}, chest: new Array(10).fill(0), perfect: new Array(10).fill(0) },
+    mode: 'camp',
   };
 }
 
@@ -291,6 +324,22 @@ function sanitize(p) {
     s.h.done = !!p.h.done;
     if (Array.isArray(p.h.found)) for (let i = 0; i < 7; i++) s.h.found[i] = p.h.found[i] ? 1 : 0;
   }
+  if (isObj(p.c)) {
+    const C = s.c;
+    if (isObj(p.c.stars)) for (let id = 1; id <= CAMPAIGN_SIZE; id++) { const v = Math.min(3, Math.floor(nz(p.c.stars[id]))); if (v > 0) C.stars[id] = v; }
+    if (isObj(p.c.b)) {
+      for (let id = 1; id <= CAMPAIGN_SIZE; id++) {
+        const e = p.c.b[id];
+        if (Array.isArray(e)) C.b[id] = [Math.min(100, Math.floor(nz(e[0]))), Math.floor(nz(e[1]))];
+      }
+    }
+    if (isObj(p.c.seen)) for (let id = 1; id <= CAMPAIGN_SIZE; id++) if (p.c.seen[id]) C.seen[id] = 1;
+    for (const k of ['chest', 'perfect']) if (Array.isArray(p.c[k])) for (let i = 0; i < 10; i++) C[k][i] = p.c[k][i] ? 1 : 0;
+    let hi = 0;
+    for (const k in C.stars) hi = Math.max(hi, +k);
+    C.unlocked = Math.max(1, Math.min(CAMPAIGN_SIZE, Math.max(Math.floor(nz(p.c.unlocked)), hi + 1)));
+  }
+  if (p.mode === 'camp' || p.mode === 'endless' || p.mode === 'cig') s.mode = p.mode;
   if (Array.isArray(p.recent)) s.recent = p.recent.filter((x) => x === 'e' || x === 'c').slice(-6);
   return s;
 }
@@ -812,6 +861,7 @@ export const meta = {
       daysClaimed: S.d.total, dailyStreak: meta.daily().streak,
       achievements: meta.doneCount(), achievementsTotal: ACH_IDS.length,
       eggs: Object.keys(S.eggs).length, eggsTotal: EGGS.length,
+      campaignStars: campStars(S), campaignCleared: campCleared(S), campaignUnlocked: S.c.unlocked,
       multiplier: S.m.mult, missionSets: S.m.n, boxesOpened: st.boxesOpened, lettersFound: st.lettersFound, huntsDone: st.huntsDone,
       crystals: S.cr, sleds: S.sleds, since: S.born,
     };
@@ -976,6 +1026,88 @@ export const meta = {
     } else markDirty();
     return res;
   },
+
+  // ---- campaign (100 levels, 10 acts; data in campaign.js) ----
+  // unlocked = highest playable level, current = level the MACERA button plays (== unlocked, capped at 100).
+  campaign() {
+    const C = S.c;
+    const stars = {};
+    for (const k in C.stars) stars[k] = C.stars[k];
+    return {
+      unlocked: C.unlocked, current: Math.min(CAMPAIGN_SIZE, C.unlocked), stars, totalStars: campStars(S), maxStars: CAMPAIGN_SIZE * 3,
+      cleared: campCleared(S), done: campCleared(S) >= CAMPAIGN_SIZE,
+      actDone: (act) => (C.stars[Math.max(1, Math.min(10, act | 0)) * LEVELS_PER_ACT] || 0) > 0,
+      actStars: (act) => { let n = 0; for (let i = 1; i <= LEVELS_PER_ACT; i++) n += C.stars[(act - 1) * LEVELS_PER_ACT + i] || 0; return n; },
+    };
+  },
+  levelStars(id) { return S.c.stars[id] || 0; },
+  levelBest(id) {
+    const st = S.c.stars[id] || 0;
+    if (!st) return null;
+    const b = S.c.b[id] || [0, 0];
+    return { stars: st, flakesPct: b[0], time: b[1] };
+  },
+  // Call when a campaign level ends successfully (stars >= 1; the runner decides stars via campaign.evalGoals).
+  // Grants rewards immediately and returns them (or null for stars < 1 / bad id): { coins, crystals, boxes, skin, trail,
+  // converted, stars (best), earned, newStars, firstClear, boss, act, chest (what the act chest gave, or null), perfect (bool),
+  // actDone, next (next level id or 0), endlessUnlocked, justUnlockedEndless, achievements: [newly unlocked] }.
+  completeLevel(id, stars, stats) {
+    const lv = levelById(id);
+    if (!lv) return null;
+    stars = Math.max(0, Math.min(3, Math.floor(num(stars))));
+    if (stars < 1) return null;
+    const st = isObj(stats) ? stats : EMPTY;
+    const C = S.c;
+    const prev = C.stars[id] || 0;
+    const firstClear = prev === 0;
+    const newStars = Math.max(0, stars - prev);
+    const wasEndless = meta.endlessUnlocked();
+    C.stars[id] = Math.max(prev, stars);
+    const b = C.b[id] || (C.b[id] = [0, 0]);
+    b[0] = Math.max(b[0], Math.round(Math.max(0, Math.min(1, num(st.flakesPct))) * 100));
+    const tm = Math.round(num(st.time));
+    if (tm > 0 && (!b[1] || tm < b[1])) b[1] = tm;
+    if (id < CAMPAIGN_SIZE) C.unlocked = Math.max(C.unlocked, id + 1);
+
+    const parts = [grant({ coins: (firstClear ? 25 + Math.round(id * 1.2) : 5) + newStars * 20 })];
+    let chest = null;
+    if (lv.boss && firstClear && !C.chest[lv.act - 1]) {
+      C.chest[lv.act - 1] = 1;
+      chest = grant(ACT_CHEST[lv.act - 1]);
+      parts.push(chest);
+    }
+    let perfect = false;
+    if (!C.perfect[lv.act - 1]) {
+      let all = true;
+      for (let i = 1; i <= LEVELS_PER_ACT; i++) if ((C.stars[(lv.act - 1) * LEVELS_PER_ACT + i] || 0) < 3) { all = false; break; }
+      if (all) { C.perfect[lv.act - 1] = 1; perfect = true; parts.push(grant({ crystals: 2, boxes: 1 })); }
+    }
+    const out = {};
+    for (const p of parts) {
+      for (const k of ['coins', 'crystals', 'boxes']) if (p[k]) out[k] = (out[k] || 0) + p[k];
+      for (const k of ['skin', 'trail', 'converted']) if (p[k]) out[k] = p[k];
+    }
+    addXp(20 + stars * 15 + (lv.boss && firstClear ? 60 : 0));
+    const newly = [];
+    derive(newly);
+    persistNow();
+    const nowEndless = meta.endlessUnlocked();
+    return Object.assign(out, {
+      id, act: lv.act, boss: lv.boss, stars: C.stars[id], earned: stars, newStars, firstClear, chest, perfect,
+      actDone: C.stars[lv.act * LEVELS_PER_ACT] > 0, next: id < CAMPAIGN_SIZE ? id + 1 : 0,
+      endlessUnlocked: nowEndless, justUnlockedEndless: nowEndless && !wasEndless, achievements: newly,
+    });
+  },
+  // YETİ KAÇIŞI opens after Act 1's boss (level 10). Players who already have an endless record are grandfathered in.
+  endlessUnlocked() {
+    if (S.c.unlocked > 10 || (S.c.stars[10] || 0) > 0) return true;
+    try { return !!(sv && typeof sv.runnerBest === 'function' && sv.runnerBest() > 0); } catch { return false; }
+  },
+  introSeen(id) { return !!S.c.seen[id]; },
+  markIntroSeen(id) { if (levelById(id)) { S.c.seen[id] = 1; markDirty(); } },
+  // last mode picked on the main screen: 'camp' | 'endless' | 'cig'
+  mode() { return S.mode; },
+  setMode(m) { if (m === 'camp' || m === 'endless' || m === 'cig') { S.mode = m; markDirty(); } },
 
   // ---- testing hooks ----
   _setRandom(fn) { rand = typeof fn === 'function' ? fn : Math.random; },

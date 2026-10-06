@@ -29,12 +29,16 @@
         <div class="growbar"><div class="growfill" id="hud-grow"></div></div>
         <div class="powers" id="hud-powers"></div>
       </div>
+      <div class="hud-flow hidden" id="hud-flow"><span class="flow-lbl" id="hud-flow-lbl">AKIŞ</span><div class="flowbar"><div class="flowfill" id="hud-flow-fill"></div></div></div>
+      <div class="hud-record hidden" id="hud-record"></div>
       <div class="hud-yeti hidden" id="hud-yeti">
         <span class="yeti-ico">👣</span>
         <div class="yetibar"><div class="yetifill" id="hud-yetifill"></div></div>
       </div>
     </div>
 
+    <div id="speedlines"></div>
+    <div id="flash"></div>
     <div id="floats"></div>
     <div id="banner"></div>
     <div id="hint" class="hidden"><div class="finger">👆</div><div>sürükle</div></div>
@@ -66,6 +70,7 @@
       <div class="res-tons" id="res-tons">0 ton</div>
       <div class="res-sub" id="res-sub"></div>
       <div class="res-coins hidden" id="res-coins"></div>
+      <div class="res-extra hidden" id="res-extra"></div>
       <button class="btn big" id="btn-next">SONRAKİ DAĞ</button>
       <div class="row">
         <button class="btn mid" id="btn-retry">↻ TEKRAR</button>
@@ -75,9 +80,20 @@
     </div>
 
     <div id="pause" class="screen hidden">
-      <div class="logo small">DURDU</div>
-      <button class="btn big" id="btn-resume">DEVAM</button>
-      <button class="btn mid" id="btn-quit">ANA MENÜ</button>
+      <div class="pause-card">
+        <div class="pause-title">DURDU</div>
+        <div class="pause-stats" id="pause-stats"></div>
+        <button class="btn big" id="btn-resume">▶ DEVAM</button>
+        <div class="pause-row">
+          <button class="btn mid alt" id="btn-restart">↻ TEKRAR</button>
+          <button class="btn mid alt" id="btn-quit">⌂ MENÜ</button>
+        </div>
+        <div class="pause-toggles">
+          <button class="icon-btn" id="btn-p-sound" aria-label="Ses">🔊</button>
+          <button class="icon-btn" id="btn-p-music" aria-label="Müzik">🎵</button>
+          <button class="icon-btn" id="btn-p-haptic" aria-label="Titreşim">📳</button>
+        </div>
+      </div>
     </div>
 
     <div id="debug" class="hidden"></div>

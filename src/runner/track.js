@@ -44,8 +44,8 @@ export const LANE_W = 2.4;
 const T = TRACK;
 
 /** Flight distance of a ball launched at vertical speed vh0 from h0 above the landing level. */
-export function flightDist(vs, vh0, h0) {
-  const t = (vh0 + Math.sqrt(vh0 * vh0 + 2 * T.G * Math.max(0, h0))) / T.G;
+export function flightDist(vs, vh0, h0, g = T.G) {
+  const t = (vh0 + Math.sqrt(vh0 * vh0 + 2 * g * Math.max(0, h0))) / g;
   return vs * t;
 }
 
@@ -57,6 +57,8 @@ const col = (hex) => { _cc.setHex(hex); return [_cc.r, _cc.g, _cc.b]; };
 const scl = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
 const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
+// kinds a campaign level can allow / forbid (everything else is always allowed)
+const LEVEL_CTRL = Object.fromEntries(['waves', 'helix', 'skiJump', 'chasm', 'iceBridge', 'halfpipe', 'tube', 'rail', 'zipline', 'loop', 'corkscrew', 'oncoming', 'duck', 'boulder', 'slideWall', 'wind', 'fog'].map((k) => [k, 1]));
 const CH = ['X', 'Y', 'Z', 'YW', 'PT', 'TX', 'TY', 'TZ', 'UX', 'UY', 'UZ', 'RL'];
 const DEFAULT_PAL = { tileA: 0xe8f1fb, tileB: 0xc9d9ee, edge: 0x7fb4e8, rail: 0x4a6a92, glow: 0xffd24a, under: 0x3a4f70 };
 
@@ -165,13 +167,28 @@ export class Track {
     this.speedAt = speedAt || ((s) => Math.min(26, 9 + s * 0.0045));
     this.bpmAt = bpmAt || ((s) => Math.min(150, 96 + s * 0.012));
     this.biomeIndexAt = biomeIndexAt || ((s) => Math.floor(s / 600));
-    this.rng = makeRng((this.seed ^ 0x9e3779b9) >>> 0);
+    this.gravityAt = opts.gravityAt || (() => T.G);      // optional: biome gravity mods (moon = low gravity -> longer flights)
+    this.hardness = opts.hardness ?? 1;                   // 0.7 Kolay, 1 Normal, 1.3 Zor, 1.7 Kabus
+    this.level = null;                                    // campaign level: { length, boss, features, hardness, seed } or null (endless)
+    this.levelFeatures = null;
     this.group = new THREE.Group();
     this.group.name = 'track';
     if (scene && scene.add) scene.add(this.group);
     this.mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
     this.pieces = [];
     this.onPiece = null;
+    this.onReset = null;
+    this.features = Object.assign({ helix: true, boost: true, spring: true, skiJump: true, chasm: true, waves: true, gates: true, iceBridge: true,
+      conveyor: true, halfpipe: true, tube: true, rail: true, zipline: true, loop: true, corkscrew: true, checker: true,
+      oncoming: true, duck: true, boulder: true, slideWall: true, wind: true, fog: true }, opts.features || {});
+    this._f = new Float64Array(12);
+    this.disposedGeometries = 0;
+    this._init();
+  }
+
+  /** (re)initialise the path and the generator state; meshes must already be gone */
+  _init() {
+    this.rng = makeRng((this.seed ^ 0x9e3779b9) >>> 0);
     this.sBase = 0;
     const sp0 = Math.sin(T.START_PITCH), cp0 = Math.cos(T.START_PITCH);
     // per-sample channels: position, heading (yaw/pitch, for curvature), tangent, up (incl. roll), roll
@@ -185,14 +202,41 @@ export class Track {
     this._yawOff = 0;          // multiple of 2 pi consumed by helix pieces (mean-reversion uses yaw - _yawOff)
     this._nextSet = 300;       // earliest s of the next set piece (helix, loop, halfpipe ...)
     this._lastSet = '';
-    this.features = Object.assign({ helix: true, boost: true, spring: true, skiJump: true, chasm: true, waves: true, gates: true, iceBridge: true,
-      conveyor: true, halfpipe: true, tube: true, rail: true, zipline: true, loop: true, corkscrew: true, checker: true }, opts.features || {});
     this._lastBiome = this.biomeIndexAt(0);
     this._pi = 0;
-    this._f = new Float64Array(12);
-    this._frS = NaN; this._frV = -1; this._ver = 0;     // frame cache (station, sample version)
+    this._frS = NaN; this._frV = -1; this._ver = (this._ver || 0) + 1;     // frame cache (station, sample version)
     this._ss = []; this._hh = [];
-    this.disposedGeometries = 0;
+    this._bossStarted = false; this._forced = []; this.finishS = Infinity; this._finished = false;
+  }
+
+  /** gravity (m/s^2) at s, from the optional gravityAt callback */
+  gravity(s) { return this.gravityAt ? this.gravityAt(s) : T.G; }
+
+  setHardness(k) { this.hardness = clamp(+k || 1, 0.4, 3); }
+
+  /** may the generator / obstacles use this set piece or mechanic? (campaign allowlist + features switches) */
+  allows(name) {
+    if (this.features[name] === false) return false;
+    if (this.levelFeatures && LEVEL_CTRL[name]) return this.levelFeatures.has(name);
+    return true;
+  }
+
+  /**
+   * Campaign level: setLevel({ length, features, hardness, seed, boss }) restarts the track at s = 0; setLevel(null) = endless.
+   * features = allowlist of the controlled kinds (LEVEL_CTRL); a FINISH piece (wide 60 m straight with a BITIS arch)
+   * starts at s = length and everything after it is empty.
+   */
+  setLevel(cfg) {
+    for (const p of this.pieces) if (p.mesh) { this.group.remove(p.mesh); p.mesh.geometry.dispose(); this.disposedGeometries++; p.mesh = null; }
+    this.pieces.length = 0;
+    this.level = cfg ? { length: Math.max(120, Math.round(cfg.length || 1000)), boss: !!cfg.boss } : null;
+    this.levelFeatures = cfg && cfg.features ? new Set(cfg.features) : null;
+    if (cfg && cfg.hardness != null) this.setHardness(cfg.hardness);
+    else if (!cfg) this.setHardness(1);
+    if (cfg && cfg.seed != null) this.seed = cfg.seed >>> 0;
+    this._init();
+    if (this.level) this.finishS = this.level.length;
+    if (this.onReset) this.onReset();
   }
 
   // ---------- generation driver ----------
@@ -386,16 +430,17 @@ const flatOf = (kind) => (kind === 'gapRamp' || kind === 'gapJump' || kind === '
 
 Object.assign(Track.prototype, {
   // ~0.5 at 1200 m, ~0.84 at 3000 m (balance note)
-  _diff(s) { return s <= 100 ? 0 : 1 - Math.exp(-(s - 100) / 1587); },
+  _diff(s) { s *= this.hardness; return s <= 100 ? 0 : 1 - Math.exp(-(s - 100) / 1587); },
 
   _pickKind(s0, diff, since) {
     const rng = this.rng;
     if (s0 < 150) return rng.chance(0.55) ? 'straight' : 'curve';
+    const sk = s0 * this.hardness;     // hardness unlocks the hard pieces earlier (Kabus) / later (Kolay)
     const w = { straight: 5 - 3 * diff, curve: 4, slalom: 1.6 + 1.4 * diff, narrow: 0, gapRamp: 1.5 + diff, gapJump: 0, hexHoles: 0, split: 0, stairs: 0 };
-    if (s0 >= 220) w.narrow = 1 + 1.6 * diff;
-    if (s0 >= 300) { w.stairs = 0.9; w.hexHoles = 0.9 + 1.4 * diff; }
-    if (s0 >= 400) w.split = 0.9 + 1.2 * diff;
-    if (s0 >= 520) w.gapJump = 0.5 + 1.6 * diff;
+    if (sk >= 220) w.narrow = 1 + 1.6 * diff;
+    if (sk >= 300) { w.stairs = 0.9; w.hexHoles = 0.9 + 1.4 * diff; }
+    if (sk >= 400) w.split = 0.9 + 1.2 * diff;
+    if (sk >= 520) w.gapJump = 0.5 + 1.6 * diff;
     const cool = since < 1 ? (diff < 0.5 ? 0 : 0.12) : 1;
     let tot = 0;
     for (const k in w) { if (HAZARD[k]) w[k] *= cool; tot += w[k]; }
@@ -407,18 +452,21 @@ Object.assign(Track.prototype, {
   _pickSet(sEst, diff) {
     const rng = this.rng, w = {};
     let tot = 0;
-    for (const k in SET) if (sEst >= SET[k] && this.features[k] && k !== this._lastSet && this['_spec_' + k]) { w[k] = SET_W[k]; tot += w[k]; }
+    for (const k in SET) if (sEst * this.hardness >= SET[k] && this.allows(k) && k !== this._lastSet && this['_spec_' + k]) { w[k] = SET_W[k]; tot += w[k]; }
     if (tot <= 0) return null;
     let r = rng.next() * tot, kind = null;
     for (const k in w) { r -= w[k]; if (r <= 0) { kind = k; break; } }
     if (!kind) return null;
     this._lastSet = kind;
-    this._nextSet = sEst + SET_LEN[kind] + rng.range(250, 400 - 80 * diff);
+    this._nextSet = sEst + SET_LEN[kind] + rng.range(250, 400 - 80 * diff) / Math.sqrt(this.hardness);
     return kind;
   },
 
   _qPick(sEst) {
-    const diff = this._diff(sEst);
+    const L = this.level, diff = this._diff(sEst);
+    if (this._bossStarted) return this._forced.length ? this._forced.shift() : 'straight';   // boss finale: chasm, straight, skiJump, then run-in
+    if (L && sEst > L.length - 150) return 'straight';                                         // calm run-in before the finish
+
     let kind = sEst >= this._nextSet && this.rng.chance(0.8) ? this._pickSet(sEst, diff) : null;
     if (!kind) kind = this._pickKind(sEst, diff, this._qSince);
     this._qSince = HAZARD[kind] ? 0 : this._qSince + 1;
@@ -471,8 +519,8 @@ Object.assign(Track.prototype, {
     };
     // edge kind: 'wall' = snow bank (curb > 0, ball bounces) / 'cliff' = rocky drop (curb 0)
     if (kind === 'narrow') p.curb = false;
-    else if (kind === 'portal' || s0 < 150) p.curb = true;
-    else p.curb = rng.next() >= 0.1 + 0.55 * diff;
+    else if (kind === 'portal' || kind === 'finish' || s0 < 150) p.curb = true;
+    else p.curb = rng.next() >= Math.min(0.9, (0.1 + 0.55 * diff) * this.hardness);   // cliff share grows with hardness
     p.edge = p.curb ? 'wall' : 'cliff';
     const trim = p.curb ? T.CURB_W : T.TRIM_W;
     const yaw0 = p.yaw0 - this._yawOff;
@@ -502,7 +550,7 @@ Object.assign(Track.prototype, {
         const lipS = s0 + lead + rampLen;
         const vs = this.speedAt(lipS), slope = rampH / rampLen;
         const vh = Math.max(T.RAMP_MIN_VH, vs * slope * T.RAMP_BOOST);
-        const fl = flightDist(vs, vh, rampH);
+        const fl = flightDist(vs, vh, rampH, this.gravity(lipS));
         const gap = Math.max(4, Math.floor(fl * rng.range(0.42, 0.62 + 0.04 * diff)));
         Object.assign(p, { rampS0: s0 + lead, rampS1: lipS, rampH, rampSlope: slope, gapS0: lipS, gapS1: lipS + gap, gap, flight: fl, launchVh: vh });
         p.len = lead + rampLen + gap + land;
@@ -511,7 +559,7 @@ Object.assign(Track.prototype, {
       case 'gapJump': {
         const lead = 10, land = 10;
         const gS0 = s0 + lead, vs = this.speedAt(gS0);
-        const fl = flightDist(vs, T.JUMP_VH, 0);
+        const fl = flightDist(vs, T.JUMP_VH, 0, this.gravity(gS0));
         const gap = Math.max(3, Math.floor(fl * rng.range(0.38, 0.5 + 0.16 * diff)));
         Object.assign(p, { gapS0: gS0, gapS1: gS0 + gap, gap, flight: fl });
         p.needsJump = true;
@@ -658,13 +706,23 @@ Object.assign(Track.prototype, {
   },
 
   _gen() {
-    const s0 = this.genEnd, diff = this._diff(s0);
+    const s0 = this.genEnd, diff = this._diff(s0), L = this.level;
     const bNow = this.biomeIndexAt(s0);
     let p;
-    if (bNow !== this._lastBiome) {
+    if (L && this._finished) {
+      // after the finish: empty straights so the ball can coast
+      p = this._spec('straight', s0, diff, bNow, true);
+      p.len = 40; p.s1 = s0 + 40; p.dYaw = 0; p.noObs = true;
+    } else if (L && s0 >= L.length) {
+      this._finished = true;
+      p = this._spec('finish', s0, diff, bNow, true);
+    } else if (bNow !== this._lastBiome) {
       this._lastBiome = bNow;
       p = this._spec('portal', s0, diff, bNow, true);
     } else {
+      if (L && L.boss && !this._bossStarted && s0 >= L.length - 270) {
+        this._bossStarted = true; this._forced = ['chasm', 'straight', 'skiJump']; this._q.length = 0;
+      }
       while (this._q.length < 2) this._q.push(this._qPick(s0 + 40 * (this._q.length + 1)));
       let kind = this._q.shift();
       if (s0 === 0) kind = 'straight';
@@ -673,8 +731,13 @@ Object.assign(Track.prototype, {
       let flatten = false;
       if (NEEDS_FLAT[kind] && !flatNow) { this._q.unshift(kind); kind = 'straight'; flatten = true; }
       p = this._spec(kind, s0, diff, bNow, flatten);
-      if (this.biomeIndexAt(p.s1) !== bNow) {
-        // biome boundary inside this piece: end it exactly at the boundary (the portal piece follows)
+      if (L && p.s1 > L.length) {
+        // would cross the finish line: replace by a straight that ends exactly on it (nearly flat for the arch)
+        p = this._spec('straight', s0, diff, bNow, true);
+        p.len = L.length - s0; p.s1 = L.length; p.dYaw = 0;
+        if (p.len < 24) p.pitch1 = p.pitch0;
+      } else if (this.biomeIndexAt(p.s1) !== bNow) {
+        // biome boundary inside this piece: end it exactly at the boundary (portal follows)
         let lo = s0, hi = p.s1;
         while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (this.biomeIndexAt(mid) === bNow) lo = mid; else hi = mid; }
         const orig = p.kind;
@@ -1075,10 +1138,10 @@ Object.assign(Track.prototype, {
     const lipS = s0 + c.lead + c.rampLen;
     const vs = this.speedAt(lipS), slope = c.rampH / c.rampLen;
     const vh = Math.max(T.RAMP_MIN_VH, vs * slope * T.RAMP_BOOST);
-    const fl = flightDist(vs, vh, c.rampH);
+    const g = this.gravity(lipS), fl = flightDist(vs, vh, c.rampH, g);
     let gap;
     if (c.beyondSwipe) {   // too long for a plain swipe-jump, so only the ramp gets you across
-      const lo = Math.ceil(1.05 * vs * ((2 * T.JUMP_VH) / T.G)), hi = Math.floor(0.66 * fl);
+      const lo = Math.ceil(1.05 * vs * ((2 * T.JUMP_VH) / g)), hi = Math.floor(0.66 * fl);
       gap = hi >= lo ? rng.int(lo, hi) : hi;
     } else gap = Math.floor(fl * rng.range(c.lo, c.hi));
     gap = Math.max(5, gap);
@@ -1173,7 +1236,7 @@ Object.assign(Track.prototype, {
   // ----- 8. loop "Takla Cemberi" (vertical circle, shifted sideways one road width) and corkscrew -----
   _spec_loop(p, s0, diff, yaw0) {
     const rng = this.rng, vp = this.speedAt(s0 + 30);
-    const R = clamp((0.8 * vp * vp) / (5 * G_REAL), 5.5, 11);
+    const Gr = G_REAL * this.gravity(s0 + 30) / T.G, R = clamp((0.8 * vp * vp) / (5 * Gr), 5.5, 11);
     const entry = 10, exit = 12, L = Math.round(TAU * R);
     p.len = entry + L + exit; p.hw = T.HW; p.curb = true; p.edge = 'wall'; p.free3d = true;
     const ls = s0 + entry, phi0 = T.FLAT2;
@@ -1190,7 +1253,7 @@ Object.assign(Track.prototype, {
       return phi0 + TAU + (p.pitch1 - phi0) * smooth((s - ls - L) / exit);   // phi0 + 2 pi == phi0 (wrapped on store)
     };
     p.yawFn = (t) => { const s = s0 + t * p.len; if (s <= ls || s >= ls + L) return p.yaw0; const u = (s - ls) / L, sn = Math.sin(Math.PI * u); return p.yaw0 + Y * sn * sn; };
-    p.loop = { s0: ls, s1: ls + L, R, minSpeed: Math.sqrt(5 * G_REAL * R), plannedSpeed: vp, shift: 8.6 };
+    p.loop = { s0: ls, s1: ls + L, R, minSpeed: Math.sqrt(5 * Gr * R), plannedSpeed: vp, shift: 8.6 };
   },
   _spec_corkscrew(p, s0, diff) {
     const rng = this.rng, vp = this.speedAt(s0 + 20), L = Math.max(40, Math.round(1.5 * vp)), lead = 8, tail = 8, dir = rng.sign();
@@ -1299,6 +1362,86 @@ Object.assign(Track.prototype, {
       // slab under the floor
       for (const sg of [-1, 1]) mb.quad(P(s, sg * u0, 0, 0), P(s, sg * u0 * 0.6, T.BOT, 1), P(s + 1, sg * u0 * 0.6, T.BOT, 2), P(s + 1, sg * u0, 0, 3), sg * f[3] - 0.7 * ux, -0.7 * uy, sg * f[4] - 0.7 * uz, C.under);
       mb.quad(P(s, -u0 * 0.6, T.BOT, 0), P(s, u0 * 0.6, T.BOT, 1), P(s + 1, u0 * 0.6, T.BOT, 2), P(s + 1, -u0 * 0.6, T.BOT, 3), -ux, -uy, -uz, scl(C.under, 0.7));
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Campaign finish: wide 60 m straight, checkered line + arch + BITIS banner + confetti flags
+// ---------------------------------------------------------------------------
+const FIN_FONT = {
+  B: ['11110', '10001', '10001', '11110', '10001', '10001', '11110'],
+  I: ['11111', '00100', '00100', '00100', '00100', '00100', '11111'],
+  T: ['11111', '00100', '00100', '00100', '00100', '00100', '00100'],
+  S: ['01111', '10000', '10000', '01110', '00001', '00001', '11110'],
+};
+const CONFETTI = [0xff4a5e, 0xffc83a, 0x3ad06a, 0x3aa0ff, 0xb45bff, 0xff8a2e, 0x2ee6d6, 0xff5bb8];
+
+Object.assign(Track.prototype, {
+  _spec_finish(p, s0) {
+    p.len = 60; p.hw = 6.0; p.halfWidth = 6.0; p.curb = true; p.edge = 'wall'; p.noObs = true;
+    p.dYaw = 0;
+    p.pitch1 = Math.max(p.pitch0, T.FLAT2);
+    p.finish = { s: s0, length: s0 };
+  },
+
+  _build_finish(p, mb, C, rng, hwf) {
+    const hf = hwf(p.s0, p.s1), hw = p.hw, hwT = hw - T.CURB_W, s0 = p.s0;
+    this._slab(mb, { a: p.s0, b: p.s1, hwf: hf, hTop: () => 0, curb: true, C, rng, top: 'snow' });
+    const white = [1, 1, 1], black = [0.03, 0.03, 0.05], f = this._f;
+    // checkered finish line (2 rows)
+    const nb = Math.round((2 * hwT) / 0.8), bw = (2 * hwT) / nb;
+    for (let row = 0; row < 2; row++) {
+      const a = s0 + row * 0.8, b = a + 0.8;
+      this._fr(a + 0.4);
+      const ux = f[5], uy = f[6], uz = f[7];
+      for (let i = 0; i < nb; i++) {
+        const u0 = -hwT + i * bw, u1 = u0 + bw;
+        this._P(a, u0, 0.025, VP[0]); this._P(a, u1, 0.025, VP[1]); this._P(b, u1, 0.025, VP[2]); this._P(b, u0, 0.025, VP[3]);
+        mb.quad(VP[0], VP[1], VP[2], VP[3], ux, uy, uz, (i + row) & 1 ? white : black);
+      }
+    }
+    // arch: two posts + checkered beam + banner
+    const sa = s0 + 1.0, sb = s0 + 2.2, up = hw - 0.9;
+    this._boxS(mb, sa, sb, -up - 0.35, -up + 0.35, 0, 7.4, white, C.rail);
+    this._boxS(mb, sa, sb, up - 0.35, up + 0.35, 0, 7.4, white, C.rail);
+    const nbeam = Math.round((2 * up + 0.7) / 0.8), beamW = (2 * up + 0.7) / nbeam;
+    for (let i = 0; i < nbeam; i++) {
+      const c = i & 1 ? white : black, u0 = -up - 0.35 + i * beamW;
+      this._boxS(mb, sa, sb, u0, u0 + beamW, 6.6, 7.6, c, c);
+    }
+    // banner panel (readable from the approach side, i.e. facing -tan) + voxel letters B I T I S
+    const h0 = 4.0, h1 = 6.5, sp = s0 + 0.95, sl = s0 + 0.9, panelHW = up - 0.7;
+    this._fr(sp);
+    const tx = -f[8], ty = -f[9], tz = -f[10];
+    const nav = [0.1, 0.2, 0.55], gold = [1, 0.82, 0.2];
+    this._P(sp, -panelHW, h0, VP[0]); this._P(sp, panelHW, h0, VP[1]); this._P(sp, panelHW, h1, VP[2]); this._P(sp, -panelHW, h1, VP[3]);
+    mb.quad(VP[0], VP[1], VP[2], VP[3], tx, ty, tz, nav);
+    const word = ['B', 'I', 'T', 'I', 'S'], vx = 0.27, gapL = 0.42, lw = 5 * vx, total = word.length * lw + (word.length - 1) * gapL;
+    let u = -total / 2;
+    const hTop = h1 - 0.2 - vx;           // top voxel row centre ~ below the panel top; rows 0..6, dot row at -1, cedilla row at 7
+    for (let li = 0; li < word.length; li++) {
+      const rows = FIN_FONT[word[li]], extraTop = li === 1 || li === 3 ? '00100' : null, extraBot = li === 4 ? '00100' : null;
+      const all = []; if (extraTop) all.push([extraTop, -1.6]); rows.forEach((r, i) => all.push([r, i])); if (extraBot) all.push([extraBot, 7.6]);
+      for (const [r, ri] of all) for (let c = 0; c < 5; c++) {
+        if (r[c] !== '1') continue;
+        const uu = u + c * vx, hh = h1 - 0.45 - (ri + 1) * vx * 0.78 + 0.2;
+        this._P(sl, uu, hh, VP[0]); this._P(sl, uu + vx, hh, VP[1]); this._P(sl, uu + vx, hh + vx * 0.78, VP[2]); this._P(sl, uu, hh + vx * 0.78, VP[3]);
+        mb.quad(VP[0], VP[1], VP[2], VP[3], tx, ty, tz, (li === 1 || li === 3) && ri === -1.6 ? [1, 0.3, 0.3] : gold);
+      }
+      u += lw + gapL;
+    }
+    // confetti flags along both sides + bunting under the beam
+    for (let s = s0 + 7, k = 0; s < p.s1 - 5; s += 6, k++) {
+      for (const sg of [-1, 1]) {
+        const uu = sg * (hw - 0.55), cc = col(CONFETTI[(k * 2 + (sg > 0 ? 1 : 0)) % CONFETTI.length]);
+        this._boxS(mb, s - 0.06, s + 0.06, uu - 0.06, uu + 0.06, 0, 3.4, [0.9, 0.9, 0.95], [0.6, 0.6, 0.7]);
+        this._boxS(mb, s - 0.04, s + 0.04, sg > 0 ? uu - 1.0 : uu, sg > 0 ? uu : uu + 1.0, 2.7, 3.35, cc, cc);
+      }
+    }
+    for (let i = 0, n = 18; i < n; i++) {
+      const u0 = -panelHW + (i * 2 * panelHW) / n, cc = col(CONFETTI[i % CONFETTI.length]);
+      this._boxS(mb, sl - 0.05, sl + 0.05, u0, u0 + (2 * panelHW) / n - 0.08, h0 - 0.55 - 0.1 * (i & 1), h0 - 0.1, cc, cc);
     }
   },
 });

@@ -69,6 +69,82 @@ export class Fx {
     );
     this.shadow.frustumCulled = false;
     scene.add(this.shadow);
+
+    // ---- mist / steam / powder puffs: soft round sprites that grow and fade ----
+    const MN = 220;
+    this.mN = MN;
+    this.mPos = new Float32Array(MN * 3);
+    this.mVel = new Float32Array(MN * 3);
+    this.mCol = new Float32Array(MN * 3);
+    this.mLife = new Float32Array(MN);
+    this.mMax = new Float32Array(MN);
+    this.mSize = new Float32Array(MN);
+    this.mSizeAttr = new Float32Array(MN);
+    this.mAlpha = new Float32Array(MN);
+    this.mHead = 0;
+    const mg = new THREE.BufferGeometry();
+    mg.setAttribute('position', new THREE.BufferAttribute(this.mPos, 3).setUsage(THREE.DynamicDrawUsage));
+    mg.setAttribute('color', new THREE.BufferAttribute(this.mCol, 3).setUsage(THREE.DynamicDrawUsage));
+    mg.setAttribute('size', new THREE.BufferAttribute(this.mSizeAttr, 1).setUsage(THREE.DynamicDrawUsage));
+    mg.setAttribute('alpha', new THREE.BufferAttribute(this.mAlpha, 1).setUsage(THREE.DynamicDrawUsage));
+    this.mist = new THREE.Points(mg, new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      uniforms: { uScale: { value: 400 } },
+      vertexShader: `
+        attribute float size; attribute float alpha; attribute vec3 color;
+        varying float vA; varying vec3 vC; uniform float uScale;
+        void main() {
+          vA = alpha; vC = color;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = size * uScale / max(0.5, -mv.z);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        varying float vA; varying vec3 vC;
+        void main() {
+          vec2 d = gl_PointCoord - 0.5;
+          float r = dot(d, d) * 4.0;
+          float a = vA * smoothstep(1.0, 0.0, r) * (0.7 + 0.3 * (1.0 - r));
+          if (a < 0.01) discard;
+          gl_FragColor = vec4(vC, a);
+        }`,
+    }));
+    this.mist.frustumCulled = false;
+    scene.add(this.mist);
+  }
+
+  // Soft puff: snow powder, steam, dust. vel in world units/s; size in metres.
+  puff(x, y, z, vx, vy, vz, size, life, color = 0xffffff, alpha = 0.55) {
+    const i = this.mHead;
+    this.mHead = (this.mHead + 1) % this.mN;
+    const c = typeof color === 'number' ? _c.setHex(color) : color;
+    this.mPos[i * 3] = x; this.mPos[i * 3 + 1] = y; this.mPos[i * 3 + 2] = z;
+    this.mVel[i * 3] = vx; this.mVel[i * 3 + 1] = vy; this.mVel[i * 3 + 2] = vz;
+    this.mCol[i * 3] = c.r; this.mCol[i * 3 + 1] = c.g; this.mCol[i * 3 + 2] = c.b;
+    this.mLife[i] = this.mMax[i] = life;
+    this.mSize[i] = size;
+    this.mAlpha[i] = alpha;
+    this.mBase = this.mBase || new Float32Array(this.mN);
+    this.mBase[i] = alpha;
+  }
+
+  updateMist(dt) {
+    const n = this.mN;
+    for (let i = 0; i < n; i++) {
+      if (this.mLife[i] <= 0) { this.mAlpha[i] = 0; this.mSizeAttr[i] = 0; continue; }
+      this.mLife[i] -= dt;
+      const t = 1 - Math.max(0, this.mLife[i]) / this.mMax[i];
+      const o = i * 3;
+      const drag = Math.exp(-2.2 * dt);
+      this.mVel[o] *= drag; this.mVel[o + 1] = this.mVel[o + 1] * drag + 0.6 * dt; this.mVel[o + 2] *= drag;
+      this.mPos[o] += this.mVel[o] * dt; this.mPos[o + 1] += this.mVel[o + 1] * dt; this.mPos[o + 2] += this.mVel[o + 2] * dt;
+      this.mSizeAttr[i] = this.mSize[i] * (0.5 + 1.6 * t);
+      this.mAlpha[i] = (this.mBase ? this.mBase[i] : 0.5) * (t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85);
+    }
+    const g = this.mist.geometry.attributes;
+    g.position.needsUpdate = g.size.needsUpdate = g.alpha.needsUpdate = g.color.needsUpdate = true;
+    this.mist.material.uniforms.uScale.value = window.innerHeight * 0.9;
   }
 
   // Trail look from the wardrobe: { color, rainbow, glow }.
@@ -91,6 +167,7 @@ export class Fx {
   }
 
   reset() {
+    if (this.mLife) this.mLife.fill(0);
     this.n = 0;
     this.parts.count = 0;
     this.trailPts.length = 0;
@@ -121,6 +198,7 @@ export class Fx {
 
   update(dt, ball) {
     const w = this.world;
+    this.updateMist(dt);
     // particles
     let n = this.n;
     for (let i = 0; i < n; i++) {

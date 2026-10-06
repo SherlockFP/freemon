@@ -11,8 +11,11 @@ import { music } from './music.js';
 // Physics live in track-local coordinates: s along the path, u sideways (+right), h above the surface.
 export const RCFG = {
   startSpeed: 11,
-  maxSpeed: 27,
-  speedPerM: 0.005,
+  maxSpeed: 36,          // hard cap (reached very late)
+  refSpeed: 30,          // "fast" for visuals (FOV, speed lines)
+  speedPerM: 0.006,      // early ramp
+  lateSpeedPerM: 0.0016, // after 2600 m it still creeps up
+  layerLen: 600,         // a new difficulty layer every 600 m
   sizeSpeed: 0.045,      // top speed +4.5% per size tier
   bpm0: 100,
   bpmMax: 150,
@@ -45,7 +48,10 @@ export const RCFG = {
   closeCall: 5,          // metres: the Yeti got this close and you got away → close call
 };
 
-export const speedAt = (s) => Math.min(RCFG.maxSpeed, RCFG.startSpeed + Math.max(0, s) * RCFG.speedPerM);
+export const speedAt = (s) => {
+  const x = Math.max(0, s);
+  return Math.min(RCFG.maxSpeed, RCFG.startSpeed + Math.min(x, 2600) * RCFG.speedPerM + Math.max(0, x - 2600) * RCFG.lateSpeedPerM);
+};
 export const bpmAt = (s) => Math.min(RCFG.bpmMax, RCFG.bpm0 + Math.max(0, s) * RCFG.bpmPerM);
 
 const TIERS = RCFG.tierR.length;
@@ -57,6 +63,8 @@ const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 const _x = new THREE.Vector3();
+const WORLD_UP = new THREE.Vector3(0, 1, 0);
+const _tp = new THREE.Vector3();
 
 export class Runner {
   constructor(ctx) {
@@ -134,6 +142,23 @@ export class Runner {
     this.cause = '';
     this.crashes = 0;
     this.state = 'play';
+    this.countT = 3;
+    this.layer = 0;
+    this.speedTier = 0;
+    this.flow = 0;
+    this.flowLvl = 0;
+    this.flowT = 0;
+    this.bestDist = this.ctx.save.runnerBestDist?.() ?? 0;
+    this.bestScore = this.ctx.save.runnerBest?.() ?? 0;
+    this.passedDist = this.bestDist < 50;
+    this.passedScore = this.bestScore < 100;
+    this.baseHard = this.ctx.meta?.hardness?.() ?? 1;
+    this.obstacles.setHardness?.(this.baseHard);
+    this.track.setHardness?.(this.baseHard);
+    this.makeRecordFlag();
+    this.hitStop = 0;
+    this.squash = 0;
+    this.trailN = 0;
 
     const ball = this.ctx.ball;
     ball.reset(b.r);
@@ -145,12 +170,13 @@ export class Runner {
     music.start(musicStyleAt(0), bpmAt(0));
     music.setIntensity(0.3);
     this.ctx.ui.runnerHud(true, biomeAt(0).biome.name);
+    this.ctx.ui.banner('3', 3);
     this.updateHud();
     this.placeBall(true);
   }
 
   get mult() {
-    const base = (this.ctx.meta?.multiplier?.() ?? 1) + this.tier;
+    const base = (this.ctx.meta?.multiplier?.() ?? 1) + this.tier + this.flowLvl;
     return base * (this.x2T > 0 ? 2 : 1);
   }
 
@@ -162,7 +188,20 @@ export class Runner {
     // Ski-jump slow-mo: ease into the slowed window, ease back out after.
     const wantTs = this.state === 'play' && this.b.s < this.slowUntil && !this.grounded ? this.slowScale : 1;
     this.timeScale += (wantTs - this.timeScale) * Math.min(1, rdt * 8);
-    const dt = rdt * this.timeScale;
+    // Hit-stop: a crash freezes the world for a heartbeat so it lands.
+    let dt = rdt * this.timeScale;
+    if (this.hitStop > 0) { this.hitStop -= rdt; dt *= 0.06; }
+    // 3-2-1 countdown before the chase starts.
+    if (this.countT > 0) {
+      const before = Math.ceil(this.countT);
+      this.countT -= rdt;
+      const after = Math.ceil(this.countT);
+      if (after !== before) {
+        if (after > 0) { this.ctx.ui.banner(String(after), 3); this.ctx.audio.ui('select'); }
+        else { this.ctx.ui.banner('KAÇ!', 5); this.roar(); }
+      }
+      dt = 0;
+    }
     const beat = music.beat;
     this.time += dt;
     if (this.state === 'play') this.updatePlay(dt, beat);
@@ -195,6 +234,7 @@ export class Runner {
       ui.hint(false);
       this.lane = clamp(this.lane + lane, -1, 1);
       this.ctx.platform.haptic('select');
+      this.mistBurst(4, 0xffffff, 2, 0.8);
     }
     this.targetU = this.lane * RCFG.laneW;
     if (input.consumeJump() && (this.grounded || this.coyoteT > 0)) { ui.hint(false); this.jump(RCFG.jumpV, false); }
@@ -249,6 +289,8 @@ export class Runner {
       this.roar();
     }
 
+    this.progression(dt);
+
     // ---- scoring / music ----
     this.score += b.vs * dt * this.mult;
     music.setBpm(bpmAt(b.s));
@@ -263,6 +305,107 @@ export class Runner {
       this.lastSafe.s = b.s;
       this.lastSafe.u = b.u;
     }
+  }
+
+  // Difficulty layers, speed steps, the skill-combo ("AKIŞ") and record moments.
+  progression(dt) {
+    const b = this.b;
+    const { ui, audio, platform } = this.ctx;
+    const layer = Math.floor(b.s / RCFG.layerLen);
+    if (layer > this.layer) {
+      this.layer = layer;
+      const k = Math.min(1.9, this.baseHard * (1 + 0.1 * layer));
+      this.obstacles.setHardness?.(k);
+      this.track.setHardness?.(k);
+      ui.banner(`KATMAN ${layer + 1}`, 4);
+      audio.milestone(Math.min(5, 2 + (layer >> 1)));
+      platform.haptic('success');
+      this.ctx.meta?.track?.('layer', { layer: layer + 1 });
+    }
+    const tier = Math.floor((speedAt(b.s) - RCFG.startSpeed) / 3.2);
+    if (tier > this.speedTier) {
+      this.speedTier = tier;
+      this.float(`HIZ ${tier + 1}!`, 'big');
+      this.ctx.ui.flash?.('white');
+    }
+    // Flow decays when you stop doing skilful things.
+    this.flowT -= dt;
+    if (this.flowT <= 0 && this.flow > 0) this.flow = Math.max(0, this.flow - 14 * dt);
+    const lvl = this.flow >= 90 ? 4 : this.flow >= 50 ? 3 : this.flow >= 25 ? 2 : this.flow >= 10 ? 1 : 0;
+    if (lvl !== this.flowLvl) {
+      if (lvl > this.flowLvl) {
+        this.float(['', 'AKIŞ!', 'SÜPER AKIŞ!', 'EFSANE AKIŞ!', 'DURDURULAMAZ!'][lvl], 'big');
+        audio.star(Math.min(2, lvl - 1));
+        platform.haptic('success');
+      }
+      this.flowLvl = lvl;
+    }
+    ui.runnerFlow?.(this.flowLvl, this.flow / 100);
+    // Records.
+    if (!this.passedDist && b.s > this.bestDist) {
+      this.passedDist = true;
+      ui.banner('YENİ REKOR!', 5);
+      ui.flash?.('white');
+      audio.win();
+      platform.haptic('success');
+      this.ctx.menus?.confetti?.(60);
+    }
+    if (!this.passedScore && this.score > this.bestScore) {
+      this.passedScore = true;
+      this.float('REKOR SKOR!', 'big');
+    }
+    ui.runnerRecord?.(this.passedScore ? 0 : this.bestScore);
+    this.placeRecordFlag();
+  }
+
+  addFlow(n) {
+    this.flow = Math.min(100, this.flow + n);
+    this.flowT = 2.5;
+  }
+
+  makeRecordFlag() {
+    if (this.bestDist < 50) { this.recFlag = null; return; }
+    const g = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 7, 6).translate(0, 3.5, 0), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+    g.add(pole);
+    let mat;
+    if (typeof document !== 'undefined') {
+      const cv = document.createElement('canvas');
+      cv.width = 256; cv.height = 128;
+      const c = cv.getContext('2d');
+      c.fillStyle = '#e8322a'; c.fillRect(0, 0, 256, 128);
+      c.fillStyle = '#fff'; c.font = '900 56px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.lineWidth = 8; c.strokeStyle = '#17345c'; c.strokeText('REKOR', 128, 66); c.fillText('REKOR', 128, 66);
+      mat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), side: THREE.DoubleSide });
+    } else mat = new THREE.MeshBasicMaterial({ color: 0xe8322a, side: THREE.DoubleSide });
+    const banner = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.8).translate(1.8, 5.8, 0), mat);
+    g.add(banner);
+    // A glowing line across the track marks the exact spot.
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.6), new THREE.MeshBasicMaterial({ color: 0xff4a3a, transparent: true, opacity: 0.75, depthWrite: false }));
+    line.rotation.x = -Math.PI / 2;
+    g.add(line);
+    this.recLine = line;
+    g.visible = false;
+    this.ctx.scene.add(g);
+    this.recFlag = g;
+  }
+
+  placeRecordFlag() {
+    const f = this.recFlag;
+    if (!f) return;
+    const ds = this.bestDist - this.b.s;
+    f.visible = ds > -20 && ds < 280;
+    if (!f.visible) return;
+    const tr = this.track;
+    tr.frame(this.bestDist, _f);
+    const hw = tr.halfWidth(this.bestDist) || 3.8;
+    tr.toWorld(this.bestDist, -hw - 0.6, 0, _v);
+    f.position.copy(_v);
+    _x.copy(_f.right).negate();
+    _m.makeBasis(_f.right, _f.up, _x.crossVectors(_f.right, _f.up));
+    f.quaternion.setFromRotationMatrix(_m);
+    this.recLine.scale.set(hw * 2 + 1.2, 1, 1);
+    this.recLine.position.set(hw + 0.6, 0.06, 0);
   }
 
   updateHud() {
@@ -319,6 +462,7 @@ export class Runner {
       this.lane = clamp(Math.round(this.grind.u / RCFG.laneW), -1, 1);
       b.vs = Math.min(RCFG.maxSpeed + 4, b.vs + 3 * dt);
       this.score += 30 * dt * this.mult;
+      this.addFlow(6 * dt);
       if (Math.random() < dt * 30) this.burst(1, 0xffd060, 2);
       if (b.s >= this.grind.s1) this.endGrind();
     } else if (this.rocketT > 0) {
@@ -367,6 +511,8 @@ export class Runner {
     this.coyoteT = 0;
     b.vh = vh;
     this.lastSlope = 0;
+    this.squash = -0.6; // stretch up
+    this.mistBurst(6, 0xffffff, 2.5, 1);
     this.ctx.audio.whoosh();
     this.ctx.platform.haptic(fromRamp ? 'medium' : 'light');
   }
@@ -379,6 +525,8 @@ export class Runner {
     b.vh = 0;
     this.lastSurf = surf;
     this.lastSlope = 0;
+    this.squash = 0.4 + impact * 0.6;
+    if (impact > 0.15) this.mistBurst(Math.round(6 + impact * 16), 0xffffff, 3 + impact * 5, 1.2 + impact);
     if (impact > 0.3) {
       this.ctx.audio.land(impact);
       this.ctx.platform.haptic('medium');
@@ -460,6 +608,9 @@ export class Runner {
     const b = this.b;
     const { audio, platform } = this.ctx;
     this.crashes++;
+    if (this.flowLvl > 0) this.float('AKIŞ KIRILDI', 'bad');
+    this.flow = 0;
+    this.flowLvl = 0;
     this.ctx.meta?.track?.('crash', {});
     this.debris(e, 10);
     if (this.tier === 0) {
@@ -477,6 +628,9 @@ export class Runner {
     this.gap -= RCFG.yetiCrash;
     this.invulnT = RCFG.invulnAfterCrash;
     this.burst(18 + Math.round(lostR * 40), 0xffffff, 6);
+    this.mistBurst(14, 0xffffff, 5, 1.6);
+    this.hitStop = 0.11;
+    this.ctx.ui.flash?.('hit');
     audio.crash(0.6);
     audio.bump(1);
     platform.haptic('heavy');
@@ -487,6 +641,9 @@ export class Runner {
 
   explode() {
     const b = this.b;
+    this.mistBurst(40, 0xffffff, 9, 3);
+    this.hitStop = 0.2;
+    this.ctx.ui.flash?.('hit');
     // The ball bursts into powder.
     this.burst(60, 0xffffff, 10);
     this.burst(20, 0xd6e8ff, 6);
@@ -518,6 +675,19 @@ export class Runner {
         break;
       case 'ice':
         this.iceT = 0.15;
+        break;
+      case 'near':
+        this.addFlow(4);
+        this.score += 60 * this.mult;
+        this.float('KIL PAYI!', '');
+        audio.whoosh();
+        platform.haptic('light');
+        this.ctx.meta?.track?.('near', {});
+        break;
+      case 'over':
+        this.addFlow(3);
+        this.score += 50 * this.mult;
+        this.float('ÜSTÜNDEN!', '');
         break;
       case 'push':
         b.u += (e.du || 0) * this.stepDt;
@@ -558,6 +728,7 @@ export class Runner {
           this.score += 80 * this.mult;
           this.gap = Math.min(RCFG.yetiMax, this.gap + 2);
           this.float('SÜPER DALIŞ!', 'big');
+          this.addFlow(4);
           platform.haptic('light');
         }
         break;
@@ -571,6 +742,7 @@ export class Runner {
           audio.star(Math.min(2, this.gateChain - 1));
           this.float(`KAPI x${this.gateChain}`, '');
         } else if (e.kind === 'flake') {
+          this.addFlow(0.8);
           this.coins += e.value || 1;
           this.score += 10 * this.mult;
           music.note();
@@ -639,6 +811,7 @@ export class Runner {
           this.gap = Math.min(RCFG.yetiMax, this.gap + 4);
         } else this.jump(RCFG.jumpPadV * (e.onBeat ? 1.15 : 1) * (e.power || 1), true);
         if (e.onBeat) {
+          this.addFlow(5);
           this.ctx.meta?.track?.('perfect', {});
           this.score += 100 * this.mult;
           music.perfect();
@@ -711,7 +884,7 @@ export class Runner {
       const { save, ui } = this.ctx;
       const best = save.runnerBest();
       const score = Math.round(this.score);
-      save.recordRunner(score, Math.round(b.s));
+      const rank = save.recordRunner(score, Math.round(b.s)) || 0;
       save.addCoins(this.coins);
       const meta = this.ctx.meta;
       meta?.track?.('endless_end', { distance: Math.round(b.s), score, coins: this.coins, crashes: this.crashes, cause: this.cause, maxTier: this.maxTier, jumps: this.jumps, smashes: this.smashes });
@@ -719,6 +892,10 @@ export class Runner {
       const reviveCost = meta?.reviveCost?.(this.revives) ?? 0;
       this.reviveCost = reviveCost;
       ui.showRunnerResult({
+        rank,
+        toRecord: Math.max(0, Math.round(this.bestDist - b.s)),
+        missions: meta?.missions?.() ?? [],
+        layer: this.layer + 1,
         boxes: this.boxes,
         reviveCost,
         crystals: meta?.crystals ?? 0,
@@ -787,12 +964,97 @@ export class Runner {
     this.rollS = this.rollU = 0;
     ball.group.position.copy(_v);
     ball.x = _v.x; ball.y = _v.y; ball.d = -_v.z; ball.r = this.rShown;
+    // Squash & stretch (world-vertical), springing back.
+    this.squash *= Math.exp(-10 * (1 / 60));
+    const sq = this.squash;
+    ball.group.scale.set(1 + sq * 0.25, 1 - sq * 0.3, 1 + sq * 0.25);
+    this.juiceFrame(_f, _v);
     ball.airborne = !this.grounded;
     if (this.state === 'play') {
       // Blink while invulnerable after a crash/revive.
       ball.group.visible = this.invulnT > 0 ? Math.floor(this.time * 14) % 2 === 0 : true;
     }
     if (snap) this.updateCamera(1, true);
+  }
+
+  // Powder spray, ribbon trail and speed lines — what makes speed *feel* like speed.
+  juiceFrame(f, pos) {
+    const b = this.b;
+    const fx = this.ctx.fx;
+    const playing = this.state === 'play' && this.countT <= 0;
+    const speedK = clamp((b.vs - RCFG.startSpeed) / (RCFG.refSpeed - RCFG.startSpeed), 0, 1);
+    if (playing && this.grounded && !this.grind) {
+      const rate = 0.35 + speedK * 0.9;
+      if (Math.random() < rate) {
+        const side = Math.random() < 0.5 ? -1 : 1;
+        _tp.copy(pos).addScaledVector(f.right, side * this.rShown * 0.8).addScaledVector(f.up, -this.rShown * 0.7);
+        fx.puff(_tp.x, _tp.y, _tp.z,
+          f.right.x * side * 2 - f.tan.x * b.vs * 0.15, 1.2, f.right.z * side * 2 - f.tan.z * b.vs * 0.15,
+          0.35 + this.rShown * 0.5, 0.7, this.biomeMist ?? 0xffffff, 0.45);
+      }
+    }
+    if (playing && this.rocketT > 0) {
+      _tp.copy(pos).addScaledVector(f.tan, -this.rShown);
+      fx.puff(_tp.x, _tp.y, _tp.z, (Math.random() - 0.5) * 2, -1, (Math.random() - 0.5) * 2, 0.8, 0.6, Math.random() < 0.5 ? 0xffb050 : 0xdddddd, 0.6);
+    }
+    // Ribbon trail pressed into the snow (uses the equipped trail's material).
+    this.updateTrail(f, pos);
+    this.ctx.ui.speedLines?.(playing ? Math.max(0, speedK - 0.35) / 0.65 + (this.rocketT > 0 ? 0.6 : 0) + (b.vs > RCFG.maxSpeed ? 0.4 : 0) : 0);
+  }
+
+  updateTrail(f, pos) {
+    const TN = 70;
+    if (!this.trail) {
+      const g = new THREE.BufferGeometry();
+      this.trailPos = new Float32Array(TN * 2 * 3);
+      this.trailCol = new Float32Array(TN * 2 * 3).fill(1);
+      g.setAttribute('position', new THREE.BufferAttribute(this.trailPos, 3).setUsage(THREE.DynamicDrawUsage));
+      g.setAttribute('color', this.ctx.fx.trail.geometry.attributes.color ? new THREE.BufferAttribute(this.ctx.fx.trailCol.slice(0, TN * 6), 3) : new THREE.BufferAttribute(this.trailCol, 3));
+      const idx = [];
+      for (let i = 0; i < TN - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      g.setIndex(idx);
+      this.trail = new THREE.Mesh(g, this.ctx.fx.trail.material);
+      this.trail.frustumCulled = false;
+      this.trail.renderOrder = 2;
+      this.ctx.scene.add(this.trail);
+      this.trailPts = [];
+    }
+    const pts = this.trailPts;
+    const hw = this.rShown * 0.7;
+    const off = this.grounded ? 0.04 - this.rShown * 0.96 : null;
+    if (off === null) {
+      if (pts.length && !pts[pts.length - 1].gap) pts.push({ gap: true });
+    } else {
+      const last = pts[pts.length - 1];
+      _tp.copy(pos).addScaledVector(f.up, off);
+      if (!last || last.gap || _tp.distanceToSquared(last.p) > 0.6) {
+        pts.push({ p: _tp.clone(), r: f.right.clone(), w: hw });
+      }
+    }
+    while (pts.length > TN) pts.shift();
+    const arr = this.trailPos;
+    let n = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const q = pts[i];
+      if (q.gap) continue;
+      const fade = Math.min(1, n / 10);
+      const w = q.w * fade;
+      arr[n * 6] = q.p.x - q.r.x * w; arr[n * 6 + 1] = q.p.y - q.r.y * w; arr[n * 6 + 2] = q.p.z - q.r.z * w;
+      arr[n * 6 + 3] = q.p.x + q.r.x * w; arr[n * 6 + 4] = q.p.y + q.r.y * w; arr[n * 6 + 5] = q.p.z + q.r.z * w;
+      n++;
+    }
+    this.trail.geometry.attributes.position.needsUpdate = true;
+    this.trail.geometry.setDrawRange(0, Math.max(0, (n - 1) * 6));
+    this.trail.visible = this.state !== 'idle';
+  }
+
+  mistBurst(n, color, speed, size) {
+    const p = this.ctx.ball.group.position;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      this.ctx.fx.puff(p.x + Math.cos(a) * this.rShown, p.y - this.rShown * 0.5, p.z + Math.sin(a) * this.rShown,
+        Math.cos(a) * speed, Math.random() * speed * 0.5, Math.sin(a) * speed, size * (0.6 + Math.random() * 0.6), 0.9, color, 0.6);
+    }
   }
 
   burst(n, color, speed) {
@@ -883,13 +1145,23 @@ export class Runner {
     tr.frame(camS, _f);
     const dying = this.state === 'dying' || this.state === 'over';
     const camH = dying && this.cause === 'fall' ? Math.max(b.h + up, -6) + up * 0.5 : Math.max(b.h * 0.5, 0) + up;
-    tr.toWorld(camS, b.u * 0.45, camH, _v);
-    tr.toWorld(b.s + 10, b.u * 0.6, Math.max(b.h * 0.6, 0) + 0.4, _look);
+    // Banked spirals: follow only part of the track's roll (full roll reads as a glitch and dips the camera into
+    // the terrain). Loops/corkscrews genuinely turn upside down, so there we follow the frame completely.
+    const pc = tr.pieceAt(b.s);
+    const flip = pc && (pc.kind === 'loop' || pc.kind === 'corkscrew');
+    this.flipK = (this.flipK ?? 0) + ((flip ? 1 : 0) - (this.flipK ?? 0)) * Math.min(1, dt * 3);
+    const follow = 0.35 + 0.65 * this.flipK;
+    _x.copy(_f.up).multiplyScalar(follow).addScaledVector(WORLD_UP, 1 - follow).normalize();
+    tr.toWorld(camS, b.u * 0.45, 0, _v);
+    _v.addScaledVector(_x, camH);
+    tr.frame(b.s + 10, _f);
+    tr.toWorld(b.s + 10, b.u * 0.6, 0, _look);
+    _look.addScaledVector(_x, Math.max(b.h * 0.6, 0) + 0.4);
     if (dying) _look.copy(this.ctx.ball.group.position);
     const k = snap ? 1 : 1 - Math.exp(-dt * 7);
     this.camPos.lerp(_v, k);
     this.camLook.lerp(_look, snap ? 1 : 1 - Math.exp(-dt * 10));
-    this.camUp.lerp(_f.up, k).normalize();
+    this.camUp.lerp(_x, k).normalize();
     const cam = this.ctx.camera;
     cam.position.copy(this.camPos);
     if (this.shake > 0) {
@@ -900,7 +1172,10 @@ export class Runner {
     }
     cam.up.copy(this.camUp);
     cam.lookAt(this.camLook);
-    const fovK = clamp((b.vs - RCFG.startSpeed) / (RCFG.maxSpeed - RCFG.startSpeed), 0, 1);
+    // Lean into lane changes a touch.
+    this.tilt = (this.tilt ?? 0) + ((-b.vu * 0.014) - (this.tilt ?? 0)) * Math.min(1, dt * 8);
+    cam.rotateZ(this.tilt);
+    const fovK = clamp((b.vs - RCFG.startSpeed) / (RCFG.refSpeed - RCFG.startSpeed), 0, 1);
     cam.userData.fovBoost = fovK * 8 + (this.rocketT > 0 ? 6 : 0);
   }
 
@@ -908,6 +1183,13 @@ export class Runner {
     this.track?.dispose();
     this.obstacles?.dispose();
     this.env?.dispose();
+    if (this.trail) { this.ctx.scene.remove(this.trail); this.trail.geometry.dispose(); this.trail = null; }
+    if (this.recFlag) {
+      this.ctx.scene.remove(this.recFlag);
+      this.recFlag.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.map?.dispose(); o.material.dispose(); } });
+      this.recFlag = null;
+    }
+    this.ctx.ui.speedLines?.(0);
     for (const o of [this.avalanche, this.yeti]) {
       if (!o) continue;
       this.ctx.scene.remove(o.group);

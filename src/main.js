@@ -296,6 +296,13 @@ function pause(on) {
   if (G.state !== 'play' && !(G.state === 'runner' && runner?.state === 'play')) return;
   G.paused = on;
   ui.showPause(on);
+  if (on) {
+    syncPauseToggles();
+    const st = document.getElementById('pause-stats');
+    st.textContent = G.mode === 'runner' && runner
+      ? `${Math.round(runner.b.s).toLocaleString('tr-TR')} m · ${Math.round(runner.score).toLocaleString('tr-TR')} puan`
+      : `${Math.round(ball.d)} m · ${fmtTons(totalTons())}`;
+  }
   if (on) audio.setRoll(0, 0);
   if (G.mode === 'runner') music.duck(on);
   input.consumeDx(); // drags made on the pause screen must not yank the ball on resume
@@ -305,6 +312,20 @@ ui.on('btn-play', () => startRun(false));
 ui.on('btn-daily', () => startRun(true));
 ui.on('btn-pause', () => { audio.ui(); pause(true); });
 ui.on('btn-resume', () => { audio.ui(); pause(false); });
+ui.on('btn-restart', () => {
+  audio.ui();
+  G.paused = false;
+  ui.showPause(false);
+  if (G.mode === 'runner') { music.duck(false); startEndless(); } else startRun(G.daily);
+});
+function syncPauseToggles() {
+  for (const [id, on] of [['btn-p-sound', !audio.isMuted()], ['btn-p-music', musicOn], ['btn-p-haptic', platform.hapticsEnabled()]]) {
+    document.getElementById(id).classList.toggle('off', !on);
+  }
+}
+ui.on('btn-p-sound', () => { audio.setMuted(!audio.isMuted()); ui.setToggle('sound', !audio.isMuted()); syncPauseToggles(); audio.ui('toggle'); });
+ui.on('btn-p-music', () => { musicOn = !musicOn; music.setMuted(!musicOn); try { localStorage.setItem('cig.music.muted', musicOn ? '0' : '1'); } catch { /* ignore */ } syncPauseToggles(); });
+ui.on('btn-p-haptic', () => { platform.setHapticsEnabled(!platform.hapticsEnabled()); syncPauseToggles(); platform.haptic('medium'); });
 ui.on('btn-quit', () => { audio.ui(); toMenu(); });
 ui.on('btn-endless', () => startEndless());
 ui.on('btn-shop', () => openWardrobe());

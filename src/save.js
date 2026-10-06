@@ -58,13 +58,22 @@ export const save = {
   // ---- endless mode ----
   runnerBest: () => data.runner?.best || 0,
   runnerBestDist: () => data.runner?.bestDist || 0,
+  // Returns this run's rank among the player's top-10 runs (1-based), or 0 if it didn't make the list.
   recordRunner(score, dist) {
     if (!data.runner) data.runner = { best: 0, bestDist: 0, runs: 0 };
-    data.runner.best = Math.max(data.runner.best, score);
-    data.runner.bestDist = Math.max(data.runner.bestDist, dist);
-    data.runner.runs++;
+    const r = data.runner;
+    r.best = Math.max(r.best, score);
+    r.bestDist = Math.max(r.bestDist, dist);
+    r.runs++;
+    if (!Array.isArray(r.top)) r.top = [];
+    const entry = { score, dist, t: Date.now() };
+    r.top.push(entry);
+    r.top.sort((a, b) => b.score - a.score);
+    r.top.length = Math.min(r.top.length, 10);
     persist();
+    return r.top.indexOf(entry) + 1;
   },
+  runnerTop: () => (Array.isArray(data.runner?.top) ? data.runner.top.slice() : []),
 
   // ---- economy / customization ----
   get coins() { return data.coins; },

@@ -19,7 +19,8 @@ export class UI {
       next: $('btn-next'), toast: $('toast'), pause: $('pause'), debug: $('debug'),
       sound: $('btn-sound'), haptic: $('btn-haptic'),
       coins: $('hud-coins'), vitals: $('hud-vitals'), pips: $('hud-pips'), grow: $('hud-grow'), powers: $('hud-powers'),
-      yeti: $('hud-yeti'), yetiFill: $('hud-yetifill'), resCoins: $('res-coins'), menuBest: $('menu-best'), resLabel: document.querySelector('.res-label'),
+      yeti: $('hud-yeti'), yetiFill: $('hud-yetifill'),
+      flow: $('hud-flow'), flowFill: $('hud-flow-fill'), flowLbl: $('hud-flow-lbl'), record: $('hud-record'), resExtra: $('res-extra'), resCoins: $('res-coins'), menuBest: $('menu-best'), resLabel: document.querySelector('.res-label'),
     };
     this.floatCount = 0;
     this.lastTonsText = '';
@@ -51,6 +52,9 @@ export class UI {
     this.el.coins.classList.toggle('hidden', !on);
     this.el.vitals.classList.toggle('hidden', !on);
     this.el.yeti.classList.toggle('hidden', !on);
+    this.el.flow.classList.toggle('hidden', !on);
+    this.el.record.classList.toggle('hidden', !on);
+    this.lastFlow = this.lastRec = null;
     this.lastVitals = '';
     if (!on) return;
     this.el.level.textContent = biomeName.toUpperCase();
@@ -95,10 +99,25 @@ export class UI {
     this.el.powers.textContent = `${sled ? '🛷' : ''}${helmet ? '⛑️' : ''}${magnet ? '🧲' : ''}${rocket ? '🚀' : ''}${x2 ? '✖️2' : ''}${superjump ? '👟' : ''}`;
   }
 
-  showRunnerResult({ title, distance, score, coins, best, isBest, canRevive, reviveCost = 0, boxes = 0 }) {
+  showRunnerResult({ title, distance, score, coins, best, isBest, canRevive, reviveCost = 0, boxes = 0, rank = 0, toRecord = 0, missions = [], layer = 1 }) {
     this.clearTimers();
     this.el.hud.classList.add('hidden');
     this.el.coins.classList.add('hidden');
+    this.el.flow.classList.add('hidden');
+    this.el.record.classList.add('hidden');
+    // "One more run" hooks: how close the record was, the run's rank, mission progress.
+    const ex = this.el.resExtra;
+    let html = '';
+    if (isBest) html += '<div class="rx-line">🏆 EN İYİ KOŞUN!</div>';
+    else if (toRecord > 0 && toRecord < Math.max(400, distance * 0.6)) html += `<div class="rx-line">Rekora ${toRecord.toLocaleString('tr-TR')} m kaldı!</div>`;
+    else if (rank > 0 && rank <= 10) html += `<div class="rx-line">#${rank}. en iyi koşun</div>`;
+    html += `<div class="rx-line" style="font-size:14px;color:#cfe6ff">KATMAN ${layer}</div>`;
+    for (const m of missions.slice(0, 3)) {
+      const f = Math.max(0, Math.min(1, (m.value || 0) / (m.goal || 1)));
+      html += `<div class="rx-m ${m.done ? 'done' : ''}"><span>${m.icon || '📜'}</span><span class="rx-t">${m.text}</span><span class="rx-b"><i style="width:${Math.round(f * 100)}%"></i></span></div>`;
+    }
+    ex.innerHTML = html;
+    ex.classList.toggle('hidden', !html);
     this.el.vitals.classList.add('hidden');
     this.el.yeti.classList.add('hidden');
     this.el.result.classList.remove('hidden');
@@ -122,6 +141,8 @@ export class UI {
 
   hideResult() {
     this.el.result.classList.add('hidden');
+    this.el.flow.classList.remove('hidden');
+    this.el.record.classList.remove('hidden');
     this.el.hud.classList.remove('hidden');
     this.el.coins.classList.remove('hidden');
     this.el.vitals.classList.remove('hidden');
@@ -129,10 +150,42 @@ export class UI {
     this.lastVitals = '';
   }
 
+  runnerFlow(lvl, frac) {
+    const key = lvl * 100 + Math.round(frac * 50);
+    if (key === this.lastFlow) return;
+    this.lastFlow = key;
+    this.el.flowFill.style.width = `${Math.round(frac * 100)}%`;
+    this.el.flowLbl.textContent = lvl ? `AKIŞ x${lvl + 1}` : 'AKIŞ';
+    this.el.flow.className = `hud-flow l${lvl}`;
+  }
+
+  runnerRecord(best) {
+    if (best === this.lastRec) return;
+    this.lastRec = best;
+    this.el.record.textContent = best ? `REKOR ${Math.round(best).toLocaleString('tr-TR')}` : '';
+  }
+
+  speedLines(k) {
+    const el = this.speedEl || (this.speedEl = document.getElementById('speedlines'));
+    const v = Math.max(0, Math.min(1, k));
+    const q = Math.round(v * 10) / 10;
+    if (q !== this.lastSpeed) { this.lastSpeed = q; el.style.opacity = String(q * 0.85); }
+  }
+
+  flash(kind = 'hit') {
+    const el = this.flashEl || (this.flashEl = document.getElementById('flash'));
+    el.className = '';
+    void el.offsetWidth; // restart the animation
+    el.className = kind;
+  }
+
   setMenuBest(text) { this.el.menuBest.textContent = text; }
 
   startRun(label) {
     this.clearTimers();
+    this.el.resExtra?.classList.add('hidden');
+    this.el.flow?.classList.add('hidden');
+    this.el.record?.classList.add('hidden');
     this.el.vitals.classList.add('hidden');
     this.el.yeti.classList.add('hidden');
     this.el.result.classList.remove('runner');
