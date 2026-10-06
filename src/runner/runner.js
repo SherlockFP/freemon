@@ -13,10 +13,10 @@ import { patchMaterial } from '../shaders.js';
 // but steers heavier and won't fit through narrow gaps.
 // Physics live in track-local coordinates: s along the path, u sideways (+right), h above the surface.
 export const RCFG = {
-  startSpeed: 11,
+  startSpeed: 13,
   maxSpeed: 36,          // hard cap (reached very late)
   refSpeed: 30,          // "fast" for visuals (FOV, speed lines)
-  speedPerM: 0.006,      // early ramp
+  speedPerM: 0.0075,     // early ramp
   lateSpeedPerM: 0.0016, // after 2600 m it still creeps up
   layerLen: 600,         // a new difficulty layer every 600 m
   sizeSpeed: 0.045,      // top speed +4.5% per size tier
@@ -33,7 +33,7 @@ export const RCFG = {
   diveV: -20,            // swipe down while airborne: slam back onto the snow
   // Size tiers = health. Index 0 is "about to burst". Max fits a lane (diameter 2.1 < 2.4).
   tierR: [0.45, 0.6, 0.75, 0.9, 1.05],
-  pilesPerTier: 4,       // snow piles needed to grow one tier
+  pilesPerTier: 6,       // snow piles needed to grow one tier
   smashMargin: 2,        // you must be this many sizes above an obstacle's toughness to plough through it
   crashSlow: 0.45,       // speed kept after a crash
   invulnAfterCrash: 1.1,

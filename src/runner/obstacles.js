@@ -1424,7 +1424,7 @@ Object.assign(Obstacles.prototype, {
       if (hazard) this._snowGroup(plan, s1 - 18, kind === 'narrow' ? 1 : rng.int(0, 2), 3, kind === 'narrow' ? 0 : 1.2);
       if (plan.rows.length >= 2) {
         for (let i = 0; i < plan.rows.length - 1; i++) {
-          if (!rng.chance(0.3)) continue;
+          if (!rng.chance(0.18)) continue;
           const a = plan.rows[i], b = plan.rows[i + 1], sm = (a.s + a.ext + b.s - b.ext) / 2;
           if (b.s - a.s < 9) continue;
           // risky lane: the lane the next row blocks (else any lane off the safe route)
@@ -1432,8 +1432,8 @@ Object.assign(Obstacles.prototype, {
           const lane = blocked.length && rng.chance(0.6) ? blocked[rng.int(0, blocked.length - 1)] : [0, 1, 2].filter((l) => l !== b.route)[rng.int(0, 1)];
           this._snowGroup(plan, sm - 2, lane, 3);
         }
-      } else if (!hazard && piece.gapS0 === undefined && rng.chance(early ? 0.7 : 0.15)) {
-        this._snowGroup(plan, s0 + rng.range(10, Math.max(12, piece.len - 14)), early ? 1 : rng.int(0, 2), 3 + (early ? 1 : 0), early ? 0 : 0.8);
+      } else if (!hazard && piece.gapS0 === undefined && rng.chance(early ? 0.45 : 0.12)) {
+        this._snowGroup(plan, s0 + rng.range(10, Math.max(12, piece.len - 14)), early ? (rng.chance(0.5) ? 0 : 2) : rng.int(0, 2), 3 + (early ? 1 : 0), early ? 0 : 0.8);
       }
       // rare pickups
       const mid = (s0 + s1) / 2, normal = kind === 'straight' || kind === 'curve' || kind === 'slalom' || kind === 'stairs' || kind === 'waves';
@@ -1442,7 +1442,7 @@ Object.assign(Obstacles.prototype, {
       if (s0 >= 150 && normal && s1 > this.next.power) {
         const k = wpick(rng, POWERS, (x) => this.powerW[x] ?? 1) || 'magnet', s = freeS(mid);
         this._powerUp(plan, k, s, rng.chance(0.5) ? offRoute(s) : Math.round(route(s) / LANE_W) + 1);
-        this.next.power = s + rng.range(250, 350);
+        this.next.power = s + rng.range(420, 520);
       }
       if (s0 >= 150 && s1 > this.next.crystal) {
         if (apex) { this._pickup('crystal', apex.s, apex.u, apex.h, { value: 1 }); this.next.crystal = apex.s + rng.range(560, 680); }
