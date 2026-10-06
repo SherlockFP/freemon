@@ -327,6 +327,7 @@ function leaveEndless() {
 
 function toMenu() {
   leaveEndless();
+  ui.hint(false); // the runner's swipe hint must not linger on the menu
   G.state = 'menu';
   G.paused = false;
   G.level = Math.min(save.level, MAX_LEVEL);
@@ -421,7 +422,9 @@ ui.on('btn-retry', () => (G.mode === 'runner' ? startEndless() : startRun(G.dail
 ui.on('btn-next', () => {
   audio.ui();
   if (G.mode === 'runner') {
-    if (runner.state === 'over' && !runner.revived) { runner.revive(); ui.hideResult(); }
+    // The same button reads "ANA MENÜ" when you can't afford a revive: only hide the result if the revive went through.
+    if (runner.state === 'over' && !runner.revived) runner.revive();
+    if (runner.state !== 'over') ui.hideResult();
     else toMenu();
     return;
   }
