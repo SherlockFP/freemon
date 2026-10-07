@@ -1061,3 +1061,10 @@ Genel 7.4 · Rush 7.5 · ÇIĞ 7.0 · Arena 6.8 · Menü 7.1
 - Rush: kart kapısı 75 m'de, 1.4× kart, sallanma + nabız, yeşil/kırmızı şerit; "◀ GÜVENLİ · RİSKLİ ▶" ipucu; kapı yaklaşırken orta duyurular bekletiliyor; "KART: X" bildirimi + flaş.
 - Arena: başparmak yayı kontroller (HIZLAN 100px, BÖL 80, FIRLAT 76), ipuçları yukarı; fırlatılan toplar renkli + iz + "-16"; diken fırlatınca "DİKEN FIRLADI!"; gölgedeyken butonlar gizli. Görüntüyle doğrulandı.
 - Smoke: tüm modlar + bosslar + L3/4/9 hatasız.
+
+## Döngü 26 — değerlendirme (meta & elde tutma)
+Genel 7.4 · Rush 7.5 · ÇIĞ 7.1 · Arena 6.8 · Menü 7.2
+- Boşluk 1: uygulama dışı geri çağırma yok (bildirim yok) — seri/sandık/sezon görünmez.
+- Boşluk 2: ilk oturum ekonomisi hedefsiz — ❄0, ilk skin ~1600 ❄, günlük 1. gün 50 ❄; 1-3 oturumda ilk alım imkânsız.
+- Boşluk 3: 7 paralel meta yüzey, "sıradaki tek şey" yok; menüde sezon görünmüyor, sezon sonu aciliyeti yok.
+- Şimdi: yerel bildirimler (2. koşudan sonra izin); İLK ADIMLAR hediye yolu + menüde tek "SIRADAKİ HEDEF" çipi; Sezon çipi + son 3 gün geri sayımı; ÖDÜLLER gruplaması.
