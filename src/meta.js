@@ -53,8 +53,8 @@ const LEVEL_CYCLE = ['day', 'crystal', 'sunset', 'day', 'night', 'blizzard', 'pi
 
 // ---- daily rewards: 7-day cycle (day 7 resolves to an unowned skin/trail at claim time) ----
 export const DAILY_REWARDS = [
-  { day: 1, coins: 50 },
-  { day: 2, coins: 75 },
+  { day: 1, coins: 200 },
+  { day: 2, coins: 250 },
   { day: 3, coins: 100, crystals: 1 },
   { day: 4, coins: 150 },
   { day: 5, coins: 200, crystals: 1 },
@@ -326,9 +326,14 @@ function fresh() {
     ss: { day: '', ids: [], got: {}, extra: 0 },
     recent: [],
     c: { stars: {}, b: {}, g: {}, unlocked: 1, seen: {}, chest: new Array(10).fill(0), perfect: new Array(10).fill(0) },
+    fs: { d: {}, p: [] },
     mode: 'camp',
   };
 }
+
+// ---- ILK ADIMLAR: one-time onboarding rewards on the 1st/2nd/3rd/5th completed run (any mode) ----
+const FS_RUNS = [1, 2, 3, 5];
+const FS_REWARDS = { 1: { starter: true }, 2: { coins: 150 }, 3: { crystals: 1, coins: 100 }, 5: { coins: 300 } };
 
 function sanitize(p) {
   const s = fresh();
@@ -372,6 +377,12 @@ function sanitize(p) {
   if (isObj(p.g)) {
     s.g.day = typeof p.g.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.g.day) ? p.g.day : '';
     s.g.n = Math.floor(nz(p.g.n));
+  }
+  if (isObj(p.fs)) {
+    if (isObj(p.fs.d)) for (const k of Object.keys(p.fs.d)) if (/^d{1,2}$/.test(k) && p.fs.d[k]) s.fs.d[k] = 1;
+    if (Array.isArray(p.fs.p)) s.fs.p = p.fs.p.filter((x) => typeof x === 'string' && x.length < 80).slice(0, 8);
+  } else if (s.st.runs >= 5) {
+    for (const n of FS_RUNS) s.fs.d[n] = 1; // veteran save from before ILK ADIMLAR: no retro handout
   }
   if (isObj(p.ss)) {
     s.ss.day = typeof p.ss.day === 'string' && /^d{4}-d{2}-d{2}$/.test(p.ss.day) ? p.ss.day : '';
@@ -706,6 +717,26 @@ function pickSpecial() {
   return null;
 }
 
+function fsCheck() {
+  if (!S.fs) S.fs = { d: {}, p: [] };
+  let any = false;
+  for (const n of FS_RUNS) {
+    if (S.fs.d[n] || S.st.runs < n) continue;
+    S.fs.d[n] = 1;
+    const spec = FS_REWARDS[n];
+    let r = spec;
+    if (spec.starter) { const sp = pickSpecial(); r = sp && sp.skin ? sp : { coins: 120 }; }
+    const g = grant(r);
+    const bits = [];
+    if (g.skin) { const it = SKINS.find((x) => x.id === g.skin); bits.push('Bedava skin: ' + (it ? it.name : g.skin)); }
+    if (g.coins) bits.push('+' + g.coins + ' ❄️');
+    if (g.crystals) bits.push('+' + g.crystals + ' 💎');
+    S.fs.p.push(n + '. koşu · ' + bits.join(' · '));
+    any = true;
+  }
+  if (any) persistNow();
+}
+
 function dailyReward(day) {
   const base = DAILY_REWARDS[Math.max(1, Math.min(7, day | 0)) - 1];
   if (!base.special) return { ...base };
@@ -987,6 +1018,7 @@ export const meta = {
     const newly = [];
     try { handle(event, d, newly); } catch { /* telemetry must never break gameplay */ }
     try { if (event === 'season_token' || event === 'season_run_end') seasonTrack(event, d); } catch { /* ignore */ }
+    try { fsCheck(); } catch { /* ignore */ }
     try { stampCheck(event, d); } catch { /* ignore */ }
     try { dtOn(event, d); } catch { /* ignore */ }
     return newly.length ? newly : NONE;
@@ -1081,6 +1113,13 @@ export const meta = {
     return given;
   },
 
+  // ---- ILK ADIMLAR ----
+  firstSteps() {
+    const nxt = FS_RUNS.find((n) => !S.fs.d[n]) || 0;
+    return { runs: S.st.runs, next: nxt, left: nxt ? Math.max(0, nxt - S.st.runs) : 0, done: !nxt, pending: S.fs.p.slice() };
+  },
+  firstStepsSeen() { if (S.fs.p.length) { S.fs.p.length = 0; markDirty(); } },
+
   // ---- SEZON AVI ----
   season() {
     const o = seasonCur();
@@ -1098,8 +1137,8 @@ export const meta = {
       if (t.coins) { wallet().addCoins(t.coins); out.coins = t.coins; }
       if (t.crystals) { meta.addCrystals(t.crystals); out.crystals = t.crystals; }
       if (t.boxes) { meta.addBoxes(t.boxes); out.boxes = t.boxes; }
-      if (t.trail) { wallet().own('trails', t.trail); out.trail = t.trail; }
-      if (t.skin) { wallet().own('skins', t.skin); out.skin = t.skin; }
+      if (t.trail) { wallet().own('trail', t.trail); out.trail = t.trail; }
+      if (t.skin) { wallet().own('skin', t.skin); out.skin = t.skin; }
     } catch { /* ignore */ }
     markDirty();
     return out;

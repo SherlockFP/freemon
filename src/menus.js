@@ -253,6 +253,15 @@ const CSS = `
 .fm-hgoal .gb { flex: none; width: 54px; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
 .fm-hgoal .gb i { display: block; height: 100%; background: linear-gradient(90deg, #ffe066, #ff9a3a); }
 .fm-hgoal .gc { flex: none; font-size: 11.5px; color: var(--gold); text-shadow: none; white-space: nowrap; }
+.fm-sgoal { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; margin: 0 auto 8px; width: min(calc(100% - 24px), 380px); box-sizing: border-box; border-radius: 14px; border: 2.5px solid var(--ink); background: #fff; color: var(--ink); font-size: 13px; font-weight: 800; cursor: pointer; text-align: left; text-shadow: none; flex: none; }
+.fm-sgoal .sg-t { flex: none; font-size: 10px; letter-spacing: 0.06em; opacity: 0.6; }
+.fm-sgoal .sg-n { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fm-sgoal .sg-b { flex: none; width: 56px; height: 9px; border-radius: 5px; background: rgba(0, 0, 0, 0.15); overflow: hidden; }
+.fm-sgoal .sg-b i { display: block; height: 100%; background: linear-gradient(90deg, #ffb300, #ff7a1a); }
+.fm-sgoal .sg-c { flex: none; font-size: 11.5px; white-space: nowrap; }
+.fm-sgoal.claim { background: #ffd84a; animation: fmPulseG 1.4s ease-in-out infinite; }
+@keyframes fmPulseG { 50% { transform: scale(1.03); } }
+.fm-tchip.red { background: #e5293a; color: #fff; border-color: #7a0f1a; }
 .fm-hgoal.ready { border-color: #8dff9a; }
 .fm-hgoal.ready .gc { color: #8dff9a; }
 .fm-hgoal.ready .gb i { background: linear-gradient(90deg, #8dff9a, #2fc13f); }
@@ -1606,7 +1615,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
     function render() {
       clear(p.list);
-      const unclaimed = meta.unclaimedCount();
+      let unclaimed = meta.unclaimedCount();
+    try { unclaimed += meta.season().ready | 0; } catch { /* ignore */ }
+    try { unclaimed += Math.max(0, meta.stamps().filter((x) => x.got).length - (parseInt(localStorage.getItem('patpat.stampsSeen') || '0', 10) || 0)); } catch { /* ignore */ }
       p.setSub(`${meta.doneCount()}/${ACHIEVEMENTS.length} AÇIK${unclaimed ? ` · ${unclaimed} ÖDÜL BEKLİYOR` : ''}`);
       let items = ACHIEVEMENTS.slice();
       const state = (d) => meta.progress(d.id);
@@ -2951,6 +2962,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     infoCard.insertBefore(r.sum, infoCard.firstChild);
     r.today = el('div', 'fm-today');
     r.tdots = el('div', 'fm-tdots');
+    r.sgoal = button('fm-sgoal', '', () => { sfx('click'); if (r._sgFn) r._sgFn(); }, 'Sıradaki hedef');
+    r.sgoal.style.display = 'none';
+    root0.appendChild(r.sgoal);
     r.twrap = add(el('div', 'fm-todaywrap'), r.today, r.tdots);
     const tScroll = () => {
       const t = r.today, w = r.twrap, max = t.scrollWidth - t.clientWidth;
@@ -3104,6 +3118,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
         const lo = prev ? prev.need : 0;
         const frac = nxt ? Math.max(0, Math.min(1, (se.tokens - lo) / Math.max(1, nxt.need - lo))) : 1;
         const gf = Math.max(0, Math.min(1, se.claimed / Math.max(1, se.total)));
+        if (se.daysLeft <= 3 && se.msLeft > 0) chips.push(['⏳', `Sezon bitiyor: ${se.msLeft < 86400000 ? Math.max(1, Math.ceil(se.msLeft / 3600000)) + 's' : se.daysLeft + 'g'}`, true, () => openSeason(), 'red']);
         chips.push({ sez: true, hot: se.ready > 0, frac, gf, text: `${se.tokens} · ${se.claimed}/${se.total}`, fn: () => openSeason() });
       } catch { /* ignore */ }
       try { let dr = null; try { dr = JSON.parse(localStorage.getItem('patpat.dailyRush') || 'null'); } catch { /* ignore */ }
@@ -3124,7 +3139,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       clear(r.tdots);
       // priority: hot first, then Sezon, Günün Rush'ı, others (stable); show 3, rest behind a +N chip
       const isHot = (c) => (c.sez ? c.hot : c[2]);
-      const rank = (c) => (isHot(c) ? 0 : c.sez ? 1 : /Rush/.test(c[1]) ? 2 : 3);
+      const rank = (c) => (c.sez ? -2 : c[4] === 'red' ? -1 : isHot(c) ? 0 : c.sez ? 1 : /Rush/.test(c[1]) ? 2 : 3);
       const ordered = chips.map((c, i) => ({ c, i })).sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i).map((o) => o.c);
       const MAXC = 3;
       const expanded = !!r._tExp && ordered.length > MAXC;
@@ -3146,7 +3161,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
           r.today.appendChild(b);
         } else {
           const [ic, tx, hot, fn] = c;
-          r.today.appendChild(button(`fm-tchip${hot ? ' hot' : ''}`, `${ic} ${tx}`, () => { sfx('click'); fn(); }));
+          r.today.appendChild(button(`fm-tchip${c[4] === 'red' ? ' red' : hot ? ' hot' : ''}`, `${ic} ${tx}`, () => { sfx('click'); fn(); }));
         }
         r.tdots.appendChild(el('i'));
       }
@@ -3157,10 +3172,52 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       r.tScroll(); setTimeout(() => { try { r.tScroll(); } catch { /* ignore */ } }, 60);
     } catch { /* ignore */ }
 
+    // SIRADAKI HEDEF: single next goal (claimable first, else cheapest unowned item)
+    try {
+      let goal = null;
+      let se2 = null; try { se2 = meta.season(); } catch { /* ignore */ }
+      if (db.reward) goal = { claim: true, name: 'AL: Günlük ödül', fn: () => openDaily() };
+      else if (dtl.claimable) goal = { claim: true, name: 'AL: Görev ödülü', fn: () => openDailyTasks() };
+      else if (se2 && se2.ready > 0) goal = { claim: true, name: 'AL: Sezon ödülü', fn: () => openSeason() };
+      else if ((meta.unclaimedCount() | 0) > 0) goal = { claim: true, name: 'AL: Başarım ödülü', fn: () => openMissions() };
+      else if (gr0) goal = { claim: true, name: 'AL: Kar Küresi', fn: () => shakeGlobe() };
+      else {
+        let bestIt = null;
+        for (const [list, kind] of [[SKINS, 'skin'], [TRAILS, 'trail']]) {
+          for (const it of list) {
+            if (!(it.price > 0) || it.unlock || save.isOwned(kind, it.id)) continue;
+            if (!bestIt || it.price < bestIt.it.price) bestIt = { it, kind };
+          }
+        }
+        if (bestIt) {
+          const have = save.coins | 0, pr = bestIt.it.price;
+          goal = { name: bestIt.it.name, have, price: pr, frac: Math.min(1, have / pr), ready: have >= pr, fn: () => { try { localStorage.setItem('patpat.shopTab', bestIt.kind); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); } };
+        }
+      }
+      if (goal) {
+        r._sgFn = goal.fn;
+        r.sgoal.style.display = '';
+        r.sgoal.classList.toggle('claim', !!(goal.claim || goal.ready));
+        clear(r.sgoal);
+        if (goal.claim) add(r.sgoal, el('span', 'sg-t', 'SIRADAKİ HEDEF'), el('span', 'sg-n', goal.name), el('span', 'sg-c', '▶'));
+        else {
+          const bar = el('span', 'sg-b'), fill = el('i');
+          fill.style.width = Math.round(goal.frac * 100) + '%';
+          bar.appendChild(fill);
+          add(r.sgoal, el('span', 'sg-t', 'HEDEF'), el('span', 'sg-n', goal.name), bar, el('span', 'sg-c', goal.ready ? 'AL! ▶' : fmt(goal.have) + '/' + fmt(goal.price) + ' ❄️'));
+        }
+      } else r.sgoal.style.display = 'none';
+    } catch { r.sgoal.style.display = 'none'; }
+    // İLK ADIMLAR celebration card (one combined toast on the next menu visit)
+    try {
+      const fsx = meta.firstSteps();
+      if (fsx.pending.length) { meta.firstStepsSeen(); toast({ icon: '🎁', title: 'İLK ADIMLAR ÖDÜLÜ!', sub: fsx.pending.join(' | '), kind: 'gold', ms: 3600 }); }
+    } catch { /* ignore */ }
+
     // next unlock goal
     let g = null;
     try { g = nextGoal(save); } catch { g = null; }
-    const showG = !!(g && g.kind === 'trail');
+    const showG = false; // replaced by the SIRADAKİ HEDEF chip
     r.goalBtn.style.display = showG ? '' : 'none';
     if (showG) {
       r.goalBtn.classList.toggle('ready', g.ready);

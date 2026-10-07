@@ -15,6 +15,7 @@
     "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.5.2",
     "@capacitor/haptics": "^8.0.2",
+    "@capacitor/local-notifications": "^8.3.1",
     "peerjs": "^1.5.5",
     "three": "^0.186.1",
     "trystero": "^0.26.0"

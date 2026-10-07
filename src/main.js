@@ -8,7 +8,7 @@ import { Fx } from './fx.js';
 import { Input } from './input.js';
 import { UI, fmtTons } from './ui.js';
 import { audio } from './audio.js';
-import { platform } from './platform.js';
+import { platform, notify } from './platform.js';
 import { save } from './save.js';
 import { dailySeed, dailyNumber } from './rng.js';
 import { PostFX, VISUAL_MODES, SU, patchMaterial } from './shaders.js';
@@ -783,7 +783,7 @@ function finishCigLevel() {
     }
     save.addCoins(0);
     if (crystals) save.addCrystals(crystals);
-    save.recordRun(r.tons);
+    save.recordRun(r.tons); notifSync(true);
     if (daily) save.recordDaily(G.dailySeed, { tons: r.tons, pct: 1, stars });
     meta.track('cig_end', { level: n, stars, tons: r.tons, pct: 0.9, reached: true, daily, theme: scenery.theme.id, endless: false });
     meta.track('cig_progress', { tons: r.tons, dist: peakD });
@@ -802,7 +802,7 @@ function finishCigLevel() {
     G.lastEval = { win, stars: 0, goalsMet: [false, false, false] };
     if (sim) return;
     if (!daily) { save.cigLvFail(n); streakSet(0); }
-    save.recordRun(r.tons);
+    save.recordRun(r.tons); notifSync(true);
     meta.track('cig_end', { level: n, stars: 0, tons: r.tons, pct: Math.min(0.99, peakD / plan.length), reached: false, daily, theme: scenery.theme.id, endless: false });
     meta.track('cig_progress', { tons: r.tons, dist: peakD });
     const wave = G.cause === 'wave';
@@ -829,7 +829,7 @@ function finishCig() {
   ui.hint(false);
   const coins = Math.round(Math.sqrt(Math.max(0, r.tons)) * 1.5 + r.dist / 40);
   save.addCoins(coins);
-  save.recordRun(r.tons);
+  save.recordRun(r.tons); notifSync(true);
   if (G.daily) save.recordDaily(G.dailySeed, { tons: r.tons, pct: 0, stars: 0 });
   const rec = { tons: r.tons, dist: r.dist, tier: r.tier, tierName: r.tierName };
   let isBest = false;
@@ -1490,6 +1490,35 @@ if (DEBUG) {
     gap: game?.wave.on ? +(ball.d - game.wave.d).toFixed(1) : 0, bounces2: game?.stats.bounces ?? 0,
   });
   window.cig.summary = cigSummary;
+}
+
+// ---- retention: local notifications (native only; no-ops on web) ----
+async function notifSync(afterRun) {
+  if (!platform.isNative) return;
+  try {
+    await notify.cancelAll();
+    if (afterRun && save.runsTotal() >= 2) await notify.requestOnce();
+    const t = Date.now();
+    const list = [];
+    let n = 0;
+    try { n = meta.daily().streak | 0; } catch { /* ignore */ }
+    list.push({ id: 9101, at: new Date(t + 20 * 3600e3), body: n > 0 ? '🔥 ' + n + ' günlük serin bitmek üzere! Bir koşu yeter.' : '🔥 Serin bitmek üzere! Bir koşu yeter.' });
+    const d = new Date(t); d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0);
+    list.push({ id: 9102, at: d, body: '🏃 Günün Rush’ı hazır — bugünkü parkuru herkes aynı oynuyor!' });
+    try {
+      const s = meta.season();
+      if (s && s.msLeft > 0 && s.msLeft <= 3 * 86400000) list.push({ id: 9103, at: new Date(t + Math.max(60000, s.msLeft - 12 * 3600e3)), body: '⏳ Sezon bitiyor! Ödüllerini topla.' });
+    } catch { /* ignore */ }
+    await notify.schedule(list.filter((x) => x.at.getTime() > t + 30000));
+  } catch { /* ignore */ }
+}
+if (platform.isNative) {
+  notify.cancelAll();
+  document.addEventListener('visibilitychange', () => { if (document.hidden) notifSync(false); else notify.cancelAll(); });
+  import('@capacitor/app').then(({ App }) => {
+    App.addListener('pause', () => notifSync(false));
+    App.addListener('resume', () => notify.cancelAll());
+  }).catch(() => {});
 }
 
 // Boot: pull in the imported models (≈1 MB) first; the game still runs on procedural props if they fail.

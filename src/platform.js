@@ -295,4 +295,50 @@ export const platform = {
   },
 };
 
+// ---------------------------------------------------------------- local notifications (native only)
+const NOTIF_ASKED_KEY = 'cig.notifAsked';
+let notifLoad = null;
+function loadNotif() {
+  if (!isNative) return Promise.resolve(null);
+  if (!notifLoad) notifLoad = import('@capacitor/local-notifications').then((m) => m.LocalNotifications).catch(() => null);
+  return notifLoad;
+}
+export const notify = {
+  /** list: [{ id, title?, body, at: Date }]. Replaces pending notifications with the same ids. */
+  async schedule(list) {
+    try {
+      const LN = await loadNotif();
+      if (!LN || !Array.isArray(list) || !list.length) return false;
+      const perm = await LN.checkPermissions();
+      if (perm.display !== 'granted') return false;
+      await LN.schedule({
+        notifications: list.slice(0, 3).map((n) => ({
+          id: n.id, title: n.title || 'PATPAT', body: n.body, schedule: { at: n.at, allowWhileIdle: true },
+        })),
+      });
+      return true;
+    } catch (_) { return false; }
+  },
+  async cancelAll() {
+    try {
+      const LN = await loadNotif();
+      if (!LN) return;
+      const p = await LN.getPending();
+      if (p && p.notifications && p.notifications.length) await LN.cancel({ notifications: p.notifications.map((n) => ({ id: n.id })) });
+    } catch (_) { /* ignore */ }
+  },
+  /** Asks for permission once ever (remembered in localStorage). Call after the 2nd completed run. */
+  async requestOnce() {
+    try {
+      if (!isNative) return false;
+      if (localStorage.getItem(NOTIF_ASKED_KEY)) return false;
+      localStorage.setItem(NOTIF_ASKED_KEY, '1');
+      const LN = await loadNotif();
+      if (!LN) return false;
+      const r = await LN.requestPermissions();
+      return r.display === 'granted';
+    } catch (_) { return false; }
+  },
+};
+
 export default platform;
