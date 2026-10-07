@@ -79,3 +79,60 @@ Hepsi push edildi.
 - SONRAKİ ÖDÜL ilerleme çubuğu eklendi (kilit, seviye ve görev).
 
 Kontrol: tüm modlar sessiz duman testinden geçti. ÇIĞ Dağ 1'i bot kazandı.
+
+## Tur 2 — Değerlendirme
+
+| Mod | Puan |
+|---|---|
+| YETİ RUSH | 7.5 |
+| ÇIĞ DAĞLAR | 6.5 |
+| ARENA | 6 |
+| MACERA | 7 (+0.5) |
+| Menü | 7 |
+| **Genel** | **7** |
+
+**Ne iyi**
+- Rush'ta biyomlar ve boss gerilimi.
+- Macera'nın boss'u ve sandığı.
+- ÇIĞ'da yeni bölge sunumu ve prop çeşitliliği.
+
+**Ne gelişmeli**
+- Rush'ın üst HUD'u çok kalabalık: KOMBO yazısı skorun üstüne biniyor ve ortada 4-5 bildirim aynı anda çıkıyor.
+- ÇIĞ:
+  - Dağ 1 hâlâ boş, yiyecekler minik.
+  - Bot her dağı zorlanmadan geçiyor: ne karar var ne risk.
+  - Ton sayısı anlamsızca şişiyor.
+- Arena'da oyuncunun yakınında rakip yok, zemin de yönsüz.
+- Sonuç ekranlarında SONRAKİ ÖDÜL ÇIĞ ve Macera'da görünmüyor.
+
+**Orijinal fikirler**
+- Rush:
+  - "Kar Yankısı": en iyi koşunun hayaleti.
+  - "Çığ Kayma Hattı": ritme göre altın şerit.
+- ÇIĞ:
+  - Heykel yıkım sahneleri.
+  - Fırtına Köprüsü: boyut bulmacası.
+- Arena:
+  - Kar Kalesi: tutulabilir bölge.
+  - Bumerang kartopu.
+- Macera: Ters Bölüm.
+- Menü: Kış Pasaportu.
+
+**Tur 2 işleri**
+- Runner:
+  - Bildirim kuyruğu (öncelikli, tek orta mesaj).
+  - Boss giriş sahnesi.
+  - Kar Yankısı hayaleti.
+- ÇIĞ:
+  - Erken dağlarda büyük prop'lar.
+  - Güvenli/riskli yol ayrımları.
+  - Okunur boyut göstergesi.
+- Arena:
+  - Oyuncu çevresinde yoğunluk.
+  - Zemin kontrastı ve akış.
+  - İlk 30 sn koruması.
+- UI:
+  - KOMBO satırını küçültme.
+  - ÇIĞ ve Macera sonuçlarına SONRAKİ ÖDÜL.
+  - Daha koyu sonuç arka planı.
+  - Kış Pasaportu.
