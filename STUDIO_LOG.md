@@ -352,3 +352,29 @@ Hepsi push edildi.
 **Tur 6 için not**
 - Menüde ✨ satırı hâlâ boş bir çerçeve.
 - Görev panelinin altında "0/100" yazısı kesik.
+
+## Tur 6 — Yapılanlar
+
+Hepsi push edildi.
+
+**Rush**
+- İlk dakika artık önceden planlı:
+  - 14. saniyede rampa zıplaması ve kar tanesi yayı.
+  - 19. saniyede 4 yaratıklık geçit.
+  - 30. saniyede ilk buff kartı.
+  - İlk kavşak 640 m'de ve geniş pencereli.
+- Yeni: **Balık Yemi 🐟**. Yeti yakındayken yemi bırakırsan 3 sn durup yer. Yakalanmak üzereyken kendiliğinden kullanılır.
+
+**ÇIĞ**
+- Yeni: **Gizli Kar Tüneli** (Dağ 4'ten itibaren). Çatlak buz duvarını kırınca altın kasalı bir bonus yol açılıyor, buna bağlı yeni bir 3. yıldız görevi de var.
+- Yeni: **Ekip Topu**. 3 kardan adamı hızlıca yutunca topun üstüne mini bir kardan adam biniyor; kombo süresine ve skora +%10 ekliyor.
+
+**Macera**
+- Yeni: **Gizli Rota**. Her 15 yıldızda bir bonus bölüm açılıyor (6 tane). Haritada mor dallar olarak görünüyor ve üstte "12/15 ★ → Gizli Rota 1" ilerlemesi yazıyor.
+
+**Arena**
+- Yeni: **Takım Boyası**. Tuttuğun kalenin çevresi senin rengine boyanıyor ve oradaki yiyecekler sana %20 fazla değer veriyor.
+- Küçülen alanın adı "BUZ ÇEMBERİ" oldu.
+
+**Menü**
+- Ana ekrandaki boş ✨ satırı ve kesik "0/100" sorunu düzeldi. Satır artık "Pembe İz kilidi 0/100" gösteriyor.
