@@ -1030,3 +1030,9 @@ Genel 7.3 · Rush 7.2 · ÇIĞ 7.1 · Arena 6.6 · Menü 7.1 — çökme yok.
 - İyi: Rush sonuç ekranı dolu ve cilalı (TEKRAR baskın); ÇIĞ 3 yıldız + kriterler + SONRAKİ DAĞ net; arena GÖLGE AV yumuşak eleme.
 - Gelişmeli: Rush sonuçta ~7 bar, alt üçte bir boş; ÇIĞ TEKRAR/DAĞLAR sıkışık; arena gölge görünümü gürültülü, GÖLGE yazısı öldürme akışıyla çakışıyor, sadece MENÜ var.
 - Fikirler: gölgeyle katiline "intikam oku"; Rush'ta rekor hayaleti.
+
+### Döngü 23 — sonuçlar
+- Rush: sonuç ekranında 7 bar yerine tek "SIRADAKİ HEDEF" kartı (+ açılır görev listesi), panel ortalandı (görüntüyle doğrulandı).
+- ÇIĞ: TEKRAR/DAĞLAR arası boşluk + eşit genişlik; kriter yazıları büyüdü (yıldızların sırayla açılması zaten doğruymuş).
+- Arena GÖLGE AV: ortada hap etiket, TEKRAR DOĞ + MENÜ, katile kırmızı İNTİKAM oku (+10 kütle; ben: gölge katilin üstünde doğduğu için önce uzaklaşmak şart, buton taşması düzeltildi), pelletler soluk.
+- Smoke: hatasız.
