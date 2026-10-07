@@ -27,6 +27,14 @@ const KONAMI = ['up', 'up', 'down', 'down', 'left', 'right', 'left', 'right', 'b
 // ================================================================================================================ CSS
 
 const CSS = `
+/* profile top-left (always visible) + ready-rewards chip top-right */
+.fm-top .fm-av { flex: 0 1 auto; max-width: 40%; min-width: 118px; }
+.fm-av .fm-avt.fm-prof { display: flex !important; min-width: 0; }
+.fm-prof .fm-nm { font-size: 15px; max-width: 120px; }
+.fm-prof .fm-xp { width: 88px; }
+.fm-rwc { flex: none; height: 36px; padding: 0 10px; border-radius: 18px; border: 3px solid var(--ink); background: linear-gradient(180deg, #fff3a8, #ffc23a); color: var(--ink); font: inherit; font-size: 15px; box-shadow: 0 3px 0 var(--ink2); cursor: pointer; animation: fmChip 1s ease-in-out infinite alternate; }
+.fm-rwc.off { display: none; }
+
 .fm-main, .fm-ov, .fm-modal, .fm-toasts, .fm-fx, .fm-boxov, .fm-plov, .fm-resov {
   --ink: #17345c; --ink2: #0d1f3c; --orange: #ff7a2f; --orange-dark: #d2541a; --blue: #2f7dff; --blue-dark: #1d55b8; --gold: #ffcf3a;
   --purple: #7a3cf0; --green: #35c46a; --red: #ff4d4d;
@@ -2260,7 +2268,11 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const avc = el('div', 'fm-avc', '⛄');
     r.lvNum = el('span', 'fm-lv', '1');
     avc.appendChild(r.lvNum);
-    add(r.av, avc);
+    r.avName = el('span', 'fm-nm', 'Oyuncu');
+    r.avXp = el('span', 'fm-xp');
+    r.avXpFill = el('i');
+    r.avXp.appendChild(r.avXpFill);
+    add(r.av, avc, add(el('span', 'fm-avt fm-prof'), r.avName, r.avXp));
     r.dl = button('fm-dl', '', () => openDaily(), 'Günlük ödül');
     r.dlBdg = el('span', 'fm-bdg dot off', '!');
     r.dlStreak = el('span', 'fm-dls', '');
@@ -2269,7 +2281,8 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.crPill = makePill('💎', 'cr', () => { sfx('click'); if (meta.boxes > 0) openBoxes(meta.boxes); else openMissions(); }, 'fm-cur');
     r.boxBdg = el('span', 'fm-bdg dot gold off', '🎁');
     r.crPill.el.appendChild(r.boxBdg);
-    add(top, r.av, r.dl, r.coinsPill.el, r.crPill.el);
+    r.rwChip = button('fm-rwc off', '', () => { sfx('open'); openDailyTasks(); }, 'Hazır ödüller');
+    add(top, r.av, r.dl, r.coinsPill.el, r.crPill.el, r.rwChip);
     root0.appendChild(top);
 
     // ---- logo (7 taps = rainbow secret); the snowball mascot rides along ----
@@ -2356,6 +2369,10 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     if (!r) return;
     const li = meta.levelInfo();
     r.lvNum.textContent = String(li.level);
+    let nick = '';
+    try { nick = localStorage.getItem('patpat.agar.nick') || ''; } catch { /* ignore */ }
+    r.avName.textContent = nick || 'Oyuncu';
+    r.avXpFill.style.width = `${Math.round(Math.max(0, Math.min(1, li.cur / Math.max(1, li.need))) * 100)}%`;
     r.coinsPill.set(coins(), false);
     r.crPill.set(meta.crystals, false);
 
@@ -2373,7 +2390,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     clear(r.mrows);
     let dtl = { tasks: [], claimable: 0 };
     try { dtl = meta.dailyTasks(); } catch { /* ignore */ }
-    r.ihTitle.textContent = dtl.claimable ? `🎁 ${dtl.claimable} ÖDÜL HAZIR` : '📅 GÜNLÜK GÖREVLER';
+    r.ihTitle.textContent = '📅 GÜNLÜK GÖREVLER';
+    r.rwChip.textContent = dtl.claimable ? `🎁 ${dtl.claimable}` : '';
+    r.rwChip.classList.toggle('off', !dtl.claimable);
     for (const m of dtl.tasks) {
       const row = el('div', `fm-mr${m.claimed ? ' got done' : m.done ? ' done claim' : ''}`);
       const bar = el('span', 'mb');
