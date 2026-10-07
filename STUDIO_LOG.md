@@ -989,3 +989,10 @@ Genel 7.0 · Rush 7.0 · ÇIĞ 8.0 → yeniden çapalandı (Candy Crush / Hill C
 - Gelişmeli: Arena'da oyuncu topu beyaz zeminde kayboluyor, büyüme hissi zayıf; Rush'ta "kıl payı" ödülü/hız hissi yok; menüde iki büyük CTA yarışıyor, ölü alanlar; ÇIĞ HUD'u kalabalık, 3 yıldız görünmüyor.
 - Fikirler: arena lider tacı + "lideri devir" bonusu; Rush near-miss kombo + hız çizgileri; ÇIĞ 3-yıldız par süresi.
 - Şimdi: arena okunabilirlik + taç; Rush near-miss/juice; menü odak; ÇIĞ HUD sadeleştirme + yıldızlar.
+
+### Döngü 20 — sonuçlar
+- Rush: KIL PAYI artık her seferinde görünür (+kenar flaşı, FOV vuruşu, 1.2 sn sınır); her 500 m'de kırmızı mesafe kapısı (yazısız, sadece ses/flaş).
+- Arena: oyuncu altında gölge diski, sabit renkli halka, yakındaki pelletler küçülüyor; 100/250/500/1000 kütle kilometre taşları (halka + zoom + ses); lider devirme mesajı.
+- Menü: ARENA ikincil (çerçeveli) buton, OYNA tek ana CTA; GÜNLÜK n/N pip kartı.
+- ÇIĞ: boyut "⚪ 32 m". HUD birleştirme + koşu içi yıldız pipleri sonraki döngüye (main.js/ui.js sahibi).
+- Smoke: Rush/ÇIĞ/Arena/boss L5-7-14/Günün Rush'ı hatasız.
