@@ -711,9 +711,9 @@ ${dist} m`; }
     if (!n && !mu) { if (c.classList.contains('on')) c.className = 'cmb'; return; }
     this._cmK.textContent = n ? `${this._cmT >= 3 ? '🔥 ' : ''}KOMBO x${n}` : '';
     this._cmK.style.display = n ? '' : 'none';
-    this._cmM.textContent = mu > 1 ? `x${mu}` : '';
+    this._cmM.textContent = mu > 1 ? `x${Math.round(mu * 10) / 10}` : '';
     this._cmM.style.display = mu > 1 ? '' : 'none';
-    this._cmM.className = `ch m m${Math.min(4, Math.max(0, mu - 1))}`;
+    this._cmM.className = `ch m m${Math.min(4, Math.max(0, Math.floor(mu) - 1))}`;
     if (!n) { const lv = mu >= 6 ? 3 : mu >= 4 ? 2 : mu >= 3 ? 1 : 0; c.className = `cmb on t${lv} nobar`; }
   }
 
@@ -891,7 +891,7 @@ ${dist} m`; }
     try { meta.track('buff', { id }); } catch { /* ignore */ }
     snd('chime');
     // fly-in card
-    if (!this.el.hud.classList.contains('rush')) this._ann(() => this._buffCardNow(b, icon, name, secs), 1000);
+    if (!this.el.hud.classList.contains('rush')) this._say('c', { text: 'buff:' + name, prio: 2, ms: 1000, drop: true, show: () => this._buffCardNow(b, icon, name, secs) });
   }
 
   _buffCardNow(b, icon, name, secs) {
