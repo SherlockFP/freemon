@@ -590,3 +590,30 @@ Bot ÇIĞ Dağ 5, 7 (Ters Çığ) ve 14'ü kazandı.
 
 **Not**
 - GitHub bir süre 500 hatası verdi; birikmiş commit'ler sonradan push edildi.
+
+## Tur 11 — Değerlendirme
+
+| Mod | Puan |
+|---|---|
+| Rush | 7.9 |
+| ÇIĞ | 7.4 |
+| Arena | 6.9 (+0.5) |
+| Macera | 7.1 |
+| Menü | 7.4 |
+| **Genel** | **7.4** |
+
+Hiçbir modda hata yok. Arena botu 60 saniyede kütle 34'ten 91'e çıktı ve sırası 35'ten 14'e yükseldi.
+
+**Ana sorun:** yeni özellikler oyun içinde görünmüyor. Boss tuzakları, Ters Çığ'daki kovalamaca, ölüm özeti, taç ve yuvalar fark edilmiyor. Görünmeyen özelliği oyuncu keşfedemez.
+
+**Diğer sorunlar**
+- Boss ekranında yazılar üst üste biniyor.
+- Macera'daki Günlük butonu ve fırtına bandı sönük duruyor.
+- Günlük'ün kilitli sayfaları hiçbir şey vaat etmiyor.
+
+**Yeni fikirler**
+- Rush: Yeti Radyosu.
+- ÇIĞ: Çığ Dansı, Boss Ganimeti.
+- Arena: Görüş Fırtınası, Takım Bayrağı.
+- Macera: Yeti Postası.
+- Menü: Mevsim Teması, Rozet Rafı.
