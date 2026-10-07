@@ -319,3 +319,36 @@ Hepsi push edildi.
 - Arena: Küçülen Harita Fırtınası, Takım Boyası.
 - Macera: Yıldız Haritası.
 - Menü: Günlük Kar Küresi.
+
+## Tur 5 — Yapılanlar
+
+Hepsi push edildi.
+
+**Rush**
+- Yolun üstündeki "ÇİT! GÜÇ!" ve "DİKKAT!" yazıları kaldırıldı, tekrar eden biyom yazısı silindi.
+- Takılı kalan geri sayım rakamı temizlendi.
+- Boyut göstergesine "BOYUT" etiketi eklendi.
+- Ezme kombosu artık küçük bir çip olarak gösteriliyor.
+- Macera Bölüm 1'e başlangıç rehberi eklendi.
+
+**ÇIĞ**
+- Kırılan nesnelerin parçaları daha az, daha küçük, kısa ömürlü ve kameradan uzakta.
+- Bant ve çığ uyarısı kapı tabelası geçene kadar bekliyor.
+- Etap bildirimi kısa "✓ ETAP n" oldu.
+- Kamera büyük topta geri çekiliyor.
+
+**Arena**
+- İlk 90 sn'de yiyecek akışları, daha çok av botu ve botların yavaş büyümesi.
+- Rengarenk zemin, belirgin kaleler, büyük pellet'ler.
+- HUD tek karta indi, liderlik tablosunda ilk 5 ve sen görünüyorsun.
+- Yeni: **Küçülen Fırtına Alanı**, her yaklaşık 5 dakikada bir.
+
+**Arayüz ve Menü**
+- Konfeti kartların arkasına alındı, görev satırları kırpılmıyor.
+- Üst butonlar tek tipe getirildi.
+- Alt menü 6 sütunlu düzgün bir ızgara oldu ve 🛂 PASAPORT butonu eklendi.
+- Yeni: **Günlük Kar Küresi**: günde bir kez salla, ödül kazan.
+
+**Tur 6 için not**
+- Menüde ✨ satırı hâlâ boş bir çerçeve.
+- Görev panelinin altında "0/100" yazısı kesik.
