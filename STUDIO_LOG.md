@@ -561,3 +561,32 @@ Bot ÇIĞ Dağ 5, 7 (Ters Çığ) ve 14'ü kazandı.
 
 **Tur 10 için not**
 - BUGÜN çiplerindeki yazılar çok küçük ve okunmuyor.
+
+## Tur 10 — Yapılanlar
+
+**Menü**
+- BUGÜN çipleri artık okunur: koyu yazı, beyaz/altın zemin, 12,5 px.
+- Yeni: **Yeti Günlüğü**. Macera bölümleri ve ÇIĞ dağları bitirildikçe açılan 10 sayfalık hikâye defteri.
+
+**ÇIĞ**
+- Yeni: **Boss Tuzakları**. Her boss'un arenasında 2 tuzak var:
+  - Yeti buz çukuruna düşüyor.
+  - Robotun lazeri aynadan kendisine yansıyor.
+  - Golem'in üstüne buz sarkıtları düşüyor.
+- Tuzak isabeti boss'a %25 hasar veriyor ve 3,5 sn sersemletiyor.
+
+**Arena**
+- Yeni: **Gizli Yuva**. 8 kar yuvası var; küçük top 5 sn saklanabiliyor.
+- Performans: minimap önbellekte tutuluyor, gereksiz matris güncellemeleri ve ekran (DOM) yazımları kaldırıldı. Düşük kalitede ağır efektler kapanıyor.
+- Çığ damgası hatası düzeltildi.
+
+**Rush**
+- Performans: her karede yapılan ekran (DOM) ve yazı güncellemeleri azaltıldı.
+- Yeni: **Koşu özeti**. Ölünce 1 sn'lik bir şerit koşudaki önemli anları gösteriyor (kombo zirvesi, rekor, boss, ölüm nedeni).
+
+**Kontrol**
+- Tüm modlar hatasız çalıştı.
+- Boss dağlarını (5, 14) ve Ters Çığ dağını (7) bot kazandı.
+
+**Not**
+- GitHub bir süre 500 hatası verdi; birikmiş commit'ler sonradan push edildi.
