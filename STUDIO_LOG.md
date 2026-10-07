@@ -1048,3 +1048,10 @@ Rush 7.3 · ÇIĞ 7.0 · Arena 6.7 · Genel 7.3 — çökme yok.
 - ÇIĞ YOL AYRIMI: seviye ≥3'te seed'li tek çatal; dar riskli yol (fazla engel, 6 kasa/4 altın, hız şeridi) vs geniş güvenli yol. L3/L4/L9 otomatik bitiyor.
 - Arena: FIRLAT (Q/F + buton) kar topu fırlatma; buz dikenini 6 kez beslemek yeni diken fırlatır (küçükler büyükleri patlatabilir). Diken zaten vardı (90 adet). Çalışma testi OK.
 - Smoke: tüm modlar + bosslar hatasız.
+
+## Döngü 25 — değerlendirme
+Genel 7.4 · Rush 7.5 · ÇIĞ 7.0 · Arena 6.8 · Menü 7.1
+- HATA: ÇIĞ YOL AYRIMI hiç doğmuyor (cigplan free() çok katı — L3-30'da 0 çatal); world.js'te placeFork/_forkSign iki kez tanımlı.
+- Rush kart kapısı çalışıyor (kart alındı, risk uygulandı) ama uzaktan küçük, "YENİ REKOR!" üstünü örtüyor, alma bildirimi yok.
+- Arena FIRLAT çalışıyor ama buton küçük/sıkışık, ipucu BÖL'ü örtüyor, fırlatılan toplar zayıf görünüyor.
+- Şimdi: çatalı gerçekten doğur + tekilleştir; kart kapısı okunurluk + bildirim; arena kontrol kümesi + fırlatma efekti.
