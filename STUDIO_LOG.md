@@ -204,3 +204,42 @@ Hepsi push edildi.
 - Ekranda aynı anda en fazla 2 bildirim görünüyor.
 
 Kontrol: tüm modlar hatasız, bot ÇIĞ Dağ 1'i kazandı.
+
+## Tur 4 — Değerlendirme
+
+| Mod | Puan |
+|---|---|
+| Rush | 7.5 |
+| ÇIĞ | 6.5 |
+| Arena | 6 |
+| Macera | 7 |
+| Menü | 7 |
+| **Genel** | **7** |
+
+Skorlar sabit kaldı. En büyük engel ekranın üstündeki kalabalık: KOMBO, güç kartları, ritim kartı ve hayalet yazısı üst üste biniyor.
+
+**Gelişmeli**
+- Rush'ta 2,2 km'deki düşüşün adil olup olmadığı kontrol edilmeli.
+- ÇIĞ:
+  - Dağ 3'te dev kapı kartı ekranı kaplıyor.
+  - Erime uçurumu var.
+  - Erken dağlar hâlâ boş.
+- Arena:
+  - Hiçbir şey yapmayan oyuncu 45. saniyede öldü.
+  - Doğulan alan boş ve bembeyaz.
+- Menü:
+  - Pasaport Ayarlar'ın içine gömülü.
+  - Alt menü, görev panelinin üstüne biniyor.
+
+**Yeni fikirler**
+- Rush: Yeti Yemi.
+- ÇIĞ: Çığ Sörfü, Kar Dönüşümü.
+- Arena: Kartopu Sürüsü, Buz Kırığı.
+- Menü: Mevsim Atlası, sezon bandı.
+
+**Tur 4 işleri**
+- HUD baştan düzenlenecek: tek üst slot, küçük çipler.
+- Rush'ta düşüş adaleti ve ritim parıltısı.
+- ÇIĞ'da küçük kapı çipi, erime dengesi ve yer işaretleri.
+- Arena'da 60 sn güvenlik, kalabalık başlangıç ve renkli zemin.
+- Ana menüde pasaport ve menü düzeltmeleri.
