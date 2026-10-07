@@ -1965,7 +1965,7 @@ export class CigGame {
     if (fin) {
       G.finalBroken = true; G.finalR = b.r;
       G.timeScale = 0.55;
-    } else this._h('toast', 'ETAP ' + (g.i + 1) + '/' + L.S + ' TAMAM');
+    } else this._h('toast', '✓ ETAP ' + (g.i + 1));   // short and small; the HUD chip is the source of truth
     this._tierCheck();
   }
 
@@ -2261,6 +2261,7 @@ export class CigGame {
     const G = this.G, b = this.ball, W = this.wave, C = this.L.chase;
     if (G.state !== 'play' || !C || G.t < C.t0) return;
     if (!W.on) {
+      if (this._gateNear(120)) return;   // wait: one message at a time, the gate sign goes first
       W.on = true; W.d = b.d - C.gap0; W.v = C.k * target; W.t = 0; W.calm = 0; W.warnT = 1; W.n++;
       this.stats.waves++;
       this._h('toast', 'ÇIĞ ARKANDAN GELİYOR!');
@@ -2352,9 +2353,18 @@ export class CigGame {
   }
 
   // ---- size tiers: YENİ BÖLGE!
+  // a gate / finish sign within `m` metres ahead owns the message slot: tier banners and the avalanche warning wait
+  _gateNear(m = 120) {
+    const gs = this.world && this.world.gates, d = this.ball.d;
+    if (!gs) return false;
+    for (let i = 0; i < gs.length; i++) { const g = gs[i]; if (!g.broken && g.kind !== 'mini' && g.d - d < m && g.d - d > -6) return true; }
+    return false;
+  }
+
   _tierCheck() {
     const G = this.G, b = this.ball;
     const t = tierOf(b.r);
+    if (G.tier < t && (this._gateNear(120) || G.finalBroken)) return;   // deferred: retried every frame
     while (G.tier < t && G.tier < CFG.tierNames.length - 1) {
       G.tier++;
       G.avl = G.tier;

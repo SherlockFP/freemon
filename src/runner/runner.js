@@ -428,10 +428,10 @@ export class Runner {
     ui.hunger?.(this.hungerFrac(), false);
     if (level) ui.runnerGoal?.(null); // campaign has its own finish-line progress bar
     if (!this.countQuiet) ui.banner(String(Math.ceil(this.countT)), 3);
-    if (this.tut) {
+    if (this.tut || level === 1) {
       // the very first run: one quiet line until the first swipe (or 8 s), never a popup
-      ui.hint?.(true, '↔ kaydır · ↑ zıpla · ↓ eğil');
-      this.after(8, () => { if (!this.jnOpen) ui.hint?.(false); });
+      ui.hint?.(true, '← → şerit · ↑ zıpla · ↓ eğil');
+      this.after(5, () => { if (!this.jnOpen) ui.hint?.(false); });
     }
     this.updateHud();
     this.placeBall(true);
@@ -1850,7 +1850,6 @@ export class Runner {
         this.kick += 3; this.trauma = Math.min(1, this.trauma + 0.25);
         this.mistBurst(14, 0xffd060, 4, 1);
       }
-      this.float((['', 'ÇİT!', 'KIRDIN!', 'PARAMPARÇA!', 'DEVİRDİN!', 'YIKTIN!'][Math.min(5, tough)] + ' GÜÇ!').trim(), '');
       return;
     }
     this.obstacles.resolve?.(e.id, false);
@@ -2119,7 +2118,7 @@ export class Runner {
           this.warned = e.kind + e.lane + Math.round(e.t * 10);
           this.laneWarn(e);
           if (e.kind === 'oncoming') audio.ui('back');
-          if (e.value) { this.float('DİKKAT!', 'bad'); this.trauma = Math.min(1, this.trauma + 0.15); }
+          if (e.value) { this.trauma = Math.min(1, this.trauma + 0.15); }
           platform.haptic('light');
         }
         break;
@@ -2246,7 +2245,6 @@ export class Runner {
         this.score += 200 * this.mult;
         music.setStyle(musicStyleAt(b.s + 5));
         music.stinger('portal');
-        if (this.ctx.ui.toastSoft) this.ctx.ui.toastSoft(bi.biome.name.toLocaleUpperCase('tr-TR')); else this.queueBanner(bi.biome.name.toLocaleUpperCase('tr-TR'), 3, 1);
         this.ctx.meta?.track?.('portal', { biome: bi.biome.id });
         audio.milestone(3);
         this.gap = Math.min(RCFG.yetiMax, this.gap + 8);

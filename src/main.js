@@ -1027,12 +1027,15 @@ ball.onHopLand = (v) => {
 const camPos = new THREE.Vector3();
 let camBack = 10;
 let camVisW = 8;   // metres of ground the screen shows across the ball's depth (steering gain follows it)
+let camR = 0;
 let camZoom = 0;   // extra zoom-out after a tier-up (decays)
 function updateCamera(dt, snap = false) {
   const b = ball;
   const r = b.r;
   // pull back as the ball grows so it keeps ~20-25% of the screen height instead of half
-  const z = (1 + camZoom) * (1 + 0.4 * clamp((r - 1) / 8, 0, 1));
+  // (smoothed radius, and the pull-back keeps growing past r = 9 so big balls stay ~20-25% of the screen height)
+  camR = snap || camR === 0 ? r : camR + (r - camR) * (1 - Math.exp(-dt * 2.5));
+  const z = (1 + camZoom) * (1 + 0.4 * clamp((camR - 1) / 8, 0, 1) + 0.045 * clamp(camR - 9, 0, 14));
   // steep enough that <= ~20-25% of the portrait screen is sky and the path stays visible over a big ball
   const near = G.lv && G.lv.n <= 5 ? 0.88 : 1;   // Dağ 1-5: the ball gets more screen presence
   let back = (6.8 + r * 2.5) * z * near;

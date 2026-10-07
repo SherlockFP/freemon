@@ -1187,8 +1187,8 @@ export class World {
     for (const c of g.cols) {
       const dx = c.x - hitX;
       c.vx = dx * 0.5 * power + (Math.random() - 0.5) * 3;
-      c.vy = (4 + Math.random() * 7) * power;
-      c.vd = (6 + Math.random() * 9) * power;
+      c.vy = (2 + Math.random() * 4) * power;
+      c.vd = (7 + Math.random() * 9) * power;   // always away from the camera, never toward the ball
       c.wx = (Math.random() - 0.5) * 8;
       c.wy = (Math.random() - 0.5) * 6;
     }
@@ -1815,7 +1815,7 @@ export class World {
       const g = this.gates[i];
       if (!g.broken) continue;
       g.t += dt;
-      const fade = clamp(1 - (g.t - 0.5) / 0.9, 0, 1);
+      const fade = clamp(1 - (g.t - 0.1) / 0.5, 0, 1);   // blocks shrink away within ~0.6 s
       for (const c of g.cols) {
         if (!c.alive) continue;
         c.vy -= 24 * dt;

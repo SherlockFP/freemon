@@ -305,6 +305,7 @@ function fresh() {
     u: { magnet: 0, x2: 0, jump: 0, rocket: 0 },
     m: { n: 0, mult: 1, cur: [], awarded: false, skipDay: '' },
     h: { day: '', found: new Array(WORD.length).fill(0), done: false, last: '', streak: 0 },
+    g: { day: '', n: 0 },
     recent: [],
     c: { stars: {}, b: {}, g: {}, unlocked: 1, seen: {}, chest: new Array(10).fill(0), perfect: new Array(10).fill(0) },
     mode: 'camp',
@@ -348,6 +349,10 @@ function sanitize(p) {
       }
       if (s.m.cur.length !== 3) s.m.cur = [];
     }
+  }
+  if (isObj(p.g)) {
+    s.g.day = typeof p.g.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.g.day) ? p.g.day : '';
+    s.g.n = Math.floor(nz(p.g.n));
   }
   if (isObj(p.h)) {
     s.h.day = typeof p.h.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.h.day) ? p.h.day : '';
@@ -1062,6 +1067,18 @@ export const meta = {
     return out;
   },
   peekNotices() { return RT.notices.slice(); },
+  // GÜNLÜK KAR KÜRESİ: one shake per day for a small random reward.
+  globeReady() { return S.g.day !== dateKey(); },
+  globeShake() {
+    if (S.g.day === dateKey()) return null;
+    const roll = Math.random();
+    const r = roll < 0.5 ? { coins: 40 + 10 * Math.floor(Math.random() * 9) } : roll < 0.8 ? { crystals: 1 + (Math.random() < 0.25 ? 1 : 0) } : { boxes: 1 };
+    S.g.day = dateKey();
+    S.g.n++;
+    const out = grant(r);
+    persistNow();
+    return out;
+  },
   // Daily reward as a badge (never a popup).
   dailyBadge() {
     const d = meta.daily();

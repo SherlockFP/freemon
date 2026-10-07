@@ -166,7 +166,7 @@ const CSS = `
 .fm-mid { flex: 1 1 0; min-height: 0; position: relative; }
 .fm-hero { position: absolute; left: 12%; right: 12%; top: 0; bottom: 0; touch-action: none; pointer-events: auto; }
 .fm-best {
-  position: absolute; left: 50%; top: 4px; transform: translateX(-50%) rotate(-1.5deg); max-width: 100%; padding: 5px 12px 6px; text-align: center; pointer-events: none; border-radius: 16px; border: 3px solid var(--ink);
+  position: absolute; left: 50%; top: 18px; transform: translateX(-50%) rotate(-1.5deg); max-width: 100%; padding: 5px 12px 6px; text-align: center; pointer-events: none; border-radius: 16px; border: 3px solid var(--ink);
   background: linear-gradient(180deg, #ffffff, #dfeaff); color: var(--ink); text-shadow: none; box-shadow: 0 4px 0 var(--ink2), 0 8px 12px rgba(10, 20, 60, 0.35); animation: fmBubble 3.2s ease-in-out infinite alternate;
 }
 .fm-best::after { content: ""; position: absolute; left: 50%; bottom: -11px; width: 16px; height: 16px; margin-left: -8px; transform: rotate(45deg); background: #dfeaff; border: 0 solid var(--ink); border-right-width: 3px; border-bottom-width: 3px; border-radius: 0 0 5px 0; }
@@ -205,7 +205,15 @@ const CSS = `
   border-radius: 20px; border: 3px solid var(--ink); background: linear-gradient(180deg, rgba(36, 70, 128, 0.9), rgba(14, 30, 64, 0.92)); box-shadow: 0 4px 0 var(--ink2), 0 8px 14px rgba(10, 30, 60, 0.3);
 }
 .fm-info:active { transform: translateY(2px); }
-.fm-info { margin-bottom: 16px; position: relative; z-index: 0; }
+.fm-info { margin-bottom: 16px; position: relative; z-index: 0; flex-shrink: 0; overflow: visible; }
+.fm-globe { position: absolute; left: 10px; bottom: 14px; z-index: 3; width: 58px; height: 58px; padding: 0; display: grid; place-items: center; cursor: pointer; border-radius: 50%; border: 3px solid var(--ink); background: radial-gradient(ellipse 55% 40% at 36% 24%, rgba(255,255,255,0.85), rgba(255,255,255,0) 70%), linear-gradient(180deg, #bfe6ff, #5aa6f0); box-shadow: 0 4px 0 var(--ink2), 0 8px 10px rgba(10,30,60,0.35); font-size: 30px; line-height: 1; text-shadow: none; pointer-events: auto; }
+.fm-globe .gl { display: block; }
+.fm-globe.used { filter: grayscale(0.7) brightness(0.85); }
+.fm-globe .glt { position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); padding: 1px 6px 2px; border-radius: 8px; background: var(--ink); color: #fff; font-size: 9.5px; letter-spacing: 0.04em; white-space: nowrap; }
+.fm-globe .fm-bdg { top: -7px; right: -5px; }
+.fm-globe.shk .gl { animation: fmGlobeShake 0.7s ease-in-out; }
+.fm-globe.ready { animation: fmDlWob 1.6s ease-in-out infinite; }
+@keyframes fmGlobeShake { 0%,100% { transform: rotate(0) scale(1); } 12% { transform: rotate(-24deg) translateX(-3px) scale(1.15); } 30% { transform: rotate(22deg) translateX(3px) scale(1.15); } 48% { transform: rotate(-18deg) scale(1.12); } 66% { transform: rotate(14deg) scale(1.1); } 84% { transform: rotate(-6deg) scale(1.05); } }
 .fm-bot { position: relative; z-index: 1; padding-top: 4px; }
 .fm-secrow { padding-top: 6px; }
 .fm-passb { position: absolute; right: 12px; top: calc(var(--sat, env(safe-area-inset-top, 0px)) + 62px); z-index: 3; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; border: 3px solid var(--ink); background: linear-gradient(180deg, #7fe0ff, #2f8fe0); box-shadow: 0 4px 0 var(--ink2); font-size: 22px; line-height: 1; cursor: pointer; padding: 0; text-shadow: none; }
@@ -263,19 +271,20 @@ const CSS = `
 .fm-play::after { content: ""; position: absolute; top: -20%; bottom: -20%; left: -60%; width: 34%; background: linear-gradient(100deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0)); transform: skewX(-20deg); animation: fmShine 3.8s ease-in-out infinite; pointer-events: none; }
 @keyframes fmShine { 0%, 55% { left: -60%; } 80%, 100% { left: 130%; } }
 .fm-play:active { transform: translateY(6px); box-shadow: 0 2px 0 #2f7a14, 0 4px 8px rgba(10, 30, 60, 0.3), inset 0 4px 0 rgba(255, 255, 255, 0.6); }
-.fm-secrow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; width: min(100%, 380px); }
-.fm-sb { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 0; border: 0; background: none; cursor: pointer; --c1: #ffb347; --c2: #ff7a2f; --sh: #a8400f; }
+.fm-secrow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; width: min(100%, 400px); align-items: start; }
+.fm-sb { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; min-width: 0; margin: 0; gap: 3px; padding: 0; border: 0; background: none; cursor: pointer; --c1: #ffb347; --c2: #ff7a2f; --sh: #a8400f; }
 .fm-sb .ic {
-  position: relative; width: 50px; height: 50px; display: grid; place-items: center; border-radius: 50%; border: 3px solid var(--ink); font-size: 23px; line-height: 1; text-shadow: none;
+  position: relative; width: 46px; height: 46px; flex: none; display: grid; place-items: center; border-radius: 50%; border: 3px solid var(--ink); font-size: 22px; line-height: 1; text-shadow: none;
   background: radial-gradient(ellipse 60% 38% at 36% 22%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0)), linear-gradient(180deg, var(--c1), var(--c2));
   box-shadow: 0 4px 0 var(--sh), 0 8px 10px rgba(10, 30, 60, 0.35), inset 0 -4px 0 rgba(0, 0, 0, 0.14); transition: transform 0.06s, box-shadow 0.06s;
 }
 .fm-sb:active .ic { transform: translateY(3px); box-shadow: 0 1px 0 var(--sh), 0 3px 5px rgba(10, 30, 60, 0.3), inset 0 -4px 0 rgba(0, 0, 0, 0.14); }
-.fm-sb .lb { font-size: 12.5px; line-height: 1.05; color: #fff; text-shadow: 0 1.5px 0 var(--ink), 1px 1px 0 var(--ink), -1px 1px 0 var(--ink), 1px -1px 0 var(--ink), -1px -1px 0 var(--ink); white-space: nowrap; text-align: center; letter-spacing: 0.01em; }
+.fm-sb .lb { font-size: 11px; height: 12px; line-height: 1.05; color: #fff; text-shadow: 0 1.5px 0 var(--ink), 1px 1px 0 var(--ink), -1px 1px 0 var(--ink), 1px -1px 0 var(--ink), -1px -1px 0 var(--ink); white-space: nowrap; text-align: center; letter-spacing: 0.01em; }
 .fm-sb.c-cig { --c1: #c79bff; --c2: #7a3cf0; --sh: #4b1fa8; }
 .fm-sb.c-map { --c1: #7dc4ff; --c2: #2f7dff; --sh: #1b4fae; }
 .fm-sb.c-shop { --c1: #ff8fb8; --c2: #ff4f8b; --sh: #a3204f; }
 .fm-sb.c-mis { --c1: #6cdc8a; --c2: #2fc13f; --sh: #1b7a2a; }
+.fm-sb.c-pass { --c1: #7fe0ff; --c2: #2f8fe0; --sh: #1b5a9a; }
 .fm-sb.c-set { --c1: #9fb2d0; --c2: #5f78a3; --sh: #34486e; }
 .fm-bdg {
   position: absolute; top: -6px; right: -4px; min-width: 24px; height: 24px; padding: 0 6px; display: grid; place-items: center; border-radius: 12px; border: 2.5px solid var(--ink);
@@ -307,7 +316,8 @@ const CSS = `
   .fm-logorow { margin-top: 2px; }
   .fm-tag { display: none; }
   .fm-play { min-height: 70px; font-size: 42px; }
-  .fm-sb .ic { width: 44px; height: 44px; font-size: 20px; }
+  .fm-sb .ic { width: 42px; height: 42px; font-size: 19px; }
+  .fm-best { top: 14px; }
   .fm-bot { gap: 9px; padding-bottom: calc(var(--sab, env(safe-area-inset-bottom, 0px)) + 10px); }
   .fm-info { margin-bottom: 8px; gap: 4px; }
   .fm-mr { height: 23px; }
@@ -318,7 +328,10 @@ const CSS = `
   .fm-goal { display: none; }
   .fm-mrows .fm-mr:nth-child(n+3) { display: none; }
   .fm-ihead { display: none; }
-  .fm-sb .lb { display: none; }
+  .fm-sb .lb { font-size: 10px; }
+  .fm-sb .ic { width: 38px; height: 38px; font-size: 17px; }
+  .fm-bot { gap: 7px; }
+  .fm-secrow { padding-top: 2px; }
   .fm-best .bs { display: none; }
 }
 @media (max-height: 590px) {
@@ -327,7 +340,8 @@ const CSS = `
 @media (max-width: 350px) {
   .fm-cur .num { font-size: 14px; min-width: 24px; }
   .fm-play { font-size: 40px; }
-  .fm-sb .ic { width: 42px; height: 42px; }
+  .fm-sb .ic { width: 36px; height: 36px; }
+  .fm-sb .lb { font-size: 9.5px; letter-spacing: 0; }
   .fm-sb .lb { font-size: 11px; }
 }
 
@@ -2517,10 +2531,6 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     root0.appendChild(top);
 
     // ---- logo (7 taps = rainbow secret); the snowball mascot rides along ----
-    r.passB = button('fm-passb', '🛂', () => { sfx('open'); try { localStorage.setItem('patpat.stampsSeen', String(meta.stamps().filter((x) => x.got).length)); } catch { /* ignore */ } openPassport(); updateMain(); }, 'Kış Pasaportu');
-    r.passBdg = el('span', 'fm-bdg dot off', '');
-    r.passB.appendChild(r.passBdg);
-    root0.appendChild(r.passB);
     const logo = el('div', 'fm-logo');
     logo.setAttribute('role', 'img');
     logo.setAttribute('aria-label', 'PATPAT');
@@ -2552,7 +2562,12 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.best = add(el('div', 'fm-best'), el('span', 'bk', 'YETİ RUSH REKORU'), r.bestV, r.bestS);
     r.aura = el('div', 'fm-aura');
     add(hero, r.best, r.achoo);
-    add(mid, hero);
+    r.globe = button('fm-globe', '', () => shakeGlobe(), 'Günlük Kar Küresi');
+    r.globeIc = el('span', 'gl', '🔮');
+    r.globeBdg = el('span', 'fm-bdg dot gold off', '!');
+    r.globeLb = el('span', 'glt', 'KAR KÜRESİ');
+    add(r.globe, r.globeIc, r.globeBdg, r.globeLb);
+    add(mid, hero, r.globe);
     root0.appendChild(mid);
     root0.appendChild(r.aura);
 
@@ -2586,17 +2601,43 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const sMap = secBtn('c-map', '🗺️', 'MACERA', () => { try { meta.setMode('camp'); } catch { /* ignore */ } openMap(); });
     const sShop = secBtn('c-shop', '👕', 'Dolap', () => { if (cb.onShop) cb.onShop(); });
     const sMis = secBtn('c-mis', '📜', 'Görevler', () => openMissions());
+    const sPass = secBtn('c-pass', '🛂', 'PASAPORT', () => { try { localStorage.setItem('patpat.stampsSeen', String(meta.stamps().filter((x) => x.got).length)); } catch { /* ignore */ } openPassport(); updateMain(); });
+    r.passBdg = sPass.bdg;
     const sSet = secBtn('c-set', '⚙️', 'Ayarlar', () => openSettings());
     r.xchip = el('span', 'fm-xchip', 'x1');
     sMis.ic.appendChild(r.xchip);
     r.bMis = sMis.bdg; r.bShop = sShop.bdg;
-    bot.appendChild(add(el('div', 'fm-secrow'), sCig.b, sMap.b, sShop.b, sMis.b, sSet.b));
+    bot.appendChild(add(el('div', 'fm-secrow'), sCig.b, sMap.b, sShop.b, sMis.b, sPass.b, sSet.b));
     root0.appendChild(bot);
 
     host.appendChild(root0);
     wireEggs(r);
     refs = r;
     return r;
+  }
+
+  function shakeGlobe() {
+    const r = refs;
+    if (!r || r.globe.classList.contains('shk')) return;
+    let ready = false;
+    try { ready = meta.globeReady(); } catch { /* ignore */ }
+    if (!ready) { sfx('error'); toast({ icon: '🔮', title: 'KAR KÜRESİ', sub: 'Yarın yeniden salla!', ms: 1800 }); return; }
+    sfx('click');
+    r.globe.classList.add('shk');
+    setTimeout(() => {
+      r.globe.classList.remove('shk');
+      let out = null;
+      try { out = meta.globeShake(); } catch { out = null; }
+      if (!out) { updateMain(); return; }
+      sfx('confirm');
+      burst(r.globe, out.crystals ? '💎' : out.boxes ? '🧩' : '❄️', 12, 70);
+      const bits = [];
+      if (out.coins) bits.push('+' + out.coins + ' ❄️');
+      if (out.crystals) bits.push('+' + out.crystals + ' 💎');
+      if (out.boxes) bits.push('🧩 Kostüm parçası (+1 kutu)');
+      toast({ icon: '🔮', title: 'KAR KÜRESİ!', sub: bits.join(' · '), kind: 'gold', ms: 2600 });
+      updateMain();
+    }, 700);
   }
 
   function updateMain() {
@@ -2652,18 +2693,20 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     // next unlock goal
     let g = null;
     try { g = nextGoal(save); } catch { g = null; }
-    r.goalBtn.style.display = g ? '' : 'none';
-    if (g) {
+    const showG = !!(g && g.kind === 'trail');
+    r.goalBtn.style.display = showG ? '' : 'none';
+    if (showG) {
       r.goalBtn.classList.toggle('ready', g.ready);
       clear(r.goalBtn);
       const bar = el('span', 'gb');
       const fill = el('i');
       fill.style.width = `${Math.round(g.frac * 100)}%`;
       bar.appendChild(fill);
-      add(r.goalBtn, el('span', 'gi', g.icon), el('span', 'gn', g.name), bar, el('span', 'gc', g.ready ? 'HAZIR!' : `${fmt(g.have)}/${fmt(g.price)} ❄️`));
+      add(r.goalBtn, el('span', 'gi', g.icon), el('span', 'gn', g.id === 'pink' ? 'Pembe İz kilidi' : g.name.replace(/ izi$/i, '') + ' İz kilidi'), bar, el('span', 'gc', g.ready ? 'HAZIR!' : `${fmt(g.have)}/${fmt(g.price)} ❄️`));
       r.bShop.className = `fm-bdg dot gold${g.ready ? ' pulse' : ' off'}`;
       r.bShop.textContent = '!';
-    } else r.bShop.className = 'fm-bdg off';
+    }
+    if (g) { r.bShop.className = 'fm-bdg dot gold' + (g.ready ? ' pulse' : ' off'); r.bShop.textContent = '!'; } else r.bShop.className = 'fm-bdg off';
 
     try {
       const got = meta.stamps().filter((x) => x.got).length;
@@ -2672,6 +2715,13 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       const nw = Math.max(0, got - seen);
       r.passBdg.textContent = nw ? String(nw) : '';
       r.passBdg.className = `fm-bdg dot${nw ? ' pulse' : ' off'}`;
+    } catch { /* ignore */ }
+    try {
+      const gr = meta.globeReady();
+      r.globeBdg.className = 'fm-bdg dot gold' + (gr ? ' pulse' : ' off');
+      r.globe.classList.toggle('ready', gr);
+      r.globe.classList.toggle('used', !gr);
+      r.globeLb.textContent = gr ? 'KAR KÜRESİ' : 'YARIN';
     } catch { /* ignore */ }
     const nb = meta.boxes | 0;
     r.boxBdg.textContent = nb > 1 ? String(nb) : '🎁';

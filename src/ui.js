@@ -168,6 +168,7 @@ export class UI {
     this.lastVitals = '';
     if (!on) return;
     this.el.banner.classList.add('runner');
+    clearTimeout(this._banT); this.el.banner.innerHTML = '';
     this.el.level.textContent = String(biomeName || '').toLocaleUpperCase('tr-TR');
     this.el.floats.innerHTML = '';
     this.floatCount = 0;
@@ -843,6 +844,8 @@ ${dist} m`; }
     b.className = `b l${level}`;
     b.textContent = text;
     this.el.banner.appendChild(b);
+    clearTimeout(this._banT);
+    this._banT = setTimeout(() => { this.el.banner.innerHTML = ''; }, 1500); // never leave a held banner (countdown digit) on the road
   }
 
   // ---------- v2 HUD API ----------

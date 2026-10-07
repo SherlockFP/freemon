@@ -177,6 +177,12 @@ export class Fx {
   // Burst of chunks. color: THREE.Color or hex.
   burst(x, y, d, count, color, speed = 6, size = 0.25, up = 4) {
     const c = typeof color === 'number' ? _c.setHex(color) : color;
+    // debris budget: smaller, fewer, short-lived, thrown away from the camera (never between camera and ball)
+    count = Math.min(count, 12);
+    if (this._bb === undefined) this._bb = 0;
+    count = Math.min(count, Math.max(0, 40 - this._bb));
+    this._bb += count;
+    size *= 0.6;
     for (let k = 0; k < count; k++) {
       let i;
       if (this.n < MAX_PARTS) i = this.n++;
@@ -184,11 +190,11 @@ export class Fx {
       const a = Math.random() * Math.PI * 2, e = Math.random();
       this.px[i * 3] = x + (Math.random() - 0.5) * size * 2;
       this.px[i * 3 + 1] = y + Math.random() * size;
-      this.px[i * 3 + 2] = -d + (Math.random() - 0.5) * size * 2;
+      this.px[i * 3 + 2] = -d - Math.random() * size * 2;
       this.pv[i * 3] = Math.cos(a) * speed * (0.3 + e);
-      this.pv[i * 3 + 1] = up * (0.5 + Math.random());
-      this.pv[i * 3 + 2] = Math.sin(a) * speed * (0.3 + e);
-      this.maxLife[i] = this.life[i] = 0.6 + Math.random() * 0.9;
+      this.pv[i * 3 + 1] = up * (0.4 + Math.random() * 0.6) * 0.8;
+      this.pv[i * 3 + 2] = -Math.abs(Math.sin(a)) * speed * (0.3 + e);
+      this.maxLife[i] = this.life[i] = 0.3 + Math.random() * 0.3;
       this.size[i] = size * (0.5 + Math.random());
       this.spinA[i] = Math.random() * 6;
       this.parts.setColorAt(i, c);
@@ -199,6 +205,7 @@ export class Fx {
   update(dt, ball) {
     const w = this.world;
     this.updateMist(dt);
+    this._bb = 0;
     // particles
     let n = this.n;
     for (let i = 0; i < n; i++) {
