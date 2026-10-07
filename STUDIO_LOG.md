@@ -174,3 +174,33 @@ Kontrol sonucu: bot ÇIĞ Dağ 1'i kazandı, tüm modlar hatasız.
 - "YENİ BÖLGE!" yazısı HUD'un üstüne biniyor.
 - Ön plandaki ağaçlar görüşü kapatıyor.
 - Rush'ta "KAÇ!" ve "BÜYÜDÜN" yazıları hâlâ yolun üstünde.
+
+## Tur 3 — Yapılanlar
+
+Hepsi push edildi.
+
+**Rush**
+- Orta ekran mesajları (KAÇ!, BOSS YENİLDİ vb.) artık ekranın %21 yüksekliğinde çıkıyor, yol açık kalıyor.
+- "BÜYÜDÜN xN" yazısı kaldırıldı.
+- Yeni: **Çığ Kayma Hattı**. Müziğin ritmine göre parlayan altın şeritte vuruşları tutturdukça "RİTİM xN" zinciri kuruluyor ve %12'ye kadar hız kazanılıyor.
+
+**ÇIĞ**
+- "⛔ 0 m" hatası düzeldi.
+- Hız birimi artık km/sa.
+- Kameranın önündeki ağaçlar gizleniyor.
+- Yeni: **Heykel Yıkımı** (Dağ 3'ten itibaren, 3-5 dev heykel):
+  - Hepsini kırınca HEYKEL SERİSİ bonusu geliyor.
+  - Yeni bir 3. yıldız görevi eklendi.
+
+**Arena**
+- Yeni: **Kar Kalesi**. Haritada 3 kale var:
+  - 5 sn tek başına durunca ele geçiriyorsun ve kütle kazanıyorsun.
+  - Senden büyük biri gelirse kaleyi kaybedebilirsin.
+- Sıralamada yükselince satırın parlıyor.
+- 5 dakikada bir özet gösteriliyor.
+
+**Arayüz**
+- "YENİ BÖLGE" bandı HUD'un altına indi ve küçüldü.
+- Ekranda aynı anda en fazla 2 bildirim görünüyor.
+
+Kontrol: tüm modlar hatasız, bot ÇIĞ Dağ 1'i kazandı.
