@@ -283,11 +283,10 @@ const cigHost = {
     else { ui.setTons(info.tons); ui.setProgress(info.frac); }
     if (G.lv && info.lv) {
       // (ui.cigHud labels the run "ÇIĞ SONSUZ" and hides the progress bar: put the mountain's own label and bar back)
-      if (ui.el.level.textContent !== G.lv.label) ui.el.level.textContent = G.lv.label;
       ui.el.hud.classList.add('cig-lvl');
       ui.setProgress(info.lv.prog);
-      updateLevelHud(info.lv);
       showSizeReadout(info);
+      updateLevelHud(info.lv);
     }
   },
   hunger(frac, warn) { ui.hunger?.(frac, warn); },
@@ -568,6 +567,15 @@ function ensureLevelHud(plan) {
   lvHud.s = lvHud.t = lvHud.z = lvHud.c = ''; lvHud.r = -1; lvHud.gi = -1; lvHud.marks.length = 0;
   lvHud.ch.style.display = 'none';
   hud.classList.add('cig-lvl');
+  // ONE compact top bar: [ETAP chip | progress bar (+ star pips) | size chip | pause]
+  const topBar = hud.querySelector('.hud-top'), pauseBtn = hud.querySelector('#btn-pause'), prog = hud.querySelector('.hud-progress');
+  if (topBar && pauseBtn && ui.el.tons && ui.el.tons.parentNode !== topBar) topBar.insertBefore(ui.el.tons, pauseBtn);
+  if (prog) {
+    let sp = prog.querySelector('.cig-stars');
+    if (!sp) { sp = document.createElement('div'); sp.className = 'cig-stars'; sp.innerHTML = '<i>★</i><i>★</i><i>★</i>'; prog.appendChild(sp); }
+    lvHud.stars = Array.from(sp.children); lvHud.sc = '';
+    sp.title = plan.stars.map((g) => g.text).join(' · ');
+  }
   const town = hud.querySelector('.hud-progress .town');
   if (town) town.textContent = '🏁';
   const bar = hud.querySelector('.hud-progress .bar');
@@ -610,12 +618,15 @@ function updateLevelHud(V) {
   if (!h) return;
   const m5 = Math.round(V.left / 5) * 5;
   const s = V.finalBroken ? 'BİTİŞ' : V.final ? 'FİNAL' : 'ETAP ' + (V.gateI + 1) + '/' + V.S;
-  const t0 = V.finalBroken ? '🏁 ' + m5 + ' m' : (V.locked ? '🔒 PATRON · ' : V.need > 0 ? '⛔ ' + fmtD(V.need) + ' m · ' : '') + m5 + ' m';
+  const t0 = V.finalBroken ? '🏁' : V.locked ? '🔒 PATRON' : V.need > 0 ? '⛔ ' + fmtD(V.need) + ' m' : m5 + ' m';
   const t = s + ' · ' + t0;
   const r = V.finalBroken ? 2 : V.ready;
   if (h.s !== '-') { h.s = '-'; h.gs.textContent = ''; h.gs.style.display = 'none'; }
   if (t !== h.t) { h.t = t; h.gt.textContent = t; }
-  if (r !== h.r) { h.r = r; h.gc.className = 'cgl gc r' + r; }
+  const lv = ui.el.level;
+  if (lv.textContent !== t) lv.textContent = t;   // the level label IS the ETAP chip now
+  if (r !== h.r) { h.r = r; h.gc.className = 'cgl gc r' + r; lv.classList.remove('lr0', 'lr1', 'lr2'); lv.classList.add('lr' + r); }
+  if (h.stars) updateStars(V);
   if (V.gateI !== h.gi) { h.gi = V.gateI; for (let i = 0; i < h.marks.length; i++) h.marks[i].classList.toggle('passed', i < V.gateI); }
   h.sz.style.display = 'none';   // the size/speed pill lives in the ETAP strip now
   const c = V.ters > 0 ? '🏔 ÇIĞ: ' + Math.round(V.ters) + ' m ↑' : V.chainMul >= 2 ? 'ZİNCİR x' + V.chainMul : '';
@@ -624,12 +635,42 @@ function updateLevelHud(V) {
   const cl = ui.el.hud.classList;
   if (V.gap < CFG.lvl.chaseNear) cl.add('chase-near'); else if (V.gap > CFG.lvl.chaseNear + 10) cl.remove('chase-near');
 }
+// star pips: 0 = not yet, 1 = earned, 2 = impossible now (grey)
+function updateStars(V) {
+  const P = G.lv, st = game && game.stats;
+  if (!P || !st || !P.stars) return;
+  const fin = !!V.finalBroken, g3 = P.stars[2];
+  const a = [fin ? 1 : 0, lastHave >= 2 * P.r2 - 1e-6 ? 1 : 0, 0];
+  const neg = (bad) => (bad ? 2 : fin ? 1 : 0);
+  switch (g3.kind) {
+    case 'nobounce': a[2] = neg((st.bounces | 0) > 0); break;
+    case 'nohit': a[2] = neg((st.hits | 0) > 0); break;
+    case 'time': a[2] = neg(G.t > g3.t); break;
+    case 'chain': a[2] = (st.maxMul | 0) >= g3.mul ? 1 : 0; break;
+    case 'crates': a[2] = (st.crates | 0) >= g3.count ? 1 : 0; break;
+    case 'gold': a[2] = (st.gold | 0) >= g3.count ? 1 : 0; break;
+    case 'rival': a[2] = (st.rivalEaten | 0) > 0 ? 1 : 0; break;
+    case 'statues': a[2] = (st.statues | 0) >= g3.count ? 1 : 0; break;
+    case 'throne': a[2] = (st.throne | 0) >= 1 ? 1 : 0; break;
+    case 'secret': a[2] = (st.secret | 0) >= 1 ? 1 : 0; break;
+    default: a[2] = fin ? 1 : 0;
+  }
+  const k = a.join('');
+  if (k === lvHud.sc) return;
+  lvHud.sc = k;
+  for (let i = 0; i < 3; i++) lvHud.stars[i].className = a[i] === 1 ? 'on' : a[i] === 2 ? 'dead' : '';
+}
 function hideLevelHud() {
   if (lvHud) lvHud.root.style.display = 'none';
   try { if (ui.el.tons) { ui.el.tons.textContent = ''; ui.lastTonsText = ''; if (ui._cg) ui._cg.kg = -1; } } catch { /* optional */ }
   const hud = ui.el?.hud;
   if (hud) {
     hud.classList.remove('cig-lvl', 'chase-near');
+    const tb = hud.querySelector('.hud-top');
+    if (tb && ui.el.tons && ui.el.tons.parentNode === tb) tb.parentNode.insertBefore(ui.el.tons, tb.nextSibling);
+    hud.querySelector('.cig-stars')?.remove();
+    if (lvHud) lvHud.stars = null;
+    ui.el.level?.classList.remove('lr0', 'lr1', 'lr2');
     const town = hud.querySelector('.hud-progress .town');
     if (town && town.textContent === '🏁') town.textContent = '🏘️';
     const bar = hud.querySelector('.hud-progress .bar');
@@ -1128,7 +1169,7 @@ function ensureBars() {
     barPool.push({ el, fill, on: false });
   }
   bossEl = document.createElement('div');
-  bossEl.style.cssText = 'position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 12px);transform:translateX(-50%);width:min(66vw,400px);display:none;text-align:center;font:800 13px system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);letter-spacing:.06em;';
+  bossEl.style.cssText = 'position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 52px);transform:translateX(-50%);width:min(66vw,400px);display:none;text-align:center;font:800 13px system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);letter-spacing:.06em;';
   const nm = document.createElement('div');
   nm.style.cssText = 'line-height:16px;height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
   const track = document.createElement('div');
@@ -1152,8 +1193,8 @@ function ensureBars() {
   if (!document.getElementById('cig-boss-css')) {
     const st = document.createElement('style'); st.id = 'cig-boss-css';
     // boss fight = ONE top block: hide the level strip / ETAP chip / size readout / goal, and park every message just below the block
-    st.textContent = '#hud.bossfight #cig-lv,#hud.bossfight .hud-level,#hud.bossfight .hud-progress,#hud.bossfight .hud-tons,#hud.bossfight .hud-goal,#hud.bossfight #hud-chal{display:none!important}'
-      + '#hud.bossfight.bossfight.bossfight.bossfight ~ #toast-soft:not(.res){top:calc(var(--sat,0px) + 88px)}'
+    st.textContent = '#hud.bossfight #cig-lv,#hud.bossfight .hud-goal,#hud.bossfight #hud-chal{display:none!important}'
+      + '#hud.bossfight.bossfight.bossfight.bossfight ~ #toast-soft:not(.res){top:calc(var(--sat,0px) + 108px)}'
       + '#hud.bossfight ~ #toast-soft .ts:nth-child(n+2){display:none}';
     document.head.appendChild(st);
   }

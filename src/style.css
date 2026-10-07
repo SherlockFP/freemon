@@ -964,3 +964,29 @@ html, body {
 .char-intro.badge .ci-ico { font-size: 56px; }
 @keyframes ciIn { from { transform: translate(-50%, -50%) scale(0.5) rotate(-8deg); opacity: 0; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
 .res-extra .rx-share { font: 900 14px system-ui, sans-serif; color: #0a2a4a; background: var(--gold); border: 0; border-radius: 12px; padding: 6px 14px; box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35); cursor: pointer; pointer-events: auto; }
+
+/* ---- ÇIĞ level HUD: ONE compact top bar (scoped to #hud.cig-lvl; Rush untouched) ---- */
+#hud.cig-lvl .hud-top .hud-level { font-size: 12px; padding: 0 9px; letter-spacing: 0.02em; }
+#hud.cig-lvl .hud-top .hud-level.lr0 { background: rgba(150, 28, 24, 0.82); border-color: #ff5a4a; }
+#hud.cig-lvl .hud-top .hud-level.lr1 { background: rgba(150, 96, 12, 0.82); border-color: #ffb03a; }
+#hud.cig-lvl .hud-top .hud-level.lr2 { background: rgba(20, 110, 54, 0.84); border-color: #2fd36b; }
+#hud.cig-lvl .hud-top .hud-progress { position: relative; min-width: 0; }
+#hud.cig-lvl .hud-top .hud-tons {
+  position: static; box-sizing: border-box; height: 34px; display: flex; align-items: center; gap: 5px; padding: 0 10px;
+  font-size: 14px; line-height: 1; white-space: nowrap; border: 2.5px solid var(--ink); border-radius: 17px; background: rgba(23, 52, 92, 0.55);
+  text-shadow: 0 2px 0 var(--ink);
+}
+#hud.cig-lvl .hud-top .hud-tons small { display: inline !important; font-size: 10px !important; opacity: 0.8 !important; }
+#hud.cig-lvl .hud-top .hud-tons.pulse { transform: none; }
+#hud.cig-lvl.bossfight .hud-top .hud-tons { display: none; }
+#hud.cig-lvl .cig-stars { position: absolute; left: 12px; top: 100%; margin-top: 2px; display: flex; gap: 2px; pointer-events: none; }
+#hud.cig-lvl .cig-stars i { font-style: normal; font-size: 13px; line-height: 1; color: rgba(255, 255, 255, 0.28); text-shadow: 0 1px 0 var(--ink), 0 0 2px var(--ink); transition: color 0.2s, transform 0.2s; }
+#hud.cig-lvl .cig-stars i.on { color: #ffd34a; transform: scale(1.2); text-shadow: 0 1px 0 var(--ink), 0 0 6px #ffcf3a; }
+#hud.cig-lvl .cig-stars i.dead { color: #6b7280; opacity: 0.55; }
+#hud.cig-lvl.bossfight .cig-stars { display: none; }
+#hud.cig-lvl .cig-stars { left: 50%; transform: translateX(-50%); padding: 1px 6px; border-radius: 8px; background: rgba(10, 20, 40, 0.45); }
+#hud.cig-lvl #cig-lv { top: calc(var(--sat) + 60px); }
+#hud.cig-lvl #cig-lv .cgl-row { display: none; }
+#hud.cig-lvl #cig-lv .cgl.ch { top: 0; }
+#hud.cig-lvl .buffs { top: calc(var(--sat) + 78px); }
+#hud.cig-lvl ~ #toast-soft:not(.res) { top: calc(var(--sat) + 66px); }
