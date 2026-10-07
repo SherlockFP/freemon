@@ -306,6 +306,7 @@ export class AgarMode {
     this.ring.visible = false; this.ring.position.y = 0.3; this.ring.frustumCulled = false;
     sc.add(this.ring);
     this.props = new ArenaProps(this, sc, this.lib, R, MAXM);
+    if (this.qLv != null) this.props.setQuality([1, 0.8, 0.6][this.qLv], [12, 6, 3][this.qLv]); // quality was picked before props existed
     // name sprites
     for (const o of this.owners) {
       const cvs = document.createElement('canvas');
@@ -1690,9 +1691,9 @@ export class AgarMode {
   setQuality(l) {
     if (l === this.qLv) return;
     this.qLv = l;
-    this.snowfall.setCap([2400, 1200, 500][l]);
-    this.trails.setCap([26000, 15000, 8000][l]);
-    this.props.setQuality([1, 0.8, 0.6][l], [12, 6, 3][l]);
+    this.snowfall?.setCap([2400, 1200, 500][l]);
+    this.trails?.setCap([26000, 15000, 8000][l]);
+    this.props?.setQuality([1, 0.8, 0.6][l], [12, 6, 3][l]);
     this.fmask = [0, 1, 3][l];
     this.qBad = this.qGood = 0;
     try { if (this.renderer.setPixelRatio && this.basePR) this.renderer.setPixelRatio(l === 2 ? 1 : l === 1 ? Math.min(this.basePR, 1.25) : this.basePR); } catch (e) { /* ignore */ }
