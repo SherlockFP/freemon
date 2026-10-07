@@ -967,6 +967,16 @@ const CSS = `
 .fm-sum .sp i.on { background: linear-gradient(90deg, #ffe066, #ff9a3a); }
 .fm-sum .sr { font-size: 15px; line-height: 1; }
 .fm-sum .sr.rdy { color: var(--gold); font-size: 11px; background: #ff7a2f; padding: 3px 7px; border-radius: 9px; }
+.fm-today { flex-wrap: wrap; overflow: visible; justify-content: center; row-gap: 5px; touch-action: auto; }
+.fm-tdots { display: none; }
+.fm-todaywrap::before, .fm-todaywrap::after { display: none; }
+.fm-bigstar.on { animation-duration: 0.45s; }
+.fm-rgoals { gap: 4px; }
+.fm-rgoal { padding: 4px 10px; font-size: 13px; border-radius: 11px; }
+.fm-rgoal .gs { font-size: 16px; }
+.fm-rgoal.miss .gs { color: rgba(255, 255, 255, 0.3); }
+@keyframes fmClaim { 0%, 100% { transform: scale(1) translateY(0); box-shadow: 0 0 6px 1px rgba(255, 154, 58, 0.6); } 12% { transform: scale(1.12) translateY(-3px); box-shadow: 0 0 16px 5px rgba(255, 207, 58, 0.95); } 24% { transform: scale(1) translateY(0); } 40% { box-shadow: 0 0 14px 4px rgba(255, 207, 58, 0.8); } 70% { box-shadow: 0 0 6px 1px rgba(255, 154, 58, 0.6); } }
+.fm-sum .sr.rdy { animation: fmClaim 2s ease-in-out infinite; border: 2px solid #fff3b0; }
 `;
 
 // ================================================================================================================ helpers
@@ -2583,8 +2593,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
         if (resultEl !== ov) return;
         starEls[i].classList.add('on');
         sfx('confirm');
+        try { if (navigator.vibrate) navigator.vibrate(i === stars - 1 ? [18, 30, 28] : 14); } catch { /* ignore */ }
         if (i === stars - 1) confetti(stars >= 3 ? 90 : 40);
-      }, 350 + i * 420);
+      }, 350 + i * 350);
     }
     if (stars === 0) confetti(20);
 

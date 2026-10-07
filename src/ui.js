@@ -242,6 +242,7 @@ ${dist} m`; }
   showRunnerResult(p) {
     const { distance = 0, score = 0, coins = 0, best = 0, canRevive = false, rank = 0, toRecord = 0, onRevive = null } = p || {};
     this.runnerDanger(0, 0, 0);
+    this.chaseVig(0);
     this.runnerGoal(null);
     this.runnerSurge(false);
     this.clearTimers();
@@ -287,14 +288,18 @@ ${dist} m`; }
     if (dly) {
       const dm = Math.max(dly.best || 0, distance);
       shareTxt = `🏔 PATPAT Günün Rush'ı #${dly.num} — ${fmtN(distance)} m` + ((this._bestCombo || 0) >= 3 ? ` 🔥x${this._bestCombo}` : '');
-      html += `<div class="rx-line">GÜNÜN RUSH'I #${dly.num}: ${fmtN(distance)} m${dm > distance ? ` · EN İYİ ${fmtN(dm)} m` : ''}</div><div class="rx-line"><button type="button" class="rx-share">PAYLAŞ</button> <span class="rx-dim">${shareTxt}</span></div>`;
+      html += `<div class="rx-line">GÜNÜN RUSH'I #${dly.num}: ${fmtN(distance)} m${dm > distance ? ` · EN İYİ ${fmtN(dm)} m` : ''}</div>`;
     }
+    if (!isRec && toRecord > 0 && distance >= 50) html = `<div class="rx-rec">REKORA ${fmtN(toRecord)} m KALDI!</div>` + html;
+    const q = this.nearQuest(p && p.missions);
+    if (q) html += `<div class="rx-line">Görev: ${q}</div>`;
     if (note && !dly) html += `<div class="rx-line">${note}</div>`;
     if (!isRec && tipTxt) html += `<div class="rx-dim">${tipTxt}</div>`;
     html += mrep.html;
     html += this.goalBlock(coins);
     ex.innerHTML = html;
     ex.classList.toggle('hidden', !html);
+    this.lastShareText = shareTxt;  // bottom PAYLAŞ uses it for the daily run
     const shb = ex.querySelector('.rx-share');
     if (shb) shb.onclick = () => { try { if (navigator.share) navigator.share({ text: shareTxt }).catch(() => {}); else navigator.clipboard?.writeText(shareTxt); shb.textContent = 'KOPYALANDI'; } catch { /* ignore */ } };
 
@@ -311,12 +316,16 @@ ${dist} m`; }
     let cost = p && p.reviveCost ? p.reviveCost : 0;
     let cr = p && Number.isFinite(p.crystals) ? p.crystals : null;
     try { if (cr === null) cr = save.crystals(); } catch { cr = 0; }
-    const show = !!canRevive && cost > 0 ? cr >= cost : !!canRevive && cost === 0 && cr > 0;
+    const coinRv = (p && p.coinRevive) || 0;
+    const show = !!coinRv || (!!canRevive && cost > 0 ? cr >= cost : !!canRevive && cost === 0 && cr > 0);
     this.reviveFn = show && typeof onRevive === 'function' ? onRevive : null;
     this.el.next.classList.toggle('hidden', !show);
     this.el.next.classList.toggle('revive', show);
     this.el.next.classList.remove('next');
-    this.el.next.textContent = show ? `BENİ KURTAR 💎${cost || 1}` : '';
+    this.el.next.textContent = show ? (coinRv ? `DEVAM ❄ ${coinRv}` : `BENİ KURTAR 💎${cost || 1}`) : '';
+    this.el.next.classList.remove('rv-ring');
+    if (show) { void this.el.next.offsetWidth; this.el.next.classList.add('rv-ring'); }   // 3 s countdown ring
+    clearTimeout(this._rvTm); this._rvTm = show ? setTimeout(() => { this.el.next.classList.remove('rv-ring'); }, 3000) : 0;
     this.el.retry.classList.remove('hidden');
     this.el.retry.textContent = '↻ TEKRAR';
     this.el.menuBtn.classList.remove('hidden');
@@ -328,6 +337,31 @@ ${dist} m`; }
       this.el.resTons.textContent = `SKOR ${fmtN(score * e)}`;
     }, 1400, { tick: true, done: () => this.resultScoreDone(isScoreRec) });
     this.flushNotices(mrep.notices);
+  }
+
+  // closest unfinished mission, e.g. '3/5 kombo'
+  nearQuest(fb) {
+    let rows = null;
+    try { const r = meta.missionsReport(); rows = r && r.rows; } catch { rows = null; }
+    if (!rows || !rows.length) rows = Array.isArray(fb) ? fb : [];
+    let best = null, bf = -1;
+    for (const m of rows) { if (m.done || !(m.goal > 0)) continue; const f = (m.value || 0) / m.goal; if (f > bf) { bf = f; best = m; } }
+    return best ? `${fmtN(Math.floor(best.value || 0))}/${fmtN(best.goal)} ${best.text}` : '';
+  }
+
+  // Chase pressure: red screen-edge vignette, intensity 0..1 (called per frame; DOM touched only when the quantised value changes)
+  chaseVig(k) {
+    const q = Math.round(k * 12) / 12;
+    if (q === this._cvK) return;
+    this._cvK = q;
+    let el = this._cvEl;
+    if (!el) {
+      if (!q) return;
+      el = this._cvEl = document.createElement('div');
+      el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:4;opacity:0;transition:opacity .25s;background:radial-gradient(ellipse at center,rgba(255,0,0,0) 55%,rgba(220,20,20,.75) 100%)';
+      document.body.appendChild(el);
+    }
+    el.style.opacity = String(q * 0.8);
   }
 
   // Missions block (3 rows + multiplier) for the result screens. Drains the queued notices.

@@ -77,7 +77,7 @@ export class ArenaProps {
     this.tcount = new Int32Array(NT); this.tcap = new Int32Array(NT); this.tw = new Int32Array(NT); this.tprev = new Int32Array(NT);
     this.thx = new Float32Array(NT); this.thz = new Float32Array(NT); this.tr = new Float32Array(NT); this.th = new Float32Array(NT); this.tmass = new Float32Array(NT);
     this.defT = 0;
-    this.fmat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.18, depthWrite: false });
+    this.fmat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.12, depthWrite: false });
     this.fmesh = new Array(NT).fill(null); this.fw = new Int32Array(NT); this.fprev = new Int32Array(NT); this.fcap = 160;
     // suction (flying props)
     this.npl = 0;
@@ -553,7 +553,7 @@ export class ArenaProps {
     const gz0 = clampN(((zc - zh + R) / PGS) | 0, 0, PGN - 1), gz1 = clampN(((zc + zh + R) / PGS) | 0, 0, PGN - 1);
     const arrs = this.arrs || (this.arrs = new Array(NT));
     const fw = this.fw; fw.fill(0);
-    const capH = camH * 0.22, fmesh = this.fmesh;
+    const capH = camH * 0.13, fmesh = this.fmesh;
     for (let t = 0; t < NT; t++) arrs[t] = this.tmesh[t] ? this.tmesh[t].instanceMatrix.array : null;
     for (let gx = gx0; gx <= gx1; gx++) {
       for (let gz = gz0; gz <= gz1; gz++) {

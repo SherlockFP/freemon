@@ -924,7 +924,9 @@ bind('btn-revive-end', () => { if (runner?.declineRevive) runner.declineRevive()
 bind('btn-share', async () => {
   audio.ui();
   let text;
-  if (G.mode === 'runner' && runner) {
+  if (G.mode === 'runner' && runner?.daily && ui.lastShareText) {
+    text = ui.lastShareText;
+  } else if (G.mode === 'runner' && runner) {
     text = `❄️ PATPAT · Yeti Kaçışı
 📏 ${Math.round(runner.b.s).toLocaleString('tr-TR')} m
 🏆 Skor ${Math.round(runner.score).toLocaleString('tr-TR')}

@@ -286,7 +286,7 @@ export class Runner {
     this.finalized = false;
     this.time = 0;
     this.deadT = 0;
-    this.revived = false;
+    this.revived = false; this.coinUsed = false; this.coinRev = false; this.wxT = 0;
     this.revives = 0;
     this.reviveCost = 0;
     this.invulnT = 1.2;
@@ -342,7 +342,7 @@ export class Runner {
     this.rampT = 0;
     this.cannonN = 0; this.cannonCd = 0; this.cannonT = 0; this.slideT = 0; this.slideMsgT = 0; this.tunnelMsgT = 0;
     this.fogK = 0;
-    this.fogTarget = 0;
+    this.fogTarget = this.wxT > 0 ? (this.wxT -= dt, this.wxFog) : 0;
 
     // ---- buff cards ----
     this.buffT = level ? Infinity : rand(RCFG.buffFirst[0], RCFG.buffFirst[1]);   // campaign levels have no auto cards
@@ -1139,7 +1139,8 @@ export class Runner {
     }
     if (this.stumbleT > 0) this.minGap = Math.min(this.minGap, this.gap);
     this.roarT -= dt;
-    if (this.gap < 8 && this.roarT <= 0) { this.roarT = 4; this.roar(true); }
+    if (this.gap < 8 && !this._chaseHot && this.roarT <= 0) { this.roarT = 6; this.roar(true); }   // edge-triggered + rate-limited
+    this._chaseHot = this.gap < 8;
   }
 
   /** BALIK YEMİ: drops the bait; the Yeti stops to eat it for 3 s (gap +12 m and more, no stumble window); in the boss phase it skips the next throw. */
@@ -1646,6 +1647,10 @@ export class Runner {
       this.lmPassed = true;
       this.kick += 1.5; this.ctx.audio.milestone?.(2);
       this.ctx.ui.flash?.('milestone');
+      // gentle environment shift per 500 m (lerped by env.setRadio): snowfall -> clear -> sunset -> night
+      const W = [[0xcfe3ff, 0.28, 0.35], [0xffffff, 0, 0], [0xff8a5a, 0.3, 0], [0x1a2a6a, 0.34, 0]], w = W[(next / 500) % 4 | 0];
+      this.env?.setRadio?.(w[0], w[1]);
+      this.wxFog = w[2]; this.wxT = w[2] ? 14 : 0;
     }
   }
 
@@ -1863,6 +1868,7 @@ export class Runner {
   updateHud() {
     const ui = this.ctx.ui;
     ui.runnerDanger?.(this.dangerBonus(), this.chainBonus(), this.riskT > 0 ? 4 : 0);
+    ui.chaseVig?.(this.state === 'play' ? Math.max(0, Math.min(1, (9 - this.gap) / 5)) : 0);
     this.updateGoal();
     const bi = biomeAt(this.b.s, _bi);
     const prog = this.level ? clamp(this.b.s / this.level.length, 0, 1) : bi.t;
@@ -3117,7 +3123,9 @@ export class Runner {
       return;
     }
     this.reviveCost = meta?.reviveCost?.(this.revives) ?? 0;
-    const canRevive = meta ? (meta.crystals ?? 0) >= this.reviveCost : !this.revived;
+    let canRevive = meta ? (meta.crystals ?? 0) >= this.reviveCost : !this.revived;
+    this.coinRev = false;
+    if (!canRevive && !this.revived && !this.coinUsed && (this.ctx.save.coins || 0) >= 50) canRevive = this.coinRev = true;   // DEVAM ❄ 50, once per run
     this.showRecap(() => this.showResult(canRevive));
   }
 
@@ -3184,6 +3192,7 @@ export class Runner {
       boxes: this.boxes,
       seasonTokens: this.seasonTokens || 0,
       reviveCost: this.reviveCost,
+      coinRevive: this.coinRev ? 50 : 0,
       crystals: meta?.crystals ?? 0,
       distance: dist,
       score,
@@ -3202,7 +3211,10 @@ export class Runner {
   revive() {
     if (this.state !== 'over' || this.level || this.recorded) return false;
     const meta = this.ctx.meta;
-    if (meta) {
+    if (this.coinRev) {
+      if (this.coinUsed || !this.ctx.save.spend?.(50)) return false;
+      this.coinUsed = true; this.coinRev = false;
+    } else if (meta) {
       if (!meta.spendCrystals?.(this.reviveCost ?? 1)) return false;
     } else if (this.revived) return false;
     this.revived = true;
@@ -3244,7 +3256,7 @@ export class Runner {
     this.stumbleT = 0;
     this.yetiHoldT = 2;
     this.gap = RCFG.yetiStart;
-    this.invulnT = 2.5;
+    this.invulnT = 3;
     this.meltGraceT = 4;
     this.hungerWarn = false;
     this.nearChain = 0;

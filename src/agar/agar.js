@@ -264,7 +264,7 @@ export class AgarMode {
       this.patches = [];
       for (let i = 0; i < 90; i++) {
         const a = pr() * 6.2832, d = Math.sqrt(pr()) * (R - 120), r = 40 + pr() * 90, col = cols[i % cols.length];
-        const m = new THREE.Mesh(new THREE.CircleGeometry(r, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.72, depthWrite: false }));
+        const m = new THREE.Mesh(new THREE.CircleGeometry(r, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.4, depthWrite: false }));
         m.position.set(Math.cos(a) * d, 0.04, Math.sin(a) * d); sc.add(m); this.patches.push([m.position.x, m.position.z, r, col]);
       }
       // coloured fort plazas + paths between the forts
@@ -1263,8 +1263,8 @@ export class AgarMode {
     const sc = this._scene, z = this.zn, D = THREE.DoubleSide;
     const bm = (col, op) => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, depthWrite: false, fog: false, side: D, blending: THREE.AdditiveBlending });
     z.ring = new THREE.Mesh(new THREE.RingGeometry(0.982, 1, 128).rotateX(-Math.PI / 2), bm(0x66f6ff, 0.95)); z.ring.position.y = 0.7;
-    z.wall = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 34, 128, 1, true), bm(0x66d8ff, 0.26)); z.wall.position.y = 17;
-    z.out = new THREE.Mesh(new THREE.RingGeometry(1, 3, 128).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x1b3a8a, transparent: true, opacity: 0.34, depthWrite: false, fog: false })); z.out.position.y = 0.55; z.out.renderOrder = 5;
+    z.wall = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 34, 128, 1, true), bm(0x66d8ff, 0.1)); z.wall.position.y = 17;
+    z.out = new THREE.Mesh(new THREE.RingGeometry(1, 3, 128).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x1b3a8a, transparent: true, opacity: 0.12, depthWrite: false, fog: false })); z.out.position.y = 0.55; z.out.renderOrder = 5;
     z.tgt = new THREE.Mesh(new THREE.RingGeometry(0.985, 1, 128).rotateX(-Math.PI / 2), bm(0xff5a4d, 0.9)); z.tgt.position.y = 0.75;
     z.beam = new THREE.Mesh(new THREE.CylinderGeometry(4, 6, 140, 16, 1, true), bm(0xfff09a, 0.38)); z.beam.position.y = 70;
     z.glow = new THREE.Mesh(new THREE.CircleGeometry(24, 40).rotateX(-Math.PI / 2), bm(0xffe680, 0.5)); z.glow.position.y = 0.8;
@@ -1771,11 +1771,17 @@ export class AgarMode {
     const card = document.createElement('div');
     card.className = 'ag-card ag-result';
     const row = (k, v) => `<div class="ag-r"><span>${k}</span><b>${v}</b></div>`;
-    card.innerHTML = '<div class="ag-logo sm">YUTULDUN!</div>' + (this.deadKiller ? `<div class="ag-sub"></div>` : '') +
+    const rk = o.bestRank >= 99 ? 0 : o.bestRank;
+    const ms = this.owners.filter(q => q.alive && q !== o).map(q => q.mass).sort((x, y) => y - x);
+    const gap = Math.max(1, Math.ceil((ms[2] || 0) - o.maxMass + 1));
+    const hook = rk > 3 ? `En iyi sıran #${rk} — ilk 3'e ${gap} kütle!` : rk >= 1 ? `En iyi sıran #${rk} — bir üstüne çık!` : 'Bir dahaki sefere sıralamaya gir!';
+    card.innerHTML = '<div class="ag-logo sm">YENDİN: <span class="kn"></span></div>' +
       `<div class="ag-earn"><small>kazanılan</small><b>+${this.earned || 0} ❄️</b></div>` +
-      row('KÜTLE', fmtM(o.maxMass) + (this.newBest ? ' 🏆 REKOR' : '')) + row('SIRA', o.bestRank >= 99 ? '-' : '#' + o.bestRank) + row('SÜRE', fmtT(this.time - o.t0)) + row('YUTULAN', o.kills) + row('SEVİYE', lvlOf(this.xp)) + row('EN İYİ', fmtM(this.best));
-    if (this.deadKiller) card.querySelector('.ag-sub').textContent = this.deadKiller + ' seni yuttu';
-    const b1 = document.createElement('button'); b1.type = 'button'; b1.className = 'ag-btn go'; b1.textContent = 'TEKRAR';
+      row('SÜRE', fmtT(this.time - o.t0)) + row('MAX KÜTLE', fmtM(o.maxMass) + (this.newBest ? ' 🏆 REKOR' : '')) + row('EN İYİ SIRA', rk ? '#' + rk : '-') + row('YEDİĞİN', o.kills) +
+      '<div class="ag-sub" style="margin:8px 0;font-weight:800;color:#ffd23a"></div>';
+    card.querySelector('.kn').textContent = this.deadKiller || 'Kar Fırtınası';
+    card.querySelector('.ag-sub').textContent = hook;
+    const b1 = document.createElement('button'); b1.type = 'button'; b1.className = 'ag-btn go'; b1.textContent = 'TEKRAR DOĞ';
     const b2 = document.createElement('button'); b2.type = 'button'; b2.className = 'ag-btn'; b2.textContent = 'MENÜ';
     b1.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('confirm'); this.deaths = 0; this.respawnMe(); });
     b2.addEventListener('click', () => { this.audio?.ui?.('back'); this.exit(); });
@@ -2359,7 +2365,7 @@ export class AgarMode {
     let ht = 120 * zf;
     if (fo) {
       const rEff = Math.max(KR * Math.sqrt(fo.mass), fo.ext * 0.8);
-      ht = me.alive ? Math.max(52 * zf, (16 + 7.5 * rEff) * zf * (0.78 + 0.22 * Math.min(1, (this.time - me.t0) / 50))) : Math.max(120 * zf, (16 + 7.5 * rEff) * zf);
+      ht = me.alive ? Math.max(30 * zf, (14 + 7.5 * rEff) * zf * (0.72 + 0.28 * Math.min(1, (this.time - me.t0) / 50))) : Math.max(120 * zf, (16 + 7.5 * rEff) * zf);
       const kk = Math.min(1, dt * (me.alive ? 6 : 1.5));
       this.camX += (fo.cx + (me.alive ? this.inp.dx * this.inp.mag * rEff * 0.5 : 0) - this.camX) * kk;
       this.camZ += (fo.cz + (me.alive ? this.inp.dz * this.inp.mag * rEff * 0.5 : 0) - this.camZ) * kk;
@@ -2404,6 +2410,7 @@ export class AgarMode {
       const o = owners[c.o];
       let r = c.r;
       if (o.hideT > 0) { if (c.o !== this.me) { c.px0 = c.x; c.pz0 = c.z; continue; } r *= 0.4; } // hidden in a burrow: only the owner sees a tiny ghost
+      if (r < H * 0.05) r = H * 0.05; // small cells stay readable from the camera
       const ddx = c.x - c.px0, ddz = c.z - c.pz0;
       c.px0 = c.x; c.pz0 = c.z;
       const dd = Math.sqrt(ddx * ddx + ddz * ddz);
