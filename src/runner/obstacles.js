@@ -490,6 +490,7 @@ export class Obstacles {
     e.color = ob.color; e.ds = ds; e.du = du; e.id = ob.id;
     e.headOn = ds < 0 && Math.abs(ds) >= 0.7 * Math.abs(du);
     e.ball = this._cid;
+    e.nonLethal = ob.kind === 'slidewall';              // sliding walls are a stumble (size loss), never instant death
     e.kind = KALIAS[ob.type] || ob.type || ob.kind;      // rock | cabin | pine | stone | fence | fallenLog | longLog | snowcat | oncoming | slidewall | overhead | laser ...
     e.halfW = ob.shape === 'cyl' ? ob.rad || 0 : ob.hu || 0; e.ride = !!ob.ride; e.ht = ob.ride ? ob.H || 0 : 0;
     if (this._cid !== 'main') return;                  // a clone's hit never auto-resolves (the obstacle stays for the main ball)
@@ -1333,11 +1334,11 @@ function wpick(rng, items, w) {      // items weighted by w(item) (<=0 excluded)
 }
 
 const CYCLE_T = 24, BUILD_T = 20;      // tension cycle (s): build, then a 4 s breather
-const LANE_T = 0.25;                   // reaction time per lane change (s) at the design speed
+const LANE_T = 0.35;                   // reaction time per lane change (s) at the design speed
 const PILES_PER_TIER = 6;              // piles that heal one size tier (runner: 4 / 6 / 8 / 11 by tier)
-const rowRate = (s) => (0.6 + 0.95 * (1 - Math.exp(-s / 1900))) * (1 + 0.3 * smooth(s / 1500));     // design rows / s (hardness 1); x1.3 compensates the structural calm (breathers, junctions, hazard run-outs): measured ~0.65 @ 0.5 km, ~1.1 @ 2 km, ~1.4 @ 4 km
+const rowRate = (s) => (0.56 + 0.8 * (1 - Math.exp(-s / 1900))) * (1 + 0.26 * smooth(s / 1500)) * (0.8 + 0.2 * smooth(s / 1100));     // design rows / s (hardness 1); x1.3 compensates the structural calm (breathers, junctions, hazard run-outs): measured ~0.65 @ 0.5 km, ~1.1 @ 2 km, ~1.4 @ 4 km
 const tensionMul = (ph) => 1.22 - 0.38 * smooth(ph / BUILD_T);           // row gap multiplier over the build: calm 1.22 -> intense 0.84
-const lethalK = (d) => (d < 0.18 ? 0 : 0.5 + 2.0 * smooth((d - 0.18) / 0.62));      // multiplier of the lethal blockers' weights (<= ~30% share)
+const lethalK = (d) => (d < 0.18 ? 0 : 0.4 + 1.7 * smooth((d - 0.18) / 0.62));      // multiplier of the lethal blockers' weights (<= ~30% share)
 const HARD_PAT = { double: 1, train: 1, mover: 1, rolling: 1, beat: 1, swing: 1, oncoming: 1, slide: 1, combo: 1, laser: 1, missile: 1, phrase: 1 };
 const LETHAL_KIND = { oncoming: 1, slidewall: 1, missile: 1 };
 const SINGLE_VERB = { single: 1, low: 1, duck: 1, rest: 1 };            // round sections (loop, corkscrew, helix, half-pipe, tube): one verb per row
@@ -1540,7 +1541,7 @@ Object.assign(Obstacles.prototype, {
       if (!rm) rm = f0m;
       const tightRow = rm !== f0m, vq = lastR && vertRow(lastR) && (s - lastR.s) / vs < 0.62;
       const hardN = (lastR && lastR.hardN) || 0;
-      plan.lethalOk = !o.noLethal && diff >= 0.18 && !(lastR && lastR.lethal && s < 1000) && hardN < 3;   // no two lethal rows in a row in the first km, none after 3 hard rows (never in round sections)
+      plan.lethalOk = !o.noLethal && diff >= 0.18 && !(lastR && lastR.lethal && s < 2500) && hardN < 2 && !(lastR && lastR.lethal && (s - lastR.s) / vs < 1.6);   // no two lethal rows in a row in the first km, none after 3 hard rows (never in round sections)
       plan.rowLethal = false;
       const pats = ['single', 'double', 'low', 'train', 'mover', 'rolling', 'beat', 'swing', 'ice', 'melt', 'conveyor', 'rail', 'oncoming', 'duck', 'slide', 'combo', 'laser', 'missile', 'phrase', 'critter', 'rest'];
       const nk0 = T._q && T._q[0], forcedNext = hardEnd || nk0 === 'narrow' || nk0 === 'split' || nk0 === 'hexHoles' || nk0 === 'gapRamp' || nk0 === 'gapJump' || nk0 === 'skiJump' || nk0 === 'chasm' || nk0 === 'iceBridge' || nk0 === 'zipline' || nk0 === 'loop' || nk0 === 'finish';
@@ -1554,6 +1555,8 @@ Object.assign(Obstacles.prototype, {
       const split2 = (tm & 2) !== 0;            // a persistent blocker in the middle lane splits the track: only jump / duck / floor patterns then
       const wantCrit = s >= this._nextCrit && !only && F.critters !== false && T.allows('critters') && this.critters && room > 30 && free0.length >= 2 && !tightRow && !zone;
       const onlyNow = !rows.length && o.firstOnly ? o.firstOnly : only;      // (the first row after a junction corner: single verb)
+      // sliding walls: never right after a junction corner, never within 1.5 s of another hard row
+      const slideOk = !o.firstOnly && !(lastR && lastR.pat === 'none') && !(lastR && (lastR.hard || lastR.lethal) && (s - lastR.s) / vs < 1.5) && (!lastR || (s - lastR.s) / vs >= 1.0);
       const wfn = (p) => {
         if (onlyNow && !onlyNow[p]) return 0;
         if (HARD_PAT[p] && hardN >= 3) return 0;
@@ -1576,8 +1579,8 @@ Object.assign(Obstacles.prototype, {
           case 'rail': return T.allows('rail') && dz >= 0.2 && room > 30 ? 0.5 : 0;
           case 'oncoming': return plan.lethalOk && T.allows('oncoming') && dz >= 0.2 && room > 22 && !forcedNext && s + 52 <= lim && persist.length === 0 && free0.length >= 2 ? 1.8 + 1.6 * dz : 0;
           case 'duck': return T.allows('duck') && dz >= 0.04 && room > 8 ? 1.5 + 0.8 * dz : 0;
-          case 'slide': return plan.lethalOk && T.allows('slideWall') && dz >= 0.25 && room > 12 && adj ? 0.9 + 0.8 * dz : 0;
-          case 'combo': return plan.lethalOk && late && T.allows('oncoming') && T.allows('slideWall') && room > 40 && !forcedNext && s + 66 <= lim && persist.length === 0 && open3 ? 3.2 : 0;
+          case 'slide': return plan.lethalOk && slideOk && T.allows('slideWall') && dz >= 0.3 && s >= 1200 && room > 12 && adj ? 0.45 + 0.4 * dz : 0;
+          case 'combo': return plan.lethalOk && slideOk && late && T.allows('oncoming') && T.allows('slideWall') && room > 40 && !forcedNext && s + 66 <= lim && persist.length === 0 && open3 ? 1.6 : 0;
           case 'rest': return lastRest ? 0 : (late ? 0.08 : 0.35);
           case 'laser': return T.allows('lasers') && dz >= 0.08 && room > 8 ? 1.4 + 1.2 * dz : 0;
           // a volley is launched 2 s before contact (reticle + warning), anywhere in a piece as long as its contact is clear of a lane-forcing
@@ -1741,8 +1744,8 @@ Object.assign(Obstacles.prototype, {
         }
         case 'slide': {
           const al = free0.length === 3 ? [0, 1, 2] : free0.slice();
-          this._mk(plan, { kind: 'slidewall', s, u: 0, pat: this._slidePattern(rng, al), per: diff < 0.45 / hk ? 2 : 1, ext: 2.6, glow: this._pal(s).glow });
-          free = 7; ext = 3;
+          this._mk(plan, { kind: 'slidewall', s, u: 0, pat: this._slidePattern(rng, al), per: 4, ext: 2.6, glow: this._pal(s).glow });
+          free = 7; ext = Math.max(3, 1.6 * vs);       // >= 1.5 s of clear track after a sliding wall
           break;
         }
         case 'combo': {
@@ -1773,7 +1776,7 @@ Object.assign(Obstacles.prototype, {
             if (hi - lo + 1 >= free0.length) hi = lo;
             Object.assign(base, { lo, hi }); free = 7 & ~(((1 << (hi + 1)) - 1) ^ ((1 << lo) - 1)); ext = 1.5;
           } else if (v === 'rotating') Object.assign(base, { sigma: sg, L: 2 * hwE - 2.7, per: Math.max(2.2, (dd > 0.6 ? 3 : 4) / hk), phi: rng.range(0, TAU), ext: 5 }), free = bit(farLane), ext = 5;
-          else Object.assign(base, { pat: this._slidePattern(rng, [0, 1, 2]), per: dd < 0.5 / hk ? 2 : 1, ext: 3 });
+          else Object.assign(base, { pat: this._slidePattern(rng, [0, 1, 2]), per: Math.max(4, Math.ceil(3.2 * T.bpmAt(s) / 60)), ext: 3 });       // one lane per ~3.2 s (flicker telegraph = last 30%)
           this._mk(plan, base);
           break;
         }
@@ -1840,7 +1843,7 @@ Object.assign(Obstacles.prototype, {
         }
       }
       // Gap to the next row (seconds -> metres at the nominal speed): 1 / rate(s), shaped by the tension cycle and the piece density
-      const gapSec = Math.max(0.5, (1 / (rowRate(s) * Math.pow(hk, 0.3) * dens)) * tn * rng.range(0.88, 1.12) * (late ? 0.92 : 1));
+      const gapSec = Math.max(0.65, (1 / (rowRate(s) * Math.pow(hk, 0.3) * dens)) * tn * rng.range(0.88, 1.12) * (late ? 0.92 : 1));
       s += (made && ph ? vs * ph.g + Math.min(ext, 3) : made ? Math.max(vs * gapSec, 0.4 * vd + Math.min(ext, 3) + 1.2) : vs * gapSec) + advanceExtra;
     }
     if (rows.length) { const r = rows[rows.length - 1]; this._carry = { s: r.s, ext: r.ext, route: r.route, free: r.free, jump: r.jump, pat: r.pat, lethal: r.lethal, hardN: r.hardN, persist: persist.slice(), ph }; }
@@ -2235,7 +2238,7 @@ Object.assign(Obstacles.prototype, {
    */
   _spawn_junction(plan, p) {
     const T = this.track, J = p.junction, rng = plan.rng, vN = T.speedAt(J.s), vd = T.vGen ? T.vGen(J.s) : 1.1 * vN, early = p.s0 < 40;
-    const aEnd = J.s - (1.2 * vd + 6), sFree = J.sEnd + 1.0 * vd + 6, inner = J.dir > 0 ? 2 : 0;
+    const aEnd = J.s - (1.5 * vd + 6), sFree = J.sEnd + 1.7 * vd + 6, inner = J.dir > 0 ? 2 : 0;
     if (!early && aEnd - p.s0 > 12) this._rows(plan, p.s0 + 5, aEnd, { hardEnd: true });
     const last = plan.rows.length ? plan.rows[plan.rows.length - 1].route : (this._carry ? this._carry.route : 1);
     const u0 = LANES[last];
@@ -2255,7 +2258,7 @@ Object.assign(Obstacles.prototype, {
     const tailEnd = p.s1 - (forced ? Math.max(10, 0.6 * vd + 3) : 4);
     if (tailEnd - sFree > 10) {
       const keep = plan.rows; plan.rows = [];
-      this._rows(plan, sFree, tailEnd, { dens: 0.85, firstOnly: SINGLE_VERB });
+      this._rows(plan, sFree, tailEnd, { dens: 0.7, firstOnly: SINGLE_VERB });
       keep.push(...plan.rows); plan.rows = keep;
     }
     return route;
@@ -2862,6 +2865,7 @@ Object.assign(Obstacles.prototype, {
   throwBoulder(lane, s, force = false) {
     let l = clamp(lane | 0, 0, 2);
     if (!force) {
+      if (this.lastS < 2000 && this.dyn.length) return -1;      // max one boulder (flying or rolling) at a time in the first 2 km
       if (this._forcedStretch(s - 6, s + 100)) return -1;
       const bad = this._trapMask(s - 8, s + 100);
       if (bad & bit6(l)) {
@@ -2894,14 +2898,19 @@ Object.assign(Obstacles.prototype, {
   _updateDyn(dt, ball) {
     const T = this.track, hk = this.hk();
     // automatic throws: from ~1200 m (boss levels: from the start) at a rate that grows with hardness
-    const boss = (T.level && T.level.boss) || (T.zoneAt && T.zoneAt(ball.s) === 'boss'), start = boss ? (T.level && T.level.boss ? 150 : 0) : 1200 / Math.sqrt(hk);
+    const boss = (T.level && T.level.boss) || (T.zoneAt && T.zoneAt(ball.s) === 'boss'), start = boss ? (T.level && T.level.boss ? 150 : 0) : 1800 / Math.sqrt(hk);
     if (T.allows('boulder') && ball.s >= start && !(T.finishS < Infinity && ball.s > T.finishS - 90)) {
       if (!this._bArmed) { this._bArmed = true; this.nextBoulder = this.time + 5 + this.rng.next() * 6; }
       else if (this.time >= this.nextBoulder) {
-        const rng = this.rng, vs = ball.vs || this.ballVs, sLand = ball.s + vs * 1.5 + 9, pl = clamp(Math.round(ball.u / LANE_W) + 1, 0, 2);
+        const rng = this.rng, vs = ball.vs || this.ballVs, sLand = ball.s + vs * 1.5 + 9;
+        let busy = false;      // never stack a rage boulder on a hard / lethal row
+        for (let i = this.rowsLog.length - 1; i >= 0 && this.rowsLog[i].s > sLand - 40; i--) { const rl = this.rowsLog[i]; if ((rl.hard || rl.lethal) && Math.abs(rl.s - sLand) < 40) { busy = true; break; } }
+        if (busy) { this.nextBoulder = this.time + 1.0; } else {
+        const pl = clamp(Math.round(ball.u / LANE_W) + 1, 0, 2);
         const got = this.throwBoulder(rng.chance(0.5) ? pl : rng.int(0, 2), sLand);
         const diff = T._diff ? T._diff(ball.s) : 0.5;
-        this.nextBoulder = this.time + (got < 0 ? 1.2 : (boss ? rng.range(5, 9) : rng.range(16, 30) / (0.8 + 0.6 * diff)) / hk);
+        this.nextBoulder = this.time + (got < 0 ? 1.2 : (boss ? rng.range(5, 9) : rng.range(22, 38) / (0.8 + 0.6 * diff)) / hk);
+        }
       }
     }
     for (let i = this.dyn.length - 1; i >= 0; i--) {
@@ -2911,9 +2920,9 @@ Object.assign(Obstacles.prototype, {
         if (x >= 1) { b.phase = 1; b.tRoll = this.time; b.s = b.sLand; b.h = 0.95; if (b.dIdx >= 0) { this._release('disc', b.dIdx); b.dIdx = -1; } }
         else {
           b.s = b.sStart + (b.sLand - b.sStart) * x; b.h = 0.95 + 32 * x * (1 - x);
-          if (t >= b.T - 0.9) {
+          if (t >= b.T - 1.3) {       // red landing disc + warn event >= 1.0 s (1.3 s) before impact
             if (!b.warned) { b.warned = true; this.warnQ.push('boulder', b.lane, b.T - t); }
-            const k = (t - (b.T - 0.9)) / 0.9;
+            const k = (t - (b.T - 1.3)) / 1.3;
             this._set('disc', b.dIdx, b.fL, b.u, 0.06, 0, 0, 0.8 + 2.6 * k, 1, 0.8 + 2.6 * k);
           }
         }
@@ -3031,9 +3040,12 @@ KIND.slidewall = {
     ob.pR = this._part(ob, 'plow', 0xffffff, 3, 0.95, 0, 0, 2, 1.9, 0.9);
   },
   anim(ob, b) {
-    const n = ob.pat.length, x = b / ob.per, k = Math.floor(x), f = x - k;
-    const a = LANES[ob.pat[((k % n) + n) % n]], c = LANES[ob.pat[(((k + 1) % n) + n) % n]];
-    ob.gc = a + (c - a) * smooth(f / 0.4);
+    // Telegraphed single shift: the gap sits still (visible from far away) until the ball is 3.2 s away, slides ONE lane over
+    // 1.44 s (>= 1.2 s per lane), then freezes for the last 1.4 s (0.5 s reaction + lane change) so the open lane never moves under the player.
+    const a = LANES[ob.pat[0]], c = LANES[ob.pat[ob.pat.length > 1 ? 1 : 0]];
+    const tc = (ob.s - this.lastS) / Math.max(6, this.ballVs || 10);
+    const p = tc >= 3.2 ? 0 : tc <= 1.4 ? 1 : smooth(Math.min(1, (3.2 - tc) / 1.44));
+    ob.gc = a + (c - a) * p;
     const gl = ob.gc - 1.5, gr = ob.gc + 1.5, LIM = 4.7;
     const wl = Math.max(0, gl + LIM), wr = Math.max(0, LIM - gr);
     this._repart(ob.pL, -LIM + wl / 2, 0.95, 0, 0, wl || 0.001, 1.9, 0.9);

@@ -43,14 +43,21 @@ const SM = {
   pop: 0.28, bumpSoft: 0.8, bumpHit: 0.6,
   crashBreak: 0.65, crashWood: 0.6, crashRock: 0.5, crashGlass: 0.3,
   landSoft: 0.9, landCrunch: 0.5,
-  ui: 0.9, coin: 0.4, starJingle: 0.45, win: 0.8, lose: 0.8, milestone: 0.5,
+  ui: 0.8, coin: 0.4, starJingle: 0.45, win: 0.8, lose: 0.8, milestone: 0.5,
 };
 
-/** ui(kind) -> sample name. */
+/** ui(kind) -> sample name (soft Kenney CC0 interface set, see public/sfx/CREDITS.txt). Old ui_* files are the fallback. */
 const UI_SAMPLE = {
   __proto__: null,
-  click: 'ui_click', select: 'ui_select', confirm: 'ui_confirm', back: 'ui_back', toggle: 'ui_toggle',
+  click: 'ui_tap', tap: 'ui_tap', select: 'ui_pick', pick: 'ui_pick',
+  confirm: 'ui_ok', ok: 'ui_ok', play: 'ui_ok',
+  back: 'ui_return', close: 'ui_close', open: 'ui_open',
+  toggle: 'ui_switch', error: 'ui_nope', locked: 'ui_nope', deny: 'ui_nope',
+  reward: 'ui_reward', coin: 'ui_reward',
 };
+const UI_FALLBACK = { __proto__: null, ui_tap: 'ui_click', ui_pick: 'ui_select', ui_ok: 'ui_confirm', ui_return: 'ui_back', ui_close: 'ui_back', ui_open: 'ui_select', ui_switch: 'ui_toggle', ui_nope: 'ui_back', ui_reward: 'ui_confirm' };
+/** Per-kind loudness trim on top of SM.ui (back/close quieter than confirm). */
+const UI_VOL = { __proto__: null, ui_tap: 0.8, ui_pick: 0.8, ui_ok: 0.95, ui_return: 0.7, ui_close: 0.7, ui_open: 0.75, ui_switch: 0.8, ui_nope: 0.65, ui_reward: 0.8 };
 
 // Voice priorities: when the cap is hit, the oldest voice of the lowest priority
 // (<= the new one's) is stolen; if every voice outranks the newcomer it is dropped.
@@ -843,13 +850,16 @@ function milestone(level) {
 function ui(kind) {
   if (kind === 'pof') { pof(); return; }
   if (kind === 'chime') { chime(); return; }
+  if (kind === 'coin') kind = 'reward';
   if (kind === 'pop') { pop(0.3, 0); return; }
   if (kind === 'stomp') { stomp(0); return; }
   if (!ready() || !throttle('ui', 0.03)) return;
   let name = typeof kind === 'string' ? UI_SAMPLE[kind] : undefined;
-  if (!name || !has(name)) name = 'ui_click';
+  if (!name) name = 'ui_tap';
+  if (!has(name)) name = UI_FALLBACK[name] || 'ui_click';
+  if (!has(name)) name = 'ui_click';
   if (has(name)) {
-    smp(name, SM.ui, rand(0.97, 1.03), P_UI, ctx.currentTime + 0.001, 0);
+    smp(name, SM.ui * (UI_VOL[name] || 1), rand(0.97, 1.03), P_UI, ctx.currentTime + 0.001, 0);
     return;
   }
   const v = begin(P_UI, 0.15, MIX.ui);
@@ -1008,7 +1018,7 @@ export const audio = {
   land: guard(land),
   /** level 1..n gets grander (capped at 6). */
   milestone: guard(milestone),
-  /** Button feedback. Optional kind: 'click' (default) | 'select' | 'confirm' | 'back' | 'toggle'. */
+  /** Button feedback. Optional kind: 'click' (default) | 'select' | 'confirm' | 'back' | 'close' | 'open' | 'toggle' | 'error' | 'reward' | 'pof' | 'chime'. */
   ui: guard(ui),
   /** i = 0, 1, 2. */
   star: guard(star),

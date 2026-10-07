@@ -1554,7 +1554,7 @@ const GEN = {
       }
     }
     // rounded bushy hills far away
-    E._sc('hill', 3, 30, 120, 24, 46, { rel: true, my: 0.5, pal: P.ghHill, ov: 0.6, lift: -0.4 });
+    E._sc('hill', 3, 85, 170, 16, 30, { rel: true, my: 0.5, pal: P.ghHill, ov: 0.6, lift: -0.4 });
     // slope: tall palms, sunflowers facing the runner, round bushes
     E._sc('palm', 3.5, 17, U - 4, 1.8, 2.8, { pal: P.ghTree });
     E._sc('sunflower', 11, 15, U - 3, 1.5, 2.4, { pal: P.ghSun, yaw: 'pathR' });

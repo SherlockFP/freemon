@@ -541,7 +541,7 @@ Object.assign(Track.prototype, {
     if (sk >= 300) { w.stairs = 0.9; w.hexHoles = 0.9 + 1.4 * diff; }
     if (sk >= 400) w.split = 0.9 + 1.2 * diff;
     if (sk >= 520) w.gapJump = 0.5 + 1.6 * diff;
-    const cool = since < 1 ? (diff < 0.5 ? 0 : 0.12) : 1;
+    const cool = (since < 1 ? (diff < 0.5 ? 0 : 0.12) : 1) * (s0 < 1000 ? 0.6 : 1);
     let tot = 0;
     for (const k in w) { if (HAZARD[k]) w[k] *= cool; tot += w[k]; }
     let r = rng.next() * tot, kind = 'straight';
@@ -826,7 +826,7 @@ Object.assign(Track.prototype, {
       while (this._q.length < 3) this._q.push(this._qPick(s0 + 40 * (this._q.length + 1)));
       let kind = this._q.shift();
       if (s0 === 0) kind = 'straight';
-      else if (this._juncDue(s0)) { this._q.unshift(kind); kind = 'junction'; }       // Temple Run junction: scheduled by the corner clock, not by the 3-deep queue
+      else if (this._juncDue(s0)) { this._q.unshift(kind); kind = 'junction'; if (HAZARD[this._q[0]]) this._q[0] = 'straight'; }       // Temple Run junction: scheduled by the corner clock, not by the 3-deep queue
       const pNow = this.PT[this.PT.length - 1];
       const flatNow = Math.abs(pNow - flatOf(kind)) < 2.5 * DEG;
       let flatten = false;
@@ -1487,7 +1487,7 @@ Object.assign(Track.prototype, {
 
   /** Gap (s) between two corners: ~30 s at 350 m shrinking to ~15 s from 3 km on, +-17% jitter. */
   _juncGap(sC) {
-    const k = smooth((sC - 350) / 2650), sec = (30 - 15 * k) * this.rng.range(0.85, 1.17);
+    const k = smooth((sC - 350) / 2650), sec = (36 - 17 * k) * this.rng.range(0.85, 1.17);
     return sec * this.speedAt(sC);
   },
 

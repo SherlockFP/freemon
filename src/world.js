@@ -25,7 +25,7 @@ import { makeRng } from './rng.js';
 import { patchMaterial } from './shaders.js';
 
 // Movement modes for props.
-export const MOVE_NONE = 0, MOVE_SKI = 1, MOVE_WANDER = 2, MOVE_CROSS = 3, MOVE_ARMY = 77, MOVE_PULL = 88, MOVE_CHUNK = 99;
+export const MOVE_NONE = 0, MOVE_SKI = 1, MOVE_WANDER = 2, MOVE_CROSS = 3, MOVE_ARMY = 77, MOVE_ENEMY = 55, MOVE_PULL = 88, MOVE_CHUNK = 99;
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -43,11 +43,13 @@ const CH = 64;                 // chunk length (m)
 const NR = 16;                 // rows per chunk
 const ROW = CH / NR;           // 4 m
 const NCI = 10;                // cells across the track
-const BANK_F = [1.0, 0.88, 0.72, 0.56, 0.42, 0.3, 0.2, 0.12, 0.06, 0.02]; // bank columns as fractions of (EDGE - hw), outermost first
+const BANK_F = [1.0, 0.88, 0.72, 0.56, 0.42, 0.3, 0.2, 0.12, 0.06, 0.02]; // bank columns as fractions of (edge - hw), outermost first
 const NB = BANK_F.length;
 const NC = 2 * NB + NCI + 1;   // columns per row
-const EDGE = 100;              // terrain half-extent; the scenery ridges start here
-const MESH_CAP = 480;          // instances per prop type
+const EDGE = 100;              // minimum terrain half-extent (it grows with the slope width)
+const edgeFor = (hw) => Math.max(EDGE, hw * 1.7 + 50);
+const segLen = (gr) => clamp(5 + 3.2 * gr, 9, 320);
+const MESH_CAP = 700;          // instances per prop type
 
 // Content size mix per tier: [weight, qLo, qHi] with q = prop radius / ball radius (food is always < 0.9).
 // Later tiers are made of MANY smaller things (a field of people and cars for a ball the size of a house).
@@ -81,6 +83,7 @@ export class World {
     this.statics = [];   // colliding props, sorted by d
     this.decor = [];     // scenery, sorted by d (never collides)
     this.movers = [];
+    this.enemies = [];   // live enemy units (HP bars): also in `movers`
     this.pulls = []; this.pullPool = [];
     this.ramps = [];
     this.patches = [];
@@ -98,7 +101,7 @@ export class World {
     this.recent = []; this.obsRecent = [];
     this.credit = 0; this.spent = 0; // food ledger: features and events spend from the same budget as ordinary stretches
     this.genD = 4; this.decorD = -70;
-    this.nextFeatureD = 230; this.nextEventD = CFG.firstEvent; this.eventNo = 0; this.lastEventKind = '';
+    this.nextFeatureD = 230; this.nextEventD = CFG.firstEvent; this.nextGateD = CFG.firstGate; this.nextEnemyD = CFG.firstEnemy; this.nextBossD = CFG.firstBoss; this.eventNo = 0; this.lastEventKind = '';
     this.cullT = 0;
     this.labels = [];
     this.onArrive = null;
@@ -128,6 +131,13 @@ export class World {
       else { hw = lerp(t.from, t.to, smooth01((d - t.d0) / (t.d1 - t.d0))); break; }
     }
     return hw;
+  }
+
+  // Scenery / pole scale at distance d: follows the tier, and the ball radius beyond it.
+  scaleAtD(d) {
+    let k = 1;
+    for (let i = 0; i < this.trans.length; i++) { if (d > this.trans[i].d0) k = this.trans[i].scale || DECOR_SCALE[Math.min(this.trans[i].tier, 4)]; else break; }
+    return k;
   }
 
   // Tier whose width applies at distance d (for scaling scenery with the zone).
@@ -184,7 +194,7 @@ export class World {
   buildCatalog() {
     const lib = this.lib;
     const FOOD = new Set(['static', 'walker', 'skier', 'car', 'building', 'rock', 'tree']);
-    const food = [], obst = [], town = [], walkers = [], trees = [], decorAll = [];
+    const houses = [], food = [], obst = [], town = [], walkers = [], trees = [], decorAll = [];
     for (const name in lib) {
       if (name === 'chunk') continue;
       const def = lib[name];
@@ -193,15 +203,16 @@ export class World {
       if (!FOOD.has(kind)) continue;
       const e = { type: name, r: def.radius, h: def.height, kind, w: 1 };
       const isRockTree = kind === 'rock' || kind === 'tree';
-      food.push({ ...e, w: isRockTree ? 0.35 : 1 });
-      if (isRockTree || STRUCT.has(name)) obst.push({ ...e, w: kind === 'rock' ? 1.2 : 1 });
+      food.push({ ...e, w: isRockTree ? 0.35 : (kind === 'building' || STRUCT.has(name)) ? 2.2 : 1 });
+      if (isRockTree || STRUCT.has(name) || kind === 'building') obst.push({ ...e, w: kind === 'rock' ? 1.2 : kind === 'building' ? 1.6 : 1 });
+      if (kind === 'building' && !STRUCT.has(name)) houses.push(e);
       if (!isRockTree && e.r > 0.3) town.push(e);
       if (kind === 'walker' || kind === 'skier') walkers.push(e);
       if (isRockTree) decorAll.push({ ...e, w: kind === 'tree' ? 3 : 1 });
     }
     const byR = (a, b) => a.r - b.r;
     food.sort(byR); obst.sort(byR); town.sort(byR); walkers.sort(byR); decorAll.sort(byR); trees.sort(byR);
-    this.food = food; this.obst = obst; this.town = town; this.walkers = walkers; this.decorPool = decorAll;
+    houses.sort(byR); this.houses = houses; this.food = food; this.obst = obst; this.town = town; this.walkers = walkers; this.decorPool = decorAll;
     this.snackNames = ['pebble', 'gift', 'traffic_cone', 'penguin', 'bush_small', 'rabbit'].filter((n) => lib[n]);
     if (!this.snackNames.length) this.snackNames = food.slice(0, 4).map((e) => e.type);
   }
@@ -251,7 +262,7 @@ export class World {
   add(type, x, d, opts = {}) {
     const def = this.lib[type];
     if (!def) return null;
-    const s = clamp(opts.s ?? 0.9 + this.rng.next() * 0.25, 0.2, 8);
+    const s = clamp(opts.s ?? 0.9 + this.rng.next() * 0.25, 0.2, 24);
     const p = {
       type, def, x, d,
       y: 0,
@@ -294,7 +305,7 @@ export class World {
   place(type, x, d, hw, opts = {}) {
     const def = this.lib[type];
     if (!def) return null;
-    const s = clamp(opts.s ?? 1, 0.2, 8);
+    const s = clamp(opts.s ?? 1, 0.2, 24);
     const rad = def.radius * s * 0.8;
     const rec = this.recent;
     const pad = opts.pad ?? 0.4;
@@ -317,12 +328,22 @@ export class World {
   }
 
   // Food piece at relative size q (prop radius / ball radius) near (x, d). Returns its radius^3 (volume units) or 0.
+  // From ~120 m on, food keeps out of the centre line (the ball's suction reach): an idle ball starves, a steering one feeds.
+  offCenter(x, d, gr, hw) {
+    if (d < 120) return x;
+    const gap = Math.min(hw * 0.6, (gr * 1.35 * CFG.suctionK + CFG.suctionC) * 1.15);
+    if (Math.abs(x) >= gap) return x;
+    const side = x === 0 ? this.rng.sign() : Math.sign(x);
+    return side * (gap + Math.pow(this.rng.next(), 1.4) * Math.max(0, hw - gap - 1));
+  }
+
   food1(q, gr, x, d, hw, opts = {}) {
+    x = this.offCenter(x, d, gr, hw);
     const tr = Math.max(0.12, q * gr);
     const list = opts.list || this.food;
     const e = this.pick(list, tr, opts.sLo ?? 0.62, opts.sHi ?? 1.6);
     if (!e) return 0;
-    const s = clamp(tr / e.r * this.rng.range(0.94, 1.06), 0.22, 7);
+    const s = clamp(tr / e.r * this.rng.range(0.94, 1.06), 0.22, 22);
     const pad = Math.min(0.5 + tr * 0.5, hw * 0.3);
     const p = this.place(e.type, clamp(x, -hw + pad, hw - pad), d, hw, { s, tonK: opts.tonK, rot: opts.rot, pad: opts.spacing });
     if (!p) return 0;
@@ -357,7 +378,15 @@ export class World {
     this.lastGen.gr = gr; this.lastGen.T = T;
     const d = this.genD;
     const hw = this.halfWidth(d + 10);
-    const seg = clamp(5 + 3.2 * gr, 9, 36);
+    const seg = segLen(gr);
+    if (d >= this.nextGateD && d > 200) {
+      const len = this.placeGate(d, gr, T, hw);
+      this.genD = d + len;
+      this.nextGateD = this.genD + this.rng.range(CFG.gateGap[0], CFG.gateGap[1]);
+      if (this.nextEventD < this.genD + 70) this.nextEventD = this.genD + 70;
+      if (this.nextFeatureD < this.genD + 70) this.nextFeatureD = this.genD + 70;
+      return;
+    }
     if (d >= this.nextEventD) {
       const len = this.placeEvent(d, gr, T, hw);
       this.genD = d + len;
@@ -413,6 +442,11 @@ export class World {
       if (R.next() < rate - n) n++;
       for (let i = 0; i < n; i++) this.placeObstacle(d + R.range(0, seg), gr, T, hw);
     }
+    // houses (edible once the ball is big enough, smashable before that)
+    if (T >= 1 && this.houses.length && R.next() < 0.3 * seg / 12) this.placeHouse(d + R.range(0, seg), gr, T, hw);
+    // enemies with HP bars: a group every ~170 m, a boss every ~800 m
+    if (d > 140 && d >= this.nextBossD) { this.placeBoss(d + R.range(4, seg), gr, T, hw); this.nextBossD = d + CFG.bossGap; if (this.nextEnemyD < d + 60) this.nextEnemyD = d + 60; }
+    else if (d > 140 && d >= this.nextEnemyD) { this.placeEnemies(d + R.range(0, seg * 0.5), gr, T, hw); this.nextEnemyD = d + R.range(CFG.enemyGap[0], CFG.enemyGap[1]) * (1 - 0.13 * Math.min(T, 4)); }
     // life: skiers / walkers racing or wandering around
     if (d > 90 && R.next() < 0.1 * seg / 12) this.patMovers(d, seg, gr, T, hw);
   }
@@ -477,13 +511,76 @@ export class World {
     const q = R.range(0.3, 0.7);
     const e = this.pick(this.walkers, q * gr, 0.6, 1.6);
     if (!e) return;
-    const s = clamp(q * gr / e.r, 0.25, 6);
+    const s = clamp(q * gr / e.r, 0.25, 20);
     const cx = R.range(-hw * 0.6, hw * 0.6);
     for (let i = 0; i < n; i++) {
       const x = clamp(cx + R.range(-5, 5) * (1 + gr * 0.3), -hw + 1, hw - 1);
       if (skiers) this.add(e.type, x, d + R.range(0, 10), { s: s * R.range(0.92, 1.08), move: MOVE_SKI, vd: R.range(5, 8.5), rot: Math.PI });
       else this.add(e.type, x, d + R.range(0, 10), { s: s * R.range(0.92, 1.08), move: MOVE_WANDER });
     }
+  }
+
+  // A house scaled to 0.45-0.85 of the ball: edible (suction + crumble into the ball).
+  placeHouse(d, gr, T, hw) {
+    const R = this.rng;
+    const e = this.houses[R.int(0, this.houses.length - 1)];
+    if (!e) return;
+    const tr = R.range(0.45, 0.85) * gr;
+    const s = clamp(tr / e.r, 0.22, 22);
+    const pad = Math.min(e.r * s * 0.6, hw * 0.3);
+    this.place(e.type, clamp(R.range(-hw * 0.8, hw * 0.8), -hw + pad, hw - pad), d, hw, { s, tonK: 1.5 });
+  }
+
+  // ---- enemies: HP bar units. Rammed by the ball (see CigGame), never eaten.
+  enemyDefs() {
+    const L = this.lib;
+    const pick = (...n) => n.find((k) => L[k]);
+    return [
+      { id: 'soldier', name: 'KARDAN ASKER', lib: pick('snowman', 'k_snowman_hat', 'k_snowman'), hp: 0.8, ai: 'throw', ratio: [0.9, 1.3], tint: [1, 0.62, 0.6], spd: 5 },
+      { id: 'sled', name: 'KAR ARACI', lib: pick('snowmobile', 'k_tractor', 'car'), hp: 1.0, ai: 'chase', ratio: [1, 1.4], tint: [1, 0.78, 0.45], spd: 9 },
+      { id: 'yeti', name: 'YETİ', lib: pick('yeti', 'snowman'), hp: 1.25, ai: 'chase', ratio: [1.05, 1.5], tint: [0.8, 0.88, 1], spd: 7 },
+      { id: 'golem', name: 'BUZ GOLEMİ', lib: pick('boulder', 'k_rock_snow', 'rock_big'), hp: 1.8, ai: 'throw', ratio: [1.2, 1.7], tint: [0.5, 0.85, 1], spd: 0 },
+    ].filter((d) => d.lib);
+  }
+
+  makeEnemy(def, x, d, tr, boss) {
+    const lib = this.lib[def.lib];
+    const s = clamp(tr / lib.radius, 0.25, 24);
+    const p = this.add(def.lib, x, d, { s, rot: 0, move: MOVE_ENEMY, tonK: boss ? 4 : 2 });
+    if (!p) return null;
+    const hp = Math.max(8, p.r * CFG.hpPerR * def.hp * (boss ? 2 : 1) * (1 + 0.28 * Math.min(4, tierOf(this.genRad()))));
+    p.enemy = {
+      id: def.id, name: boss ? 'DEV YETİ' : def.name, ai: boss ? 'boss' : def.ai, boss: !!boss,
+      hp, max: hp, spd: def.spd * (boss ? 0.7 : 1), cd: 1.5 + Math.random() * 2, hitCd: 0, kbD: 0, kbX: 0, flash: 0, woke: false,
+      tint: boss ? [1, 0.5, 0.46] : def.tint,
+    };
+    p.tint = p.enemy.tint;
+    p.ox = x; p.od = d;
+    this.enemies.push(p);
+    return p;
+  }
+
+  placeEnemies(d, gr, T, hw) {
+    const R = this.rng;
+    const defs = this.enemyDefs();
+    if (!defs.length) return;
+    const ti = Math.min(T, defs.length - 1);
+    const n = R.int(1 + (T >= 1 ? 1 : 0), 2 + T);
+    const cx = R.chance(0.5) ? R.range(-hw * 0.12, hw * 0.12) : R.range(-hw * 0.6, hw * 0.6);
+    for (let i = 0; i < n; i++) {
+      const def = defs[R.chance(0.65) ? ti : Math.max(0, ti - 1)];
+      const tr = gr * R.range(def.ratio[0], def.ratio[1]) * (1 + 0.06 * T);
+      this.makeEnemy(def, clamp(cx + R.range(-4, 4) * (1 + gr * 0.3), -hw + 1.5, hw - 1.5), d + i * (2 + tr), tr, false);
+    }
+  }
+
+  placeBoss(d, gr, T, hw) {
+    const defs = this.enemyDefs();
+    const def = defs.find((e) => e.id === 'yeti') || defs[defs.length - 1];
+    if (!def) return;
+    const tr = gr * this.rng.range(2.4, 3) + 1;
+    this.zones.push({ d0: d - 12, d1: d + 40, kind: 'boss' });
+    this.makeEnemy(def, this.rng.range(-hw * 0.15, hw * 0.15), d + 10, tr, true);
   }
 
   // A prop clearly bigger than the ball. Never closes the track: a corridor of at least ~3 ball widths stays free.
@@ -493,11 +590,12 @@ export class World {
     const tr = q * gr;
     const e = this.pick(this.obst, tr, 0.6, 1.7);
     if (!e) return;
-    const s = clamp(tr / e.r * R.range(0.95, 1.08), 0.3, 7);
+    const s = clamp(tr / e.r * R.range(0.95, 1.08), 0.3, 22);
     const rad = e.r * s;
     const big = q > 2;
     for (let k = 0; k < 5; k++) {
-      const x = big ? R.sign() * R.range(hw * 0.35, hw * 0.9) : R.range(-hw * 0.85, hw * 0.85);
+      const gapC = Math.min(hw * 0.6, (gr * 1.35 * CFG.suctionK + CFG.suctionC) * 1.15);
+      const x = R.chance(0.55) ? R.range(-gapC * 0.8, gapC * 0.8) : big ? R.sign() * R.range(hw * 0.35, hw * 0.9) : R.range(-hw * 0.85, hw * 0.85);
       if (Math.abs(x) + rad * 0.7 > hw + rad * 0.3) continue;
       // free-corridor check against the obstacles around this distance
       const need = Math.max(3.2 * gr + 2, 4);
@@ -537,13 +635,13 @@ export class World {
     const len = 9 + gr * 1.2;
     const h = 2.6 + gr * 0.3;
     const x = R.range(-hw + w / 2 + 0.5, hw - w / 2 - 0.5) * 0.9;
-    const flip = d > 450 && R.chance(0.5);
+    const flip = false; // (no barrel rolls / flying: ramps are short hops)
     const ramp = { x, d, w, len, h, flip, mesh: null, R: gr };
     this.ramps.push(ramp);
     this.zones.push({ d0: d - 8, d1: d + len + 60 + gr * 3, kind: 'ramp' });
     // landing field: flying into a crowd is the money shot
     const v = Math.min(CFG.maxSpeed, CFG.baseSpeed + CFG.sizeSpeed * Math.sqrt(gr));
-    const B = 5 + 0.42 * v + CFG.grade * v;
+    const B = Math.min(CFG.hopMax, 4 + 0.18 * v) + CFG.grade * v;
     const t = (B + Math.sqrt(B * B + 2 * CFG.gravity * h)) / CFG.gravity;
     const land = d + len + v * t;
     const n = 14 + (flip ? 6 : 0);
@@ -582,7 +680,7 @@ export class World {
 
   // ---- events: KASABA jackpot, size gate, golden snowball ----
   placeEvent(d, gr, T, hw) {
-    const kinds = ['town', 'golden', 'gate'];
+    const kinds = ['town', 'golden'];
     let kind;
     if (this.eventNo === 0) kind = 'town';
     else {
@@ -612,7 +710,7 @@ export class World {
         const q = R.range(0.3, 0.62);
         const e = this.pick(this.town, q * gr, 0.55, 1.7);
         if (!e) continue;
-        const s = clamp(q * gr / e.r, 0.25, 6);
+        const s = clamp(q * gr / e.r, 0.25, 20);
         const rad = e.r * s;
         const x = side * (street + rad * CFG.contactK + R.range(0, 0.8));
         if (Math.abs(x) + rad * 0.5 > hw) continue;
@@ -646,7 +744,8 @@ export class World {
     const R = this.rng;
     const gd = d + 70;
     // a pace check: you should be about as big as the slope expects there
-    const minR = Math.max(gr * 0.96, Math.min(gr * 1.5, expectedRAt(gd) * 0.9), CFG.startR + 0.1);
+    // (sized to the current tier: the ball keeps growing on the way there, so a fed ball usually breaks it)
+    const minR = Math.max(gr * (0.9 + 0.05 * T), Math.min(gr * (1.25 + 0.1 * T), expectedRAt(gd) * 0.85), CFG.startR + 0.1);
     const g = this.buildGate(gd, minR, Math.max(hw, this.halfWidth(gd)));
     this.events.push({ kind: 'gate', d0: gd - 60, d1: gd + 5, name: 'KAPI', seen: false, gate: g });
     this.zones.push({ d0: d - 6, d1: gd + 14, kind: 'gate' });
@@ -747,20 +846,35 @@ export class World {
   // ---- tier-up: the slope widens, new-tier food drops right ahead ----
   setTier(t, ballD) {
     if (t <= this.curTier) return;
-    const from = this.trans.length ? this.trans[this.trans.length - 1].to : this.hw0;
-    const to = CFG.tierWidth[Math.min(t, CFG.tierWidth.length - 1)] / 2;
-    let d0 = ballD + CFG.widthLead;
-    if (this.trans.length) d0 = Math.max(d0, this.trans[this.trans.length - 1].d1 + 4);
-    this.trans.push({ d0, d1: d0 + CFG.widthBlend, from, to, tier: t });
     this.curTier = t;
+    this.widen(Math.max(CFG.tierWidth[Math.min(t, CFG.tierWidth.length - 1)] / 2, this.ballR * 5.2), ballD, true);
+  }
+
+  // The slope keeps up with the ball: wide enough that the ball is ~1/5 of it, whatever its size.
+  growWidth(ballD) {
+    const last = this.trans.length ? this.trans[this.trans.length - 1].to : this.hw0;
+    const want = Math.max(CFG.tierWidth[Math.min(this.curTier, CFG.tierWidth.length - 1)] / 2, this.ballR * 5.2);
+    if (want < last * 1.15 || ballD < (this._lastWiden || 0) + 30) return;
+    this._lastWiden = ballD;
+    this.widen(want, ballD, false);
+  }
+
+  widen(to, ballD, arch) {
+    const t = this.curTier;
+    const from = this.trans.length ? this.trans[this.trans.length - 1].to : this.hw0;
+    const gr = this.genRad();
+    const lead = Math.max(CFG.widthLead, gr * 9);
+    const blend = Math.max(CFG.widthBlend, gr * 6);
+    let d0 = ballD + lead;
+    if (this.trans.length) d0 = Math.max(d0, this.trans[this.trans.length - 1].d1 + 4);
+    this.trans.push({ d0, d1: d0 + blend, from, to, tier: t, scale: Math.max(DECOR_SCALE[Math.min(t, 4)], gr / 3.3) });
     // scenery beyond the start of the widening is re-decorated for the new width
     const cut = lbD(this.decor, d0 - 10);
     this.decor.length = Math.min(this.decor.length, cut);
     this.decorD = Math.min(this.decorD, d0 - 10);
     this.markDirty(d0 - CH);
-    this.addArch(d0 + CFG.widthBlend, to, t);
-    // new-tier welcome food, then fill the new strip of slope
-    const gr = this.genRad();
+    if (arch) this.addArch(d0 + blend, to, t);
+    // welcome food, then fill the new strip of slope
     const T = tierOf(gr);
     const hw = this.halfWidth(ballD + 55);
     const wd = ballD + 42;
@@ -768,10 +882,10 @@ export class World {
     for (let i = 0; i < 9; i++) this.food1(clamp(this.rollQ(T), 0.15, 0.55), gr, this.rng.range(-hw * 0.7, hw * 0.7), wd + this.rng.range(0, 34), hw, { spacing: 0.1 });
     this.food1(this.rng.range(0.72, 0.84), gr, this.rng.range(-hw * 0.3, hw * 0.3), wd + 24, hw);
     if (this.genD > d0) {
-      for (let dd = d0; dd < this.genD; dd += clamp(5 + 3.2 * gr, 9, 36)) {
+      for (let dd = d0; dd < this.genD; dd += segLen(gr)) {
         const hwd = this.halfWidth(dd + 20);
         const inner = this.halfWidth(d0 - 1);
-        if (hwd > inner + 1) this.regular(dd, clamp(5 + 3.2 * gr, 9, 36), gr, T, hwd, inner);
+        if (hwd > inner + 1) this.regular(dd, segLen(gr), gr, T, hwd, inner);
       }
     }
   }
@@ -800,7 +914,7 @@ export class World {
     const R = this.rngD;
     const d = this.decorD;
     const T = this.tierAtD(d);
-    const ts = DECOR_SCALE[Math.min(T, DECOR_SCALE.length - 1)];
+    const ts = this.scaleAtD(d);
     const step = (2.6 + this.ballR * 0.5) * ts;
     this.decorD = d + step * R.range(0.8, 1.25);
     if (!this.decorPool.length) return;
@@ -814,7 +928,7 @@ export class World {
       if (!e) continue;
       const s = clamp(tr / e.r * R.range(0.92, 1.18), 0.3, 8);
       const x = side * (hw + off + e.r * s * 0.4 + 1.2);
-      if (Math.abs(x) > EDGE - 4) continue;
+      if (Math.abs(x) > edgeFor(hw) - 4) continue;
       this.add(e.type, x, d + R.range(-1, 1) * step * 0.4, { s, decor: true });
     }
   }
@@ -901,9 +1015,10 @@ export class World {
   }
 
   colX(i, hw) {
-    if (i < NB) return -(hw + BANK_F[i] * (EDGE - hw));
+    const E = edgeFor(hw);
+    if (i < NB) return -(hw + BANK_F[i] * (E - hw));
     if (i <= NB + NCI) return -hw + (2 * hw * (i - NB)) / NCI;
-    return hw + BANK_F[NB - 1 - (i - NB - NCI - 1)] * (EDGE - hw);
+    return hw + BANK_F[NB - 1 - (i - NB - NCI - 1)] * (E - hw);
   }
 
   fillChunk(ch, k) {
@@ -1011,7 +1126,7 @@ export class World {
   // ===================================================================== streaming
   stream(ballD, ahead, behind, unlimited = false) {
     // content must reach as far as the fog lets you see, or props pop in on a big ball (the camera rises with the radius)
-    const contentAhead = clamp(140 + 20 * this.ballR, 150, 330);
+    const contentAhead = clamp(140 + 20 * this.ballR, 150, 900);
     let n = 0;
     while (this.genD < ballD + contentAhead && (unlimited || n++ < 5)) this.genSegment();
     n = 0;
@@ -1058,11 +1173,20 @@ export class World {
     this.time += dt;
     this.ballD = ballD;
     if (ball) { this.ballR = ball.r; this.ballX = ball.x; }
+    this.growWidth(ballD);
     this.stream(ballD, ahead, behind);
     this.updateMovers(dt);
+    this.pruneEnemies(ballD);
     if (ball) this.updatePulls(dt, ball);
     this.updateGateAnim(dt);
     this.render(ballD);
+  }
+
+  pruneEnemies(ballD) {
+    const a = this.enemies;
+    let n = 0;
+    for (let i = 0; i < a.length; i++) { const p = a[i]; if (p.alive && p.d > ballD - 80) a[n++] = p; }
+    a.length = n;
   }
 
   updateMovers(dt) {
@@ -1167,6 +1291,11 @@ export class World {
   // Only props within ~110 m ahead are tinted, fading in over the last 40 m so nothing pops.
   paintTint(mesh, i, p, ballD, tR, tE) {
     const a = mesh.instanceColor.array, o = i * 3;
+    if (p.tint) {
+      const f = p.enemy && p.enemy.flash > 0 ? 1 : 0;
+      a[o] = f ? 1.6 : p.tint[0]; a[o + 1] = f ? 1.3 : p.tint[1]; a[o + 2] = f ? 1.3 : p.tint[2];
+      return;
+    }
     let g = 1, b = 1;
     if (tR > 0 && p.kind !== 'chunk') {
       const lim = tR * tE;
@@ -1280,7 +1409,7 @@ export class World {
     let n = 0;
     const step = 14;   // fixed spacing: a tier-up must not shift every pole (only their size follows the zone)
     for (let d = Math.ceil(d0 / step) * step; d < d1 && n < 94; d += step) {
-      const t = DECOR_SCALE[Math.min(this.tierAtD(d), 4)];
+      const t = this.scaleAtD(d);
       const hw = this.halfWidth(d);
       for (let si = 0; si < 2; si++) {
         const side = si ? 1 : -1;

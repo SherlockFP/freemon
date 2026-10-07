@@ -97,6 +97,7 @@ let scenery = null;
 let plus = null;
 let game = null;
 let rainbowTrail = false;
+let agar = null;      // AGAR mode (another module, loaded on demand)
 // Particles in endless mode fall into the void instead of bouncing on the ÇIĞ terrain.
 const groundless = { groundY: () => -1e9, rampAt: () => 0 };
 
@@ -168,6 +169,7 @@ const menus = createMenus({
     // OYNA = YETİ RUSH straight away; ÇIĞ SONSUZ and MACERA are small buttons.
     onEndless: () => startEndless(),
     onCigEndless: () => startCigEndless(),
+    onAgar: () => startAgar(),
     onPlayLevel: (id) => startLevel(id),
     onBallTap: () => lobbyBounce(),
     onBallGold: () => { window.__patpatGold = true; tintGold(); },
@@ -196,6 +198,7 @@ platform.onResume(() => { audio.resume(); music.resume?.(); });
 platform.onBack(() => {
   if (closeShop) { closeShop(); return; }
   if (menus.back()) return; // lobby panels / cards close first
+  if (G.mode === 'agar') { if (agar && agar.onBack) agar.onBack(); else toMenu(); return; }
   if (G.state === 'runner') {
     // playing: pause / resume; on the result screen (or before the run has started) Back leaves to the menu
     const rs = runner?.state;
@@ -342,6 +345,8 @@ async function startEndless(level = null, opts = {}) {
     return;
   }
   if (G.mode === 'cig' && G.state === 'play') meta.track('cig_progress', { tons: game?.totalTons() || 0, dist: ball.d });
+  leaveAgar();
+  hideEnemyBars();
   G.mode = 'runner';
   G.state = 'runner';
   G.paused = false;
@@ -380,8 +385,54 @@ function leaveEndless() {
   setCigVisible(true);
 }
 
+// ---------- AGAR mode (module in ./agar/agar.js; it owns its own scene + camera) ----------
+async function startAgar() {
+  audio.init();
+  audio.ui();
+  let mod;
+  try {
+    mod = await import('./agar/agar.js');
+  } catch (e) {
+    console.error(e);
+    ui.toast('Agar modu yüklenemedi');
+    return;
+  }
+  if (agar) return;
+  if (G.mode === 'cig' && G.state === 'play') meta.track('cig_progress', { tons: game?.totalTons() || 0, dist: ball.d });
+  leaveEndless();
+  ui.hint(false);
+  ui.speedLines?.(0);
+  ui.cigReset?.();
+  ui.showPause(false);
+  hideEnemyBars();
+  menus.hideMain();
+  audio.setRoll(0, 0);
+  setCigVisible(false);
+  agar = new mod.AgarMode({
+    renderer, post, ui, audio, save, platform,
+    onExit: () => { if (agar) { agar.dispose(); agar = null; } toMenu(); },
+  });
+  G.mode = 'agar';
+  G.state = 'agar';
+  G.paused = false;
+  agar.start();
+}
+
+// Leaving AGAR (any way): dispose it and restore the normal ÇIĞ scene / mode.
+function leaveAgar() {
+  if (G.mode !== 'agar') return;
+  if (agar) { try { agar.dispose(); } catch (e) { console.warn(e); } agar = null; }
+  G.mode = 'cig';
+  G.paused = false;
+  ui.showPause(false);
+  ball.group.visible = true;
+  setCigVisible(true);
+  resize();
+}
+
 // ---------- menu / lobby ----------
 function toMenu() {
+  leaveAgar();
   leaveEndless();
   ui.hint(false); // the runner's swipe hint must not linger on the menu
   ui.speedLines?.(0);
@@ -432,6 +483,7 @@ function lobbyBounce() {
 function startCigEndless(opts = {}) {
   const daily = !!opts.daily;
   const fromMenu = G.state === 'menu' && G.mode === 'cig'; // lobby -> slope: the camera swoops out; retries cut cleanly
+  leaveAgar();
   leaveEndless();
   ui.cigReset?.();
   menus.hideMain();
@@ -643,6 +695,7 @@ function cigFrame(dt) {
     updateCamera(dt);
     scenery.update(gdt, camera, ball);
   }
+  updateEnemyBars();
 }
 
 function cigPlay(gdt) {
@@ -660,7 +713,7 @@ function cigPlay(gdt) {
   if (G.progT2 > 10) { G.progT2 = 0; meta.track('cig_progress', { tons: game.totalTons(), dist: b.d }); }
   audio.setRoll(b.airborne ? 0 : clamp(b.speed / 40, 0, 1), clamp(b.r / 10, 0, 1));
   // speed cues: wider FOV and speed lines as the ball gets heavy and fast
-  ui.speedLines?.(clamp((b.speed - 18) / 30, 0, 1) * 0.5 + (plus.T.rocket > 0 ? 0.5 : 0));
+  ui.speedLines?.(clamp((b.speed - 20) / 25, 0, 1) * 0.6 + (plus.T.rocket > 0 || game.powerT > 0 ? 0.4 : 0));
 }
 
 // ---------- the avalanche wave (white wall rolling in from behind when you stall) ----------
@@ -729,7 +782,8 @@ let camZoom = 0;   // extra zoom-out after a tier-up (decays)
 function updateCamera(dt, snap = false) {
   const b = ball;
   const r = b.r;
-  const z = 1 + camZoom;
+  // pull back as the ball grows so it keeps ~20-25% of the screen height instead of half
+  const z = (1 + camZoom) * (1 + 0.4 * clamp((r - 1) / 8, 0, 1));
   // steep enough that <= ~20-25% of the portrait screen is sky and the path stays visible over a big ball
   let back = (6.8 + r * 2.5) * z;
   let up = (8.5 + r * 4.2) * z;
@@ -772,9 +826,80 @@ function updateCamera(dt, snap = false) {
   sky.position.copy(camera.position);
   const fs = scenery?.theme?.fogScale ?? 1;
   scene.fog.near = (70 + r * 6) * fs;
-  scene.fog.far = Math.min(430, 300 + r * 9) * fs;
+  scene.fog.far = Math.min(1500, 300 + r * 9) * fs;
+  const wantNear = Math.max(0.5, r * 0.12);
+  if (Math.abs(camera.near - wantNear) > 0.05 * wantNear) { camera.near = wantNear; camera.updateProjectionMatrix(); }
   // what the camera shows around the ball (for steering gain); uses the base FOV so power-up FOV kicks don't change it
   camVisW = 2 * camera.position.distanceTo(ball.group.position) * Math.tan(baseFov * Math.PI / 360) * camera.aspect;
+}
+
+// ---------- enemy HP bars (DOM, pooled) + boss bar ----------
+const BAR_N = 8;
+let barRoot = null, bossEl = null;
+const barPool = [];
+function ensureBars() {
+  if (barRoot) return;
+  barRoot = document.createElement('div');
+  barRoot.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:14;overflow:hidden;display:none;';
+  for (let i = 0; i < BAR_N; i++) {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:absolute;left:0;top:0;height:7px;border-radius:4px;background:rgba(10,16,32,.7);border:1px solid rgba(255,255,255,.55);overflow:hidden;display:none;will-change:transform;';
+    const fill = document.createElement('i');
+    fill.style.cssText = 'display:block;height:100%;width:100%;background:linear-gradient(#ff7a6b,#e02f3d);transform-origin:left center;';
+    el.appendChild(fill);
+    barRoot.appendChild(el);
+    barPool.push({ el, fill, on: false });
+  }
+  bossEl = document.createElement('div');
+  bossEl.style.cssText = 'position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 78px);transform:translateX(-50%);width:min(82vw,420px);display:none;text-align:center;font:800 13px system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);letter-spacing:.06em;';
+  const nm = document.createElement('div');
+  const track = document.createElement('div');
+  track.style.cssText = 'margin-top:3px;height:13px;border-radius:7px;background:rgba(10,16,32,.72);border:2px solid #fff;overflow:hidden;';
+  const bf = document.createElement('i');
+  bf.style.cssText = 'display:block;height:100%;width:100%;background:linear-gradient(#ff8a5b,#d4202f);transform-origin:left center;';
+  track.appendChild(bf);
+  bossEl.appendChild(nm); bossEl.appendChild(track);
+  bossEl._nm = nm; bossEl._bf = bf;
+  barRoot.appendChild(bossEl);
+  document.body.appendChild(barRoot);
+}
+function hideEnemyBars() {
+  if (!barRoot) return;
+  barRoot.style.display = 'none';
+  for (const b of barPool) { b.on = false; b.el.style.display = 'none'; }
+  bossEl.style.display = 'none';
+}
+function updateEnemyBars() {
+  if (G.mode !== 'cig' || G.state !== 'play' || !world || !world.enemies.length) { if (barRoot && barRoot.style.display !== 'none') hideEnemyBars(); return; }
+  ensureBars();
+  barRoot.style.display = 'block';
+  camera.updateMatrixWorld();
+  const W = window.innerWidth, H = window.innerHeight;
+  const en = world.enemies;
+  let n = 0, boss = null;
+  for (let i = 0; i < en.length; i++) {
+    const p = en[i];
+    if (!p.alive) continue;
+    const dd = p.d - ball.d;
+    if (dd < -6 || dd > 130) continue;
+    if (p.enemy.boss) { if (!boss || dd < boss.d - ball.d) boss = p; continue; }
+    if (n >= BAR_N) continue;
+    _v.set(p.x, p.y + p.h * 1.08 + 0.2, -p.d).project(camera);
+    if (_v.z > 1 || Math.abs(_v.x) > 1.1 || _v.y < -1.1 || _v.y > 1.2) continue;
+    const B = barPool[n];
+    const w = clamp(34 + p.r * 5, 44, 90);
+    B.el.style.width = w + 'px';
+    B.el.style.transform = 'translate(' + ((_v.x * 0.5 + 0.5) * W - w / 2).toFixed(1) + 'px,' + ((-_v.y * 0.5 + 0.5) * H - 8).toFixed(1) + 'px)';
+    B.fill.style.transform = 'scaleX(' + clamp(p.enemy.hp / p.enemy.max, 0, 1).toFixed(3) + ')';
+    if (!B.on) { B.on = true; B.el.style.display = 'block'; }
+    n++;
+  }
+  for (let i = n; i < BAR_N; i++) if (barPool[i].on) { barPool[i].on = false; barPool[i].el.style.display = 'none'; }
+  if (boss) {
+    bossEl.style.display = 'block';
+    bossEl._nm.textContent = boss.enemy.name + '  ' + Math.max(0, Math.ceil(boss.enemy.hp)) + ' / ' + Math.ceil(boss.enemy.max);
+    bossEl._bf.style.transform = 'scaleX(' + clamp(boss.enemy.hp / boss.enemy.max, 0, 1).toFixed(3) + ')';
+  } else bossEl.style.display = 'none';
 }
 
 // ---------- loop ----------
@@ -792,14 +917,24 @@ function frame(now) {
   try {
     if (G.mode === 'runner') {
       if (runner && !G.paused) runner.update(dt);
+    } else if (G.mode === 'agar') {
+      if (agar && !G.paused) agar.update(dt);
     } else cigFrame(dt);
   } catch (e) {
     if (frameErrors++ < 5) console.error('[frame]', e);
   }
 
+  // AGAR owns its scene + camera: skip the normal ÇIĞ / runner render
+  if (G.mode === 'agar' && agar) {
+    SU.uTime.value = now / 1000;
+    try { post.render(agar.scene, agar.camera); } catch (e) { if (frameErrors++ < 5) console.error('[agar render]', e); }
+    adaptResolution(dt);
+    return;
+  }
+
   // widen the FOV with speed (endless modes)
   let wantFov = baseFov + (camera.userData.fovBoost || 0);
-  if (G.mode === 'cig' && G.state === 'play') wantFov += 9 * clamp((ball.speed - 13) / 24, 0, 1) + G.fovKick;
+  if (G.mode === 'cig' && G.state === 'play') wantFov += 12 * clamp((ball.speed - 18) / 27, 0, 1) + G.fovKick;
   if (Math.abs(camera.fov - wantFov) > 0.05) {
     camera.fov += (wantFov - camera.fov) * Math.min(1, dt * 4);
     camera.updateProjectionMatrix();
@@ -883,6 +1018,8 @@ if (DEBUG) {
       const b = runner.b;
       return { state: runner.state, s: +b.s.toFixed(1), u: +b.u.toFixed(2), h: +b.h.toFixed(2), v: +b.vs.toFixed(1), r: +b.r.toFixed(2), gap: +runner.gap.toFixed(1), score: Math.round(runner.score), coins: runner.coins, cause: runner.cause };
     },
+    agar: () => startAgar(),
+    get agarMode() { return agar; },
     get runner() { return runner; },
     get plus() { return plus; },
     get ui() { return ui; },

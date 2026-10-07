@@ -307,6 +307,8 @@ export class Runner {
     this.punch = 0;
     this._progT = 0;
     this.lastSmashStop = -9;
+    this.smashTimes = [];
+    this.rampT = 0;
     this.fogK = 0;
     this.fogTarget = 0;
 
@@ -584,6 +586,7 @@ export class Runner {
       if (Math.random() < dt * 40) this.burst(1, 0xffa040, 2);
       if (this.rocketT <= 0) { this.invulnT = Math.max(this.invulnT, 1); this.yetiHoldT = 0; }
     }
+    if (this.rampT > 0) { this.rampT -= dt; if (Math.random() < dt * 30) this.burst(1, 0xffd060, 2); if (this.rampT <= 0) this.float('YIKIM BİTTİ', ''); }
     if (this.ghostT > 0) { this.ghostT -= dt; if (this.ghostT <= 0) { this.setGhost(false); this.float('HAYALET BİTTİ', ''); } }
     if (this.riskT > 0) { this.riskT -= dt; if (this.riskT <= 0) this.float('RİSK BİTTİ', ''); }
     if (this.cloneT > 0) { this.cloneT -= dt; if (this.cloneT <= 0) this.endClone(false); }
@@ -1332,7 +1335,7 @@ export class Runner {
       c.events.length = 0;
       this.obstacles.collide(cb, c.events);
       for (const e of c.events) {
-        if (e.type === 'hit' && !(this.sizeNow() >= (e.toughness ?? 5) + RCFG.smashMargin) && this.ghostT <= 0 && this.rocketT <= 0) { this.endClone(true); return; }
+        if (e.type === 'hit' && !(this.sizeNow() >= (e.toughness ?? 5) + RCFG.smashMargin) && this.ghostT <= 0 && this.rocketT <= 0 && !(this.rampT > 0 && (e.toughness ?? 5) <= 4)) { this.endClone(true); return; }
         if (e.type === 'pickup' && (e.kind === 'flake' || e.kind === 'snow')) this.handle(e);
       }
     }
@@ -1608,7 +1611,7 @@ export class Runner {
     const { audio, platform } = this.ctx;
     const tough = e.toughness ?? 5;
     const giant = this.buffs.has('dev');
-    if (this.rocketT > 0 || this.sizeNow() >= tough + RCFG.smashMargin || (giant && tough <= 3)) {
+    if (this.rocketT > 0 || this.sizeNow() >= tough + RCFG.smashMargin || (giant && tough <= 3) || (this.rampT > 0 && tough <= 4)) {
       this.obstacles.resolve?.(e.id, true);
       this.smashes++;
       this.ctx.meta?.track?.('smash', { toughness: tough });
@@ -1622,8 +1625,18 @@ export class Runner {
       if (this.rocketT <= 0 && tough >= 2 && this.time - this.lastSmashStop > 0.3) { this.hitStop = Math.max(this.hitStop, 0.025 + 0.01 * tough); this.lastSmashStop = this.time; }
       b.vs *= this.rocketT > 0 ? 1 : 0.94;
       this.debris(e, 14);
-      if (this.rocketT <= 0 && !giant) this.drain(RCFG.smashCost * tough);
-      this.float(['', 'ÇİT!', 'KIRDIN!', 'PARAMPARÇA!', 'DEVİRDİN!', 'YIKTIN!'][Math.min(5, tough)], '');
+      // Smashing makes you STRONGER: a little snow per toughness point (double in YIKIM MODU), a smash streak, a short 'GÜÇ!' flash.
+      this.addSnow((0.04 + 0.03 * tough) * (this.rampT > 0 ? 2 : 1));
+      this.ctx.ui.runnerSizeTick?.();
+      this.smashTimes.push(this.time);
+      while (this.smashTimes.length && this.time - this.smashTimes[0] > 4) this.smashTimes.shift();
+      if (this.rampT <= 0 && this.smashTimes.length >= 3) {
+        this.rampT = 3; this.smashTimes.length = 0;
+        this.queueBanner('YIKIM MODU!', 5, 1.2, true);
+        this.kick += 3; this.trauma = Math.min(1, this.trauma + 0.25);
+        this.mistBurst(14, 0xffd060, 4, 1);
+      }
+      this.float((['', 'ÇİT!', 'KIRDIN!', 'PARAMPARÇA!', 'DEVİRDİN!', 'YIKTIN!'][Math.min(5, tough)] + ' GÜÇ!').trim(), '');
       return;
     }
     this.obstacles.resolve?.(e.id, false);
@@ -2639,9 +2652,9 @@ export class Runner {
     const cornerT = this.jnJ && b.s >= this.jnJ.s - 12 && b.s <= this.jnJ.s + 18 ? 1 : 0;
     this.cornerK += (cornerT - this.cornerK) * kfil(snap, cdt, 8);
 
-    let backT = 8 + r * 3 - this.closeK * 1.5 + 1.2 * speedK;
-    let upT = 4.4 + r * 1.6 + this.closeK * 3.5 + curvK * 1.4 + pitchK * 1.5 + this.camRoundK * 0.8;
-    let laT = 12 + 5 * speedK + 2 * this.closeK - 4 * this.cornerK;       // through a sharp corner: look a little shorter, swing a little slower
+    let backT = 6.6 + r * 2.6 - this.closeK * 1.2 + 1.0 * speedK;
+    let upT = 3.5 + r * 1.4 + this.closeK * 3.2 + curvK * 1.4 + pitchK * 1.5 + this.camRoundK * 0.8;
+    let laT = 11 + 5 * speedK + 2 * this.closeK - 4 * this.cornerK;       // through a sharp corner: look a little shorter, swing a little slower
     if (kind === 'tube') upT = Math.min(upT, 7);
     // Inside a vertical loop (a circle only 5.5-11 m in radius) the camera is a rigid chase rig in the BALL's own frame:
     // close behind (along the tangent), up toward the circle's centre, looking at the track a short way ahead.
@@ -2663,7 +2676,7 @@ export class Runner {
     _ax.crossVectors(WORLD_UP, _f.up);
     const sinA = _ax.length();
     const angW = Math.atan2(sinA, WORLD_UP.dot(_f.up));
-    const maxAng = (25 + 155 * this.flipK) * DEG;
+    const maxAng = (9 + 171 * this.flipK) * DEG;      // roll capped to ~9 deg on banked curves (world-up dominates)
     if (angW < 1e-4) _x.copy(WORLD_UP);
     else {
       if (sinA < 1e-3) _ax.copy(_f.right); else _ax.multiplyScalar(1 / sinA);
@@ -2683,6 +2696,13 @@ export class Runner {
     const laS = b.s + this.camLa + (snap ? 0 : b.vs * 0.1);
     tr.toWorld(laS, this.camLookU, 0, _look);
     _look.addScaledVector(_f.up, Math.max(b.h * 0.6, 0) + 0.4 - this.closeK * 0.6);
+    // Keep the ball horizontally centred: on a curve the track point ahead drifts sideways of the camera->ball line, so the
+    // horizontal look direction is blended (85%) toward the camera->ball line, extended past the ball by camLa.
+    if (!dying && lk < 0.5) {
+      tr.toWorld(b.s, b.u, 0, _tp);
+      const dx = _tp.x - _v.x, dz = _tp.z - _v.z, dl = Math.hypot(dx, dz);
+      if (dl > 0.5) { const e = (dl + this.camLa) / dl, bx = _v.x + dx * e, bz = _v.z + dz * e, w = 0.85 * (1 - 2 * lk); _look.x += (bx - _look.x) * w; _look.z += (bz - _look.z) * w; }
+    }
     if (dying) _look.copy(this.ctx.ball.group.position);
     this.camPos.copy(_v);
     this.camLook.lerp(_look, snap ? 1 : 1 - Math.exp(-cdt * (10 - 3 * this.cornerK)));
@@ -2714,7 +2734,7 @@ export class Runner {
     ud.fovKick = this.kick;
     // main.js low-passes fovBoost at 4/s, which keeps only ~27% of a short pulse: until it applies fovKick itself (and sets
     // fovKickOk) the pulse is sent through fovBoost with a gain that survives that filter (a smash or near miss: ~1.5 degrees).
-    ud.fovBoost = 2 + speedK * 8 + (this.rocketT > 0 ? 6 : 0) + (this.riskT > 0 ? 4 : 0) + (ud.fovKickOk ? 0 : this.kick * 1.6);
+    ud.fovBoost = -3 + speedK * 5 + (this.rocketT > 0 ? 6 : 0) + (this.riskT > 0 ? 4 : 0) + (ud.fovKickOk ? 0 : this.kick * 1.6);
   }
 
   dispose() {

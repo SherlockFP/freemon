@@ -34,6 +34,7 @@ const MANIFEST = [
   ['crash_rock_1', 1.25], ['crash_rock_2', 1.36],
   ['break_1', 1.44], ['break_2', 1.82], ['break_3', 1.25], ['break_4', 1.17],
   ['ui_click', 0.75], ['ui_select', 0.58], ['ui_confirm', 0.37], ['ui_back', 0.72], ['ui_toggle', 0.33],
+  ['ui_tap', 0.6], ['ui_pick', 0.6], ['ui_ok', 0.55], ['ui_return', 0.55], ['ui_close', 0.55], ['ui_open', 0.55], ['ui_switch', 0.55], ['ui_nope', 0.5], ['ui_reward', 0.6],
   ['coin_1', 0.8], ['coin_2', 0.62],
   ['jingle_win', 0.55], ['jingle_lose', 0.59], ['jingle_milestone', 0.59], ['jingle_star', 0.77],
 ];

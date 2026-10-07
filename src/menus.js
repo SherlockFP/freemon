@@ -1018,7 +1018,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   }
 
   function openPanel({ id, title, sub = '', pills = ['coins'], tabs = null, onTab = null, raw = false }) {
-    closePanel(true);
+    sfx('open'); closePanel(true);
     const ov = el('div', `fm-ov fm-p-${id}`);
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-modal', 'true');
@@ -1039,7 +1039,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       if (p.pills.crystals) p.pills.crystals.set(meta.crystals, animate);
     };
     p.refreshPills(false);
-    const x = button('fm-x', '✕', () => { sfx('back'); closePanel(); }, 'Kapat');
+    const x = button('fm-x', '✕', () => { sfx('close'); closePanel(); }, 'Kapat');
     add(head, titles, x);
     if (pillBox.firstChild) head.appendChild(pillBox);
     add(ov, head);
@@ -1125,7 +1125,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
         const hb = button('fm-btn big green', `${hol.emoji} ${hol.name}: AL ${rewardLine({ coins: hol.coins })}`, () => {
           const rr = meta.claimHoliday();
           if (!rr) { render(); return; }
-          sfx('confirm');
+          sfx('reward');
           if (cb.onReward) { try { cb.onReward('holiday', rr); } catch { /* ignore */ } }
           confetti(40);
           fly(hb, p.pills.coins && p.pills.coins.el, '❄️', 8, () => p.refreshPills(true));
@@ -1172,7 +1172,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       const r = meta.claimDaily();
       if (!r) { render(); return; }
       claiming = true;
-      sfx('confirm');
+      sfx('reward');
       if (cb.onReward) { try { cb.onReward('daily', r); } catch { /* ignore */ } }
       const src = todayEl || claimBtn;
       if (r.coins) fly(src, p.pills.coins && p.pills.coins.el, '❄️', 9, () => p.refreshPills(true));
@@ -1231,7 +1231,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     function claimOne(def, rowEl, btn) {
       const given = meta.claimAchievement(def.id);
       if (!given) { render(); return; }
-      sfx('confirm');
+      sfx('reward');
       if (cb.onReward) { try { cb.onReward('achievement', given); } catch { /* ignore */ } }
       if (given.coins) fly(btn, p.pills.coins.el, '❄️', 6, () => p.refreshPills(true));
       if (given.crystals) fly(btn, p.pills.crystals.el, '💎', 3, () => p.refreshPills(true));
@@ -1265,7 +1265,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       });
       if (p.tab === 0 && unclaimed > 1) {
         p.list.appendChild(button('fm-btn big green', `HEPSİNİ AL (${unclaimed})`, () => {
-          sfx('confirm');
+          sfx('reward');
           let coinsSum = 0;
           let crystalsSum = 0;
           for (const d of ACHIEVEMENTS) {
@@ -1380,7 +1380,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
         else {
           const cost = meta.skipCost();
           const sk = button('fm-skip', '', () => {
-            if (!meta.skipMission(i)) { sk.classList.add('fm-shake'); sfx('back'); setTimeout(() => sk.classList.remove('fm-shake'), 340); return; }
+            if (!meta.skipMission(i)) { sk.classList.add('fm-shake'); sfx('error'); setTimeout(() => sk.classList.remove('fm-shake'), 340); return; }
             sfx('confirm');
             p.refreshPills(true);
             render();
@@ -1438,7 +1438,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
           const afford = coins() >= cost;
           const b = button(`fm-btn${afford ? '' : ' poor'}`, `❄️ ${fmt(cost)}`, () => {
             if (!afford || !meta.buyUpgrade(u.id)) {
-              b.classList.add('fm-shake'); sfx('back'); setTimeout(() => b.classList.remove('fm-shake'), 340);
+              b.classList.add('fm-shake'); sfx('error'); setTimeout(() => b.classList.remove('fm-shake'), 340);
               return;
             }
             sfx('confirm');
@@ -1460,7 +1460,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       const afford = coins() >= SLED_PACK.price;
       const sb = button(`fm-btn blue${afford ? '' : ' poor'}`, `${SLED_PACK.count}'LÜ ❄️ ${SLED_PACK.price}`, () => {
         if (!afford || !meta.buySled(1)) {
-          sb.classList.add('fm-shake'); sfx('back'); setTimeout(() => sb.classList.remove('fm-shake'), 340);
+          sb.classList.add('fm-shake'); sfx('error'); setTimeout(() => sb.classList.remove('fm-shake'), 340);
           return;
         }
         sfx('confirm');
@@ -1774,7 +1774,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     if (boxEl || resultEl) return false;
     if (modalEl) { closeModal(); return true; }
     if (cardRef) { closeCard(); return true; }
-    if (activePanel) { sfx('back'); closePanel(); return true; }
+    if (activePanel) { sfx('close'); closePanel(); return true; }
     if (worldEl) { leaveWorlds(); return true; }
     return false;
   }
@@ -1800,13 +1800,13 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
   function openLevelCard(p, lv) {
     closeCard();
-    sfx('click');
+    sfx('open');
     const camp = campInfo();
     const A = ACTS[lv.act - 1];
     const locked = lv.id > camp.unlocked;
     const best = meta.levelBest ? meta.levelBest(lv.id) : null;
     const back = el('div', 'fm-lback');
-    back.addEventListener('click', () => { sfx('back'); closeCard(); });
+    back.addEventListener('click', () => { sfx('close'); closeCard(); });
     const card = el('div', 'fm-lcard');
     setCss(card, '--ca', A.colors.a);
     setCss(card, '--cb', A.colors.b);
@@ -1815,7 +1815,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     setCss(lbig, '--cb', A.colors.b);
     const head = el('div', 'fm-lhead');
     add(head, lbig, add(el('div', ''), el('div', 'l1', `BÖLÜM ${lv.id}${lv.boss ? ' · BOSS' : ''} · ${A.name.toLocaleUpperCase('tr-TR')}`), el('div', 'l2', lv.name)),
-      button('fm-x', '✕', () => { sfx('back'); closeCard(); }, 'Kapat'));
+      button('fm-x', '✕', () => { sfx('close'); closeCard(); }, 'Kapat'));
     card.appendChild(head);
     const goals = el('div', 'fm-lgoals');
     lv.goals.forEach((g, i) => {
@@ -1827,7 +1827,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     if (best) card.appendChild(el('div', 'fm-lbest', `REKOR ${'⭐'.repeat(best.stars)}${'☆'.repeat(3 - best.stars)} · %${best.flakesPct} kar tanesi${best.time ? ` · ${Math.floor(best.time / 60)}:${String(best.time % 60).padStart(2, '0')}` : ''}`));
     if (locked) {
       card.appendChild(el('div', 'fm-llock', `🔒 Önce ${camp.unlocked}. bölümü bitir`));
-      const b = button('fm-btn big lock', 'KİLİTLİ', () => { b.classList.add('fm-shake'); sfx('back'); setTimeout(() => b.classList.remove('fm-shake'), 340); });
+      const b = button('fm-btn big lock', 'KİLİTLİ', () => { b.classList.add('fm-shake'); sfx('error'); setTimeout(() => b.classList.remove('fm-shake'), 340); });
       card.appendChild(b);
     } else {
       card.appendChild(button('fm-btn big green', 'OYNA ▶', () => { sfx('confirm'); closeCard(); startLevel(lv.id); }));
@@ -2264,6 +2264,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.play = button('fm-play', 'OYNA', () => { sfx('confirm'); playMode('endless'); }, 'Oyna: Yeti Rush');
     r.play.appendChild(el('small', '', 'YETİ RUSH'));
     add(bot, add(el('div', 'fm-playw'), r.play));
+    r.arena = button('fm-arena', '', () => { sfx('confirm'); if (cb.onAgar) cb.onAgar(); }, 'Kartopu Arena');
+    add(r.arena, el('span', 'ico', '⚔️'), add(el('span', 'tx'), el('b', '', 'KARTOPU ARENA'), el('small', '', 'Dev harita · botlar · arkadaşlarınla oda kur')));
+    bot.appendChild(r.arena);
     const sCig = secBtn('c-cig', '⛰️', 'ÇIĞ SONSUZ', () => startCig());
     const sMap = secBtn('c-map', '🗺️', 'MACERA', () => { try { meta.setMode('camp'); } catch { /* ignore */ } openMap(); });
     const sShop = secBtn('c-shop', '👕', 'Dolap', () => { if (cb.onShop) cb.onShop(); });

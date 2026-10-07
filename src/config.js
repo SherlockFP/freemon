@@ -26,13 +26,15 @@ export const CFG = {
   widthLead: 95,       // the widening starts this far ahead of the ball (m): beyond what is already on screen
 
   // ---- speed: heavier = faster ----
-  baseSpeed: 12,       // m/s
-  sizeSpeed: 3.4,      // + sizeSpeed * sqrt(r)
-  maxSpeed: 40,
-  startSpeed: 12,      // run start speed (food within half a second)
-  accel: 7,            // m/s²
-  decel: 21,
+  baseSpeed: 18,       // m/s
+  sizeSpeed: 6,        // + sizeSpeed * sqrt(r)
+  maxSpeed: 45,
+  startSpeed: 17,      // run start speed (food within half a second)
+  accel: 18,           // m/s²
+  decel: 30,
   recoverBoost: 2.2,   // acceleration multiplier right after a hit
+  minSpeedFrac: 0.7,   // never slower than this fraction of the target speed (except at a size gate)
+  hopMax: 9,           // ramps / mushrooms are short hops: the launch speed is capped (no flying)
 
   // ---- steering: first-order follower, direct finger control ----
   steerLam: 16,        // follow rate (1/s), divided by (1 + r * steerMassK)
@@ -50,7 +52,7 @@ export const CFG = {
   pullsPerStep: 8,
 
   // ---- hunger (continuous melt, volume fraction per second) ----
-  melt: [0.025, 0.029, 0.033, 0.037, 0.04],
+  melt: [0.027, 0.032, 0.038, 0.045, 0.052],
   meltGrace: [4, 16],  // seconds: no melt before the first, full melt after the second
   patchMelt: 0.09,     // extra melt while rolling on bare ground
   dieK: 0.42,          // ERİDİN! when r < max(minR, dieK * peak radius)
@@ -67,7 +69,21 @@ export const CFG = {
   // ---- events (every ~400 m): town jackpot, size gate, golden snowball ----
   firstEvent: 330,
   eventGap: [340, 460],
-  gateLoss: 0.3,           // volume lost smashing into a gate that is too big
+  gateLoss: 0.14,          // volume lost smashing into a gate that is too big
+  gateGap: [230, 280],     // size gates (barriers) come regularly: every ~250 m
+  firstGate: 260,
+  gateGrow: 0.12,          // volume gained breaking a barrier
+  powerT: 3,               // GÜÇLENDİN! seconds (speed + suction + smash anything)
+  powerSpeed: 1.22,
+  powerSuction: 1.5,
+  smashGrow: 0.3,          // fraction of a prop's volume you gain smashing it
+  // ---- enemies (HP bars) ----
+  enemyGap: [140, 210],    // distance between enemy groups
+  firstEnemy: 170,
+  bossGap: 800,
+  firstBoss: 620,
+  hpPerR: 24,              // enemy HP = radius * this (times a per-type factor)
+  ramDmg: 14,              // ram damage = ball radius * this * speed factor
   goldenTons: 0.35,        // golden snowball: + this fraction of the current snow tons ...
   goldenMinTons: 30,       // ... at least this many tons
   goldenGrow: 0.06,        // ... and this fraction of volume
@@ -83,8 +99,8 @@ export const CFG = {
   foodAnchors: [[0.5, 0.03], [1.5, 0.0135], [3, 0.0079], [6, 0.0051], [10, 0.0038], [20, 0.0025]],
   foodScale: 1,        // balance knob: multiplies every food budget
   foodTail: -1.2,      // exponent of the decay past the last anchor
-  obstacleRate: [2.4, 2.8, 3.2, 3.4, 3.6],            // big obstacles per 100 m after the first 130 m
-  viewAheadMax: 420,
+  obstacleRate: [1.5, 1.7, 1.9, 2.0, 2.1],            // big obstacles per 100 m after the first 130 m
+  viewAheadMax: 1500,
 
   // ---- pacing: the radius the slope is tuned for at distance d (metres → radius). Growth is throttled when you are
   // far ahead of it and boosted when you lag, so skill shows without breaking the tier timeline (and nobody
@@ -96,7 +112,7 @@ export const CFG = {
   bandMax: 1.35,
 
   // ---- legacy keys (kept so old tooling that reads CFG keeps working) ----
-  smashRatio: 2.0,
+  smashRatio: 1.6,         // props up to this x the ball radius are smashed through; bigger ones deflect you
   milestones: [1.4, 2.6, 4.2, 6.5, 9.5],
   milestoneNames: ['BÜYÜYOR!', 'ÇIĞ!', 'MEGA ÇIĞ!', 'FELAKET!', 'KIYAMET!'],
   expectedR: [0.6, 2.4, 4.4, 7, 9.5],

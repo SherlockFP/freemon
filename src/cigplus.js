@@ -6,7 +6,7 @@
 //            the pinned-ball safety net and a scripted bot used by the debug hooks and the balance sims.
 //            It never touches the DOM: everything visible goes through the `host` callbacks main.js provides.
 // CigPlus  : on-slope pickups (magnet, giant, rocket, shield, freeze, rainbow + the golden snowball), bouncy mushrooms,
-//            updraft towers, flip kickers (the world places the ramps) and the snowman army — planned INCREMENTALLY as
+//            flip kickers (inert: no flying), enemy snowballs and the snowman army — planned INCREMENTALLY as
 //            the world streams in. Draw calls: 1 dynamic solid mesh + 1 dynamic translucent mesh.
 //            (Slides, portals and the invert gate are gone: they stole food and mirrored the controls.)
 //
@@ -28,7 +28,6 @@ export const POWERS = {
   shield: { name: 'KALKAN', icon: '🛡️', color: 0x44a6ff, dur: 25 },
   freeze: { name: 'SOĞUK DALGA', icon: '🧊', color: 0x8eeaff, dur: 8 },
   rainbow: { name: 'GÖKKUŞAĞI', icon: '🌈', color: 0xff5fd2, dur: 8 },
-  wings: { name: 'KANAT', icon: '🕊️', color: 0xffffff, dur: 5 },
 };
 const KEYS = Object.keys(POWERS);
 const PICK_STYLE = { ...POWERS, golden: { name: 'ALTIN KARTOPU', icon: '🌟', color: 0xffc928, dur: 0 } };
@@ -36,8 +35,6 @@ const PICK_STYLE = { ...POWERS, golden: { name: 'ALTIN KARTOPU', icon: '🌟', c
 // Launch option objects (preallocated: hooks read them synchronously).
 const OPT_FLIP = { flip: true };
 const OPT_BOUNCE = { bounce: true };
-const OPT_UPDRAFT = { updraft: true, glide: true };
-const OPT_WINGS = { wings: true, glide: true };
 
 const SLIDE_PAL = [0xff4d5e, 0xffc83a, 0x3ddc84, 0x3fa7ff, 0xb066ff];
 
@@ -143,7 +140,6 @@ function domeSpot(m, prof, r, az, size, col, lift = 0.02) {
 
 const PAD_PROF = []; // parabola dome, rim -> centre: y = 1 - r^2 (matches the physical lift exactly)
 for (let i = 0; i <= 10; i++) { const r = 1 - i / 10; PAD_PROF.push([r, 1 - r * r]); }
-const TOWER_PR = 3.4; // pad radius the tower template is built for
 
 function buildTemplates() {
   const T = {};
@@ -204,41 +200,13 @@ function buildTemplates() {
       m.at(Math.cos(an) * 0.5, 1.05, Math.sin(an) * 0.5, { s: 0.16 }).lathe([[0, -1], [0.5, 0], [0, 1]], 4, 0xffffff).reset();
     }
   });
-  const wing = (s) => (m) => {
-    const tips = [];
-    for (let k = 0; k <= 4; k++) { const a = (12 + k * 15) * Math.PI / 180; tips.push([s * (0.14 + Math.cos(a) * 1.0), 0.02 + Math.sin(a) * 0.9, 0]); }
-    for (let k = 0; k < 4; k++) m.tri([s * 0.14, 0, 0], tips[k], tips[k + 1], C(k % 2 ? 0xdff3ff : 0xffffff));
-  };
-  T.wingR = mk(wing(1));
-  T.wingL = mk(wing(-1));
-  T.wings = mk((m) => {
-    wing(1)(m); wing(-1)(m);
-    m.at(0, -0.05, 0, { s: 0.2 }).lathe([[0, -1], [0.7, -0.7], [1, 0], [0.7, 0.7], [0, 1]], 6, 0xffd24a).reset();
-  });
+  T.shot = mk((m) => m.lathe([[0, -1], [0.7, -0.7], [1, 0], [0.7, 0.7], [0, 1]], 6, (j, i) => (i % 2 ? 0xe4f2ff : 0xbcdcff)));
   // Bouncy mushroom pad: unit dome, radius 1, height 1.
   T.pad = mk((m) => {
     m.lathe(PAD_PROF, 12, (j, i) => (i % 2 ? 0xe5283b : 0xcf1f33));
     m.at(0, 0, 0).lathe([[1.02, 0.0], [1.02, -0.18], [0.85, -0.3]], 12, 0xfff0d8).reset();
     const spots = [[0.36, 0.2, 0.2], [0.6, 1.5, 0.16], [0.7, 2.7, 0.19], [0.42, 3.8, 0.15], [0.8, 4.7, 0.17], [0.22, 5.5, 0.13], [0.62, 6.0, 0.14]];
     for (const [r, az, sz] of spots) domeSpot(m, PAD_PROF, r, az, sz, 0xffffff, 0.03);
-  });
-  // Updraft tower, built for a pad radius of TOWER_PR and scaled uniformly.
-  T.tower = mk((m) => {
-    const pr = TOWER_PR;
-    m.at(0, 0, 0).lathe([[pr, -0.5], [pr, 0.35], [pr * 0.8, 0.45], [0.0, 0.45]], 14, (j, i) => (j === 2 ? 0xdff3ff : i % 2 ? 0x59c8ff : 0x2fa8e8)).reset();
-    m.at(0, 0.45, 0).lathe([[0.45, 0], [0.3, 7], [0.0, 7.4]], 6, (j) => (j === 1 ? 0xffffff : 0xf0f6ff)).reset();
-    for (let a = 0; a < 4; a++) { // kite flags on the pylon
-      const ang = (a / 4) * TAU + 0.4;
-      m.at(0, 3.2 + a * 1.1 + 0.45, 0, { ry: ang });
-      m.tri([0.3, 0, 0], [pr * 0.45, 0.4, 0], [0.3, -1.0, 0], C([0xff4d5e, 0xffc83a, 0x3ddc84, 0xb066ff][a]));
-      m.reset();
-    }
-    for (let a = 0; a < 6; a++) { // chevrons around the pad
-      const ang = (a / 6) * TAU;
-      m.at(Math.cos(ang) * pr * 0.62, 0.5, -Math.sin(ang) * pr * 0.62, { ry: -ang + Math.PI / 2 });
-      m.tri([-0.7, 0, 0], [0.7, 0, 0], [0, 0, -1.4], C(0xffffff));
-      m.reset();
-    }
   });
   T.ringS = mk((m) => m.torus(1, 0.06, 20, 4, 0xffffff));
   // Translucent glow shapes (alpha baked into vertex colours).
@@ -320,7 +288,7 @@ export function flipCamera(camera, target, angle) {
   camera.up.set(_u0.x * c + _rt.x * s, _u0.y * c + _rt.y * s, _u0.z * c + _rt.z * s);
 }
 
-const ICON_TILT = { rocket: 0.7, magnet: 0, giant: 0, shield: 0, freeze: 0, rainbow: 0, wings: 0, golden: 0 };
+const ICON_TILT = { rocket: 0.7, magnet: 0, giant: 0, shield: 0, freeze: 0, rainbow: 0, golden: 0 };
 
 // ===========================================================================
 // CigPlus — extras on the slope
@@ -342,10 +310,10 @@ export class CigPlus {
     for (const k of KEYS) this.T[k] = 0;
     this.mods = { speedMul: 1, accelMul: 1, steerMul: 1, eatMul: 1, gravityMul: 1, magnetR: 0, ghost: false, shield: false, tonMul: 1, flying: false, noMelt: false, plow: false, magnet: false };
 
-    this.pickups = []; this.towers = []; this.mush = []; this.armies = [];
-    this.fly = { on: false, t: 0, up: 0 };
+    this.pickups = []; this.mush = []; this.armies = []; this.shots = [];
     this.flip = { on: false, t: 0, dur: 1, landed: false, roll: 0 };
     this.sizeF = 1;
+    this.boost = 0;
     this.rollNow = 0;
     this._fov = 0;
     this._cam = null;
@@ -409,16 +377,15 @@ export class CigPlus {
     // features: mushroom pads, updraft towers, snowman armies (rotating bag)
     while (this.nextFeat < dTo) {
       if (!this.featBag.length) {
-        this.featBag = ['mush', 'tower', 'mush', 'army'];
+        this.featBag = ['mush', 'army', 'mush', 'army'];
         for (let i = this.featBag.length - 1; i > 0; i--) { const j = (R.next() * (i + 1)) | 0; [this.featBag[i], this.featBag[j]] = [this.featBag[j], this.featBag[i]]; }
       }
       const kind = this.featBag.pop();
-      const len = kind === 'mush' ? 70 : kind === 'tower' ? 30 : 34;
+      const len = kind === 'mush' ? 70 : 34;
       const at = this._fit(this.nextFeat, len, dTo, 8);
       if (at < 0) { this.featBag.push(kind); this.nextFeat = dTo; break; }
       let used = len;
       if (kind === 'mush') used = this._addMush(at, R.chance(0.5) ? 3 : 2);
-      else if (kind === 'tower') this._addTower(at + 8);
       else this._addArmy(at + 12);
       w.zones.push({ d0: at - 8, d1: at + used + 8, kind: 'plus' });
       this.nextFeat = at + used + R.range(130, 230);
@@ -448,15 +415,6 @@ export class CigPlus {
         if (Math.abs(p.x - cx) < halfW + p.r * 0.5 && p.d > d0 - 2 - p.r && p.d < d1 + 2 + p.r) w.kill(p);
       }
     }
-  }
-
-  _addTower(d) {
-    const w = this.world, R = this.rng;
-    const expR = this._expR(), hw = w.halfWidth(d);
-    const pr = clamp(3.4 + expR * 0.8, 3.4, hw * 0.4);
-    const x = R.range(-1, 1) * Math.max(0, hw - pr - 1) * 0.8;
-    this.towers.push({ x, d, pr, gy: w.groundY(x, d), cd: 0 });
-    this._clear(x, d - pr, d + pr, pr + 0.5);
   }
 
   _addMush(d0, n = 3) {
@@ -536,7 +494,7 @@ export class CigPlus {
     const fresh = (a, f) => { let n = 0; for (let i = 0; i < a.length; i++) if (f(a[i])) a[n++] = a[i]; a.length = n; };
     fresh(this.pickups, (p) => p.alive && p.d > cut);
     fresh(this.mush, (m) => m.d > cut);
-    fresh(this.towers, (t) => t.d > cut);
+    fresh(this.shots, (q) => q.alive && q.d > cut);
     fresh(this.armies, (a) => a.d > cut - 40);
   }
 
@@ -651,9 +609,8 @@ export class CigPlus {
     const m = this.mods, T = this.T;
     m.speedMul = 1; m.accelMul = 1; m.steerMul = 1; m.eatMul = T.giant > 0 ? 1.5 : 1; m.gravityMul = 1; m.magnetR = 0; m.ghost = false; m.tonMul = 1;
     m.noMelt = false; m.plow = T.rocket > 0; m.magnet = T.magnet > 0;
-    m.shield = T.shield > 0; m.flying = this.fly.on;
+    m.shield = T.shield > 0; m.flying = false;
     if (T.rocket > 0) { m.speedMul *= 1 + 0.8 * clamp(T.rocket / 0.6, 0, 1); m.accelMul = 4; }
-    if (this.fly.on) { m.gravityMul = this.fly.t < this.fly.up ? -0.4 : 0.3; m.speedMul *= 1.12; m.steerMul *= 1.4; }
     if (T.magnet > 0 && b) m.magnetR = (7 + b.r * 3.2) * clamp(T.magnet / 0.8, 0.3, 1);
     if (T.rainbow > 0) m.tonMul = 3;
     if (b) m.noMelt = T.freeze > 0 || this.lift(b.x, b.d) > 0.15 || this._onKicker(b);
@@ -671,7 +628,7 @@ export class CigPlus {
   // ------------------------------------------------------------------ per-frame
   reset() {
     for (const k of KEYS) { if (this.T[k] > 0) this._buffOff(k); this.T[k] = 0; }
-    this.fly.on = false; this.flip.on = false;
+    this.flip.on = false; this.shots.length = 0;
     this._unfreeze();
     this.sizeF = 1;
   }
@@ -686,8 +643,7 @@ export class CigPlus {
     if (active) {
       this._pickups(b);
       this._kickers(dt, b);
-      this._towers(dt, b);
-      this._flight(dt, b);
+      this._shots(dt, b);
       this._mushrooms(dt, b);
       this._timers(dt, b);
       this._freeze(dt, b);
@@ -735,7 +691,6 @@ export class CigPlus {
     this._call('haptic', 'success');
     if (p) this._burst(p.x, p.gy + p.s * 1.7, p.d, 20, P.color, 8, 0.24, 6);
     if (kind === 'rocket') b.speed *= 1.25;
-    else if (kind === 'wings') this._startFlight(b, 9, 0.7, OPT_WINGS);
     else if (kind === 'freeze') { this._burst(b.x, b.y, b.d, 24, 0xbff4ff, 12, 0.3, 4); this._call('sfx', 'freeze'); }
   }
 
@@ -778,46 +733,28 @@ export class CigPlus {
     }
   }
 
-  // ---- updraft towers & flight
-  _towers(dt, b) {
-    for (let i = 0; i < this.towers.length; i++) {
-      const t = this.towers[i];
-      t.cd -= dt;
-      if (t.cd > 0 || Math.abs(t.d - b.d) > t.pr + b.r) continue;
-      const dx = b.x - t.x, dd = b.d - t.d;
-      if (dx * dx + dd * dd < (t.pr + b.r * 0.4) * (t.pr + b.r * 0.4) && b.y - this._gy(b.x, b.d) < 25) {
-        t.cd = 3;
-        if (this.T.wings <= 0) this._buffOn('wings');
-        this.T.wings = Math.max(this.T.wings, 5.5);
-        this._call('float', 'RÜZGAR!', 'big');
-        this._call('sfx', 'power');
-        this._call('haptic', 'medium');
-        this._burst(t.x, t.gy + 1, t.d, 22, 0xbfeaff, 10, 0.3, 9);
-        this._startFlight(b, 10, 1.3, OPT_UPDRAFT);
+  // ---- enemy snowballs: fly straight, dodgeable; a hit shaves a bit of snow (the game decides how much)
+  spawnShot(x, y, d, vx, vd, big = 1) {
+    if (this.shots.length >= 14) return;
+    this.shots.push({ x, y, d, vx, vd, s: 0.45 * big, alive: true, life: 4.5 });
+  }
+
+  _shots(dt, b) {
+    const sh = this.shots;
+    for (let i = 0; i < sh.length; i++) {
+      const q = sh[i];
+      if (!q.alive) continue;
+      q.life -= dt;
+      q.x += q.vx * dt; q.d += q.vd * dt;
+      q.y = this._gy(q.x, q.d) + b.r * 0.8 + q.s;
+      if (q.life <= 0 || q.d < b.d - 12) { q.alive = false; continue; }
+      const dx = q.x - b.x, dd = q.d - b.d;
+      if (dx * dx + dd * dd < (b.r + q.s) * (b.r + q.s)) {
+        q.alive = false;
+        this._burst(q.x, q.y, q.d, 8, 0xdff0ff, 6, 0.16, 3);
+        this._call('onShot', q);
       }
     }
-  }
-
-  _startFlight(b, vy, up, opt) {
-    const f = this.fly;
-    f.on = true; f.t = 0; f.up = up;
-    this._call('onLaunch', vy, opt);
-  }
-
-  _endWings() {
-    if (this.T.wings > 0) { this.T.wings = 0; this._buffOff('wings'); this._call('onPowerEnd', 'wings'); }
-  }
-
-  _flight(dt, b) {
-    const f = this.fly;
-    if (!f.on) return;
-    f.t += dt;
-    if (!b.airborne) { if (f.t > 0.15) { f.on = false; this._endWings(); } return; }
-    if (this.T.wings <= 0 && f.t > f.up) { f.on = false; return; }
-    if (b.vy > 11) b.vy = 11;
-    if (f.t > f.up && b.vy < -4) b.vy = -4;
-    const cap = this._gy(b.x, b.d) + 10 + 2.2 * b.r;
-    if (b.y > cap) { b.y = cap; if (b.vy > 0) b.vy = 0; }
   }
 
   // ---- bouncy mushrooms
@@ -832,7 +769,7 @@ export class CigPlus {
       const surface = this.world.groundY(b.x, b.d) + this.lift(b.x, b.d);
       if (b.y - b.r * 0.92 > surface + 1.2 || (b.airborne && b.vy > 2)) continue;
       m.cd = 0.6; m.sq = 1;
-      const vy = 13 + b.speed * 0.28 + this._expR() * 0.35;
+      const vy = Math.min(CFG.hopMax + 1.5, 7 + b.speed * 0.08 + this._expR() * 0.1);
       this._call('onLaunch', vy, OPT_BOUNCE);
       this._call('sfx', 'boing');
       this._call('haptic', 'medium');
@@ -941,17 +878,11 @@ export class CigPlus {
       }
     }
 
-    for (let i = 0; i < this.towers.length; i++) {
-      const tw = this.towers[i];
-      if (tw.d < lo || tw.d > hi) continue;
-      const k = tw.pr / TOWER_PR;
-      S.emit(TP.tower, tw.x, tw.gy, -tw.d, 0, k, k, k, 0, 0, 1, 1, 1, 1);
-      for (let r = 0; r < 5; r++) {
-        const f = ((t * 0.35 + r * 0.2) % 1), y = tw.gy + 0.6 + f * 34, rad = tw.pr * (0.45 + 0.55 * (1 - f * 0.5));
-        const a = Math.sin(f * Math.PI);
-        Gl.emit(TP.ring, tw.x, y, -tw.d, 0, rad, rad, rad, Math.PI / 2, 0, 0.75, 0.95, 1, 0.9 * a);
-      }
-      Gl.emit(TP.beam, tw.x, tw.gy, -tw.d, 0, tw.pr * 0.9, 36, tw.pr * 0.9, 0, 0, 0.7, 0.92, 1, 0.5);
+    // enemy snowballs
+    for (let i = 0; i < this.shots.length; i++) {
+      const q = this.shots[i];
+      if (!q.alive) continue;
+      S.emit(TP.shot, q.x, q.y, -q.d, t * 5, q.s, q.s, q.s, 0, 0, 1, 1, 1, 1);
     }
 
     // frozen movers wear an ice shell
@@ -990,11 +921,6 @@ export class CigPlus {
         const R = b.r * 1.15 * (b.visK || 1);
         S.emit(TP.ringS, bx, by, bz, t * 0.8, R, R, R, Math.PI / 2, 0, 0.27, 0.88, 0.43, 1);
       }
-      if (this.fly.on) {
-        const flap = Math.sin(t * 14) * 0.45 + 0.2, sc = b.r * 1.25;
-        S.emit(TP.wingR, bx + b.r * 0.95, by + b.r * 0.25, bz, 0, sc, sc, sc, 0, flap, 1, 1, 1, 1);
-        S.emit(TP.wingL, bx - b.r * 0.95, by + b.r * 0.25, bz, 0, sc, sc, sc, 0, -flap, 1, 1, 1, 1);
-      }
     }
     S.end(); Gl.end();
   }
@@ -1006,7 +932,7 @@ export class CigPlus {
     flipCamera(camera, target, this.rollNow);
     camera.lookAt(target);
     const m = this.mods;
-    const want = (this.T.rocket > 0 ? 14 : 0) + (m.flying ? 7 : 0);
+    const want = (this.T.rocket > 0 ? 14 : 0) + (this.boost > 0 ? 8 : 0);
     this._fov += (want - this._fov) * 0.08;
     if (Math.abs(this._fov) < 0.02 && want === 0) this._fov = 0;
     camera.userData.fovBoost = this._fov;
@@ -1017,7 +943,6 @@ export class CigPlus {
     this.disposed = true;
     for (const k of KEYS) if (this.T[k] > 0) this._buffOff(k);
     if (this._frozenAny) this._unfreeze();
-    if (this.fly.on) this.fly.on = false;
     for (const a of this.armies) for (const p of a.members) p.alive = false;
     this.scene.remove(this.group);
     this.solid.dispose();
@@ -1046,10 +971,11 @@ export class CigGame {
     this.progT = 0; this.progD = 0;
     this.lastPopT = -9; this.lastPopHapT = -9; this.lastTextT = -9;
     this.melting = 0;
+    this.powerT = 0; this.enemyTextT = -9;
     this.labelsShown = 0; this.labelT = 0; this._hungry = false;
     this.pullBudget = 0;
     this.wave = { on: false, d: 0, v: 0, t: 0, warned: false, mesh: null, calm: 0, n: 0 };
-    this.stats = { eats: 0, bumps: 0, gates: 0, gatesBroken: 0, maxCombo: 0, goldens: 0, waves: 0, tierT: [], stalls: 0, chunksEaten: 0 };
+    this.stats = { eats: 0, bumps: 0, gates: 0, gatesBroken: 0, maxCombo: 0, goldens: 0, waves: 0, tierT: [], stalls: 0, chunksEaten: 0, kills: 0, bosses: 0, smashes: 0 };
     this.world.onArrive = (q) => this._arrive(q);
     this._wireHooks();
   }
@@ -1061,14 +987,15 @@ export class CigGame {
       state: 'play', targetX: 0, combo: 0, comboT: 0, swallowed: 0, townTons: 0, destroyed: 0,
       bumpCd: 0, recoverT: 0, momentumT: 0, timeScale: 1, hitStop: 0, hitStopCd: 0, shake: 0,
       onRamp: false, lastRamp: 0, tier: 0, peakR: CFG.startR, slowT: 0, t: 0, endT: 0, cause: '', result: null,
-      goldenTons: 0, bonusTons: 0, gatesBroken: 0, comboUiT: 0, sprayT: 0, finalized: false, avl: 0,
+      goldenTons: 0, bonusTons: 0, gatesBroken: 0, gateSlow: 0, comboUiT: 0, sprayT: 0, finalized: false, avl: 0,
     });
     b.reset(CFG.startR);
     b.y = w.groundY(0, 0) + b.r * 0.92;
     b.speed = CFG.startSpeed;
     this.progT = 0; this.progD = 0;
     this.wave.on = false; this.wave.warned = false; this.wave.calm = 0; this.wave.n = 0;
-    this.stats = { eats: 0, bumps: 0, gates: 0, gatesBroken: 0, maxCombo: 0, goldens: 0, waves: 0, tierT: [], stalls: 0, chunksEaten: 0 };
+    this.stats = { eats: 0, bumps: 0, gates: 0, gatesBroken: 0, maxCombo: 0, goldens: 0, waves: 0, tierT: [], stalls: 0, chunksEaten: 0, kills: 0, bosses: 0, smashes: 0 };
+    this.powerT = 0;
     this.bot.queue.length = 0; this.bot.tick = 0;
     this.melting = 0;
     this.hudT = 0;
@@ -1085,11 +1012,13 @@ export class CigGame {
   }
   targetSpeed() {
     const M = this.plus.mods;
-    return Math.min(CFG.maxSpeed, CFG.baseSpeed + CFG.sizeSpeed * Math.sqrt(this.ball.r)) * M.speedMul;
+    const r = this.ball.r;
+    const cap = CFG.maxSpeed * (1 + 0.25 * clamp(Math.log2(Math.max(1, r / 8)), 0, 3)); // huge balls may go a bit faster (it feels slow otherwise)
+    return Math.min(cap, CFG.baseSpeed + CFG.sizeSpeed * Math.sqrt(r)) * M.speedMul * (this.powerT > 0 ? CFG.powerSpeed : 1);
   }
   suctionR() {
     const b = this.ball, M = this.plus.mods;
-    return (b.r * CFG.suctionK + CFG.suctionC) * (M.magnet ? 2 : 1) * (M.eatMul > 1 ? 1.25 : 1);
+    return (b.r * CFG.suctionK + CFG.suctionC) * (M.magnet ? 2 : 1) * (M.eatMul > 1 ? 1.25 : 1) * (this.powerT > 0 ? CFG.powerSuction : 1);
   }
 
   _h(name, a, b, c, d, e, f, g, h, i, j) {
@@ -1102,7 +1031,9 @@ export class CigGame {
     const G = this.G, b = this.ball, w = this.world, M = this.plus.mods;
     G.t += dt;
     G.bumpCd -= dt; G.recoverT -= dt; G.momentumT -= dt;
-    G.comboT -= dt;
+    G.comboT -= dt; G.gateSlow = (G.gateSlow || 0) - dt;
+    if (this.powerT > 0) { this.powerT -= dt; if (this.powerT <= 0) { this.powerT = 0; this._h('toast', 'Güç bitti'); } }
+    this.plus.boost = this.powerT;
     w.tintR = b.r; w.tintEat = CFG.eatRatio * M.eatMul;
     this._events();
     this._labelAhead(dt);
@@ -1127,6 +1058,9 @@ export class CigGame {
     const steps = Math.max(1, Math.ceil((b.speed * dt) / Math.max(0.3, b.r * 0.45)));
     this.pullBudget = CFG.pullsPerStep * steps;
     for (let i = 0; i < steps; i++) this._step(dt / steps, lim);
+    this._enemies(dt);
+    // never crawl: a minimum forward speed (only a too-small size gate may slow you down)
+    if (G.gateSlow <= 0 && b.speed < target * CFG.minSpeedFrac) b.speed = target * CFG.minSpeedFrac;
 
     this._melt(dt);
     this._wave(dt, target);
@@ -1172,7 +1106,7 @@ export class CigGame {
     let best = null, bestD = 1e9;
     for (let i = 0; i < _near.length; i++) {
       const p = _near[i];
-      if (!p.alive || p.tag || p.move !== MOVE_NONE || p.kind === 'chunk' || p.decor || this._edible(p)) continue;
+      if (!p.alive || p.tag || p.move !== MOVE_NONE || p.kind === 'chunk' || p.decor || p.enemy || p.r <= b.r * CFG.smashRatio || this._edible(p)) continue;
       const dd = p.d - b.d;
       if (dd < 8 || dd > look) continue;
       if (Math.abs(p.x - b.x) > b.r + p.r * CFG.contactK + 4) continue;
@@ -1210,13 +1144,11 @@ export class CigGame {
   }
 
   _launch() {
-    const b = this.ball, G = this.G;
+    const b = this.ball;
     b.airborne = true; b.airTime = 0;
-    b.vy = 5 + b.speed * 0.42;
-    G.timeScale = Math.min(G.timeScale, 0.6);
+    b.vy = Math.min(CFG.hopMax, 4 + b.speed * 0.18);   // a short hop, not a flight
     this._h('sfx', 'whoosh');
-    this._h('haptic', 'medium');
-    this._text('UÇUŞ!', b, 'big');
+    this._h('haptic', 'light');
   }
 
   _land(rest) {
@@ -1239,6 +1171,7 @@ export class CigGame {
   }
 
   _edible(p) {
+    if (p.enemy) return false;
     return p.kind === 'chunk' || p.r <= this.ball.r * CFG.eatRatio * this.plus.eatMulFor(p);
   }
 
@@ -1246,13 +1179,15 @@ export class CigGame {
   _collide() {
     const b = this.ball, w = this.world, M = this.plus.mods;
     const Rs = this.suctionR();
+    const pw = this.powerT > 0;
     w.query(b.x, b.d, Rs + 1, _near);
     for (let i = 0; i < _near.length; i++) {
       const p = _near[i];
       if (!p.alive) continue;
       const dx = p.x - b.x, dd = p.d - b.d;
       const dist = Math.hypot(dx, dd);
-      const above = (b.y - b.r) - (p.y + p.h);       // > 0: the ball's bottom is above the prop's top (flying over it)
+      const above = (b.y - b.r) - (p.y + p.h);       // > 0: the ball's bottom is above the prop's top (hopping over it)
+      if (p.enemy) { this._enemyContact(p, dx, dd, dist, above); continue; }
       if (this._edible(p)) {
         if (dist - p.r * CFG.contactK > Rs) continue;
         if (b.airborne && above > Rs * 0.5) continue;
@@ -1264,8 +1199,9 @@ export class CigGame {
       const contact = b.r + p.r * CFG.contactK;
       if (dist > contact) continue;
       if (M.ghost) continue;
-      if (M.plow) { this._smash(p); continue; }
-      this._bump(p, dx, dd, dist, contact);
+      // small / medium: smash straight through (partial growth); power or rocket: smash anything; too big: glance off sideways
+      if (M.plow || pw || p.r <= b.r * CFG.smashRatio) { this._smash(p, true); continue; }
+      this._deflect(p, dx, dd, dist, contact);
     }
   }
 
@@ -1325,56 +1261,181 @@ export class CigGame {
     this._h('text', str, at, cls);
   }
 
-  // Shatter something on the way (rocket / plow). Free.
-  _smash(p) {
+  // Shatter something on the way. Gives a little growth (grow = true); never stops the ball.
+  _smash(p, grow = false) {
     const w = this.world, b = this.ball, G = this.G;
     w.kill(p);
     G.destroyed++;
+    this.stats.smashes++;
     G.townTons += p.mass * this.plus.mods.tonMul * 0.5;
+    if (grow) {
+      const big = p.r > b.r * CFG.smashRatio;
+      const gain = Math.min(CFG.growK * CFG.smashGrow * p.r ** 3 * bandAt(b.r, b.d), (big ? 0.06 : 0.14) * b.r ** 3);
+      if (gain > 0) { b.setRadius(Math.cbrt(b.r ** 3 + gain)); b.punch(0.04); }
+    }
+    b.speed *= 0.985;
     this._h('burst', p.x, p.y + p.h * 0.5, p.d, 10, w.colorOf(p.type), 7, 0.25 + p.r * 0.08, 6);
     this._h('puff', p.x, p.y + p.h * 0.4, -p.d, (Math.random() - 0.5) * 4, 2.2, -1.5, 0.9 + p.r * 0.8, 0.9, 0xe9eff7, 0.6);
     this._h('puff', p.x + (Math.random() - 0.5) * p.r, p.y + p.h * 0.15, -p.d, (Math.random() - 0.5) * 3, 1.4, -2.5, 0.7 + p.r * 0.6, 0.8, 0xf4f8ff, 0.5);
-    this._h('sfx', 'crash', 0.35);
-    this._h('haptic', 'medium');
-    G.shake += 0.2;
+    if (G.t - (this._smashSfxT || -9) > 0.08) { this._smashSfxT = G.t; this._h('sfx', 'crash', 0.3); this._h('haptic', 'medium'); }
+    G.shake += 0.12;
+    if (grow && p.r > b.r * 0.9 && LABEL[p.type]) this._text(LABEL[p.type] + ' EZİLDİ!', p, '');
     this._h('track', 'smash', {});
+    if (grow) this._tierCheck();
   }
 
-  // Too big to eat: it costs snow, speed and a combo. The lost snow scatters ahead as chunks you can win back.
-  _bump(p, dx, dd, dist, contact) {
+  // Too big to smash: the ball glances off and slides around it, never stopping (circle push along the lateral axis).
+  _deflect(p, dx, dd, dist, contact) {
     const G = this.G, b = this.ball, w = this.world;
-    const nx = dist > 1e-4 ? dx / dist : 0, nd = dist > 1e-4 ? dd / dist : 1;
-    const overlap = contact - dist;
-    b.x -= nx * overlap;
-    b.d -= Math.max(0, nd * overlap);
-    // slide off the way you were already going (the side you hit), room-based only for dead-centre hits
     const lim = Math.max(0.5, w.halfWidth(b.d) - b.r * 0.55);
     const off = b.x - p.x;
-    let side = Math.abs(off) > 0.15 * contact ? Math.sign(off) : (lim - (p.x + contact) >= (p.x - contact) + lim ? 1 : -1);
-    if (Math.abs(p.x + side * (contact + 0.8)) > lim) side = -side;
+    let side = Math.abs(off) > 0.15 * contact ? Math.sign(off) : (G.deflSide || (G.deflSide = Math.random() < 0.5 ? -1 : 1));
+    const edge = Math.sqrt(Math.max(0, contact * contact - dd * dd)) + 0.05;
+    let nx = p.x + side * edge;
+    if (Math.abs(nx) > lim) { side = -side; nx = p.x + side * edge; }
+    if (Math.abs(nx) > lim) { this._smash(p, true); return; }  // wall to wall: plough through, never a dead end
+    b.x = nx;
+    b.vx = side * Math.max(Math.abs(b.vx), 5 + 0.2 * b.speed);
+    // (the steering target is left alone: an idle ball slides past and drifts back, it is never steered for you)
     if (G.bumpCd > 0) return;
-    G.bumpCd = CFG.bumpCd;
-    G.targetX = clamp(p.x + side * (contact + 0.8), -lim, lim);
-    b.vx += side * (3 + 0.15 * b.speed);
-    if (this.plus.consumeShield()) { this._h('sfx', 'bump', 0.3); G.shake += 0.3; return; }
-    // a marginal obstacle (a hair over the edible limit, often because you melted) costs little; a huge one costs the most
+    G.bumpCd = 0.35;
     const ratio = p.r / Math.max(0.2, b.r);
-    const k = clamp((ratio - 0.9) / 3, 0, 1);
-    this._loseSnow(lerp(CFG.bumpLoss[0], CFG.bumpLoss[1], k));
-    b.speed *= lerp(0.75, CFG.bumpSpeed, clamp((ratio - 0.9) / 1.5, 0, 1));
-    G.recoverT = 0.8;
-    G.combo = 0; this._comboUi(0);
+    b.speed *= 0.95;
+    if (ratio > 1.6 && !this.plus.consumeShield()) {
+      this._loseSnow(lerp(0.03, 0.1, clamp((ratio - 1.6) / 2, 0, 1)));
+      G.combo = 0; this._comboUi(0);
+    }
     this.stats.bumps++;
-    this._h('sfx', 'bump', clamp(p.r / (6 + b.r), 0.3, 1));
-    this._h('haptic', 'heavy');
-    G.shake += 0.5;
-    this._h('hitStop', 0.07);
-    b.squash(0.22);
-    this._h('burst', b.x + nx * b.r, b.y, b.d + nd * b.r, 10, 0xffffff, 6, 0.2 + b.r * 0.08, 5);
-    this._text('ÇARPTIN!', b, 'bad');
-    // the first few too-big things are tagged "⛔ X m" so the size rule is readable
-    if (this.labelsShown < 6 && !p.tag) { this.labelsShown++; w.tagObstacle(p, `⛔ ${fmtD(p.r / CFG.eatRatio * 2)} m`); }
+    this._h('sfx', 'bump', clamp(p.r / (8 + b.r), 0.2, 0.6));
+    this._h('haptic', 'light');
+    G.shake += 0.25;
+    b.squash(0.1);
+    this._h('burst', b.x + (p.x - b.x) * 0.5, b.y, b.d, 6, 0xffffff, 5, 0.18 + b.r * 0.06, 4);
+    if (this.labelsShown < 6 && !p.tag) { this.labelsShown++; w.tagObstacle(p, '⛔ ' + fmtD(p.r / CFG.eatRatio * 2) + ' m'); }
     this._h('track', 'crash', {});
+  }
+
+  // ---- enemies (HP bars): ram them, they take damage, burst into XP
+  _enemyContact(p, dx, dd, dist, above) {
+    const b = this.ball;
+    if (dist > b.r + p.r * 0.85) return;
+    if (b.airborne && above > 0) return;
+    if (p.enemy.hitCd > 0) return;
+    this._hitEnemy(p, dx);
+  }
+
+  _hitEnemy(p, dx) {
+    const G = this.G, b = this.ball, M = this.plus.mods, e = p.enemy;
+    const target = this.targetSpeed();
+    const mul = (this.powerT > 0 ? 3 : 1) * (M.plow ? 2 : 1);
+    const dmg = CFG.ramDmg * b.r * (0.7 + 0.3 * clamp(b.speed / Math.max(1, target), 0, 1.3)) * mul;
+    e.hp -= dmg;
+    e.hitCd = 0.4; e.flash = 0.14; e.woke = true;
+    e.kbD = Math.max(8, b.speed * 0.9); e.kbX = (dx >= 0 ? 1 : -1) * (3 + b.r * 0.4);
+    b.speed *= 0.93;
+    b.squash(0.12);
+    this._h('hitStop', 0.05);
+    this._h('sfx', 'crash', 0.35 + 0.3 * clamp(dmg / Math.max(1, e.max), 0, 1));
+    this._h('haptic', 'medium');
+    G.shake += 0.3;
+    this._h('burst', p.x, p.y + p.h * 0.5, p.d, 8, 0xffffff, 7, 0.22 + p.r * 0.05, 5);
+    if (G.t - this.enemyTextT > 0.12) { this.enemyTextT = G.t; this._h('text', '-' + Math.max(1, Math.round(dmg)), p, e.boss ? 'big' : ''); }
+    if (e.hp <= 0) this._killEnemy(p);
+  }
+
+  _killEnemy(p) {
+    const G = this.G, b = this.ball, w = this.world, e = p.enemy;
+    e.hp = 0;
+    w.kill(p);
+    this.stats.kills++; if (e.boss) this.stats.bosses++;
+    const gain = Math.min(CFG.growK * p.r ** 3, (e.boss ? 0.6 : 0.22) * b.r ** 3);
+    b.setRadius(Math.cbrt(b.r ** 3 + gain));
+    b.punch(0.12);
+    const xp = Math.max(e.boss ? 40 : 6, this.snowTons() * (e.boss ? 0.35 : 0.12)) + p.mass * (p.tonK || 1);
+    G.bonusTons += xp;
+    this._h('burst', p.x, p.y + p.h * 0.5, p.d, 26, w.colorOf(p.type), 10, 0.4 + p.r * 0.07, 8);
+    this._h('burst', p.x, p.y + p.h * 0.5, p.d, 14, 0xffffff, 9, 0.3, 7);
+    this._h('puff', p.x, p.y + p.h * 0.4, -p.d, 0, 2, 0, 1.2 + p.r, 1, 0xf4f8ff, 0.6);
+    this._h('hitStop', 0.09);
+    G.shake += e.boss ? 1.1 : 0.55;
+    this._h('sfx', 'crash', 0.8);
+    this._h('sfx', 'milestone', e.boss ? 3 : 1);
+    this._h('haptic', 'success');
+    this._h('flash', e.boss ? 'milestone' : 'gold');
+    this._text(e.boss ? 'DEV YETİ YENİLDİ!' : e.name + ' YOK EDİLDİ!', p, 'big', true);
+    this._h('toast', '+' + fmtTonsShort(xp) + ' XP');
+    this._h('track', 'enemy_kill', { id: e.id, boss: e.boss });
+    if (e.boss) this._power();
+    this._tierCheck();
+  }
+
+  // enemy AI (per frame): knockback, chase sideways, throw snowballs
+  _enemies(dt) {
+    const b = this.ball, w = this.world, G = this.G;
+    if (G.state !== 'play') return;
+    const en = w.enemies;
+    for (let i = 0; i < en.length; i++) {
+      const p = en[i];
+      if (!p.alive) continue;
+      const e = p.enemy;
+      if (e.hitCd > 0) e.hitCd -= dt;
+      if (e.flash > 0) e.flash -= dt;
+      const dd = p.d - b.d;
+      if (dd < -25 || dd > 140) continue;
+      const hw = w.halfWidth(p.d) - 1;
+      if (e.kbD > 0.2 || Math.abs(e.kbX) > 0.2) {
+        p.d += e.kbD * dt; p.x = clamp(p.x + e.kbX * dt, -hw, hw);
+        const k = Math.exp(-dt * 5); e.kbD *= k; e.kbX *= k;
+      }
+      if (!e.woke && dd < 95) {
+        e.woke = true;
+        if (e.boss) { this._h('toast', '⚠ DEV YETİ GELİYOR!'); this._h('sfx', 'rumble'); this._h('haptic', 'warning'); }
+      }
+      if (!e.woke) continue;
+      if (dd > 0 && dd < 75 && e.spd > 0) {
+        p.x = clamp(p.x + clamp(b.x - p.x, -e.spd * dt, e.spd * dt), -hw, hw);
+      }
+      if (dd > 0) p.rot = Math.atan2(b.x - p.x, 16) * 0.8;
+      if (e.ai === 'throw' || e.ai === 'boss') {
+        e.cd -= dt;
+        if (e.cd <= 0 && dd > 14 && dd < 64) {
+          e.cd = e.boss ? 1.7 + Math.random() * 0.8 : 2.4 + Math.random() * 1.4;
+          const Vs = 20, t = Math.max(0.25, dd / (Vs + b.speed));
+          const n = e.boss ? 3 : 1;
+          for (let k = 0; k < n; k++) {
+            const tx = b.x + b.vx * t * 0.5 + (k - (n - 1) / 2) * (4 + b.r);
+            this.plus.spawnShot(p.x, p.y + p.h * 0.7, p.d - p.r, (tx - p.x) / t, -Vs, e.boss ? 1.5 : 1);
+          }
+        }
+      }
+    }
+  }
+
+  _shotHit() {
+    const G = this.G, b = this.ball;
+    if (this.plus.consumeShield()) return;
+    this._loseSnow(0.03);
+    b.speed *= 0.96;
+    G.shake += 0.35;
+    b.squash(0.12);
+    this._h('sfx', 'bump', 0.4);
+    this._h('haptic', 'medium');
+    this._h('flash', 'hit');
+    this._text('BUZ TOPU!', b, 'bad');
+  }
+
+  // GÜÇLENDİN!: a short boost after breaking a barrier (or a boss): faster, bigger suction, smash anything.
+  _power() {
+    const b = this.ball, G = this.G;
+    this.powerT = CFG.powerT;
+    G.shake += 0.5;
+    this._h('kick', 0.18, 9);
+    this._h('flash', 'milestone');
+    this._h('plusSfx', 'power');
+    this._h('haptic', 'success');
+    this._h('burst', b.x, b.y, b.d, 24, 0xffd45a, 10 + b.r, 0.3 + b.r * 0.05, 7);
+    this._text('GÜÇLENDİN!', b, 'big', true);
+    this._h('toast', '💪 GÜÇLENDİN! hızlan, her şeyi ez');
   }
 
   _loseSnow(frac) {
@@ -1407,15 +1468,15 @@ export class CigGame {
     const G = this.G, b = this.ball, w = this.world, M = this.plus.mods;
     g.hit = true;
     this.stats.gates++;
-    if (b.r >= g.minR * 0.97 || M.plow) {
-      // smash through: slow-mo + bonus
+    if (b.r >= g.minR * 0.97 || M.plow || this.powerT > 0) {
+      // smash through: growth + a short power boost
       w.breakGate(g, b.x, 1);
       this.stats.gatesBroken++; G.gatesBroken++;
       const bonus = Math.max(8, 0.4 * this.snowTons());
       G.bonusTons += bonus;
-      G.timeScale = Math.min(G.timeScale, 0.38);
-      b.speed *= 0.92;
-      this._h('hitStop', 0.07);
+      b.setRadius(Math.cbrt(b.r ** 3 * (1 + CFG.gateGrow)));
+      b.punch(0.1);
+      this._h('hitStop', 0.06);
       G.shake += 0.9;
       this._h('sfx', 'crash', 0.8);
       this._h('sfx', 'milestone', 2);
@@ -1424,16 +1485,18 @@ export class CigGame {
       for (let k = 0; k < 6; k++) this._h('burst', b.x + (k - 2.5) * g.hw * 0.25, b.y, g.d, 6, 0xd8ecff, 8, 0.55, 7);
       this._h('flash', 'milestone');
       this._text('KAPI KIRILDI!', b, 'big', true);
-      this._h('toast', `+${fmtTonsShort(bonus)} bonus`);
+      this._h('toast', '+' + fmtTonsShort(bonus) + ' bonus');
       this._h('track', 'gate', { ok: true });
+      this._power();
+      this._tierCheck();
     } else if (this.plus.consumeShield()) {
       w.breakGate(g, b.x, 0.7);
       this._h('sfx', 'crash', 0.6);
     } else {
       // too small: heavy bump, but the wall still gives way (never a soft-lock)
       w.breakGate(g, b.x, 0.6);
-      this._loseSnow(CFG.gateLoss);
-      b.speed *= 0.25;
+      this._loseSnow(CFG.gateLoss * (1 + 0.2 * Math.min(4, tierOf(b.r))));
+      b.speed *= 0.5; G.gateSlow = 0.8;
       G.recoverT = 1.2;
       G.combo = 0; this._comboUi(0);
       G.shake += 1.1;
@@ -1455,7 +1518,12 @@ export class CigGame {
     const T = tierOf(b.r);
     let rate = CFG.melt[Math.min(T, CFG.melt.length - 1)];
     const grace = sm01((G.t - CFG.meltGrace[0]) / (CFG.meltGrace[1] - CFG.meltGrace[0]));
+    rate += 0.012 * clamp(Math.log2(Math.max(1, b.r / 6)), 0, 4);  // big balls burn faster: late game is harder
     rate *= grace;
+    // AFK: not steering for 8+ s melts you fast (an idle ball must not just coast and grow)
+    const tx = G.targetX;
+    if (this._afkTx === undefined || Math.abs(tx - this._afkTx) > 0.03) { this._afkTx = tx; this._afkT = 0; } else this._afkT = (this._afkT || 0) + dt;
+    rate += 0.1 * clamp((this._afkT - 8) / 6, 0, 1);
     if (b.airborne || M.noMelt) rate = 0;
     let onPatch = false;
     if (!b.airborne && !M.noMelt && w.inPatch(b.x, b.d)) { rate += CFG.patchMelt; onPatch = true; }
@@ -1523,10 +1591,10 @@ export class CigGame {
       w.query(b.x, b.d, b.r * 2 + 8, _near);
       for (let i = 0; i < _near.length; i++) {
         const p = _near[i];
-        if (!p.alive || p.kind === 'chunk' || this._edible(p)) continue;
-        if (Math.hypot(p.x - b.x, p.d - b.d) < b.r + p.r * CFG.contactK + 1) this._smash(p);
+        if (!p.alive || p.kind === 'chunk' || p.enemy || this._edible(p)) continue;
+        if (Math.hypot(p.x - b.x, p.d - b.d) < b.r + p.r * CFG.contactK + 1) this._smash(p, false);
       }
-      b.speed = Math.max(b.speed, CFG.baseSpeed * 0.6);
+      b.speed = Math.max(b.speed, CFG.baseSpeed * 0.9);
     }
     this.progT = 0;
     this.progD = b.d;
@@ -1536,6 +1604,7 @@ export class CigGame {
   _ambient(dt) {
     const G = this.G, b = this.ball;
     if (G.state !== 'play') return;
+    if (this.powerT > 0 && Math.random() < dt * 40) this._h('burst', b.x + (Math.random() - 0.5) * b.r, b.y - b.r * 0.2, b.d - b.r * 0.8, 1, Math.random() < 0.5 ? 0xffd45a : 0xffffff, 3, 0.16 + b.r * 0.04, 2);
     if (!b.airborne && b.speed > 3) {
       G.sprayT -= dt;
       if (G.sprayT <= 0) {
@@ -1595,11 +1664,10 @@ export class CigGame {
       onPower(kind) { self._h('onPower', kind); self._h('track', 'powerup', { kind }); },
       onPowerEnd(kind) { self._h('onPowerEnd', kind); },
       onGolden() { self._golden(); },
+      onShot() { self._shotHit(); },
       onLaunch(vy, o) {
         const b = self.ball, G = self.G;
-        b.airborne = true; b.airTime = 0; b.vy = vy;
-        if (o.flip) G.timeScale = Math.min(G.timeScale, 0.6);
-        else if (o.updraft) G.timeScale = Math.min(G.timeScale, 0.75);
+        b.airborne = true; b.airTime = 0; b.vy = Math.min(vy, CFG.hopMax + 2);
         self._h('haptic', 'medium');
       },
       onFlip() {
@@ -1669,7 +1737,7 @@ export class CigGame {
     const T = Math.min(Math.max(G.tier, tierOf(b.r)), CFG.tierNames.length - 1);
     return {
       cause: G.cause, tons: this.totalTons(), dist: b.d, tier: T + 1, tierName: CFG.tierNames[T],
-      time: G.t, eats: this.stats.eats, maxCombo: this.stats.maxCombo, bumps: this.stats.bumps, gates: this.stats.gatesBroken, peakR: G.peakR,
+      time: G.t, eats: this.stats.eats, maxCombo: this.stats.maxCombo, bumps: this.stats.bumps, gates: this.stats.gatesBroken, kills: this.stats.kills, bosses: this.stats.bosses, peakR: G.peakR,
     };
   }
 
