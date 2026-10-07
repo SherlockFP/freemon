@@ -998,3 +998,9 @@ Genel 7.0 · Rush 7.0 · ÇIĞ 8.0 → yeniden çapalandı (Candy Crush / Hill C
 - Smoke: Rush/ÇIĞ/Arena/boss L5-7-14/Günün Rush'ı hatasız.
 
 - Ek (döngü 20b): ÇIĞ HUD tek üst bar (ETAP çipi · ilerleme · ⚪ boyut), canlı 3 yıldız pipi, boss barı sadece boss sırasında. Ekran görüntüsüyle doğrulandı.
+
+## Döngü 21 — değerlendirme
+Genel 7.1 · Rush 7.0 · ÇIĞ 6.5 (sıkı çapa) · Arena 6.5 · Menü 7.0 — çökme yok.
+- İyi: ÇIĞ tek üst bar okunur; Rush sonuç akışı tam; arena HUD dolu; menüde OYNA baskın.
+- Gelişmeli: Rush sonuçta "rekora N m" kancası yok, 500 m'de ortam değişmiyor; ÇIĞ yıldız pipleri küçük, sonuç ekranı düz liste; arena oyuncu küçük/uzak, mor bölge baskın, ölüm özeti yok; menüde BUGÜN satırı kesik, menü topu sönük.
+- Fikirler: rekor hayaleti, yaklaşan yeti kükremesi+vinyet; ÇIĞ yıldızların tek tek açılması + SONRAKİ DAĞ; arena tırmanış özeti.
