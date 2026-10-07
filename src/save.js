@@ -1,7 +1,8 @@
 const KEY = 'cig.save.v1';
 export const PERM_COSTS = [200, 450, 900, 1600, 2600];
 const RUNNER_DEF = () => ({ best: 0, bestDist: 0, runs: 0, tut: false, turnHints: 0, lipHints: 0, seen: { boulder: false, slidewall: false, train: false } });
-const CIG_DEF = () => ({ ch: {}, tut: 0, dailyCh: {}, endless: { tons: 0, dist: 0, runs: 0 } });
+const CIG_DEF = () => ({ ch: {}, tut: 0, dailyCh: {}, endless: { tons: 0, dist: 0, runs: 0 }, lv: { stars: {}, best: {}, intro: {}, fails: {}, cleared: 0 } });
+export const CIG_LEVELS = 30;
 
 const fresh = () => ({
   level: 1, stars: {}, best: {}, daily: {},
@@ -49,6 +50,22 @@ try {
       if (!e || typeof e !== 'object') data.cig.endless = d;
       else for (const k in d) e[k] = Number.isFinite(e[k]) && e[k] > 0 ? e[k] : 0;
     }
+    {
+      // ÇIĞ DAĞLAR progress: stars / best / seen intros / fail counters per mountain, and how many mountains are cleared
+      const d = CIG_DEF().lv, l = data.cig.lv;
+      if (!l || typeof l !== 'object') data.cig.lv = d;
+      else {
+        for (const k of ['stars', 'best', 'intro', 'fails']) if (!l[k] || typeof l[k] !== 'object' || Array.isArray(l[k])) l[k] = {};
+        for (const k in l.stars) { const v = l.stars[k]; if (!(Number.isFinite(v) && v >= 0)) delete l.stars[k]; else l.stars[k] = Math.min(3, Math.floor(v)); }
+        for (const k in l.fails) { const v = l.fails[k]; if (!(Number.isFinite(v) && v > 0)) delete l.fails[k]; }
+        for (const k in l.best) {
+          const b = l.best[k];
+          if (!b || typeof b !== 'object') { delete l.best[k]; continue; }
+          for (const f of ['tons', 'size', 'time']) b[f] = Number.isFinite(b[f]) && b[f] >= 0 ? b[f] : 0;
+        }
+        l.cleared = Number.isFinite(l.cleared) ? Math.max(0, Math.min(CIG_LEVELS, Math.floor(l.cleared))) : 0;
+      }
+    }
     if (!Number.isFinite(data.crystals) || data.crystals < 0) data.crystals = 0;
     if (data.perm && typeof data.perm !== 'object') data.perm = {};
   }
@@ -71,7 +88,7 @@ export const save = {
   totalStars() {
     let n = 0;
     for (const k in data.stars) n += data.stars[k];
-    return n;
+    return n + save.cigLvTotalStars();   // (the old campaign stars and the ÇIĞ DAĞLAR stars both count: wardrobe star locks)
   },
   recordLevel(lvl, stars, tons) {
     data.stars[lvl] = Math.max(data.stars[lvl] || 0, stars);
@@ -199,6 +216,48 @@ export const save = {
     try { if (hooks.cigEnd) hooks.cigEnd({ ...r, tons, dist, isBest }); } catch { /* telemetry must never break the result */ }
     return isBest;
   },
+
+  // ---- ÇIĞ DAĞLAR (30 finite mountains): data.cig.lv = { stars:{n:0-3}, best:{n:{tons,size,time}}, intro:{n:1}, fails:{n:k}, cleared } ----
+  cigCleared: () => data.cig.lv.cleared | 0,
+  cigUnlocked: () => Math.min(CIG_LEVELS, (data.cig.lv.cleared | 0) + 1),
+  cigNext() { return Math.min(CIG_LEVELS, (data.cig.lv.cleared | 0) + 1); },
+  cigLvStars: (n) => data.cig.lv.stars[n] || 0,
+  cigLvBest: (n) => data.cig.lv.best[n] || null,
+  cigLvTotalStars() {
+    let t = 0;
+    const s = data.cig.lv.stars;
+    for (const k in s) t += s[k];
+    return t;
+  },
+  // Result of a won mountain -> { firstClear, newStars (stars gained over the old best), stars (best now), isBest }.
+  recordCigLevel(n, r) {
+    const lv = data.cig.lv;
+    n = Math.max(1, Math.min(CIG_LEVELS, n | 0));
+    const stars = Math.max(0, Math.min(3, (r && r.stars) | 0));
+    const prev = lv.stars[n] || 0;
+    const firstClear = n > (lv.cleared | 0);
+    const num = (v) => (Number.isFinite(v) && v > 0 ? v : 0);
+    const old = lv.best[n];
+    const tons = num(r && r.tons), size = num(r && r.size), time = num(r && r.time);
+    const isBest = !old || tons > old.tons;
+    const b = old || { tons: 0, size: 0, time: 0 };
+    b.tons = Math.max(b.tons, tons);
+    b.size = Math.max(b.size, size);
+    b.time = b.time > 0 ? (time > 0 ? Math.min(b.time, time) : b.time) : time;
+    lv.best[n] = b;
+    lv.stars[n] = Math.max(prev, stars);
+    if (firstClear) lv.cleared = n;
+    persist();
+    return { firstClear, newStars: Math.max(0, stars - prev), prevStars: prev, stars: lv.stars[n], isBest };
+  },
+  cigLvFail(n) { const f = data.cig.lv.fails; f[n] = (f[n] || 0) + 1; persist(); return f[n]; },
+  cigLvFails: (n) => data.cig.lv.fails[n] || 0,
+  cigLvFailReset(n) { if (data.cig.lv.fails[n]) { delete data.cig.lv.fails[n]; persist(); } },
+  cigIntroSeen: (n) => !!data.cig.lv.intro[n],
+  markCigIntro(n) { if (!data.cig.lv.intro[n]) { data.cig.lv.intro[n] = 1; persist(); } },
+  cigEndlessOpen: () => (data.cig.lv.cleared | 0) >= 10,
+  cigDailyOpen: () => (data.cig.lv.cleared | 0) >= 3,
+  cigSetCleared(n) { data.cig.lv.cleared = Math.max(0, Math.min(CIG_LEVELS, n | 0)); persist(); },   // debug (menu tests)
 
   // ---- crystals 💎 (revive currency) ----
   crystals: () => (crystalStore ? crystalStore.get() : data.crystals || 0),

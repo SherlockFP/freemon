@@ -20,6 +20,7 @@ import { createMenus } from './menus.js';
 import { levelById, evalGoals, countStars } from './campaign.js';
 import { openShop } from './shop.js';
 import { CigPlus, CigGame } from './cigplus.js';
+import { dagPlan, DAG_COUNT, evalStars, validatePlan, fmtD } from './cigplan.js';
 // YETİ RUSH (the runner) is loaded on demand (keeps the first load small and ÇIĞ SONSUZ independent of it).
 let Runner = null;
 let music = { duck() {}, setMuted() {}, suspend() {}, resume() {} };
@@ -112,6 +113,7 @@ const G = {
   bumpCd: 0, recoverT: 0, momentumT: 0, shake: 0, endT: 0, slowT: 0, timeScale: 1, hitStop: 0, hitStopCd: 0,
   onRamp: false, lastRamp: 0, tier: 0, avl: 0, peakR: CFG.startR, fovKick: 0,
   hinted: false, result: null,
+  lv: null, peakD: 0,    // ÇIĞ DAĞLAR: the plan being played (null = endless / lobby)
 };
 const _v = new THREE.Vector3();
 
@@ -168,14 +170,15 @@ const menus = createMenus({
   callbacks: {
     // OYNA = YETİ RUSH straight away; ÇIĞ SONSUZ and MACERA are small buttons.
     onEndless: () => startEndless(),
-    onCigEndless: () => startCigEndless(),
+    onCigEndless: () => startCigEndless(),    // (the menu only offers it once DAĞ 10 is cleared)
+    onCigLevel: (n, o) => startCigLevel(n, o),
     onAgar: () => startAgar(),
     onPlayLevel: (id) => startLevel(id),
     onBallTap: () => lobbyBounce(),
     onBallGold: () => { window.__patpatGold = true; tintGold(); },
     onSneeze: () => { fx?.burst(ball.x, ball.y + ball.r, ball.d, 30, 0xffffff, 6, 0.15, 6); audio.pop(0.2, 4); },
-    onLevels: () => startCigEndless(),
-    onDaily: () => startCigEndless({ daily: true }),
+    onLevels: () => playCigLevel(save.cigNext()),
+    onDaily: () => startCigLevel({ daily: true }),
     onShop: () => openWardrobe(),
     onVisualCycle: () => cycleVisual(),
     onSound: (on) => { audio.init(); audio.setMuted(!on); ui.setToggle('sound', on); },
@@ -217,20 +220,20 @@ function randomSeed() {
 }
 
 // Dispose + rebuild everything that belongs to the ÇIĞ slope (world, scenery, extras, the rules).
-function buildWorld(seed, themeIdx, daily) {
+function buildWorld(seed, themeIdx, daily, plan = null) {
   plus?.dispose();
   if (world) world.dispose();
-  world = new World(scene, lib, { seed });
+  world = new World(scene, lib, { seed, level: plan });
   scenery?.dispose();
   scenery = new Scenery(scene, { world, lib, theme: themeForLevel(themeIdx, daily), onEgg: (id) => meta.egg(id) });
-  plus = new CigPlus(scene, world, { seed, lib, ui, hud: typeof ui.buffAdd !== 'function' });
+  plus = new CigPlus(scene, world, { seed, lib, ui, hud: typeof ui.buffAdd !== 'function', level: plan });
   if (!fx) { fx = new Fx(scene, world); applyTrail(save.selected('trail')); }
   fx.world = world;
   fx.reset();
   if (rainbowTrail) { rainbowTrail = false; applyTrail(save.selected('trail')); } // the run ended mid-rainbow: back to the chosen trail
-  game = new CigGame({ world, ball, plus, G, host: cigHost });
+  game = new CigGame({ world, ball, plus, G, host: cigHost, level: plan });
   game.auto = AUTO;
-  game.bestTons = save.cigEndlessBest?.().tons || 0;
+  game.bestTons = plan ? (save.cigLvBest(plan.n)?.tons || 0) : (save.cigEndlessBest?.().tons || 0);
 }
 
 // What the rules (cigplus.js) ask of the page: sounds, particles, HUD, camera kicks.
@@ -277,10 +280,20 @@ const cigHost = {
   hud(info) {
     if (ui.cigHud) ui.cigHud(info);
     else { ui.setTons(info.tons); ui.setProgress(info.frac); }
+    if (G.lv && info.lv) {
+      // (ui.cigHud labels the run "ÇIĞ SONSUZ" and hides the progress bar: put the mountain's own label and bar back)
+      if (ui.el.level.textContent !== G.lv.label) ui.el.level.textContent = G.lv.label;
+      ui.el.hud.classList.add('cig-lvl');
+      ui.setProgress(info.lv.prog);
+      updateLevelHud(info.lv);
+    }
   },
   hunger(frac, warn) { ui.hunger?.(frac, warn); },
   // how many "⛔ X m" size tags to hang on too-big obstacles before you reach them (many on the first runs, fewer later)
-  labelBudget() { return Math.max(2, 7 - Math.min(5, save.cigEndlessRuns?.() || 0)); },
+  labelBudget() {
+    if (G.lv) return G.lv.n <= 2 ? 6 : G.lv.n <= 6 ? 3 : 1;
+    return Math.max(2, 7 - Math.min(5, save.cigEndlessRuns?.() || 0));
+  },
   combo(n) { ui.setCombo(n); if (n > 0) ui.pulse(); },
   onPower(kind) { if (kind === 'rainbow') { rainbowTrail = true; fx.setTrailStyle({ rainbow: true, glow: true }); } },
   onPowerEnd(kind) { if (kind === 'rainbow') { rainbowTrail = false; applyTrail(save.selected('trail')); } },
@@ -289,6 +302,7 @@ const cigHost = {
     ui.hint(false);
     ui.speedLines?.(0);
     if (cause === 'melt') { audio.lose(); platform.haptic('warning'); }
+    else if (cause === 'win') { audio.win(); platform.haptic('success'); }
     else { audio.crash(0.5); platform.haptic('heavy'); }
     meta.track('cig_progress', { tons: game.totalTons(), dist: ball.d });
   },
@@ -353,6 +367,8 @@ async function startEndless(level = null, opts = {}) {
   G.result = null;
   ui.showPause(false);
   ui.cigReset?.();
+  G.lv = null;
+  hideLevelHud();
   menus.hideMain();
   setCigVisible(false);
   if (!fx) { fx = new Fx(scene, groundless); applyTrail(save.selected('trail')); }
@@ -408,6 +424,8 @@ async function startAgar() {
   ui.hint(false);
   ui.speedLines?.(0);
   ui.cigReset?.();
+  G.lv = null;
+  hideLevelHud();
   ui.showPause(false);
   hideEnemyBars();
   menus.hideMain();
@@ -442,12 +460,14 @@ function toMenu() {
   ui.hint(false); // the runner's swipe hint must not linger on the menu
   ui.speedLines?.(0);
   ui.cigReset?.();
+  G.lv = null;
+  hideLevelHud();
   G.state = 'menu';
   G.paused = false;
   G.level = Math.min(save.level, MAX_LEVEL);
   G.hitStop = 0; G.timeScale = 1; G.shake = 0; G.fovKick = 0;
   camZoom = 0;
-  buildWorld(4242, G.level, false);
+  buildWorld(4242, save.cigNext(), false);
   clearWaveVis();
   ball.reset(CFG.startR);
   ball.y = world.groundY(0, 0) + ball.r * 0.92;
@@ -468,6 +488,7 @@ function toMenu() {
     dailyNum: dailyNumber(),
     dailyBest: best ? best.tons : 0,
     coins: save.coins,
+    cig: { next: save.cigNext(), stars: save.cigLvStars(save.cigNext()), cleared: save.cigCleared(), total: save.cigLvTotalStars(), endlessOpen: save.cigEndlessOpen(), dailyOpen: save.cigDailyOpen() },
   });
   // (the daily reward is a badge in the menu now, never a pop-up)
   audio.setRoll(0, 0);
@@ -486,6 +507,8 @@ function lobbyBounce() {
 
 // ---------- ÇIĞ SONSUZ ----------
 function startCigEndless(opts = {}) {
+  G.lv = null;
+  hideLevelHud();
   const daily = !!opts.daily;
   const fromMenu = G.state === 'menu' && G.mode === 'cig'; // lobby -> slope: the camera swoops out; retries cut cleanly
   leaveAgar();
@@ -521,9 +544,204 @@ function startCigEndless(opts = {}) {
 }
 let lastPlusPlan = -1;
 
+// ---------- ÇIĞ DAĞLAR: 30 finite mountains ----------
+// HUD: progress bar (gate marks + flag) from the existing top bar, plus #cig-lv: next barrier chip, size/speed chip, chain chip.
+let lvHud = null;
+function ensureLevelHud(plan) {
+  const hud = ui.el.hud;
+  if (!lvHud) {
+    const mk = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
+    const root = mk('div'); root.id = 'cig-lv';
+    const row = mk('div', 'cgl-row');
+    const gc = mk('div', 'cgl gc'), gs = mk('small'), gt = mk('b');
+    gc.appendChild(gs); gc.appendChild(gt);
+    const sz = mk('div', 'cgl sz');
+    const ch = mk('div', 'cgl ch');
+    row.appendChild(gc); row.appendChild(sz);
+    root.appendChild(row); root.appendChild(ch);
+    hud.appendChild(root);
+    lvHud = { root, gc, gs, gt, sz, ch, s: '', t: '', z: '', c: '', r: -1, marks: [], gi: -1 };
+  }
+  lvHud.root.style.display = '';
+  lvHud.s = lvHud.t = lvHud.z = lvHud.c = ''; lvHud.r = -1; lvHud.gi = -1; lvHud.marks.length = 0;
+  lvHud.ch.style.display = 'none';
+  hud.classList.add('cig-lvl');
+  const town = hud.querySelector('.hud-progress .town');
+  if (town) town.textContent = '🏁';
+  const bar = hud.querySelector('.hud-progress .bar');
+  if (bar) {
+    for (const e of Array.from(bar.querySelectorAll('.pt'))) e.remove();
+    for (const g of plan.gates) {
+      if (g.i === plan.S - 1) continue;
+      const m = document.createElement('i');
+      m.className = 'pt gate';
+      m.textContent = '⛔';
+      m.style.left = (g.d / plan.length * 100).toFixed(1) + '%';
+      bar.appendChild(m);
+      lvHud.marks.push(m);
+    }
+  }
+}
+function updateLevelHud(V) {
+  const h = lvHud;
+  if (!h) return;
+  const m5 = Math.round(V.left / 5) * 5;
+  const s = V.finalBroken ? 'BİTİŞ' : V.final ? 'FİNAL' : 'ETAP ' + (V.gateI + 1) + '/' + V.S;
+  const t = V.finalBroken ? '🏁 ' + m5 + ' m' : (V.locked ? '🔒 PATRON' : '⛔ ' + fmtD(V.need) + ' m') + ' · ' + m5 + ' m';
+  const r = V.finalBroken ? 2 : V.ready;
+  if (s !== h.s) { h.s = s; h.gs.textContent = s; }
+  if (t !== h.t) { h.t = t; h.gt.textContent = t; }
+  if (r !== h.r) { h.r = r; h.gc.className = 'cgl gc r' + r; }
+  if (V.gateI !== h.gi) { h.gi = V.gateI; for (let i = 0; i < h.marks.length; i++) h.marks[i].classList.toggle('passed', i < V.gateI); }
+  const z = fmtD(V.have) + ' m · ' + (Math.round(V.kmh / 5) * 5) + ' km/s';
+  if (z !== h.z) { h.z = z; h.sz.textContent = z; }
+  const c = V.chainMul >= 2 ? 'ZİNCİR x' + V.chainMul : '';
+  if (c !== h.c) { h.c = c; h.ch.textContent = c; h.ch.style.display = c ? '' : 'none'; }
+  // the avalanche is close: red edge pulse
+  const cl = ui.el.hud.classList;
+  if (V.gap < CFG.lvl.chaseNear) cl.add('chase-near'); else if (V.gap > CFG.lvl.chaseNear + 10) cl.remove('chase-near');
+}
+function hideLevelHud() {
+  if (lvHud) lvHud.root.style.display = 'none';
+  const hud = ui.el?.hud;
+  if (hud) {
+    hud.classList.remove('cig-lvl', 'chase-near');
+    const town = hud.querySelector('.hud-progress .town');
+    if (town && town.textContent === '🏁') town.textContent = '🏘️';
+    const bar = hud.querySelector('.hud-progress .bar');
+    if (bar) for (const e of Array.from(bar.querySelectorAll('.pt.gate'))) e.remove();
+  }
+}
+
+// the menu cards read a "level"-shaped object (name, boss, length, goals)
+function planAsLevel(plan) {
+  return { id: plan.n, name: plan.name, boss: plan.boss, act: 1, length: plan.length, goals: plan.stars.map((s) => ({ text: s.text })) };
+}
+
+// intro card (first time a mechanic appears), then the mountain
+function playCigLevel(n, opts = {}) {
+  const plan = dagPlan(n);
+  if (!opts.retry && plan.intro && !save.cigIntroSeen(n) && menus.showCigIntro) {
+    if (menus.showCigIntro(plan, () => { save.markCigIntro(n); startCigLevel(n, opts); })) return;
+  }
+  startCigLevel(n, opts);
+}
+
+// arg: 1..30 or { daily: true }. opts: { retry, force (debug: ignore the locks) }
+function startCigLevel(arg, opts = {}) {
+  const daily = !!(arg && typeof arg === 'object' && arg.daily);
+  const force = !!opts.force || DEBUG;
+  if (daily && !force && !save.cigDailyOpen()) { ui.toast?.("Günün Dağı için DAĞ 3'ü bitir"); return; }
+  let n = daily ? Math.max(3, save.cigCleared()) : Math.max(1, Math.min(DAG_COUNT, Math.round(Number(arg)) || 1));
+  if (!daily && !force && n > save.cigUnlocked()) n = save.cigUnlocked();
+  const fromMenu = G.state === 'menu' && G.mode === 'cig'; // lobby -> slope: the camera swoops out; retries cut cleanly
+  leaveAgar();
+  leaveEndless();
+  ui.cigReset?.();
+  menus.hideMain();
+  audio.init();
+  if (!opts.retry) audio.ui();
+  G.dailySeed = dailySeed();
+  G.dailyNo = dailyNumber();
+  const assist = !daily && save.cigLvFails(n) >= 3 ? 1 : 0;   // three losses in a row on the same mountain: a quiet helping hand
+  const plan = dagPlan(n, daily ? { daily: true, seed: G.dailySeed * 7919 + 13, dailyNo: G.dailyNo } : { assist });
+  meta.track('run_start', { mode: 'cigLevel', level: n, daily });
+  G.mode = 'cig';
+  G.daily = daily;
+  G.lv = plan;
+  G.runNo++;
+  buildWorld(plan.seed, plan.n, daily, plan);
+  clearWaveVis();
+  game.reset();
+  G.paused = false;
+  G.state = 'play';
+  G.fovKick = 0; camZoom = 0; G.peakD = 0;
+  input.consumeDx();
+  lastPlusPlan = -1;
+  ui.showPause(false);
+  ui.startRun(plan.label);
+  ensureLevelHud(plan);
+  const showHint = plan.n === 1 || (!G.hinted && (save.cigTut?.() ?? 0) < 3);
+  ui.hint(showHint, 'sürükle · küçükleri ye, kapıyı kır');
+  if (showHint && plan.n !== 1) save.bumpCigTut?.();
+  scene.fog.near = 70; scene.fog.far = 300;
+  ball.sync();
+  updateCamera(0, !fromMenu);
+  plus.planTo(Math.min(world.genD, world.planEnd || Infinity) - 30);
+}
+
+const clock = (t) => { const s = Math.max(0, Math.round(t)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+
+function finishCigLevel() {
+  if (G.state !== 'end') return;
+  const plan = G.lv;
+  const win = G.cause === 'win';
+  const r = game.result();
+  const st = game.stats;
+  const n = plan.n, daily = G.daily;
+  const peakD = Math.max(G.peakD || 0, ball.d);
+  const sim = !!window.__cigCalib;   // (debug balance runs must not touch the save file or open menus)
+  G.result = r;
+  ui.hint(false);
+  hideLevelHud();
+  if (!sim) { ui.buffClear?.(); ui.hungerHide?.(); ui.cigReset?.(); ui.speedLines?.(0); ui.el.hud.classList.add('hidden'); }   // (the menu card replaces the HUD)
+  G.state = 'result';
+  if (win) {
+    const goalsMet = evalStars(plan, { finished: true, finalR: G.finalR, bounces: st.bounces, hits: st.hits, crates: st.crates, gold: st.gold, maxMul: st.maxMul, time: st.time, rivalEaten: st.rivalEaten });
+    const stars = Math.max(1, goalsMet.filter(Boolean).length);
+    G.lastEval = { win, stars, goalsMet };
+    if (sim) return;
+    const rec = daily ? null : save.recordCigLevel(n, { stars, tons: r.tons, size: 2 * G.finalR, time: st.time });
+    if (!daily) save.cigLvFailReset(n);
+    const firstClear = !!(rec && rec.firstClear);
+    const prev = rec ? rec.prevStars : 0;
+    let coins = daily ? 20 + 4 * n : firstClear ? 25 + 4 * n + (plan.boss ? 100 : 0) : 5 + 2 * stars;
+    const bonus = [15, 22, 30];
+    for (let k = prev + 1; k <= stars; k++) coins += bonus[k - 1];
+    let crystals = 0;
+    if (plan.boss && !daily) { if (firstClear) crystals += 2; if (stars === 3 && prev < 3) crystals += 1; }
+    save.addCoins(coins);
+    if (crystals) save.addCrystals(crystals);
+    save.recordRun(r.tons);
+    if (daily) save.recordDaily(G.dailySeed, { tons: r.tons, pct: 1, stars });
+    meta.track('cig_end', { level: n, stars, tons: r.tons, pct: 0.9, reached: true, daily, theme: scenery.theme.id, endless: false });
+    meta.track('cig_progress', { tons: r.tons, dist: peakD });
+    const hasNext = !daily && n < DAG_COUNT;
+    menus.showLevelComplete({
+      level: planAsLevel(plan), stars, goalsMet, rewards: { coins, crystals }, hasNext,
+      labels: { banner: 'DAĞ TAMAM!', bossBanner: 'PATRON YENİLDİ!', next: 'SONRAKİ DAĞ ▶', map: 'DAĞLAR', retry: '↻ TEKRAR' },
+      chips: ['⚪ ' + fmtD(2 * G.finalR) + ' m', '⚖️ ' + fmtTons(r.tons), '⏱ ' + clock(st.time)],
+      special: !daily && firstClear && n === 10 ? '∞ ÇIĞ SONSUZ AÇILDI!' : !daily && firstClear && n === DAG_COUNT ? '🏆 TÜM DAĞLAR TAMAM!' : null,
+    }, {
+      onNext: () => playCigLevel(n + 1),
+      onRetry: () => startCigLevel(daily ? { daily: true } : n, { retry: true }),
+      onMap: () => { toMenu(); menus.openCigLevels?.(n); },
+    });
+  } else {
+    G.lastEval = { win, stars: 0, goalsMet: [false, false, false] };
+    if (sim) return;
+    if (!daily) save.cigLvFail(n);
+    save.recordRun(r.tons);
+    meta.track('cig_end', { level: n, stars: 0, tons: r.tons, pct: Math.min(0.99, peakD / plan.length), reached: false, daily, theme: scenery.theme.id, endless: false });
+    meta.track('cig_progress', { tons: r.tons, dist: peakD });
+    const wave = G.cause === 'wave';
+    const lb = G.lastBounce && G.lastBounce.i >= (G.gateIdx || 0) ? G.lastBounce : null;   // (only while that barrier is still the one that stopped you)
+    const tip = lb ? 'KAPI ' + (lb.i + 1) + ': ' + fmtD(lb.need * 2) + ' m gerekiyordu, sen ' + fmtD(lb.have * 2) + ' m idin.'
+      : wave ? 'Durma: çığ arkandan geliyor.' : 'Küçükleri ye, durursan kar erir.';
+    menus.showLevelFailed({
+      level: planAsLevel(plan), cause: G.cause, title: wave ? 'ÇIĞ SENİ YAKALADI!' : 'ERİDİN!', icon: wave ? '🌨️' : '💧', tip,
+      distance: peakD, stats: { distance: peakD }, labels: { retry: '↻ TEKRAR DENE', map: 'DAĞLAR' },
+    }, {
+      onRetry: () => startCigLevel(daily ? { daily: true } : n, { retry: true }),
+      onMap: () => { toMenu(); menus.openCigLevels?.(n); },
+    });
+  }
+}
+
 // Rewards go quietly into the counters; one clean result screen.
 function finishCig() {
   if (G.state !== 'end') return;
+  if (G.lv) { finishCigLevel(); return; }
   G.state = 'result';
   const r = game.result();
   G.result = r;
@@ -561,7 +779,8 @@ function pause(on) {
     if (st) {
       st.textContent = G.mode === 'runner' && runner
         ? `${Math.round(runner.b.s).toLocaleString('tr-TR')} m · ${Math.round(runner.score).toLocaleString('tr-TR')} puan`
-        : `${Math.round(ball.d).toLocaleString('tr-TR')} m · ${fmtTons(game ? game.totalTons() : 0)}`;
+        : G.lv ? `${Math.round(ball.d).toLocaleString('tr-TR')} / ${G.lv.length.toLocaleString('tr-TR')} m · ${fmtD(2 * ball.r)} m`
+          : `${Math.round(ball.d).toLocaleString('tr-TR')} m · ${fmtTons(game ? game.totalTons() : 0)}`;
     }
   }
   if (on) audio.setRoll(0, 0);
@@ -578,11 +797,12 @@ function restartSame() {
   G.paused = false;
   ui.showPause(false);
   if (G.mode === 'runner') { music.duck(false); startEndless(runner?.level || null, { retry: true }); }
+  else if (G.lv) startCigLevel(G.daily ? { daily: true } : G.lv.n, { retry: true });
   else startCigEndless({ daily: G.daily, retry: true });
 }
 
 bind('btn-play', () => startEndless());            // OYNA / BAŞLA = YETİ RUSH
-bind('btn-daily', () => startCigEndless({ daily: true }));
+bind('btn-daily', () => startCigLevel({ daily: true }));
 bind('btn-pause', () => { audio.ui(); pause(true); });
 bind('btn-resume', () => { audio.ui(); pause(false); });
 bind('btn-restart', restartSame);
@@ -601,6 +821,7 @@ bind('btn-shop', () => openWardrobe());
 bind('btn-retry', () => {
   audio.ui();
   if (G.mode === 'runner') startEndless(runner?.level || null, { retry: true });
+  else if (G.lv) startCigLevel(G.daily ? { daily: true } : G.lv.n, { retry: true });
   else startCigEndless({ daily: G.daily, retry: true });
 });
 bind('btn-next', () => {
@@ -687,10 +908,10 @@ function cigFrame(dt) {
     if (G.state === 'play') cigPlay(gdt);
     else if (G.state === 'end') {
       game.updateEnd(gdt);
-      if (G.endT > 1.25) finishCig();
+      if (G.endT > (G.cause === 'win' ? 2.0 : 1.25)) finishCig();
     } else if (G.state === 'result') game.updateEnd(gdt * 0.5);
     plus.update(gdt, ball, G);
-    plus.planTo(world.genD - 30);
+    plus.planTo(Math.min(world.genD, world.planEnd || Infinity) - 30);
     ball.tick(dt);
     if (G.state === 'menu') lobbyUpdate(dt);
     ball.sync();
@@ -714,11 +935,13 @@ function cigPlay(gdt) {
   const flipK = Math.cos(plus.rollNow || 0) < 0 ? -1 : 1; // the TAKLA barrel roll must not mirror the steering
   const steerM = (dx * sens + input.keyAxis() * (14 + 3 * b.r + hw * 0.3) * gdt) * flipK;
   game.update(gdt, steerM);
+  if (b.d > G.peakD) G.peakD = b.d;
   G.progT2 = (G.progT2 || 0) + gdt;
   if (G.progT2 > 10) { G.progT2 = 0; meta.track('cig_progress', { tons: game.totalTons(), dist: b.d }); }
   audio.setRoll(b.airborne ? 0 : clamp(b.speed / 40, 0, 1), clamp(b.r / 10, 0, 1));
   // speed cues: wider FOV and speed lines as the ball gets heavy and fast
-  ui.speedLines?.(clamp((b.speed - 20) / 25, 0, 1) * 0.6 + (plus.T.rocket > 0 || game.powerT > 0 ? 0.4 : 0));
+  const slk = G.lv ? clamp((b.speed / (CFG.baseSpeed * G.lv.speedK) - 1.1) / 0.9, 0, 1) * 0.7 : clamp((b.speed - 20) / 25, 0, 1) * 0.6;   // (levels: relative to the mountain's own speed)
+  ui.speedLines?.(slk + (plus.T.rocket > 0 || game.powerT > 0 || G.stripT > 0 ? 0.4 : 0));
 }
 
 // ---------- the avalanche wave (white wall rolling in from behind when you stall) ----------
@@ -829,7 +1052,7 @@ function updateCamera(dt, snap = false) {
     G.shake = Math.max(0, G.shake - dt * 3.5);
   }
   sky.position.copy(camera.position);
-  const fs = scenery?.theme?.fogScale ?? 1;
+  const fs = (scenery?.theme?.fogScale ?? 1) * (G.lv && G.lv.twist === 'fog' ? 0.6 : 1);
   scene.fog.near = (70 + r * 6) * fs;
   scene.fog.far = Math.min(1500, 300 + r * 9) * fs;
   const wantNear = Math.max(0.5, r * 0.12);
@@ -902,7 +1125,7 @@ function updateEnemyBars() {
   }
   for (let i = n; i < BAR_N; i++) if (barPool[i].on) { barPool[i].on = false; barPool[i].el.style.display = 'none'; }
   if (boss) {
-    bossEl.style.display = 'block';
+    bossEl.style.display = 'block'; bossEl.style.top = G.lv ? 'calc(env(safe-area-inset-top,0px) + 152px)' : 'calc(env(safe-area-inset-top,0px) + 78px)';
     bossEl._nm.textContent = boss.enemy.name + '  ' + Math.max(0, Math.ceil(boss.enemy.hp)) + ' / ' + Math.ceil(boss.enemy.max);
     bossEl._bf.style.transform = 'scaleX(' + clamp(boss.enemy.hp / boss.enemy.max, 0, 1).toFixed(3) + ')';
   } else bossEl.style.display = 'none';
@@ -940,7 +1163,10 @@ function frame(now) {
 
   // widen the FOV with speed (endless modes)
   let wantFov = baseFov + (camera.userData.fovBoost || 0);
-  if (G.mode === 'cig' && G.state === 'play') wantFov += 12 * clamp((ball.speed - 18) / 27, 0, 1) + G.fovKick;
+  if (G.mode === 'cig' && G.state === 'play') {
+    const sk = G.lv ? G.lv.speedK : 1;
+    wantFov += (12 + (G.lv ? 6 * clamp((sk - 0.92) / 0.35, 0, 1) : 0)) * clamp((ball.speed - 18 * sk) / (27 * sk), 0, 1) + G.fovKick;
+  }
   if (Math.abs(camera.fov - wantFov) > 0.05) {
     camera.fov += (wantFov - camera.fov) * Math.min(1, dt * 4);
     camera.updateProjectionMatrix();
@@ -1013,6 +1239,47 @@ if (DEBUG) {
       return cigSummary();
     },
     start: (a = false) => startCigEndless(typeof a === 'number' ? { seed: a } : { daily: !!a }),
+    // ---- ÇIĞ DAĞLAR
+    cigLevel: (n, opts = {}) => { startCigLevel(opts.daily ? { daily: true } : n, { ...opts, force: true }); return cigSummary(); },
+    plan: (n) => { const P = dagPlan(n); return { ...JSON.parse(JSON.stringify(P)), problems: validatePlan(P) }; },
+    warp(d) {
+      if (!game || !G.lv) return null;
+      const dd = d - ball.d;
+      ball.d = d;
+      ball.y = world.groundY(ball.x, d) + ball.r * 0.92;
+      world.stream(d, 400, 40, true);
+      plus.planTo(Math.min(world.genD, world.planEnd || Infinity) - 30);
+      game.progD = d; game.progT = 0;
+      if (game.wave.on) game.wave.d += dd;
+      ball.sync(); updateCamera(0, true);
+      return cigSummary();
+    },
+    setR(r) { ball.setRadius(r); G.peakR = r; ball.sync(); return +ball.r.toFixed(3); },
+    gate() {
+      const g = game?._next;
+      return g ? { i: g.i, d: g.d, kind: g.kind, minR: +g.minR.toFixed(3), need: +(2 * g.minR).toFixed(2), ready: game._readyOf(g), cracks: g.cracks, bounces: g.bounces, supplyLeft: g.supplyLeft, broken: g.broken, locked: g.locked } : null;
+    },
+    win() { if (G.lv && G.state === 'play') { G.finalBroken = true; G.finalR = ball.r; ball.d = Math.max(ball.d, G.lv.length); game._win(); } return cigSummary(); },
+    fail(cause = 'melt') { if (G.state === 'play') game.end(cause); return cigSummary(); },
+    unlock(n) { save.cigSetCleared(n); menus.refresh?.(); return { cleared: save.cigCleared(), next: save.cigNext(), endless: save.cigEndlessOpen(), daily: save.cigDailyOpen() }; },
+    // balance run: the greedy bot plays mountain n a few times; returns one row per run (nothing is saved)
+    calib(n, o = {}) {
+      const rows = [];
+      const keepAuto = AUTO;
+      window.__cigCalib = true;
+      try {
+        for (let i = 0; i < (o.runs || 3); i++) {
+          startCigLevel(n, { force: true, retry: true });
+          AUTO = true; game.auto = true;
+          game.bot.mode = o.mode || 'greedy'; game.bot.noise = o.noise ?? 0.5; game.bot.latency = o.latency ?? 0.3;
+          for (let k = 0; k < Math.round((o.maxT || 200) * 60) && G.state !== 'result'; k++) cigFrame(1 / 60);
+          const ev = G.lastEval || { win: false, stars: 0 };
+          rows.push({ win: !!ev.win, cause: G.cause, t: +game.stats.time.toFixed(1), d: Math.round(ball.d), bounces: game.stats.bounces, hits: game.stats.hits, crates: game.stats.crates, maxMul: game.stats.maxMul, stars: ev.stars, finalR: +G.finalR.toFixed(2), gates: G.gateLog.map((x) => ({ i: x.i, r: +x.r.toFixed(2), need: +x.need.toFixed(2), ok: x.ok })) });
+        }
+      } finally { window.__cigCalib = false; AUTO = keepAuto; if (game) game.auto = AUTO; }
+      return rows;
+    },
+    cigEndlessDebug: () => startCigEndless(),
     cigEndless: (opts = {}) => startCigEndless(opts),
     endless: () => startEndless(),
     level: (id) => startEndless(levelById(id)),
@@ -1038,6 +1305,8 @@ if (DEBUG) {
     tons: game ? Math.round(game.totalTons()) : 0, eats: game?.stats.eats ?? 0, bumps: game?.stats.bumps ?? 0, cause: G.cause || '',
     pulls: world?.pulls.length ?? 0, stuck: ball.stuckCount(), statics: world?.statics.length ?? 0, hunger: game ? +game.hungerFrac().toFixed(2) : 0,
     wave: !!game?.wave.on, hw: world ? +world.halfWidth(ball.d + 100).toFixed(1) : 0,
+    lv: G.lv ? G.lv.n : 0, stage: G.gateIdx || 0, gate: game?._next ? +(2 * game._next.minR).toFixed(2) : 0, hits: game?.stats.hits ?? 0, chain: G.chain || 0, finalBroken: !!G.finalBroken,
+    gap: game?.wave.on ? +(ball.d - game.wave.d).toFixed(1) : 0, bounces2: game?.stats.bounces ?? 0,
   });
   window.cig.summary = cigSummary;
 }
@@ -1049,7 +1318,12 @@ async function boot() {
   toMenu();
   updateCamera(0, true);
   try { (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => { loadEndless().catch(() => {}); }); } catch { /* optional */ }
-  if (params.has('play') || params.has('cig')) startCigEndless({ daily: params.has('daily') });
+  if (params.has('play') || params.has('cig')) {
+    const cp = params.get('cig');
+    if (cp === 'endless') startCigEndless({ daily: params.has('daily') });
+    else if (params.has('daily')) startCigLevel({ daily: true });
+    else { const n = parseInt(cp, 10); startCigLevel(Number.isFinite(n) ? n : save.cigNext()); }
+  }
   else if (params.has('endless')) startEndless();
   requestAnimationFrame(frame);
 }

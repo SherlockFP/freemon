@@ -615,7 +615,7 @@ export class Scenery {
     this.eggs = {};
 
     const W = world;
-    this.endless = !!(W && W.endless);
+    this.endless = !!(W && (W.endless || W.lvl));
     const mid = !this.endless && W.statics.length ? W.statics[W.statics.length >> 1] : null;
     this.seed = (seed ?? (this.endless ? Math.imul(W.seed || 1, 2654435761) : ((W.L * 131 + W.townStart * 17 + W.statics.length * 7919 + Math.round((mid ? mid.x : 0) * 1000)) | 0))) >>> 0;
     this.sd = this.seed % 9973;

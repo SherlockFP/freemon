@@ -1484,6 +1484,30 @@ function buildRivalBall() {
   return m.build('rival_ball', 3, 'ball');
 }
 
+// ÇIĞ DAĞLAR: breakable crate (1.2 m wooden box with corner posts and a plank cross) and its golden twin.
+// kind 'obstacle' keeps it out of the endless slope's food / obstacle catalogue: only the level generator places it.
+function crateModel(name, board, post, trim) {
+  const m = new Model();
+  const w = 1.2;
+  m.boxB(w, w, w, board, 0, 0, 0);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) m.boxB(0.16, w + 0.04, 0.16, post, sx * (w / 2 - 0.06), -0.02, sz * (w / 2 - 0.06));
+  for (const y of [0, w - 0.14]) {
+    m.boxB(w + 0.04, 0.14, 0.12, post, 0, y, w / 2 - 0.02);
+    m.boxB(w + 0.04, 0.14, 0.12, post, 0, y, -w / 2 + 0.02);
+    m.boxB(0.12, 0.14, w + 0.04, post, w / 2 - 0.02, y, 0);
+    m.boxB(0.12, 0.14, w + 0.04, post, -w / 2 + 0.02, y, 0);
+  }
+  // plank cross on the front and back faces
+  for (const sz of [-1, 1]) {
+    m.boxB(0.1, 1.5, 0.05, trim, 0, -0.15, sz * (w / 2 + 0.02), [0, 0, 0.78]);
+    m.boxB(0.1, 1.5, 0.05, trim, 0, -0.15, sz * (w / 2 + 0.02), [0, 0, -0.78]);
+  }
+  m.boxB(w * 0.9, 0.06, w * 0.9, trim, 0, w, 0);
+  return m.build(name, 1, 'obstacle');
+}
+function buildCrate() { return crateModel('crate', 0xd49a58, 0x8a5a2b, 0xa8723a); }
+function buildCrateGold() { return crateModel('crate_gold', 0xffc928, 0xd69a10, 0xfff0a0); }
+
 // ---------------------------------------------------------------------------
 // Library
 // ---------------------------------------------------------------------------
@@ -1495,7 +1519,7 @@ const BUILDERS = [
   buildCabin, buildBus, buildLiftPylon, buildTruck, buildPineBig,
   buildHotel, buildGondolaStation, buildWaterTower, buildRockBig,
   buildHouse, buildHouseTall, buildShop, buildApartment, buildClocktower, buildBarn,
-  buildSkyscraper, buildStadium, buildCastle, buildShip, buildAirplane, buildWindTurbine, buildRadioTower, buildFerrisWheel, buildRocketPad, buildRobot, buildRivalBall,
+  buildSkyscraper, buildStadium, buildCastle, buildShip, buildAirplane, buildWindTurbine, buildRadioTower, buildFerrisWheel, buildRocketPad, buildRobot, buildRivalBall, buildCrate, buildCrateGold,
 ];
 
 /** Build every prop. Returns { [name]: { name, geometry, radius, height, tier, kind } }. */

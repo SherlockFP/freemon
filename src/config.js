@@ -118,6 +118,31 @@ export const CFG = {
   milestones: [1.4, 2.6, 4.2, 6.5, 9.5],
   milestoneNames: ['BÜYÜYOR!', 'ÇIĞ!', 'MEGA ÇIĞ!', 'FELAKET!', 'KIYAMET!'],
   expectedR: [0.6, 2.4, 4.4, 7, 9.5],
+
+  // ---- ÇIĞ DAĞLAR (30 finite levels, see cigplan.js): every number is a tuning knob ----
+  lvl: {
+    gateTol: 0.97,         // a gate breaks at effective size >= minR * gateTol
+    amberFrom: 0.85,       // gate/chip turn amber from this fraction of minR ("almost: eat a bit more")
+    crackStep: 0.04, crackMax: 3,          // every bounce cracks the gate: its need drops 4 % (3 times)
+    bounceLoss: [0.10, 0.28],              // volume fraction lost on a bounce (small miss .. big miss)
+    bounceBack: [12, 24],                  // metres the ball is thrown back
+    bounceDur: 0.5,
+    supplyTo: 0.92, supplyMax: 2,          // the first 2 bounces drop snow chunks up to 0.92 * need
+    capK: 1.35,
+    feed: 2.6, feedMin: 0.45, feedMax: 1.6, // food potential vs. the plan's growth
+    speedK0: 0.92, speedKStep: 0.012,
+    surgeT: 1.2, surgeMul: 0.12,           // tier-up speed wave
+    stripT: 2.0, stripMul: 1.3, stripRam: 0.12,
+    chainWin: 1.6, chainStep: 3, chainMax: 5, chainMelt: 0.5,
+    crateYield: 0.045,                     // snow of one crate = this * plan radius^3
+    goldMul: 3, ironMul: 1.5,
+    smashGrow: 0.5,
+    parK: 0.9, lenK: 0.95, finalPad: 36, firstGate: 150, gateExp: 0.92, gatePre: 70,
+    bossVolley: [2.4, 3.2], bossHpK: 0.8,
+    arenaMelt: 0.6,
+    bossArena: true,                       // false: the boss level ends with a plain big gate (0.86 * rEnd)
+    chaseNear: 45,                         // chase gap (m) that turns the screen edge red
+  },
 };
 
 export const TIER_COUNT = CFG.tierWidth.length;
@@ -150,10 +175,13 @@ export function expectedRAt(d) {
   return a[1] * Math.pow(d / a[0], 0.5);
 }
 
-// Growth multiplier for a (non-chunk) bite.
-export function bandAt(r, d) {
-  const k = expectedRAt(d) / Math.max(0.2, r);
+// Growth multiplier for a (non-chunk) bite, given the expected radius `exp` there (endless: expectedRAt, levels: the plan).
+export function bandRel(exp, r) {
+  const k = exp / Math.max(0.2, r);
   return Math.min(CFG.bandMax, Math.max(CFG.bandMin, Math.pow(k, k < 1 ? CFG.bandUp : CFG.bandDown)));
+}
+export function bandAt(r, d) {
+  return bandRel(expectedRAt(d), r);
 }
 
 // 0-based tier of a ball radius.
@@ -162,6 +190,11 @@ export function tierOf(r) {
   let t = 0;
   while (t < e.length && r >= e[t]) t++;
   return t;
+}
+
+// Half width of the slope for a ball of radius r (at least the tier's width, at least ~1/5 of the track for the ball).
+export function hwFor(r) {
+  return Math.max(CFG.tierWidth[Math.min(tierOf(r), CFG.tierWidth.length - 1)] / 2, 5.2 * r);
 }
 
 // Tons per prop (the number-goes-up candy). Unlisted props fall back to a volume estimate (see fallbackMass).

@@ -264,11 +264,11 @@ const MISSION_TPL = [
     on: { tier_up: (d, v) => (num(d.tier) >= 4 ? v + 1 : v) } },
   { id: 'runs', group: 'runs', modes: 'any', scope: 'sum', icon: '🔁', goals: [1, 2, 3, 3, 4, 5], text: (g) => (g === 1 ? 'Bir koşu tamamla' : `${g} koşu tamamla`), on: { endless_end: inc, cig_end: inc, cig_endless_end: inc } },
   // ---- ÇIĞ SONSUZ ----
-  { id: 'cigtier', group: 'cigtier', modes: 'cig', scope: 'run', icon: '🌋', goals: [2, 3, 3, 4, 4, 5], text: (g) => `ÇIĞ SONSUZ'da ${TIER_NAMES[Math.max(2, Math.min(5, g))]} bölgesine ulaş`,
+  { id: 'cigtier', group: 'cigtier', modes: 'cig', scope: 'run', icon: '🌋', goals: [2, 3, 3, 4, 4, 5], text: (g) => `ÇIĞ'da ${TIER_NAMES[Math.max(2, Math.min(5, g))]} bölgesine ulaş`,
     on: { cig_tier: best((d) => (Number.isFinite(d.tier) ? d.tier : tierFromName(d.name))), cig_endless_end: best((d) => (Number.isFinite(d.tier) ? d.tier : tierFromName(d.tierName))) } },
-  { id: 'cigtons', group: 'cigtons', modes: 'cig', scope: 'run', icon: '⚖️', goals: [300, 1000, 3000, 8000, 20000, 50000], text: (g) => `ÇIĞ SONSUZ'da bir koşuda ${fmtN(g)} ton topla`,
+  { id: 'cigtons', group: 'cigtons', modes: 'cig', scope: 'run', icon: '⚖️', goals: [300, 1000, 3000, 8000, 20000, 50000], text: (g) => `ÇIĞ'da bir koşuda ${fmtN(g)} ton topla`,
     on: { cig_endless_end: best((d) => d.tons), cig_progress: best((d) => d.tons) } },
-  { id: 'cigdist', group: 'cigdist', modes: 'cig', scope: 'run', icon: '⛰️', goals: [400, 800, 1500, 2500, 4000, 6000], text: (g) => `ÇIĞ SONSUZ'da bir koşuda ${fmtN(g)} m kay`,
+  { id: 'cigdist', group: 'cigdist', modes: 'cig', scope: 'run', icon: '⛰️', goals: [400, 700, 1000, 1500, 2200, 3000], text: (g) => `ÇIĞ'da bir koşuda ${fmtN(g)} m kay`,
     on: { cig_endless_end: best((d) => d.dist), cig_progress: best((d) => d.dist) } },
   { id: 'swallow', group: 'swallow', modes: 'cig', scope: 'sum', icon: '🍽️', goals: [100, 200, 400, 700, 1000, 1500], text: (g) => `Çığ modunda ${fmtN(g)} şey yut`, on: { swallow: inc } },
   // ---- legacy (finite ÇIĞ levels, rhythm, portals): old saves keep them, no new set offers them ----
@@ -1243,8 +1243,8 @@ const DT_TPL = [
   { id: 'y_dist', mode: 'yeti', icon: '📏', goals: [1200, 2000, 3000], text: (g) => `YETİ RUSH: tek koşuda ${fmtN(g)} m koş`, rw: R3 },
   { id: 'y_stomp', mode: 'yeti', icon: '🦶', goals: [8, 15, 25], text: (g) => `YETİ RUSH: toplam ${g} yaratık ez`, rw: R3 },
   { id: 'y_turn', mode: 'yeti', icon: '↪️', goals: [6, 12, 20], text: (g) => `YETİ RUSH: ${g} kavşakta dön`, rw: R3 },
-  { id: 'c_tier', mode: 'cig', icon: '🌋', goals: [2, 3, 4], text: (g) => `ÇIĞ SONSUZ: ${TIER_NAMES[g]} boyutuna ulaş`, rw: R3 },
-  { id: 'c_eat', mode: 'cig', icon: '🍽️', goals: [150, 300, 600], text: (g) => `ÇIĞ SONSUZ: ${fmtN(g)} şey ez`, rw: R3 },
+  { id: 'c_tier', mode: 'cig', icon: '🌋', goals: [2, 3, 4], text: (g) => `ÇIĞ: ${TIER_NAMES[g]} boyutuna ulaş`, rw: R3 },
+  { id: 'c_eat', mode: 'cig', icon: '🍽️', goals: [150, 300, 600], text: (g) => `ÇIĞ: ${fmtN(g)} şey ez`, rw: R3 },
   { id: 'a_xp', mode: 'arena', icon: '⚔️', goals: [300, 800, 2000], text: (g) => `ARENA: ${fmtN(g)} kütle kazan (yem + rakip)`, rw: R3 },
   { id: 'a_mass', mode: 'arena', icon: '🔴', goals: [1, 1, 1], text: () => 'ARENA: kütle rekorunu kır', rw: R3 },
 ];

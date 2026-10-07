@@ -21,6 +21,7 @@
 //   world.zoneFree(d0, d1, kinds), world.specialQueue (golden snowballs for cigplus), world.dispose()
 import * as THREE from 'three';
 import { CFG, MASS, fallbackMass, tierOf, foodRelAt, expectedRAt } from './config.js';
+import { planAt, planSlope, crateRadius } from './cigplan.js';
 import { makeRng } from './rng.js';
 import { patchMaterial } from './shaders.js';
 
@@ -64,8 +65,10 @@ const DECOR_SCALE = [1, 1.3, 1.75, 2.3, 3];
 const STRUCT = new Set(['lift_pylon', 'water_tower', 'gondola_station', 'hotel', 'clocktower', 'apartment']);
 
 export class World {
-  constructor(scene, lib, { seed = 1 } = {}) {
-    this.endless = true;
+  // opts.level = a plan from cigplan.js (ÇIĞ DAĞLAR: finite mountain, items placed from the plan); without it: the endless slope.
+  constructor(scene, lib, { seed = 1, level = null } = {}) {
+    this.lvl = level || null;
+    this.endless = !level;
     this.scene = scene;
     this.lib = lib;
     this.seed = (seed >>> 0) || 1;
@@ -109,14 +112,48 @@ export class World {
     // Size tint (readability): the game sets the ball radius and its eat ratio every frame; props near the ball that are too
     // big to swallow are painted amber (almost) / red (no way) through per-instance colours. 0 = off (lobby).
     this.tintR = 0; this.tintEat = CFG.eatRatio;
+    this.finalGate = null; this.bossProp = null; this.cratesLeft = 0;
+    if (level) this.initLevel(level);
 
     this.buildCatalog();
     this.buildShared();
     this.initTerrain();
-    this.breadcrumbs();
+    if (this.lvl) this.levelOpening(); else this.breadcrumbs();
     for (let i = 0; i < 40 && this.genD < 150; i++) this.genSegment();
     this.stream(0, 300, 40, true);
     this.render(0);
+  }
+
+  // ===================================================================== ÇIĞ DAĞLAR (level mode)
+  // The plan (cigplan.js) decides WHAT goes WHERE; this class only builds it. Nothing random is timed any more: the endless
+  // generators' timers are switched off and the content comes from plan.items (sorted by start).
+  initLevel(P) {
+    this.endD = P.length;
+    this.planEnd = P.length + 60;       // CigPlus must not plan beyond this
+    this.hw0 = P.hw0;
+    this.trans = P.widths.map((w) => ({ d0: w.d0, d1: w.d1, from: w.from, to: w.to, tier: w.tier, scale: w.scale }));
+    this.ballR = P.r0;
+    this.lastGen.gr = P.r0;
+    this.items = P.items;               // read-only
+    this.qi = 0;
+    this.genDone = false;
+    this.nextEventD = this.nextFeatureD = this.nextGateD = this.nextEnemyD = this.nextBossD = this.nextRivalD = Infinity;
+    let pt = P.tierStart;
+    for (const w of this.trans) if (w.tier > pt) { pt = w.tier; this.addArch(w.d1, w.to, Math.min(4, w.tier)); }
+  }
+
+  // the plan's expected radius at d (levels) / the endless pacing curve
+  expectAt(d) {
+    return this.lvl ? planAt(this.lvl, d) : expectedRAt(d);
+  }
+
+  // How much of the plan's growth the food on this stretch can pay for, relative to the endless budget (see CFG.lvl.feed):
+  // a ball eating at full efficiency grows ~feed x faster than the plan, a ball that eats nothing stays far behind it.
+  foodMulAt(d, gr) {
+    if (!this.lvl) return 1;
+    const L = CFG.lvl;
+    const k = (L.feed * 3 * planSlope(this.lvl, d)) / Math.max(1e-4, foodRelAt(gr));
+    return k < L.feedMin ? L.feedMin : k > L.feedMax ? L.feedMax : k;
   }
 
   // ===================================================================== terrain shape
@@ -380,7 +417,69 @@ export class World {
     }
   }
 
+  // the first seconds of a mountain: a ring of crumbs sized for the plan's starting ball
+  levelOpening() {
+    const R = this.rng, P = this.lvl;
+    const gr = P.r0, sk = clamp(gr * 0.7, 1, 3);
+    for (let i = 0; i < 9; i++) {
+      const d = (6 + i * 2.8) * sk, hw = this.halfWidth(d);
+      this.food1(R.range(0.3, 0.55), gr, Math.sin(i * 0.55) * 1.6 * sk, d, hw, { spacing: 0.1 });
+    }
+    for (let i = 0; i < 12; i++) {
+      const d = (36 + i * 3.4) * sk, hw = this.halfWidth(d);
+      this.food1(R.range(0.3, 0.55), gr, Math.cos(i * 0.7) * (3 + i * 0.35) * sk, d, hw, { spacing: 0.1 });
+    }
+  }
+
+  // Level mode: place the next plan item when the frontier reaches it, otherwise ordinary food up to the next item.
+  genLevelSegment() {
+    const gr = this.genRad();
+    const T = tierOf(gr);
+    this.lastGen.gr = gr; this.lastGen.T = T;
+    const d = this.genD;
+    if (d >= this.endD) { this.genD = Infinity; this.genDone = true; return; }
+    const it = this.items[this.qi];
+    if (it && d >= it.start - 0.01) {
+      this.qi++;
+      const len = this.placeLevelItem(it, d, gr, T, this.halfWidth(d + 10)) || 4;
+      const nx = this.items[this.qi];
+      this.genD = d + Math.max(4, nx ? Math.min(len, nx.start - d) : len);
+      return;
+    }
+    const lim = it ? it.start : this.endD;
+    const seg = Math.max(4, Math.min(segLen(gr), lim - d));
+    if (d > 36) this.regular(d, seg, gr, T, this.halfWidth(d + 10), 0);
+    this.genD = d + seg;
+    const rec = this.recent;
+    if (rec.length && rec[0].d < d - 60) { let k = 0; while (k < rec.length && rec[k].d < d - 60) k++; rec.splice(0, k); }
+    const ob = this.obsRecent;
+    if (ob.length && ob[0].d < d - 60) { let k = 0; while (k < ob.length && ob[k].d < d - 60) k++; ob.splice(0, k); }
+  }
+
+  placeLevelItem(it, d, gr, T, hw) {
+    switch (it.kind) {
+      case 'gate': return this.placeGate(d, gr, T, hw, { gd: it.gd, minR: it.minR, skin: it.skin, i: it.i, final: it.final, locked: it.locked, start: it.start });
+      case 'crateLine': return this.placeCrateLine(it, gr, hw);
+      case 'crateWall': return this.placeCrateWall(it, gr, hw);
+      case 'iceWall': return this.placeIceWall(it, gr, hw);
+      case 'ramp': return this.placeRamp(d, gr, T, hw);
+      case 'patch': return this.placePatch(d, gr, T, hw);
+      case 'town': return this.placeTown(d, gr, T, hw);
+      case 'golden': return this.placeGolden(d, gr, T, hw);
+      case 'rival': return this.placeRival(d, gr, T, hw, 1.1);
+      case 'arena': return this.placeArena(it, gr, T, hw);
+      case 'finish': this.addFinish(it.at); return 4;
+      case 'army': case 'mush': case 'strip': case 'cannon': case 'bridge': case 'pickup':
+        // CigPlus builds these (it owns the meshes); it receives a plain copy of the plan item
+        this.specialQueue.push({ ...it });
+        this.zones.push({ d0: it.start - 6, d1: it.start + it.len + 6, kind: it.kind === 'strip' || it.kind === 'pickup' ? 'plus' : it.kind });
+        return it.len;
+      default: return 4;
+    }
+  }
+
   genSegment() {
+    if (this.lvl) { this.genLevelSegment(); return; }
     const gr = this.genRad();
     const T = tierOf(gr);
     this.lastGen.gr = gr; this.lastGen.T = T;
@@ -426,6 +525,7 @@ export class World {
     let allowed = (foodRelAt(gr) * gr ** 3 * seg * frac) / CFG.growK;
     // The very first stretches are generous: the first minute must feel like a feast.
     if (d < 400) allowed *= 1.35;
+    if (this.lvl) allowed *= this.foodMulAt(d, gr);
     // Everything placed anywhere (trails, towns, ramps' landing fields...) draws on one ledger, so jackpots are followed
     // by a thinner stretch instead of snowballing the growth.
     this.credit += allowed;
@@ -595,20 +695,21 @@ export class World {
   }
 
   // A rival snowball of about your size races down the slope: eat it if you are bigger, it shaves you if it is.
-  placeRival(d, gr, T, hw) {
+  placeRival(d, gr, T, hw, k = 0) {
     const def = this.lib.rival_ball;
-    if (!def) return;
+    if (!def) return 70;
     const R = this.rng;
-    const tr = gr * R.range(0.8, 1.3);
+    const tr = gr * (k || R.range(0.8, 1.3));
     const s = clamp(tr / def.radius, 0.3, 40);
     const x = R.range(-hw * 0.5, hw * 0.5);
     const p = this.add('rival_ball', x, d + 30, { s, rot: 0, move: MOVE_ENEMY, tonK: 3 });
-    if (!p) return;
+    if (!p) return 70;
     p.enemy = { id: 'rival', name: 'RAKİP KARTOPU', ai: 'rival', rival: true, boss: false, hp: 1, max: 1, spd: 8, cd: 0, hitCd: 0, kbD: 0, kbX: 0, flash: 0, woke: true, tint: [1, 1, 1], rcd: 0 };
     p.tint = p.enemy.tint;
     p.ox = x; p.od = p.d;
     this.enemies.push(p);
     this.zones.push({ d0: d + 5, d1: d + 55, kind: 'rival' });
+    return 70;
   }
 
   placeBoss(d, gr, T, hw) {
@@ -776,57 +877,96 @@ export class World {
     return 46;
   }
 
-  // Size gate: a full-width wall of ice blocks you smash through if you are big enough ('⛔ X m'). Too small = heavy bump,
-  // but the wall always breaks (no soft-lock). A feast before it lets you top up.
-  placeGate(d, gr, T, hw) {
+  // Size gate: a full-width wall of ice blocks you smash through if you are big enough ('⛔ X m').
+  // Endless: too small = heavy bump, but the wall always breaks (no soft-lock). Levels: too small = the ball is thrown back and
+  // the gate stays, cracked (CigGame._hitGate). A feast before it lets you top up.
+  placeGate(d, gr, T, hw, o = {}) {
     const R = this.rng;
-    const gd = d + 70;
+    const gd = o.gd ?? d + 70;
     // a pace check: you should be about as big as the slope expects there
     // (sized to the current tier: the ball keeps growing on the way there, so a fed ball usually breaks it)
-    const minR = Math.max(gr * (0.9 + 0.05 * T), Math.min(gr * (1.25 + 0.1 * T), expectedRAt(gd) * 0.85), CFG.startR + 0.1);
-    const g = this.buildGate(gd, minR, Math.max(hw, this.halfWidth(gd)));
+    const minR = o.minR != null ? o.minR : Math.max(gr * (0.9 + 0.05 * T), Math.min(gr * (1.25 + 0.1 * T), expectedRAt(gd) * 0.85), CFG.startR + 0.1);
+    const g = this.buildGate(gd, minR, Math.max(hw, this.halfWidth(gd)), o);
+    if (o.final) this.finalGate = g;
     this.events.push({ kind: 'gate', d0: gd - 60, d1: gd + 5, name: 'KAPI', seen: false, gate: g });
     this.zones.push({ d0: d - 6, d1: gd + 14, kind: 'gate' });
     // feeding zone before the wall: two snack trails
+    const gap = this.lvl ? Math.min(2.2 + gr * 0.4, 4.6) : 2.2 + gr * 0.4;
+    const d00 = this.lvl ? Math.min(d, gd - 70) : d;
     for (let k = 0; k < 2; k++) {
       let x = R.range(-hw * 0.5, hw * 0.5);
       const amp = R.range(2, hw * 0.3);
       for (let i = 0; i < 11; i++) {
-        const dd = d + 8 + k * 14 + i * (2.2 + gr * 0.4);
+        const dd = d00 + 8 + k * 14 + i * gap;
         this.food1(clamp(this.rollQ(T) * 0.9, 0.12, 0.7), gr, clamp(x + Math.sin(i * 0.6 + k) * amp, -hw, hw), dd, hw, { spacing: 0.1 });
       }
     }
-    return 70 + 14;
+    return gd + 14 - d;
   }
 
-  buildGate(gd, minR, hw) {
+  // o: { mini (a half-width wall between x0..x1), skin 'ice'|'wall'|'big', i, final, locked }. The state colour (red = too small,
+  // amber = almost, green = you break it) lives in the cap blocks and the label; setGateReady() changes it.
+  buildGate(gd, minR, hw, o = {}) {
+    const mini = !!o.mini;
     const hwG = hw + 1.4;
+    const x0 = mini ? o.x0 : -hwG, x1 = mini ? o.x1 : hwG;
     const colW = Math.max(1.8, Math.min(3.4, minR * 0.7));
-    const n = Math.max(4, Math.ceil((hwG * 2) / colW));
-    const w = (hwG * 2) / n;
-    const H = Math.max(2.4, minR * 2.1);
-    const T = Math.max(1.5, minR * 0.45);
-    const g = { d: gd, minR, hw: hwG, H, T, cols: [], broken: false, t: 0, weak: false, label: null, labelText: '' };
+    const n = Math.max(mini ? 2 : 4, Math.ceil((x1 - x0) / colW));
+    const w = (x1 - x0) / n;
+    const H = mini ? Math.max(2, minR * 1.6) : Math.max(2.4, minR * 2.1);
+    const T = mini ? Math.max(1.2, minR * 0.4) : Math.max(1.5, minR * 0.45);
+    const skin = o.skin || 'ice';
+    const pal = GATE_SKIN[skin] || GATE_SKIN.ice;
+    const g = {
+      d: gd, minR, minR0: minR, hw: hwG, H, T, cols: [], caps: [], broken: false, t: 0, weak: false, label: null, labelText: '', labelCol: '', hit: false,
+      i: o.i ?? -1, kind: mini ? 'mini' : o.locked ? 'boss' : o.final ? 'final' : 'gate', skin, x0, x1,
+      cracks: 0, bounces: 0, supplyLeft: CFG.lvl.supplyMax, cd: 0, ready: -1, locked: !!o.locked,
+    };
     for (let i = 0; i < n; i++) {
-      const x = -hwG + w * (i + 0.5);
+      const x = x0 + w * (i + 0.5);
       const gy = this.groundY(x, gd);
-      const tint = i % 2 ? 0xbfdcf7 : 0xd8ecff;
-      const col = { x, y: gy + H / 2 - 0.2, d: gd, sx: w * 0.96, sy: H, sz: T, rot: 0, rx: 0, color: tint, vx: 0, vy: 0, vd: 0, wx: 0, wy: 0, alive: true, big: true };
+      const col = { x, y: gy + H / 2 - 0.2, d: gd, sx: w * 0.96, sy: H, sz: T, rot: 0, rx: 0, color: pal[i % 2], vx: 0, vy: 0, vd: 0, wx: 0, wy: 0, alive: true, big: true };
       const cap = { x, y: gy + H + 0.35, d: gd, sx: w * 0.96, sy: Math.max(0.5, H * 0.14), sz: T * 1.08, rot: 0, rx: 0, color: i % 2 ? 0xff4d4d : 0xffffff, vx: 0, vy: 0, vd: 0, wx: 0, wy: 0, alive: true, big: true };
       g.cols.push(col, cap);
+      g.caps.push(cap);
       this.boxItems.push(col, cap);
     }
-    const txt = `⛔ ${fmtDiam(minR * 2)} m`;
-    g.labelText = txt;
-    g.label = this.makeLabel(txt, '#ff5a4a');
+    g.label = this.makeLabel('', '#ff5a4a');
     if (g.label) {
-      g.label.position.set(0, this.groundY(0, gd) + H + Math.max(2, H * 0.55), -gd);
-      const lw = clamp(hwG * 0.8, 5, 34);
+      const cx = (x0 + x1) / 2;
+      g.label.position.set(cx, this.groundY(cx, gd) + H + Math.max(2.4, H * 0.6), -gd);
+      const lw = mini ? clamp((x1 - x0) * 0.6, 7, 30) : clamp(hwG * 0.9, 10, 60);
       g.label.scale.set(lw, lw * 0.3, 1);
       this.group.add(g.label);
     }
+    this.setGateLabel(g);
+    if (skin === 'big' && !mini) this.addArch(gd, hwG, 2);
     this.gates.push(g);
     return g;
+  }
+
+  setGateLabel(g) {
+    if (!g.label) return;
+    const txt = g.locked ? '🔒 PATRON' : (g.kind === 'final' ? '🏁 ' : '') + '⛔ ' + fmtDiam(g.minR * 2) + ' m';
+    const col = g.ready === 2 ? '#2fd36b' : g.ready === 1 ? '#ffb03a' : '#ff5a4a';
+    g.labelText = txt;
+    if (col === g.labelCol && g._lt === txt) return;
+    g.labelCol = col; g._lt = txt;
+    drawLabel(g.label, txt, col);
+  }
+
+  // 0 = too small (red), 1 = almost (amber: eat a little more), 2 = you break it (green). Only repaints when it changes.
+  setGateReady(g, r) {
+    if (g.ready === r) return;
+    g.ready = r;
+    const c = r === 2 ? 0x2fd36b : r === 1 ? 0xffb03a : 0xff4d4d;
+    for (let i = 0; i < g.caps.length; i++) g.caps[i].color = i % 2 ? 0xffffff : c;
+    this.setGateLabel(g);
+  }
+
+  unlockGate(g) {
+    g.locked = false;
+    this.setGateLabel(g);
   }
 
   // Gate smashed (or it smashed you): blocks fly apart.
@@ -848,23 +988,145 @@ export class World {
     if (typeof document === 'undefined') return null;
     const cv = document.createElement('canvas');
     cv.width = 320; cv.height = 96;
-    const g = cv.getContext('2d');
-    g.fillStyle = 'rgba(20,28,48,0.78)';
-    const r = 26;
-    g.beginPath();
-    g.moveTo(r, 4); g.lineTo(316 - r, 4); g.quadraticCurveTo(316, 4, 316, r); g.lineTo(316, 92 - r); g.quadraticCurveTo(316, 92, 316 - r, 92);
-    g.lineTo(r, 92); g.quadraticCurveTo(4, 92, 4, 92 - r); g.lineTo(4, r); g.quadraticCurveTo(4, 4, r, 4);
-    g.closePath(); g.fill();
-    g.lineWidth = 5; g.strokeStyle = color; g.stroke();
-    g.font = '800 54px system-ui, -apple-system, Segoe UI, sans-serif';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillStyle = '#ffffff';
-    g.fillText(text, 160, 52);
     const tex = new THREE.CanvasTexture(cv);
     const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }));
+    spr.userData.cv = cv;
     spr.renderOrder = 8;
     spr.frustumCulled = false;
+    drawLabel(spr, text, color);
     return spr;
+  }
+
+  // ---- crates (levels): breakable, never edible. CigGame._breakCrate reads p.crate = { gold, iron, y (snow volume), need }
+  crateAt(x, d, rad, kind, pr) {
+    const L = CFG.lvl;
+    const name = kind === 'gold' && this.lib.crate_gold ? 'crate_gold' : 'crate';
+    const def = this.lib[name];
+    if (!def) return null;
+    const p = this.add(name, x, d, { s: clamp(rad / def.radius, 0.2, 24), rot: this.rng.range(-0.25, 0.25) });
+    if (!p) return null;
+    const y = L.crateYield * pr ** 3 * (kind === 'gold' ? L.goldMul : kind === 'iron' ? L.ironMul : 1);
+    p.crate = { gold: kind === 'gold', iron: kind === 'iron', y, need: kind === 'iron' ? 0.62 * pr : 0 };
+    p.tint = kind === 'iron' ? CRATE_IRON : CRATE_PLAIN;
+    this.spent += y / CFG.growK;
+    return p;
+  }
+
+  // a zig-zag line of crates across the track: steer through them (golden ones sit out at the edges)
+  placeCrateLine(it, gr, hw) {
+    const pr = planAt(this.lvl, it.start + 20);
+    const tr = crateRadius(pr);
+    const hwL = this.halfWidth(it.start + 20);
+    const n = it.n, gold = it.gold || 0;
+    const sp = Math.max((it.len - 12) / Math.max(1, n - 1), 1.9 * tr);
+    const amp = Math.min(hwL * 0.5, 4 + 1.4 * gr);
+    const lim = Math.max(1, hwL - tr - 1.5);
+    for (let j = 0; j < n; j++) {
+      const isGold = j >= n - gold;
+      let x = Math.sin(it.phase + j * 0.95) * amp;
+      if (isGold) x = (j % 2 ? 1 : -1) * Math.min(lim, amp * 1.5);
+      this.crateAt(clamp(x, -lim, lim), it.start + 6 + j * sp, isGold ? tr * 1.15 : tr, isGold ? 'gold' : 'plain', pr);
+    }
+    this.zones.push({ d0: it.start - 4, d1: it.start + it.len + 8, kind: 'crates' });
+    return it.len;
+  }
+
+  // 3 rows x N columns of crates (the middle ones iron from DAĞ 11); the track always keeps a free corridor
+  placeCrateWall(it, gr, hw) {
+    const pr = planAt(this.lvl, it.start + 20);
+    const tr = crateRadius(pr);
+    const hwL = this.halfWidth(it.start + 20);
+    const pitch = Math.max(2.4, 2.3 * tr);
+    const rows = it.rows, cols = it.cols;
+    const wallW = cols * pitch;
+    const xc = clamp(it.side * 0.2 * hwL, -(hwL - 1 - wallW / 2), hwL - 1 - wallW / 2);
+    const mid = Math.floor(cols / 2);
+    let goldLeft = it.gold || 0, ironLeft = it.iron || 0;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        let kind = 'plain';
+        if (ironLeft > 0 && r === 1 && (cols >= 3 ? Math.abs(c - mid) <= 1 : c === mid)) { kind = 'iron'; ironLeft--; }
+        else if (goldLeft > 0 && r === rows - 1 && (c === 0 || c === cols - 1)) { kind = 'gold'; goldLeft--; }
+        const x = xc + (c - (cols - 1) / 2) * pitch;
+        this.crateAt(x, it.start + 8 + r * pitch, kind === 'iron' ? tr * 1.25 : kind === 'gold' ? tr * 1.15 : tr, kind, pr);
+      }
+    }
+    this.zones.push({ d0: it.start - 4, d1: it.start + it.len + 8, kind: 'crates' });
+    return it.len;
+  }
+
+  // half-width ice wall (a mini gate): break it when big enough, slide around it through the open side otherwise
+  placeIceWall(it, gr, hw) {
+    const gd = it.start + 24;
+    const hwL = Math.max(hw, this.halfWidth(gd));
+    const need = Math.max(3.2 * gr + 2, 4);
+    let w = 2 * hwL * it.cover;
+    if (2 * hwL - w < need) w = Math.max(4, 2 * hwL - need);
+    const x0 = it.side > 0 ? hwL - w : -hwL, x1 = x0 + w;
+    this.buildGate(gd, it.minR, hwL, { mini: true, x0, x1, skin: 'ice', i: -1 });
+    this.zones.push({ d0: it.start - 4, d1: gd + 14, kind: 'gate' });
+    // snacks along the open side: going around is a real, rewarded choice
+    const gx = it.side > 0 ? (-hwL + x0) / 2 : (x1 + hwL) / 2;
+    const T = tierOf(gr);
+    for (let i = 0; i < 6; i++) this.food1(clamp(this.rollQ(T) * 0.8, 0.12, 0.6), gr, gx + Math.sin(i * 1.1) * Math.min(2, need * 0.2), gd - 14 + i * 5, hwL, { spacing: 0.1 });
+    return it.len;
+  }
+
+  // boss arena: the boss waits in front of the locked final gate (CigGame._arenaAI drives it)
+  placeArena(it, gr, T, hw) {
+    const P = this.lvl;
+    const defs = this.enemyDefs();
+    const def = defs.find((e) => e.id === it.boss) || defs.find((e) => e.id === 'yeti') || defs[defs.length - 1];
+    if (!def) return 100;
+    const p = this.makeEnemy(def, 0, P.dF - 30, P.bossR, true);
+    if (p) {
+      const e = p.enemy;
+      e.hp = e.max = P.finale.hp;
+      e.ai = 'arena';
+      e.arena = { d0: P.dF - 170, d1: P.dF - 10 };
+      e.spd = 7 * (P.n >= 20 ? 1.3 : 1);
+      e.name = P.n === 30 ? 'KIŞ KRALI' : P.n === 20 ? 'YETİ KRALI' : it.boss === 'robot' ? 'DEV ROBOT' : it.boss === 'golem' ? 'BUZ GOLEMİ' : 'DEV YETİ';
+      e.woke = false;
+      this.bossProp = p;
+    }
+    this.zones.push({ d0: P.dF - 175, d1: P.dF + 20, kind: 'boss' });
+    return 100;
+  }
+
+  // the finish line: a checkered strip + two pylons + a flag label
+  addFinish(d) {
+    const hw = Math.max(this.halfWidth(d), this.halfWidth(d - 30));
+    const pitch = Math.max(2.4, hw / 18);
+    const cols = Math.ceil((2 * hw) / pitch);
+    for (let i = 0; i < cols; i++) {
+      for (let r = 0; r < 2; r++) {
+        const x = -hw + pitch * (i + 0.5);
+        this.boxItems.push({ x, y: this.groundY(x, d) + 0.1, d: d + (r - 0.5) * pitch, sx: pitch * 0.98, sy: 0.16, sz: pitch * 0.98, rot: 0, rx: 0, color: (i + r) % 2 ? 0x1c2430 : 0xffffff, alive: true });
+      }
+    }
+    const tier = this.lvl ? Math.min(4, this.lvl.tierCap) : 1;
+    this.addArch(d, hw, tier);
+    const spr = this.makeLabel('🏁 FİNİŞ', '#2fd36b');
+    if (spr) {
+      const lw = clamp(hw * 0.7, 12, 50);
+      spr.scale.set(lw, lw * 0.3, 1);
+      spr.position.set(0, this.groundY(0, d) + 7 + tier * 3.2 + lw * 0.2, -d);
+      this.group.add(spr);
+    }
+  }
+
+  // Snow chunks along the line x, d0..d1 totalling vol (sum of chunk radius^3): the rescue after a bounce. Chunks that do not fit
+  // under the live-chunk cap hand their share to the others, so the volume is not lost.
+  supplyChunks(x, d0, d1, vol, n) {
+    let rem = vol;
+    const hw = this.halfWidth((d0 + d1) / 2);
+    for (let i = 0; i < n; i++) {
+      const k = n - i;
+      const cr = Math.max(0.12, Math.cbrt(Math.max(1e-6, rem) / k));
+      const t = (i + 0.5) / n;
+      const p = this.spawnChunk(clamp(x + Math.sin(i * 1.3) * Math.min(1.2, hw * 0.1), -hw + 1, hw - 1), d0 + (d1 - d0) * t, cr);
+      if (p) rem -= cr ** 3;
+    }
   }
 
   // Floating "⛔ X m" tag above a too-big obstacle (used for the first few the player meets).
@@ -883,13 +1145,14 @@ export class World {
 
   // ---- tier-up: the slope widens, new-tier food drops right ahead ----
   setTier(t, ballD) {
-    if (t <= this.curTier) return;
+    if (this.lvl || t <= this.curTier) return;
     this.curTier = t;
     this.widen(Math.max(CFG.tierWidth[Math.min(t, CFG.tierWidth.length - 1)] / 2, this.ballR * 5.2), ballD, true);
   }
 
   // The slope keeps up with the ball: wide enough that the ball is ~1/5 of it, whatever its size.
   growWidth(ballD) {
+    if (this.lvl) return;
     const last = this.trans.length ? this.trans[this.trans.length - 1].to : this.hw0;
     const want = Math.max(CFG.tierWidth[Math.min(this.curTier, CFG.tierWidth.length - 1)] / 2, this.ballR * 5.2);
     if (want < last * 1.15 || ballD < (this._lastWiden || 0) + 30) return;
@@ -1341,7 +1604,7 @@ export class World {
         const dd = p.d - ballD;
         if (dd < 110) {
           const f = dd < 70 ? 1 : (110 - dd) / 40;
-          if (p.r > lim * 1.5) { g = 1 - 0.42 * f; b = 1 - 0.46 * f; } else { g = 1 - 0.16 * f; b = 1 - 0.38 * f; }
+          if (p.r > tR * CFG.smashRatio) { g = 1 - 0.42 * f; b = 1 - 0.46 * f; } else { g = 1 - 0.16 * f; b = 1 - 0.38 * f; }
         }
       }
     }
@@ -1502,6 +1765,19 @@ export class World {
     return p;
   }
 
+  // A ball rolled across the track by a cannon (levels): small = white and edible, big = red and dangerous. CigGame._rollAI moves it.
+  spawnRoller(x, d, r, vx, vd) {
+    const def = this.lib.rival_ball;
+    if (!def) return null;
+    const p = this.add('rival_ball', x, d, { s: clamp(r / def.radius, 0.2, 40), rot: 0, move: MOVE_ENEMY, tonK: 2 });
+    if (!p) return null;
+    p.enemy = { id: 'roll', name: 'TOP', ai: 'roll', rival: true, roll: true, boss: false, hp: 1, max: 1, spd: 0, cd: 0, hitCd: 0, kbD: 0, kbX: 0, flash: 0, woke: true, tint: [1, 1, 1], rcd: 0, vx, vd };
+    p.tint = p.enemy.tint;
+    p.ox = x; p.od = d;
+    this.enemies.push(p);
+    return p;
+  }
+
   kill(p) { p.alive = false; }
 
   dispose() {
@@ -1524,6 +1800,30 @@ export class World {
 const _c2 = new THREE.Color();
 const _qx = new THREE.Quaternion();
 const _rx = new THREE.Vector3(1, 0, 0);
+
+const GATE_SKIN = { ice: [0xbfdcf7, 0xd8ecff], wall: [0xc9b8a6, 0xb09a86], big: [0xffffff, 0xf1e6c8] };
+const CRATE_PLAIN = [1, 1, 1], CRATE_IRON = [0.62, 0.68, 0.8];
+
+// (re)draw a label sprite's canvas: dark pill, coloured outline, white text shrunk to fit
+function drawLabel(spr, text, color) {
+  const cv = spr.userData.cv;
+  const g = cv.getContext('2d');
+  g.clearRect(0, 0, 320, 96);
+  g.fillStyle = 'rgba(20,28,48,0.78)';
+  const r = 26;
+  g.beginPath();
+  g.moveTo(r, 4); g.lineTo(316 - r, 4); g.quadraticCurveTo(316, 4, 316, r); g.lineTo(316, 92 - r); g.quadraticCurveTo(316, 92, 316 - r, 92);
+  g.lineTo(r, 92); g.quadraticCurveTo(4, 92, 4, 92 - r); g.lineTo(4, r); g.quadraticCurveTo(4, 4, r, 4);
+  g.closePath(); g.fill();
+  g.lineWidth = 5; g.strokeStyle = color; g.stroke();
+  let fs = 54;
+  g.font = '800 ' + fs + 'px system-ui, -apple-system, Segoe UI, sans-serif';
+  while (fs > 26 && g.measureText(text).width > 270) { fs -= 2; g.font = '800 ' + fs + 'px system-ui, -apple-system, Segoe UI, sans-serif'; }
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#ffffff';
+  g.fillText(text, 160, 52);
+  spr.material.map.needsUpdate = true;
+}
 
 function fmtDiam(d) {
   if (d >= 10) return String(Math.round(d));

@@ -14,6 +14,7 @@
 import { SKINS, TRAILS, setGoldBall } from './skins.js';
 import { ACHIEVEMENTS, EGGS, DAILY_REWARDS, UPGRADES, SLED_PACK } from './meta.js';
 import { ACTS, LEVELS, levelById } from './campaign.js';
+import { dagPlan, DAG_COUNT, planBrief } from './cigplan.js';
 import { nextGoal } from './shop.js';
 import { hideBoot, runnerDeathText } from './ui.js';
 
@@ -773,6 +774,36 @@ const CSS = `
 .fm-cf { position: absolute; top: -16px; left: var(--x); width: 9px; height: 14px; border-radius: 2px; background: var(--c); animation: fmCf var(--d) linear forwards; }
 @keyframes fmCf { to { transform: translate(var(--dx), 112vh) rotate(var(--r)); } }
 
+/* ÇIĞ DAĞLAR: mountain grid, quick start, endless / daily rows */
+.fm-cgq { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.fm-cgq b { font-size: 24px; line-height: 1.05; }
+.fm-cgq small { font-size: 14px; opacity: 0.92; letter-spacing: 0.04em; font-weight: 800; }
+.fm-cgrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px 6px; justify-items: center; padding: 6px 0 26px; }
+.fm-cgn {
+  --nc1: #ffffff; --nc2: #cfe2f7; --nsh: #7d96b8; position: relative; width: 56px; height: 56px; margin-bottom: 14px; padding: 0; cursor: pointer; border-radius: 50%; border: 3px solid var(--ink);
+  display: grid; place-items: center; font-size: 21px; line-height: 1; color: #fff; text-shadow: var(--ol-sm);
+  background: radial-gradient(ellipse 60% 36% at 36% 22%, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0)), linear-gradient(180deg, var(--nc1), var(--nc2));
+  box-shadow: 0 5px 0 var(--nsh), 0 8px 8px rgba(10, 30, 60, 0.3), inset 0 -4px 0 rgba(0, 0, 0, 0.12); transition: box-shadow 0.06s;
+}
+.fm-cgn:active { box-shadow: 0 1px 0 var(--nsh), 0 3px 4px rgba(10, 30, 60, 0.3); }
+.fm-cgn.done { --nc1: #ffe27a; --nc2: #ffae00; --nsh: #b36f00; color: var(--ink); text-shadow: none; }
+.fm-cgn.cur { --nc1: #a6ec6a; --nc2: #35c46a; --nsh: #1e8a49; animation: fmCgn 1s ease-in-out infinite alternate; }
+.fm-cgn.lk { --nc1: #b8c3d4; --nc2: #8392aa; --nsh: #55647e; filter: saturate(0.6); }
+.fm-cgn.boss { width: 62px; height: 62px; font-size: 30px; --nc1: #ff8a7a; --nc2: #e0392b; --nsh: #8a1a12; }
+.fm-cgn.boss.done { --nc1: #ffe27a; --nc2: #ff9a00; --nsh: #b36f00; }
+.fm-cgn.boss.lk { --nc1: #a99aa0; --nc2: #7c6a74; --nsh: #4a3a44; }
+.fm-cgn .bn { position: absolute; right: -5px; top: -5px; min-width: 24px; height: 24px; padding: 0 4px; display: grid; place-items: center; border-radius: 12px; border: 2.5px solid var(--ink); background: #fff; color: var(--ink); font-size: 13px; text-shadow: none; }
+.fm-cgn .stars { position: absolute; left: 50%; top: calc(100% + 3px); transform: translateX(-50%); display: flex; gap: 1px; font-size: 13px; line-height: 1; white-space: nowrap; pointer-events: none; text-shadow: var(--ol-sm); }
+.fm-cgn .stars b { color: rgba(10, 25, 55, 0.5); font-weight: 900; text-shadow: none; }
+.fm-cgn .stars b.on { color: var(--gold); text-shadow: var(--ol-sm); }
+@keyframes fmCgn { from { transform: scale(1); } to { transform: scale(1.1); } }
+.fm-cgrow { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border-radius: 18px; border: 3px solid var(--ink); background: linear-gradient(180deg, #ffffff, #dcecff); color: var(--ink); text-shadow: none; text-align: left; box-shadow: 0 5px 0 rgba(10, 30, 60, 0.35); cursor: pointer; }
+.fm-cgrow:active { transform: translateY(3px); box-shadow: 0 2px 0 rgba(10, 30, 60, 0.35); }
+.fm-cgrow .ic { flex: none; font-size: 30px; line-height: 1; }
+.fm-cgrow .tx { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.fm-cgrow .tx b { font-size: 18px; line-height: 1.1; }
+.fm-cgrow .tx small { font-size: 13px; color: #5a7196; font-weight: 800; }
+.fm-cgrow.lock { opacity: 0.62; filter: saturate(0.5); }
 @media (prefers-reduced-motion: reduce) {
   .fm-main *, .fm-ov *, .fm-modal *, .fm-boxov *, .fm-plov *, .fm-resov *, .fm-toast { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
@@ -1349,9 +1380,10 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const s = meta.stats();
     const tiles = [
       ['SEVİYE', s.level], ['TOPLAM KOŞU', fmt(s.runs)], ['EN UZUN KOŞU', fmtDist(s.bestDistance)], ['TOPLAM MESAFE', fmtDist(s.totalDistance)],
-      ['YUTULAN', fmt(s.swallowed)], ['ÇIĞ REKORU', fmtTons(save && save.cigEndlessBest ? save.cigEndlessBest().tons : 0)], ['KIRILAN ENGEL', fmt(s.smashed)], ['KIL PAYI', fmt(s.closeCalls)],
+      ['YUTULAN', fmt(s.swallowed)], ['SONSUZ REKORU', fmtTons(save && save.cigEndlessBest ? save.cigEndlessBest().tons : 0)], ['KIRILAN ENGEL', fmt(s.smashed)], ['KIL PAYI', fmt(s.closeCalls)],
       ['TOPLANAN TON', fmtTons(s.totalTons)], ['YILDIZ', `⭐ ${s.stars}`], ['BAŞARIM', `${s.achievements}/${s.achievementsTotal}`], ['SIRLAR', `${s.eggs}/${s.eggsTotal}`],
       ['ÇARPAN', `x${s.multiplier}`], ['GÖREV SETİ', fmt(s.missionSets)], ['MACERA', `⭐ ${s.campaignStars}/300`], ['BÖLÜM', `${s.campaignCleared}/100`],
+      ['ÇIĞ DAĞ', `${save && save.cigCleared ? save.cigCleared() : 0}/${DAG_COUNT}`], ['ÇIĞ ⭐', `⭐ ${save && save.cigLvTotalStars ? save.cigLvTotalStars() : 0}/${DAG_COUNT * 3}`],
     ];
     const grid = el('div', 'fm-stats');
     for (const [k, v] of tiles) add(grid, add(el('div', 'fm-stat'), el('b', '', String(v)), el('span', '', k)));
@@ -1407,7 +1439,8 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       p.list.appendChild(el('div', 'fm-sec', 'REKORLAR'));
       const card = (title, rows) => { const c = el('div', 'fm-rec'); c.appendChild(el('h4', '', title)); for (const [k, v] of rows) add(c, add(el('div', '', k), el('b', '', v))); p.list.appendChild(c); };
       card('❄️ YETİ RUSH', [['EN UZUN MESAFE', rc.yeti.dist > 0 ? fmtDist(rc.yeti.dist) : '-'], ['EN YÜKSEK SKOR', rc.yeti.score > 0 ? fmt(rc.yeti.score) : '-']]);
-      card('⛰️ ÇIĞ SONSUZ', [['EN ÇOK KAR', rc.cig.tons > 0 ? fmtTons(rc.cig.tons) : '-'], ['EN YÜKSEK BOYUT', rc.cig.tier >= 1 ? ['', 'Kartopu', 'Çığ', 'Mega Çığ', 'Felaket', 'Kıyamet'][Math.min(5, rc.cig.tier)] : '-']]);
+      card('⛰️ ÇIĞ DAĞLAR', [['TAMAMLANAN DAĞ', `${save && save.cigCleared ? save.cigCleared() : 0}/${DAG_COUNT}`], ['TOPLAM YILDIZ', `⭐ ${save && save.cigLvTotalStars ? save.cigLvTotalStars() : 0}/${DAG_COUNT * 3}`]]);
+      card('∞ ÇIĞ SONSUZ', [['EN ÇOK KAR', rc.cig.tons > 0 ? fmtTons(rc.cig.tons) : '-'], ['EN YÜKSEK BOYUT', rc.cig.tier >= 1 ? ['', 'Kartopu', 'Çığ', 'Mega Çığ', 'Felaket', 'Kıyamet'][Math.min(5, rc.cig.tier)] : '-']]);
       card('⚔️ KARTOPU ARENA', [['EN BÜYÜK KÜTLE', rc.arena.mass > 0 ? fmt(rc.arena.mass) : '-'], ['TOPLAM KÜTLE', rc.arena.xp > 0 ? fmt(rc.arena.xp) : '-']]);
       p.list.appendChild(el('div', 'fm-note', "Kar tanelerini Dolap'ta yeni toplara ve izlere harca."));
       const dr = el('div', 'fm-row');
@@ -1480,7 +1513,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       const hh = meta.letterHunt();
       link('🔤', 'Günün kelimesi', hh.complete ? 'Bugün tamam!' : `${hh.count}/${WORD.length} harf · koşarken harfleri topla`, 'AÇ', false, () => openHunt());
       link('⚡', 'Güçlendirmeler', 'Kar tanesiyle güçlen: dolaptan al', 'DOLAP', false, () => { if (cb.onShop) cb.onShop(); });
-      if (cb.onDaily) link('🏔️', `Günün Dağı #${info.dailyNum}`, info.dailyBest > 0 ? `Rekorun: ${fmtTons(info.dailyBest)}` : 'Bugünün özel dağı', 'OYNA', false, () => { closePanel(true); try { meta.setMode('daily'); } catch { /* ignore */ } cb.onDaily(); });
+      if (cb.onDaily) link('🏔️', `Günün Dağı #${info.dailyNum}`, save.cigDailyOpen() ? (info.dailyBest > 0 ? `Rekorun: ${fmtTons(info.dailyBest)}` : 'Bugünün özel dağı') : "DAĞ 3'ü bitirince açılır", save.cigDailyOpen() ? 'OYNA' : '🔒', false, () => { if (!save.cigDailyOpen()) { toast({ icon: '🔒', title: "Günün Dağı için DAĞ 3'ü bitir", ms: 1800 }); return; } closePanel(true); try { meta.setMode('daily'); } catch { /* ignore */ } cb.onDaily(); });
     }
 
     render();
@@ -1727,8 +1760,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     }
     if (m === 'endless') return info.endlessBest > 0 ? `REKOR ${fmt(info.endlessBest)} · ${fmtDist(info.endlessBestDist)}` : 'Yeti seni kovalıyor!';
     if (m === 'cig') {
-      const st = Math.max(0, Math.min(3, info.levelStars | 0));
-      return `Dağ ${info.level} · ${'⭐'.repeat(st)}${'☆'.repeat(3 - st)}`;
+      const c = info.cig || {};
+      const st = Math.max(0, Math.min(3, c.stars | 0));
+      return `Dağ ${c.next || 1} · ${'⭐'.repeat(st)}${'☆'.repeat(3 - st)}`;
     }
     return info.dailyBest > 0 ? `${fmtTons(info.dailyBest)} rekor` : 'Bugünün dağı';
   }
@@ -1755,8 +1789,11 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     }
     if (m === 'camp') startLevel(campInfo().current);
     else if (m === 'endless') { if (cb.onEndless) cb.onEndless(); }
-    else if (m === 'cig') { if (cb.onCigEndless) cb.onCigEndless(); else if (cb.onLevels) cb.onLevels(); }
-    else if (cb.onDaily) cb.onDaily();
+    else if (m === 'cig') openCigLevels();
+    else if (cb.onDaily) {
+      if (save && save.cigDailyOpen && !save.cigDailyOpen()) toast({ icon: '🔒', title: "Günün Dağı için DAĞ 3'ü bitir", ms: 1800 });
+      else cb.onDaily();
+    }
   }
 
   // ---------------------------------------------------------------------------------------------- mode select (planets)
@@ -2134,7 +2171,8 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-modal', 'true');
     ov.setAttribute('aria-label', 'Bölüm tamam');
-    add(ov, el('div', `fm-banner${boss ? ' boss' : ''}`, boss ? 'YETİ YENİLDİ!' : 'BÖLÜM TAMAM!'));
+    const LB = d.labels || {};
+    add(ov, el('div', `fm-banner${boss ? ' boss' : ''}`, boss ? (LB.bossBanner || 'YETİ YENİLDİ!') : (LB.banner || 'BÖLÜM TAMAM!')));
     if (lv) add(ov, el('div', 'fm-rname', `${lv.id}. ${lv.name}`));
 
     const bs = el('div', 'fm-bigstars');
@@ -2162,7 +2200,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       ov.appendChild(gl);
     }
 
-    const chips = rewardChips(rw);
+    const chips = (Array.isArray(d.chips) ? d.chips.slice() : []).concat(rewardChips(rw));
     if (chips.length) {
       const rc = el('div', 'fm-rchips');
       chips.forEach((c, i) => {
@@ -2178,11 +2216,12 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     }
     if (rw.perfect) ov.appendChild(el('div', 'fm-rspecial', '💎 KUSURSUZ ACT! +💎 2 · 🎁 1'));
     if (rw.justUnlockedEndless) ov.appendChild(el('div', 'fm-rspecial', '∞ YETİ RUSH AÇILDI!'));
+    if (d.special) ov.appendChild(el('div', 'fm-rspecial', d.special));
 
     const done = (fn) => () => { sfx('confirm'); closeResult(); if (fn) { try { fn(); } catch { /* ignore */ } } };
     const btns = el('div', 'fm-rbtns');
-    if (d.hasNext) btns.appendChild(button('fm-btn big green', 'SONRAKİ BÖLÜM ▶', done(h.onNext)));
-    btns.appendChild(add(el('div', 'row'), button('fm-btn blue', '↻ TEKRAR', done(h.onRetry)), button('fm-btn', '🗺️ HARİTA', done(h.onMap))));
+    if (d.hasNext) btns.appendChild(button('fm-btn big green', LB.next || 'SONRAKİ BÖLÜM ▶', done(h.onNext)));
+    btns.appendChild(add(el('div', 'row'), button('fm-btn blue', LB.retry || '↻ TEKRAR', done(h.onRetry)), button('fm-btn', LB.map ? '⛰️ ' + LB.map : '🗺️ HARİTA', done(h.onMap))));
     ov.appendChild(btns);
     ov.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
     host.appendChild(ov);
@@ -2198,7 +2237,8 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const lv = levelOf(d.level);
     closeResult();
     closeModal();
-    const dt = runnerDeathText(d.cause === 'crash' ? 'smash' : d.cause, d.killKind);
+    const LB = d.labels || {};
+    const dt = d.title ? { icon: d.icon || '💥', title: d.title, tip: d.tip || '' } : runnerDeathText(d.cause === 'crash' ? 'smash' : d.cause, d.killKind);
     const t = [dt.icon, dt.title];
     const ov = el('div', 'fm-resov fail');
     ov.setAttribute('role', 'dialog');
@@ -2217,12 +2257,12 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       bb.appendChild(fill);
       bar.appendChild(bb);
       add(ov, bar, el('div', 'fm-ftip', `%${pct} tamamlandı · bitişe ${fmt(Math.max(0, lv.length - dist))} m kaldı!`));
-      if (pct < 30) add(ov, el('div', 'fm-ftip', (dt.tip || TIPS[Math.floor(Math.random() * TIPS.length)])));
+      if (pct < 30 || d.title) add(ov, el('div', 'fm-ftip', (dt.tip || TIPS[Math.floor(Math.random() * TIPS.length)])));
     } else add(ov, el('div', 'fm-ftip', (dt.tip || TIPS[Math.floor(Math.random() * TIPS.length)])));
     const done = (fn) => () => { sfx('confirm'); closeResult(); if (fn) { try { fn(); } catch { /* ignore */ } } };
     const btns = el('div', 'fm-rbtns');
-    btns.appendChild(button('fm-btn big green', '↻ TEKRAR DENE', done(h.onRetry)));
-    btns.appendChild(button('fm-btn blue', '🗺️ HARİTA', done(h.onMap)));
+    btns.appendChild(button('fm-btn big green', LB.retry || '↻ TEKRAR DENE', done(h.onRetry)));
+    btns.appendChild(button('fm-btn blue', LB.map ? '⛰️ ' + LB.map : '🗺️ HARİTA', done(h.onMap)));
     ov.appendChild(btns);
     host.appendChild(ov);
     resultEl = ov;
@@ -2231,6 +2271,139 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   }
 
   // ============================================================================================ main screen (lobby)
+
+  // ---------------------------------------------------------------------------------------------- ÇIĞ DAĞLAR (30 mountains)
+
+  const fmtM = (d) => (d >= 10 ? String(Math.round(d)) : (Math.round(d * 10) / 10).toFixed(1).replace('.', ',').replace(/,0$/, ''));
+  const fmtSec = (t) => { const s = Math.max(0, Math.round(t || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+
+  // one-time intro card of a mountain that brings something new (BAŞLA! starts it). Returns false when there is nothing to show.
+  function showCigIntro(plan, onDone) {
+    if (!plan || !plan.intro) return false;
+    let seen = false;
+    try { seen = save.cigIntroSeen(plan.n); } catch { seen = false; }
+    if (seen) return false;
+    closeModal();
+    const m = el('div', 'fm-modal');
+    const card = el('div', 'fm-mcard');
+    const ok = button('fm-btn big green', 'BAŞLA!', () => {
+      sfx('confirm');
+      try { save.markCigIntro(plan.n); } catch { /* ignore */ }
+      closeModal();
+      if (onDone) { try { onDone(); } catch { /* ignore */ } }
+    });
+    add(card, el('div', 'big', plan.intro.icon), el('div', 'mt', plan.boss ? 'PATRON!' : 'YENİ!'), el('div', 'mm', plan.intro.text), ok);
+    m.appendChild(card);
+    host.appendChild(m);
+    modalEl = m;
+    sfx('click');
+    return true;
+  }
+
+  // (intro card first when the mountain is new to you) -> the game
+  function cigStart(n) {
+    const go = () => {
+      closePanel(true);
+      if (cb.onCigLevel) cb.onCigLevel(n, {});
+      else if (cb.onLevels) cb.onLevels();
+    };
+    if (showCigIntro(dagPlan(n), go)) return;
+    go();
+  }
+
+  function openCigCard(p, n) {
+    closeCard();
+    sfx('open');
+    const plan = dagPlan(n), brief = planBrief(n);
+    const stars = save.cigLvStars(n), best = save.cigLvBest(n);
+    const back = el('div', 'fm-lback');
+    back.addEventListener('click', () => { sfx('close'); closeCard(); });
+    const card = el('div', 'fm-lcard');
+    const ca = plan.boss ? '#ff8a7a' : '#8fd3ff', cbb = plan.boss ? '#e0392b' : '#4a8cff';
+    setCss(card, '--ca', ca); setCss(card, '--cb', cbb);
+    const lbig = el('div', 'lbig', plan.boss ? '👹' : '⛰️');
+    setCss(lbig, '--ca', ca); setCss(lbig, '--cb', cbb);
+    const head = el('div', 'fm-lhead');
+    add(head, lbig, add(el('div', ''), el('div', 'l1', 'DAĞ ' + n + (plan.boss ? ' · PATRON' : '') + ' · ' + brief.S + ' ETAP'), el('div', 'l2', plan.name)),
+      button('fm-x', '✕', () => { sfx('close'); closeCard(); }, 'Kapat'));
+    card.appendChild(head);
+    card.appendChild(el('div', 'fm-lbest', brief.tierFrom + ' → ' + brief.tierTo));
+    const goals = el('div', 'fm-lgoals');
+    plan.stars.forEach((g, i) => goals.appendChild(add(el('div', 'fm-lgoal' + (i < stars ? ' got' : '')), el('span', 'gs', '★'), el('span', '', g.text))));
+    card.appendChild(goals);
+    if (plan.intro) card.appendChild(add(el('div', 'fm-lintro'), el('span', 'ii', plan.intro.icon), el('span', '', plan.intro.text)));
+    if (best && stars > 0) card.appendChild(el('div', 'fm-lbest', 'REKOR ' + '⭐'.repeat(stars) + '☆'.repeat(3 - stars) + ' · ' + fmtM(best.size) + ' m · ' + fmtTons(best.tons) + (best.time ? ' · ' + fmtSec(best.time) : '')));
+    card.appendChild(button('fm-btn big green', 'OYNA ▶', () => { sfx('confirm'); closeCard(); cigStart(n); }));
+    p.el.appendChild(back);
+    p.el.appendChild(card);
+    cardRef = { back, card };
+  }
+
+  function shake(b) { b.classList.add('fm-shake'); sfx('error'); setTimeout(() => b.classList.remove('fm-shake'), 340); }
+
+  // the ÇIĞ panel: next mountain button, the 30-mountain grid, endless (opens with DAĞ 10) and the daily mountain (opens with DAĞ 3)
+  function openCigLevels(focus) {
+    sfx('click');
+    const cleared = save.cigCleared(), next = save.cigNext();
+    const p = openPanel({ id: 'cig', title: 'ÇIĞ', sub: '⭐ ' + save.cigLvTotalStars() + '/' + DAG_COUNT * 3, pills: ['coins', 'crystals'] });
+    const list = p.list;
+    const np = dagPlan(next);
+    const q = button('fm-btn big green fm-cgq', '', () => { sfx('confirm'); cigStart(next); });
+    add(q, el('b', '', cleared >= DAG_COUNT ? 'SON DAĞ ▶' : 'SONRAKİ DAĞ ▶'), el('small', '', 'DAĞ ' + next + ' · ' + np.name));
+    list.appendChild(q);
+
+    const grid = el('div', 'fm-cgrid');
+    let focusEl = null;
+    for (let n = 1; n <= DAG_COUNT; n++) {
+      const st = save.cigLvStars(n);
+      const locked = n > save.cigUnlocked();
+      const boss = n % 5 === 0;
+      const state = locked ? 'lk' : n === cleared + 1 ? 'cur' : 'done';
+      const b = el('button', 'fm-cgn ' + state + (boss ? ' boss' : ''));
+      b.setAttribute('type', 'button');
+      b.setAttribute('aria-label', 'Dağ ' + n + ': ' + dagPlan(n).name + (st ? ', ' + st + ' yıldız' : locked ? ', kilitli' : ''));
+      add(b, el('span', 'n', locked ? '🔒' : boss ? '👹' : String(n)));
+      if (boss && !locked) b.appendChild(el('span', 'bn', String(n)));
+      if (!locked) {
+        const stars = el('span', 'stars');
+        for (let k = 1; k <= 3; k++) stars.appendChild(el('b', k <= st ? 'on' : '', '★'));
+        b.appendChild(stars);
+      }
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (locked) { shake(b); toast({ icon: '🔒', title: 'Önce DAĞ ' + (cleared + 1) + "'i bitir", ms: 1500 }); return; }
+        sfx('click');
+        openCigCard(p, n);
+      });
+      if (n === focus || (!focus && n === next)) focusEl = b;
+      grid.appendChild(b);
+    }
+    list.appendChild(grid);
+
+    const endOpen = save.cigEndlessOpen();
+    const eb = save.cigEndlessBest ? save.cigEndlessBest() : { tons: 0 };
+    const er = button('fm-cgrow' + (endOpen ? '' : ' lock'), '', () => {
+      if (!endOpen) { shake(er); toast({ icon: '🔒', title: "ÇIĞ SONSUZ için DAĞ 10'u bitir", ms: 1600 }); return; }
+      sfx('confirm'); closePanel(true);
+      try { meta.setMode('cig'); } catch { /* ignore */ }
+      if (cb.onCigEndless) cb.onCigEndless();
+    });
+    add(er, el('span', 'ic', '∞'), add(el('span', 'tx'), el('b', '', 'ÇIĞ SONSUZ'), el('small', '', endOpen ? (eb.tons > 0 ? 'REKOR ' + fmtTons(eb.tons) : 'Bitmeyen iniş') : "DAĞ 10'u bitir")));
+    list.appendChild(er);
+
+    const dayOpen = save.cigDailyOpen();
+    const dr = button('fm-cgrow' + (dayOpen ? '' : ' lock'), '', () => {
+      if (!dayOpen) { shake(dr); toast({ icon: '🔒', title: "Günün Dağı için DAĞ 3'ü bitir", ms: 1600 }); return; }
+      sfx('confirm'); closePanel(true);
+      try { meta.setMode('daily'); } catch { /* ignore */ }
+      if (cb.onDaily) cb.onDaily();
+    });
+    add(dr, el('span', 'ic', '🏔️'), add(el('span', 'tx'), el('b', '', 'GÜNÜN DAĞI #' + info.dailyNum), el('small', '', dayOpen ? (info.dailyBest > 0 ? 'Rekorun: ' + fmtTons(info.dailyBest) : 'Bugünün özel dağı') : "DAĞ 3'ü bitir")));
+    list.appendChild(dr);
+
+    if (focusEl) { try { setTimeout(() => focusEl.scrollIntoView({ block: 'center' }), 30); } catch { /* ignore */ } }
+    return p;
+  }
 
   function secBtn(cls, emoji, label, fn) {
     const b = button(`fm-sb ${cls}`, '', () => { sfx('click'); fn(); }, label);
@@ -2249,8 +2422,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
   function startCig() {
     try { meta.setMode('cig'); } catch { /* ignore */ }
-    if (cb.onCigEndless) cb.onCigEndless();
-    else if (cb.onLevels) cb.onLevels();
+    openCigLevels();
   }
 
   function buildMain() {
@@ -2347,7 +2519,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.arena = button('fm-arena', '', () => { sfx('confirm'); if (cb.onAgar) cb.onAgar(); }, 'Kartopu Arena');
     add(r.arena, el('span', 'ico', '⚔️'), add(el('span', 'tx'), el('b', '', 'KARTOPU ARENA'), el('small', '', 'Dev harita · botlar · arkadaşlarınla oda kur')));
     bot.appendChild(r.arena);
-    const sCig = secBtn('c-cig', '⛰️', 'ÇIĞ SONSUZ', () => startCig());
+    const sCig = secBtn('c-cig', '⛰️', 'ÇIĞ', () => startCig());
     const sMap = secBtn('c-map', '🗺️', 'MACERA', () => { try { meta.setMode('camp'); } catch { /* ignore */ } openMap(); });
     const sShop = secBtn('c-shop', '👕', 'Dolap', () => { if (cb.onShop) cb.onShop(); });
     const sMis = secBtn('c-mis', '📜', 'Görevler', () => openMissions());
@@ -2384,7 +2556,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.bestV.textContent = bd > 0 ? fmtDist(bd) : 'İLK KOŞU?';
     let cig = { tons: 0, dist: 0 };
     try { cig = save && save.cigEndlessBest ? save.cigEndlessBest() : cig; } catch { /* ignore */ }
-    r.bestS.textContent = cig.tons > 0 ? `ÇIĞ: ${fmtTons(cig.tons)}` : (bd > 0 ? 'Yeti seni bekliyor!' : 'Yeti seni kovalıyor!');
+    let cc = 0, cs = 0;
+    try { cc = save.cigCleared(); cs = save.cigLvTotalStars(); } catch { /* ignore */ }
+    r.bestS.textContent = cc > 0 ? `ÇIĞ: DAĞ ${cc} · ⭐ ${cs}` : (cig.tons > 0 ? `ÇIĞ: ${fmtTons(cig.tons)}` : (bd > 0 ? 'Yeti seni bekliyor!' : 'Yeti seni kovalıyor!'));
 
     // missions (3 compact rows)
     clear(r.mrows);
@@ -2703,6 +2877,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     mainOpen = false;
     stopMainTimers();
     closePanel(true);
+    closeResult();
     closeModal();
     closeWorlds();
     if (refs) refs.root.classList.add('fm-hide');
@@ -2735,7 +2910,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   return {
     showMain, hideMain, toastAchievement, showDailyIfAvailable, refresh, isOpen, back, setHold() { /* toasts are menu-only now; kept for old callers */ },
     // campaign
-    showLevelComplete, showLevelFailed, showLevelIntro, openMap,
+    showLevelComplete, showLevelFailed, showLevelIntro, openMap, openCigLevels, showCigIntro,
     // extras
     toast, confetti,
     // Mystery boxes never pop up by themselves any more: a bare openBoxes(n) call (the old post-run auto-open) is ignored, boxes stay

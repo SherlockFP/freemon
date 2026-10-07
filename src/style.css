@@ -755,3 +755,25 @@ html, body {
 #result .btn.retry { animation: retryPulse 1s ease-in-out 1.6s infinite alternate; }
 @keyframes retryPulse { to { transform: scale(1.04); } }
 @media (max-height: 560px) { .hud-tons.gold1, .hud-tons.gold2, .hud-tons.gold3 { animation-duration: 0.9s; } .cmb-n { font-size: 17px !important; } .cmb { top: calc(var(--sat) + 90px); } }
+
+
+/* ---------- ÇIĞ DAĞLAR: level HUD (appended; nothing above is changed) ---------- */
+#hud.cig-endless.cig-lvl .hud-progress { visibility: visible; }
+#hud.cig-lvl .cig-hud { display: none; }
+#hud.cig-lvl .buffs { top: calc(var(--sat) + 140px); }
+#cig-lv { position: absolute; left: 0; right: 0; top: calc(var(--sat) + 106px); display: flex; flex-direction: column; align-items: center; gap: 5px; pointer-events: none; z-index: 14; }
+#cig-lv .cgl-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; padding: 0 12px; }
+#cig-lv .cgl { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 32px; padding: 3px 11px 4px; border-radius: 14px; border: 2.5px solid var(--ink); background: rgba(10, 25, 55, 0.66); color: #fff; font-weight: 900; font-size: 14px; line-height: 1.1; white-space: nowrap; text-shadow: 0 2px 0 var(--ink); }
+#cig-lv .cgl small { font-size: 10px; letter-spacing: 0.1em; opacity: 0.85; font-weight: 900; }
+#cig-lv .gc.r0 { background: rgba(150, 28, 24, 0.82); border-color: #ff5a4a; }
+#cig-lv .gc.r1 { background: rgba(150, 96, 12, 0.82); border-color: #ffb03a; }
+#cig-lv .gc.r2 { background: rgba(20, 110, 54, 0.84); border-color: #2fd36b; }
+#cig-lv .cgl.ch { position: absolute; left: 14px; top: 38px; min-height: 0; flex-direction: row; font-size: 13px; color: #ffe066; border-color: #ffc83a; animation: cglChain 0.5s ease-in-out infinite alternate; }
+@keyframes cglChain { from { transform: scale(1); } to { transform: scale(1.08); } }
+#hud.chase-near::after { content: ''; position: absolute; inset: 0; box-shadow: inset 0 0 70px rgba(255, 60, 50, 0.55); animation: chaseNear 0.7s ease-in-out infinite alternate; pointer-events: none; }
+@keyframes chaseNear { from { opacity: 0.45; } to { opacity: 1; } }
+.hud-progress .pt.gate { top: -15px; font-size: 10px; }
+
+/* ÇIĞ DAĞLAR: same compact combo spot as endless (it overlapped the tons readout) */
+#hud.cig-lvl .hud-combo, #hud.cig-lvl.has-goal .hud-combo { left: 14px; right: auto; top: calc(var(--sat) + 46px); text-align: left; font-size: 14px; }
+#hud.cig-lvl .hud-combo, #hud.cig-lvl.has-goal .hud-combo { display: none !important; }
