@@ -54,6 +54,7 @@ export const CFG = {
   // ---- hunger (continuous melt, volume fraction per second) ----
   melt: [0.027, 0.032, 0.038, 0.045, 0.052, 0.056, 0.06, 0.064],
   meltGrace: [4, 16],  // seconds: no melt before the first, full melt after the second
+  heatMelt: 0.2,       // SICAK NOKTA (DAG 6+): extra melt while inside a warm zone
   patchMelt: 0.09,     // extra melt while rolling on bare ground
   dieK: 0.42,          // ERİDİN! when r < max(minR, dieK * peak radius)
   hungerWarn: 0.3,

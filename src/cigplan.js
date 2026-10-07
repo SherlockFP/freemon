@@ -292,7 +292,7 @@ function build(n, daily, assist, opts) {
     const pr = planAt(P, mid);
     const hw = planHw(P, mid);
     if (p.kind === 'crateLine') {
-      p.n = n >= 10 ? 8 : 6;
+      p.n = n >= 10 || n <= 5 ? 9 : 7;
       p.phase = rng.range(0, 6.28);
       P.crates.total += p.n;
       P.crates.gold += Math.min(p.gold, p.n);

@@ -294,7 +294,7 @@ const cigHost = {
     if (G.lv) return G.lv.n <= 2 ? 6 : G.lv.n <= 6 ? 3 : 1;
     return Math.max(2, 7 - Math.min(5, save.cigEndlessRuns?.() || 0));
   },
-  combo(n) { ui.setCombo(n); if (n > 0) ui.pulse(); },
+  combo(n) { if (G.lv) { if (n > 0) ui.pulse(); return; } ui.setCombo(n); if (n > 0) ui.pulse(); },
   onPower(kind) { if (kind === 'rainbow') { rainbowTrail = true; fx.setTrailStyle({ rainbow: true, glow: true }); } },
   onPowerEnd(kind) { if (kind === 'rainbow') { rainbowTrail = false; applyTrail(save.selected('trail')); } },
   ended(cause) {
@@ -589,12 +589,13 @@ function updateLevelHud(V) {
   const s = V.finalBroken ? 'BİTİŞ' : V.final ? 'FİNAL' : 'ETAP ' + (V.gateI + 1) + '/' + V.S;
   const t = V.finalBroken ? '🏁 ' + m5 + ' m' : (V.locked ? '🔒 PATRON' : '⛔ ' + fmtD(V.need) + ' m') + ' · ' + m5 + ' m';
   const r = V.finalBroken ? 2 : V.ready;
-  if (s !== h.s) { h.s = s; h.gs.textContent = s; }
+  const z = fmtD(V.have) + ' m · ' + (Math.round(V.kmh / 5) * 5) + ' km/s';
+  const sf = s + ' · ' + z;
+  if (sf !== h.s) { h.s = sf; h.gs.textContent = sf; }
   if (t !== h.t) { h.t = t; h.gt.textContent = t; }
   if (r !== h.r) { h.r = r; h.gc.className = 'cgl gc r' + r; }
   if (V.gateI !== h.gi) { h.gi = V.gateI; for (let i = 0; i < h.marks.length; i++) h.marks[i].classList.toggle('passed', i < V.gateI); }
-  const z = fmtD(V.have) + ' m · ' + (Math.round(V.kmh / 5) * 5) + ' km/s';
-  if (z !== h.z) { h.z = z; h.sz.textContent = z; }
+  h.sz.style.display = 'none';   // the size/speed pill lives in the ETAP strip now
   const c = V.chainMul >= 2 ? 'ZİNCİR x' + V.chainMul : '';
   if (c !== h.c) { h.c = c; h.ch.textContent = c; h.ch.style.display = c ? '' : 'none'; }
   // the avalanche is close: red edge pulse

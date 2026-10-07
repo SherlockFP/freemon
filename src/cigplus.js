@@ -1221,7 +1221,7 @@ export class CigGame {
     });
     b.reset(r0);
     b.y = w.groundY(0, 0) + b.r * 0.92;
-    b.speed = CFG.startSpeed * (this.L ? this.L.speedK : 1);
+    b.speed = CFG.startSpeed * (this.L ? this.L.speedK * 1.2 : 1);
     this._afkAcc = 0; this._next = null;
     this.progT = 0; this.progD = 0;
     this.wave.on = false; this.wave.warned = false; this.wave.calm = 0; this.wave.n = 0;
@@ -1251,6 +1251,7 @@ export class CigGame {
       const G = this.G, K = CFG.lvl;
       v *= this.L.speedK * (1 + K.surgeMul * clamp(G.surgeT / K.surgeT, 0, 1));
       if (G.stripT > 0) v *= 1 + (K.stripMul - 1) * Math.min(1, G.stripT / 0.5);
+      v *= 1 + 0.2 * clamp(1 - G.t / 20, 0, 1);   // brisk first 20 s
     }
     return v;
   }
@@ -2184,6 +2185,13 @@ export class CigGame {
     if (b.airborne || M.noMelt) rate = 0;
     let onPatch = false;
     if (!b.airborne && !M.noMelt && w.inPatch(b.x, b.d)) { rate += CFG.patchMelt; onPatch = true; }
+    const hz = !b.airborne && !M.noMelt && w.inHeat ? w.inHeat(b.x, b.d) : null;
+    if (hz) {
+      rate += CFG.heatMelt;
+      if (!this._inHeat) { this._inHeat = true; this._text('SICAK!', b, 'bad', true); this._h('haptic', 'light'); }
+      this._heatFx = (this._heatFx || 0) - dt;
+      if (this._heatFx <= 0) { this._heatFx = 0.14; this._h('burst', b.x, b.y + b.r * 0.2, b.d, 2, 0xff8a2a, 3, 0.12 + b.r * 0.05, 3); }
+    } else this._inHeat = false;
     this.melting = rate;
     if (rate > 0) {
       b.setRadius(Math.cbrt(b.r ** 3 * (1 - rate * dt)));

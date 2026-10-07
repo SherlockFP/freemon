@@ -22,6 +22,7 @@ const TITLES = [[0, 'Çömez'], [60, 'Kar Tanesi'], [150, 'Kartopu'], [400, 'Dev
 const titleOf = (m) => { let k = 0; for (let i = 1; i < TITLES.length; i++) if (m >= TITLES[i][0]) k = i; return k; };
 const VIRR = 3, VIR_MIN = 130; // ice crystal radius / smallest mass that gets shattered
 const MAXPIECES = 16;
+const TIP_KEY = 'patpat.agar.tip';
 const BEST_KEY = 'patpat.agar.best', XP_KEY = 'patpat.agar.xp', NICK_KEY = 'patpat.agar.nick';
 const PUP_TYPES = [
   { id: 'mag', emoji: '🧲', name: 'MIKNATIS', col: 0xff5a5a, t: 9 },
@@ -167,6 +168,7 @@ export class AgarMode {
     this.lastLevel = 1;
     this.terrain = new Terrain(R); this.seed = 1; this.uTime = { value: 0 };
     this.storm = { on: false, x: 0, z: 0, dx: 0, dz: 0, t: 0, next: 40, r: 170 }; this.stormSndT = 0;
+    this.av = { st: 0, t: 0, next: 150 + Math.random() * 60, a: 0, off: 0, w: 55, id: 0, rum: 0, s: 0 }; this.tipT = 0; this.tipDone = false;
     this.titleIdx = 0; this.meZone = 0; this.lastMyMass = 0; this.botChatT = 20;
     this.chatLog = []; this.lastChat = 0;
     this.trN = 0;
@@ -283,6 +285,11 @@ export class AgarMode {
     this.stormB = new THREE.Mesh(new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2), decal({ map: stormTex, opacity: 0.6 }));
     this.stormA.position.y = 0.5; this.stormB.position.y = 1.4; this.stormA.visible = this.stormB.visible = false; this.stormA.renderOrder = this.stormB.renderOrder = 6;
     sc.add(this.stormA); sc.add(this.stormB);
+    // avalanche event: warning band + moving wave
+    const avM = (col) => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.3, depthWrite: false, fog: false });
+    this.avBand = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), avM(0xff3b30)); this.avBand.position.y = 0.9; this.avBand.renderOrder = 7; this.avBand.visible = false;
+    this.avWave = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), avM(0xf4fbff)); this.avWave.material.opacity = 0.85; this.avWave.renderOrder = 8; this.avWave.visible = false;
+    sc.add(this.avBand); sc.add(this.avWave);
     // continuous snow grooves + snowfall
     this.trails = new Trails(sc, CAP);
     this.snowfall = new Snowfall(sc, 2400);
@@ -398,6 +405,7 @@ export class AgarMode {
     this.fs = 1;
     this.genTerrain((Math.random() * 2147483647) | 0);
     this.storm.on = false; this.storm.next = 35 + Math.random() * 25; this.stormA.visible = this.stormB.visible = false;
+    this.av.st = 0; this.av.next = 150 + Math.random() * 60;
     this.trails.clear();
     for (let i = 0; i < FT; i++) { this.gRemove(i); this.fv[i] = 0; }
     this.ghead.fill(-1); this.fin.fill(0);
@@ -896,6 +904,52 @@ export class AgarMode {
     if (s.t <= 0) { s.on = false; s.next = 80 + Math.random() * 60; }
   }
 
+  // ------------------------------------------------------------------ avalanche event (CIG OLAYI)
+  avStart(a, off, broadcast) {
+    const v = this.av; v.st = 1; v.t = 5; v.a = a; v.off = off; v.id++; v.rum = 0;
+    this.pushFeed('🏔 ÇIĞ GELİYOR! Kristal arkasına ya da derin kara saklan');
+    this.audio?.arena?.('storm', 0.9);
+    if (broadcast && this.mp === 'host' && this.net) this.net.broadcast({ t: 'av', a, o: off });
+  }
+  avHidden(c) {
+    if (c.m < VIR_MIN) for (let v = 0; v < NVIR; v++) if (this.von[v] && Math.hypot(this.vx[v] - c.x, this.vz[v] - c.z) < c.r + 9) return true;
+    return c.m < 500 && this.terrain.zone(c.x, c.z) === 2;
+  }
+  avTick(dt) {
+    const v = this.av, client = this.mp === 'client';
+    if (v.st === 0) {
+      if (client || this.state !== 'play') return;
+      v.next -= dt;
+      if (v.next <= 0) this.avStart(rnd(0, 3.1416), rnd(-R * 0.45, R * 0.45), true);
+      return;
+    }
+    v.t -= dt;
+    const dxn = Math.cos(v.a), dzn = Math.sin(v.a), nx = -dzn, nz = dxn;
+    if (v.st === 1) {
+      v.rum -= dt; if (v.rum <= 0) { v.rum = 1; this.audio?.arena?.('storm', 0.6); }
+      if (v.t <= 0) { v.st = 2; v.t = 6; this.audio?.arena?.('storm', 1); }
+      return;
+    }
+    v.rum -= dt; if (v.rum <= 0) { v.rum = 0.7; this.audio?.arena?.('storm', 1); }
+    const s = -R - 40 + (6 - v.t) / 6 * (2 * R + 80);
+    v.s = s;
+    if (!client) {
+      for (let i = 0; i < CAP; i++) {
+        const c = this.cells[i];
+        if (!c.on || c.avId === v.id) continue;
+        const ps = (c.x * dxn + c.z * dzn) - s, pn = c.x * nx + c.z * nz - v.off;
+        if (Math.abs(ps) > 32 || Math.abs(pn) > v.w) continue;
+        c.avId = v.id;
+        if (this.avHidden(c)) continue;
+        const lost = c.m * 0.35; c.m -= lost;
+        const o = this.owners[c.o], k = Math.min(10, Math.ceil(lost / 5));
+        for (let q = 0; q < k; q++) this.spawnPellet(c.x + rnd(-c.r, c.r) * 1.5, c.z + rnd(-c.r, c.r) * 1.5, lost / k, o ? o.col : 0xffffff);
+        if (c.o === this.me) { this.snd('crash'); this.toast('ÇIĞ vurdu! -%35'); } else if (o && !o.bot) this.sfxTo(c.o, 'crash', 1);
+      }
+    }
+    if (v.t <= 0) { v.st = 0; v.next = 180 + Math.random() * 60; }
+  }
+
   // ------------------------------------------------------------------ chat
   cleanChat(t) {
     t = String(t || '').replace(/[\u0000-\u001f<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
@@ -1015,6 +1069,10 @@ export class AgarMode {
       }
     }
     if (this.storm.on) { const sx = cx - this.storm.x, sz = cz - this.storm.z, sd = Math.hypot(sx, sz); if (sd < this.storm.r + 30) { dx += (sx / (sd + 0.01)) * 1.3; dz += (sz / (sd + 0.01)) * 1.3; } }
+    if (this.av.st > 0 && !this.avHidden({ x: cx, z: cz, r: orr, m: om })) {
+      const av = this.av, anx = -Math.sin(av.a), anz = Math.cos(av.a), pn = cx * anx + cz * anz - av.off;
+      if (Math.abs(pn) < av.w + 25 && !(av.st === 2 && (cx * Math.cos(av.a) + cz * Math.sin(av.a)) < av.s - 40)) { const sg = pn >= 0 ? 1 : -1; dx += anx * sg * 2.2; dz += anz * sg * 2.2; }
+    }
     if (om > 150) {
       for (let v = 0; v < NVIR; v++) {
         if (!this.von[v]) continue;
@@ -1216,7 +1274,11 @@ export class AgarMode {
     const inp = document.createElement('input');
     inp.className = 'ag-inp'; inp.maxLength = 12; inp.placeholder = 'Takma adın'; inp.value = this.nick; inp.autocomplete = 'off';
     inp.addEventListener('input', () => { this.nick = inp.value.slice(0, 12); lsSet(NICK_KEY, this.nick); });
-    card.appendChild(inp);
+    if (!inp.value.trim()) { inp.value = generateNames(1, [])[0].slice(0, 12); this.nick = inp.value; lsSet(NICK_KEY, this.nick); }
+    const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;align-items:center;justify-content:center';
+    const dice = document.createElement('button'); dice.type = 'button'; dice.className = 'ag-btn'; dice.textContent = '🎲'; dice.title = 'Rastgele isim'; dice.style.cssText = 'flex:0 0 auto;min-width:48px;padding:6px 10px';
+    dice.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('click'); inp.value = generateNames(1, [])[0].slice(0, 12); this.nick = inp.value; lsSet(NICK_KEY, this.nick); });
+    row.appendChild(inp); row.appendChild(dice); card.appendChild(row);
     return inp;
   }
   ensureNick() { if (!this.nick.trim()) { this.nick = 'Yeti' + ((Math.random() * 900 + 100) | 0); lsSet(NICK_KEY, this.nick); } return this.nick.trim(); }
@@ -1606,6 +1668,7 @@ export class AgarMode {
   onClientData(msg) {
     if (msg.t === 's') this.applySnapshot(msg);
     else if (msg.t === 'k') this.pushFeed(msg.x);
+    else if (msg.t === 'av') { const a = +msg.a, o = +msg.o; if (isFinite(a) && isFinite(o)) this.avStart(a, clampN(o, -R, R), false); }
     else if (msg.t === 'chat') this.chatAdd(String(msg.n || '').slice(0, 14), msg.c | 0, String(msg.x || '').slice(0, 80));
     else if (msg.t === 'sfx') { if (msg.k === 'chime') this.audio?.chime?.(); else this.snd(String(msg.k), undefined, undefined, +msg.v || 1); }
     else if (msg.t === 'own') { const o = this.owners[msg.i]; if (o) { this.setColor(o, msg.c); this.setName(o, msg.n, msg.i === this.me); o.bot = !msg.h; } }
@@ -1675,6 +1738,7 @@ export class AgarMode {
     if (this.mp === 'client') this.clientSmooth(dt);
     else if (this.state === 'play' || this.state === 'dead' || this.state === 'title' || this.state === 'lobby') this.simulate(dt);
     this.props.updatePulls(dt);
+    this.avTick(dt);
     // radii
     const k = Math.min(1, dt * 9);
     for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on) c.r += (KR * Math.sqrt(c.m) - c.r) * k; }
@@ -1816,6 +1880,18 @@ export class AgarMode {
       this.stormA.scale.set(st.r, 1, st.r); this.stormB.scale.set(st.r * 1.25, 1, st.r * 1.25);
       this.stormA.rotation.y += dt * 0.9; this.stormB.rotation.y -= dt * 0.55;
     }
+    {
+      const v = this.av, on = v.st > 0;
+      this.avBand.visible = on; this.avWave.visible = v.st === 2;
+      if (on) {
+        const L = R * 2.6;
+        this.avBand.position.set(-Math.sin(v.a) * v.off, 0.9, Math.cos(v.a) * v.off); this.avBand.rotation.y = -v.a; this.avBand.scale.set(L, 1, v.w * 2);
+        this.avBand.material.opacity = v.st === 1 ? 0.18 + 0.2 * Math.abs(Math.sin(this.time * 6)) : 0.12;
+        if (v.st === 2) { const s = v.s || 0; this.avWave.position.set(Math.cos(v.a) * s - Math.sin(v.a) * v.off, 12, Math.sin(v.a) * s + Math.cos(v.a) * v.off); this.avWave.rotation.y = -v.a; this.avWave.scale.set(46, 26, v.w * 2); }
+      }
+      const el = this.hud.av;
+      if (v.st === 1) { el.style.opacity = '1'; el.textContent = 'ÇIĞ GELİYOR! ' + Math.max(1, Math.ceil(v.t)); } else el.style.opacity = '0';
+    }
     // auras (local player)
     if (me.alive && me.shield > 0) { this.aura.visible = true; this.aura.position.set(me.lx, me.maxR, me.lz); this.aura.scale.setScalar(me.maxR * 1.18 + 0.4); } else this.aura.visible = false;
     if (me.alive && me.magnet > 0) { this.ring.visible = true; this.ring.position.set(me.lx, 0.3, me.lz); this.ring.scale.setScalar(me.maxR + 14); } else this.ring.visible = false;
@@ -1877,7 +1953,7 @@ export class AgarMode {
       '<div class="ag-room"></div><div class="ag-online">🟢 <span class="on">0</span> oyuncu çevrimiçi</div>' +
       '<div class="ag-rank">SIRA <b>-</b></div><div class="ag-feed"></div><div class="ag-chips"></div></div>' +
       '<div class="ag-tr"><div class="ag-lb"><div class="t">LİDERLER</div><div class="rows"></div></div><canvas class="ag-map" width="84" height="84"></canvas></div>' +
-      '<div class="ag-stick"><i></i></div><div class="ag-toast"></div>' +
+      '<div class="ag-stick"><i></i></div><div class="ag-toast"></div><div class="ag-avw" style="position:absolute;left:0;right:0;top:12%;text-align:center;font-size:34px;font-weight:900;color:#ff5a4d;text-shadow:0 3px 0 #3a0a0a,2px 2px 0 #3a0a0a,-2px 2px 0 #3a0a0a;pointer-events:none;opacity:0;transition:opacity .2s"></div><div class="ag-tip" style="position:absolute;left:8%;right:8%;bottom:26%;text-align:center;font-size:17px;color:#fff;background:rgba(10,42,74,.7);border-radius:14px;padding:10px 14px;pointer-events:none;opacity:0;transition:opacity .4s"></div><div class="ag-arrow" style="position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;opacity:0;transition:opacity .4s"><div style="position:absolute;left:-14px;top:-150px;font-size:34px;color:#ffe066;opacity:.7">▲</div></div>' +
       '<div class="ag-btns"><button type="button" class="ag-act split"><span>✂️</span><small>BÖL</small></button>' +
       '<button type="button" class="ag-act boost"><span>🚀</span><small>HIZLAN</small><i class="cd"></i></button></div>';
     this.app.appendChild(root);
@@ -1894,7 +1970,7 @@ export class AgarMode {
     tier.innerHTML = '<div style="font-size:20px;color:#ffe066">YENİ BÖLGE!</div><div style="font-size:48px;font-weight:900"></div><div style="font-size:15px;color:#cfe8ff"></div>';
     root.appendChild(tier);
     this.hud = {
-      tier, root, rows, chips, feeds, mass: q('.m'), tt: q('.tt'), lv: q('.lv'), bar: q('.bar i'), online: q('.on'), room: q('.ag-room'), rank: q('.ag-rank b'), stick: q('.ag-stick'), knob: q('.ag-stick i'), toast: q('.ag-toast'),
+      tier, root, rows, chips, feeds, mass: q('.m'), tt: q('.tt'), lv: q('.lv'), bar: q('.bar i'), online: q('.on'), room: q('.ag-room'), rank: q('.ag-rank b'), stick: q('.ag-stick'), knob: q('.ag-stick i'), toast: q('.ag-toast'), av: q('.ag-avw'), tip: q('.ag-tip'), arrow: q('.ag-arrow'),
       map: q('.ag-map'), mctx: q('.ag-map').getContext('2d'), boost: q('.boost'), cd: q('.cd'), bsplit: q('.split'),
     };
     const press = (el, fn) => {
@@ -1942,6 +2018,23 @@ export class AgarMode {
   updateHud(dt) {
     const h = this.hud, me = this.owners[this.me];
     this.hudT -= dt; this.lbT -= dt; this.mapT -= dt;
+    if (this.state === 'play' && !this.tipDone) {
+      if (this.tipT === 0 && lsGet(TIP_KEY, '') === '1') this.tipDone = true;
+      else {
+        if (this.tipT === 0) { h.tip.textContent = 'Sürükle: yön · HIZLAN: atıl · BÖL: ikiye bölün · küçükleri ye, büyüklerden kaç'; lsSet(TIP_KEY, '1'); }
+        this.tipT += dt;
+        h.tip.style.opacity = this.tipT < 5 ? '1' : '0';
+        if (this.tipT > 0.5 && this.tipT < 30 && me.alive) {
+          if (this.arrT === undefined || this.time - this.arrT > 0.4) {
+            this.arrT = this.time; let sx = 0, sz = 0, n = 0;
+            for (let k = 0; k < 160; k++) { const i = (Math.random() * FOOD) | 0; if (this.fv[i] <= 0) continue; const d = Math.hypot(this.fx[i] - me.cx, this.fz[i] - me.cz); if (d < 40 || d > 320) continue; sx += this.fx[i] - me.cx; sz += this.fz[i] - me.cz; n++; }
+            if (n) this.arrAng = Math.atan2(sx, -sz);
+            this.arrOn = n > 0;
+          }
+          h.arrow.style.opacity = this.arrOn ? '1' : '0'; h.arrow.style.transform = 'rotate(' + (this.arrAng || 0) + 'rad)';
+        } else { h.arrow.style.opacity = '0'; if (this.tipT >= 30) this.tipDone = true; }
+      }
+    }
     if (this.feedDirty || this.hudT <= 0) {
       for (let i = 0; i < 4; i++) { const f = this.feed[i], e = h.feeds[i]; const on = f.until > this.time; if (e._t !== f.t || e._on !== on) { e.textContent = on ? f.t : ''; e.style.opacity = on ? '1' : '0'; e._t = f.t; e._on = on; } }
       this.feedDirty = false;

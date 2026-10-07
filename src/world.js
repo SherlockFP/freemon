@@ -90,6 +90,7 @@ export class World {
     this.pulls = []; this.pullPool = [];
     this.ramps = [];
     this.patches = [];
+    this.heats = []; this.nextHeatD = 170;
     this.gates = [];
     this.arches = [];
     this.events = [];
@@ -216,6 +217,16 @@ export class World {
       this.groundY(p.x, p.d + e), this.groundY(p.x, p.d - e),
       this.groundY(p.x + e, p.d), this.groundY(p.x - e, p.d),
     );
+  }
+
+  // SICAK NOKTA: warm zone (ellipse) - melts the ball faster, holds the rich food
+  inHeat(x, d) {
+    for (let i = 0; i < this.heats.length; i++) {
+      const p = this.heats[i];
+      const a = (x - p.x) / p.rx, b = (d - p.d) / p.rd;
+      if (a * a + b * b < 1) return p;
+    }
+    return null;
   }
 
   inPatch(x, d) {
@@ -429,6 +440,101 @@ export class World {
       const d = (36 + i * 3.4) * sk, hw = this.halfWidth(d);
       this.food1(R.range(0.3, 0.55), gr, Math.cos(i * 0.7) * (3 + i * 0.35) * sk, d, hw, { spacing: 0.1 });
     }
+    // food lanes: arcs of small props leading the eye down the first 300 m (off the centre line, so an idle ball misses them)
+    if (P.n <= 8) {
+      for (let k = 0; k < 6; k++) {
+        const sgn = k % 2 ? 1 : -1, d0 = 70 + k * 40;
+        this.patLane(d0, 38, gr, this.halfWidth(d0 + 20), sgn, 0.4 + 0.1 * (k % 3));
+      }
+    }
+  }
+
+  // A lane: an arc of small props across `len` m at side*frac*hw - the eye follows it. Never on the centre line.
+  patLane(d, len, gr, hw, side, frac) {
+    const R = this.rng, T = tierOf(gr);
+    const q0 = clamp(this.rollQ(T) * 0.8, 0.14, 0.6);
+    const sp = Math.max(1.9, q0 * gr * 2.1 + 0.7);
+    const n = clamp(Math.floor(len / sp), 4, 12);
+    const ph = R.range(0, 6.28), amp = hw * 0.12;
+    let used = 0;
+    for (let i = 0; i < n; i++) {
+      const x = side * hw * frac + Math.sin(ph + i * 0.55) * amp;
+      used += this.food1(clamp(q0 * R.range(0.9, 1.1), 0.12, 0.7), gr, x, d + i * sp, hw, { spacing: 0.1 });
+    }
+    return used;
+  }
+
+  // SICAK NOKTA (DAG 6+): a glowing hot patch with gold crates and fat food inside. Melts you while you are in it.
+  placeHeat(d, gr, T, hw) {
+    const R = this.rng, P = this.lvl;
+    const rx = Math.min(hw * 0.36, 4.2 + gr * 1.3), rd = 12 + gr * 1.6;
+    const side = R.sign();
+    const x = clamp(side * hw * R.range(0.38, 0.55), -hw + rx + 0.5, hw - rx - 0.5);
+    const pd = d + rd + 6;
+    const heat = { x, d: pd, rx, rd, mesh: null, tex: R.range(0, 6.28) };
+    this.heats.push(heat);
+    this.zones.push({ d0: pd - rd - 8, d1: pd + rd + 8, kind: 'heat' });
+    this.buildHeatMesh(heat);
+    const pr = planAt(P, pd), tr = crateRadius(pr);
+    const ng = P.n >= 12 ? 3 : 2;
+    for (let i = 0; i < ng; i++) {
+      const a = (i + 0.5) / ng;
+      this.crateAt(clamp(x + (i % 2 ? 1 : -1) * rx * 0.45, -hw + 1.5, hw - 1.5), pd - rd * 0.6 + a * rd * 1.2, tr * 1.1, 'gold', pr);
+    }
+    const nf = 8;
+    for (let i = 0; i < nf; i++) {
+      const a = (i / nf) * 6.283 + heat.tex;
+      this.food1(clamp(R.range(0.55, 0.8), 0.3, 0.86), gr, x + Math.cos(a) * rx * 0.62, pd + Math.sin(a) * rd * 0.62, hw, { spacing: 0.1 });
+    }
+    return 2 * rd + 12;
+  }
+
+  buildHeatMesh(h) {
+    const g = new THREE.CircleGeometry(1, 20);
+    const pos = g.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const lx = pos.getX(i) * h.rx, ly = pos.getY(i) * h.rd;
+      pos.setXYZ(i, h.x + lx, this.groundY(h.x + lx, h.d + ly) + 0.18, -(h.d + ly));
+    }
+    g.computeBoundingSphere();
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+    const disc = new THREE.Mesh(g, mat);
+    disc.frustumCulled = false; disc.renderOrder = 3;
+    const grp = new THREE.Group();
+    grp.add(disc);
+    // heat shimmer: a few tall translucent columns that wobble over the zone
+    const cm = new THREE.MeshBasicMaterial({ color: 0xffb060, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+    const cols = [];
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * 6.283 + 0.6, k = i % 2 ? 0.45 : 0.2;
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.5, 5.5, 10, 1, true), cm);
+      const cx = h.x + Math.cos(a) * h.rx * k * 2, cd = h.d + Math.sin(a) * h.rd * k * 2;
+      c.position.set(cx, this.groundY(cx, cd) + 2.6, -cd);
+      c.scale.set(h.rx * 0.28, 1, h.rx * 0.28);
+      c.frustumCulled = false; c.renderOrder = 4;
+      c.userData.ph = i * 1.7;
+      grp.add(c); cols.push(c);
+    }
+    this.group.add(grp);
+    h.mesh = grp; h.disc = disc; h.cols = cols; h.cm = cm;
+  }
+
+  animateHeat(ballD) {
+    const t = this.time;
+    for (let i = 0; i < this.heats.length; i++) {
+      const h = this.heats[i];
+      if (!h.mesh) continue;
+      const near = Math.abs(h.d - ballD) < 260;
+      h.mesh.visible = near;
+      if (!near) continue;
+      h.disc.material.opacity = 0.32 + 0.14 * Math.sin(t * 4 + h.tex);
+      h.cm.opacity = 0.13 + 0.06 * Math.sin(t * 3 + h.tex);
+      for (const c of h.cols) {
+        const ph = c.userData.ph;
+        c.scale.y = 0.85 + 0.35 * Math.sin(t * 2.4 + ph);
+        c.rotation.y = t * 0.6 + ph;
+      }
+    }
   }
 
   // Level mode: place the next plan item when the frontier reaches it, otherwise ordinary food up to the next item.
@@ -447,6 +553,15 @@ export class World {
       return;
     }
     const lim = it ? it.start : this.endD;
+    if (this.lvl.n >= 6 && d >= this.nextHeatD && d > 160) {
+      const need = 2 * (12 + gr * 1.6) + 18;
+      if (lim - d >= need && this.zoneFree(d - 8, d + need, null)) {
+        const len = this.placeHeat(d, gr, T, this.halfWidth(d + 10));
+        this.genD = d + len;
+        this.nextHeatD = this.genD + this.rng.range(230, 340);
+        return;
+      }
+    }
     const seg = Math.max(4, Math.min(segLen(gr), lim - d));
     if (d > 36) this.regular(d, seg, gr, T, this.halfWidth(d + 10), 0);
     this.genD = d + seg;
@@ -525,7 +640,12 @@ export class World {
     let allowed = (foodRelAt(gr) * gr ** 3 * seg * frac) / CFG.growK;
     // The very first stretches are generous: the first minute must feel like a feast.
     if (d < 400) allowed *= 1.35;
-    if (this.lvl) allowed *= this.foodMulAt(d, gr);
+    if (this.lvl) {
+      allowed *= this.foodMulAt(d, gr);
+      // early mountains feel empty otherwise: roughly double the edible props
+      const ln = this.lvl.n;
+      allowed *= ln <= 5 ? 2 : ln <= 8 ? 1.4 : 1.15;
+    }
     // Everything placed anywhere (trails, towns, ramps' landing fields...) draws on one ledger, so jackpots are followed
     // by a thinner stretch instead of snowballing the growth.
     this.credit += allowed;
@@ -543,6 +663,11 @@ export class World {
     }
     this.credit = Math.min(this.credit, this.spent + 3 * allowed);
     if (inner > 0) return;
+    // food lanes between gates (early mountains): a lane most segments, alternating sides
+    if (this.lvl && this.lvl.n <= 8 && d > 36 && R.next() < (this.lvl.n <= 5 ? 0.7 : 0.4)) {
+      this.laneSide = -(this.laneSide || 1);
+      this.patLane(d, seg, gr, hw, this.laneSide, R.range(0.35, 0.6));
+    }
     // obstacles: bigger than the ball, never walls (a free corridor is guaranteed)
     if (d > 130) {
       const rate = CFG.obstacleRate[T] * seg / 100;
@@ -1448,6 +1573,10 @@ export class World {
         if (r.d + r.len < cut) { if (r.mesh) { this.group.remove(r.mesh); r.mesh.geometry.dispose(); } this.ramps.splice(i, 1); }
       }
       for (let i = this.patches.length - 1; i >= 0; i--) if (this.patches[i].d + this.patches[i].rd < cut) this.patches.splice(i, 1);
+      for (let i = this.heats.length - 1; i >= 0; i--) {
+        const h = this.heats[i];
+        if (h.d + h.rd < cut) { if (h.mesh) { this.group.remove(h.mesh); h.disc.geometry.dispose(); h.disc.material.dispose(); h.cm.dispose(); for (const c of h.cols) c.geometry.dispose(); } this.heats.splice(i, 1); }
+      }
       for (let i = this.zones.length - 1; i >= 0; i--) if (this.zones[i].d1 < cut) this.zones.splice(i, 1);
       for (let i = this.events.length - 1; i >= 0; i--) if (this.events[i].d1 < cut) this.events.splice(i, 1);
       for (let i = this.gates.length - 1; i >= 0; i--) {
@@ -1480,6 +1609,7 @@ export class World {
     this.pruneEnemies(ballD);
     if (ball) this.updatePulls(dt, ball);
     this.updateGateAnim(dt);
+    if (this.heats.length) this.animateHeat(ballD);
     this.render(ballD);
   }
 

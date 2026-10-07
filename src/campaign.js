@@ -9,7 +9,7 @@
 //     goals: [ {star:1, kind:'finish', text},
 //              {star:2, kind:'flakes', pct, text} | {star:2, kind:'flakesN', n, text},
 //              {star:3, kind:'noloss'|'nocrash'|'maxsize'|'yeti'|'perfects'|'powerups', ...params, text} ],
-//     boss: bool                          // idx 10: Yeti boss level (faster Yeti, throws boulders)
+//     boss: bool                          // idx 5 and 10: Yeti boss level (UI may read lv.boss for a boss icon) (faster Yeti, throws boulders)
 //   }
 //
 // Goal evaluation uses a stats object the runner fills at the end of a level (see evalGoals).
@@ -118,7 +118,7 @@ function build() {
   for (let id = 1; id <= CAMPAIGN_SIZE; id++) {
     const act = Math.ceil(id / LEVELS_PER_ACT);
     const idx = ((id - 1) % LEVELS_PER_ACT) + 1;
-    const boss = idx === LEVELS_PER_ACT;
+    const boss = idx % 5 === 0;   // every 5th level (5 and 10 of each act) ends with the Yeti boss segment
     const t = (id - 1) / (CAMPAIGN_SIZE - 1);
     const u = (idx - 1) / (LEVELS_PER_ACT - 1);
 

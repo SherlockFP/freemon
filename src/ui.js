@@ -272,15 +272,20 @@ export class UI {
 
     const ex = this.el.resExtra;
     let html = '';
-    if (isRec) html += '';
-    else if (toRecord > 0 && toRecord < Math.max(400, distance * 0.6)) html += `<div class="rx-line">Rekora ${fmtN(toRecord)} m kaldı!</div>`;
-    else if (rank > 0 && rank <= 3) html += `<div class="rx-line">#${rank}. en iyi koşun</div>`;
-    else if ((p && p.tip) || dt.tip) html += `<div class="rx-dim">${(p && p.tip) || dt.tip}</div>`;
+    const tipTxt = (p && p.tip) || dt.tip;
+    let note = '';
+    if (isRec) note = '';
+    else if (toRecord > 0 && toRecord < Math.max(400, distance * 0.6)) note = `Rekora ${fmtN(toRecord)} m kaldı!`;
+    else if (rank > 0 && rank <= 3) note = `#${rank}. en iyi koşun`;
     const isScoreRec = !!(p && p.isBest) || isRec;
-    html += `<div class="rx-line rx-best">${isScoreRec ? '\u2605 ' : ''}EN \u0130Y\u0130 SKOR ${fmtN(Math.max(best, score))}</div>`;
-    if ((this._bestCombo || 0) >= 3) html += `<div class="rx-line rx-combo">\u{1F525} EN \u0130Y\u0130 KOMBO x${this._bestCombo}</div>`;
+    const chips = [`<div class="rx-chip${isScoreRec ? ' gold' : ''}"><small>EN İYİ</small><b>${isScoreRec ? '★ ' : ''}${fmtN(Math.max(best, score))}</b></div>`];
+    if (coins) chips.push(`<div class="rx-chip"><small>KAZANÇ</small><b>❄️ +${fmtN(coins)}</b></div>`);
+    if ((this._bestCombo || 0) >= 3) chips.push(`<div class="rx-chip"><small>KOMBO</small><b>🔥 x${this._bestCombo}</b></div>`);
+    html += `<div class="rx-stats">${chips.join('')}</div>`;
+    if (note) html += `<div class="rx-line">${note}</div>`;
+    if (!isRec && tipTxt) html += `<div class="rx-dim">${tipTxt}</div>`;
     html += mrep.html;
-    html += this.goalBlock();
+    html += this.goalBlock(coins);
     ex.innerHTML = html;
     ex.classList.toggle('hidden', !html);
 
@@ -290,10 +295,8 @@ export class UI {
     this.el.resBadge.classList.toggle('hidden', !isRec);
     this.el.resLabel.textContent = 'metre';
     this.el.resSub.textContent = isRec ? '' : `REKOR ${fmtN(bestDist)} m`;
-    this.el.resCoins.classList.toggle('hidden', !coins);
-    let wallet = 0;
-    try { wallet = save.coins; } catch { wallet = 0; }
-    this.el.resCoins.innerHTML = coins ? `❄️ +${fmtN(coins)}<small>toplam ${fmtN(wallet)}</small>` : '';
+    this.el.resCoins.classList.add('hidden');
+    this.el.resCoins.innerHTML = '';
 
     // buttons: TEKRAR is the big thumb-zone button, MENÜ small, BENİ KURTAR only when you can really pay for it
     let cost = p && p.reviveCost ? p.reviveCost : 0;
@@ -310,6 +313,7 @@ export class UI {
     this.el.menuBtn.classList.remove('hidden');
 
     this.resultFx(isScoreRec);
+    this.goalAnimate();
     this.countUp(distance, (v, e) => {
       this.el.resPct.textContent = `${fmtN(v)} m`;
       this.el.resTons.textContent = `SKOR ${fmtN(score * e)}`;
@@ -336,11 +340,41 @@ export class UI {
   }
 
   // The next thing coins can buy (a skin, a trail or an upgrade) as a progress bar.
-  goalBlock() {
+  goalBlock(gained = 0) {
+    gained = Math.max(0, Number(gained) || 0);
     let g = null;
     try { g = nextGoal(save); } catch { g = null; }
-    if (!g) return '';
-    return `<div class="rx-goal"><div class="rg-t"><span>${g.icon} ${g.name}</span><b>${fmtN(g.have)} / ${fmtN(g.price)} ❄️</b></div><div class="rg-b"><i style="width:${Math.round(g.frac * 100)}%"></i></div></div>`;
+    let li = null;
+    try { li = meta.levelInfo(); } catch { li = null; }
+    let dt = null;
+    try {
+      const ts = meta.dailyTasks().tasks.filter((t) => !t.done);
+      ts.sort((x, y) => (y.value / y.goal) - (x.value / x.goal));
+      dt = ts[0] || null;
+    } catch { dt = null; }
+    if (!g && !li && !dt) return '';
+    let h = '<div class="rx-goal"><div class="rg-h">SONRAKİ ÖDÜL</div>';
+    const bar = (from, to, cls = '') => `<div class="rg-b ${cls}"><i class="gain" style="width:${Math.round(clamp01(from) * 100)}%" data-to="${Math.round(clamp01(to) * 100)}"></i></div>`;
+    if (g) {
+      const left = Math.max(0, g.price - g.have);
+      const nm = String(g.name).replace(/\s*Sv\d+$/, '');
+      const lv = (nm.match(/[aeıioöuüAEIİOÖUÜ](?=[^aeıioöuüAEIİOÖUÜ]*$)/) || ['e'])[0];
+      const back = /[aıouAIOU]/.test(lv), endsV = /[aeıioöuüAEIİOÖUÜ]$/.test(nm);
+      const dat = `${nm}'${endsV ? 'y' : ''}${back ? 'a' : 'e'}`;
+      h += left > 0 ? `<div class="rg-goal">${g.icon} ${dat} <b>${fmtN(left)} ❄️</b> kaldı</div>` : `<div class="rg-goal">${g.icon} ${g.name} <b>HAZIR!</b></div>`;
+      h += bar(g.price > 0 ? Math.max(0, g.have - gained) / g.price : 0, g.frac);
+      h += `<div class="rg-sub"><span>${fmtN(g.have)} / ${fmtN(g.price)} ❄️</span>${gained ? `<em>+${fmtN(gained)}</em>` : ''}</div>`;
+    }
+    if (li) h += `<div class="rg-row"><span>SEVİYE ${li.level + 1}</span>${bar(li.frac, li.frac, 'sm')}<b>${fmtN(Math.max(0, li.need - li.cur))} XP</b></div>`;
+    if (dt) h += `<div class="rg-row"><span>${dt.icon} ${dt.text}</span>${bar(dt.value / dt.goal, dt.value / dt.goal, 'sm')}<b>${fmtN(dt.value)}/${fmtN(dt.goal)}</b></div>`;
+    return h + '</div>';
+  }
+
+  // Animate the NEXT REWARD bars from their pre-run fill to now.
+  goalAnimate() {
+    this.timers.push(setTimeout(() => {
+      for (const i of this.el.resExtra.querySelectorAll('.rg-b i.gain')) i.style.width = `${i.dataset.to}%`;
+    }, 900));
   }
 
   // One soft toast per completed mission (max 3), a multiplier toast when the set is done. Achievements are credited silently.
@@ -508,7 +542,9 @@ export class UI {
   // Goal strip under the score: mode 'cp' = next checkpoint (val = its distance), 'rec' = record in reach (val = metres
   // left), 'rage' = the Yeti's boulder barrage (fill = how much of it is behind you), 'new' = record just broken.
   // mode null hides it (campaign, menus). Only touches the DOM when something visible changed.
-  runnerGoal(mode, val = 0, frac = 0) {
+  runnerGoal(mode, val = 0, frac) {
+    if (mode === 'fury') { if (frac === undefined) frac = val; val = 0; }
+    if (frac === undefined) frac = 0;
     if (mode === 'cp' && frac < 0.8) mode = null;   // declutter: the checkpoint strip only shows in the last 20% of a layer
     const pct = Math.round(Math.max(0, Math.min(1, frac)) * 100);
     if (mode === this.gMode && val === this.gVal && pct === this.gPct) return;
@@ -516,11 +552,11 @@ export class UI {
     if (mChanged) {
       g.classList.toggle('hidden', !mode);
       this.el.hud.classList.toggle('has-goal', !!mode);
-      g.classList.remove('cp', 'rec', 'rage', 'new');
-      if (mode) g.classList.add(mode === 'boss' ? 'rage' : mode === 'cannon' ? 'rec' : mode);
+      g.classList.remove('cp', 'rec', 'rage', 'new', 'fury');
+      if (mode) g.classList.add(mode === 'boss' ? 'rage' : mode === 'fury' ? 'fury' : mode === 'cannon' ? 'rec' : mode);
     }
     if (mode && (mChanged || val !== this.gVal)) {
-      this.el.goalLbl.textContent = mode === 'cp' ? `SIRADAKİ: ${val} m` : mode === 'rec' ? `REKORA ${val} m` : mode === 'new' ? 'YENİ REKOR!' : mode === 'cannon' ? `KAR KANONU: ${val}` : mode === 'boss' ? 'YETİ ÖNÜNDE!' : '⚠ YETİ ÖFKESİ';
+      this.el.goalLbl.textContent = mode === 'cp' ? `SIRADAKİ: ${val} m` : mode === 'rec' ? `REKORA ${val} m` : mode === 'new' ? 'YENİ REKOR!' : mode === 'cannon' ? `KAR KANONU: ${val}` : mode === 'boss' ? 'YETİ ÖNÜNDE!' : mode === 'fury' ? 'YETİ ÖFKESİ' : '⚠ YETİ ÖFKESİ';
     }
     if (mode && (mChanged || pct !== this.gPct)) this.el.goalFill.style.width = `${pct}%`;
     this.gMode = mode; this.gVal = val; this.gPct = pct;
@@ -1082,10 +1118,11 @@ export class UI {
       this.el.next.classList.add('hidden');
       let html = (!rec && (tip || dt.tip)) ? `<div class="rx-dim">${tip || dt.tip}</div>` : '';
       if ((this._bestCombo || 0) >= 3) html += `<div class="rx-line rx-combo">\u{1F525} EN \u0130Y\u0130 KOMBO x${this._bestCombo}</div>`;
-      html += mrep.html + this.goalBlock();
+      html += mrep.html + this.goalBlock(coins);
       this.el.resExtra.innerHTML = html;
       this.el.resExtra.classList.toggle('hidden', !html);
       this.resultFx(rec);
+      this.goalAnimate();
       this.countUp(tons, (v) => { this.el.resPct.textContent = fmtTons(v); this.el.resTons.textContent = `${fmtN(dd * (v / Math.max(tons, 0.0001)))} m`; }, 1200, { tick: true, done: () => this.resultScoreDone(rec) });
       this.flushNotices(mrep.notices);
       return;
@@ -1097,8 +1134,10 @@ export class UI {
     this.el.resLabel.textContent = 'kasaba yıkıldı';
     this.el.next.textContent = 'SONRAKİ DAĞ ▶';
     this.el.next.classList.toggle('hidden', !hasNext);
-    this.el.resExtra.innerHTML = mrep.html;
-    this.el.resExtra.classList.toggle('hidden', !mrep.html);
+    const lh = mrep.html + this.goalBlock(coins);
+    this.el.resExtra.innerHTML = lh;
+    this.el.resExtra.classList.toggle('hidden', !lh);
+    this.goalAnimate();
     const spans = this.el.resStars.children;
     for (const s of spans) s.classList.remove('on');
     // Count the numbers up: the payoff should feel like a slot machine.

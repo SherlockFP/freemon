@@ -305,6 +305,7 @@ export class Runner {
     this.newRecT = 0;
     this.nearChain = 0;
     this.nearT = 0;
+    this.fury = 0; this.furyT = 0; this.furyCd = 0;
     this.punch = 0;
     this._progT = 0;
     this.lastSmashStop = -9;
@@ -435,7 +436,7 @@ export class Runner {
   // RCFG.multCap); permanent progression (mission sets, upgrades) sits on top of the cap. No more compounding.
   get mult() {
     if (!this.buffs) return 1;
-    return scoreMult(this.tier, this.flowLvl, this.chainBonus(), this.dangerBonus(), this.riskBonus(),
+    return (this.furyT > 0 ? 2 : 1) * scoreMult(this.tier, this.flowLvl, this.chainBonus(), this.dangerBonus(), this.riskBonus(),
       (this.ctx.meta?.multiplier?.() ?? 1) - 1 + 0.15 * Math.min(5, this.perm.speed || 0), RCFG.multCap);
   }
 
@@ -614,6 +615,7 @@ export class Runner {
       if (this.rocketT <= 0) { this.invulnT = Math.max(this.invulnT, 1); this.yetiHoldT = 0; }
     }
     if (this.cannonN > 0) this.cannonTick(dt);
+    this.furyTick(dt);
     if (this.rampT > 0) { this.rampT -= dt; if (Math.random() < dt * 30) this.burst(1, 0xffd060, 2); if (this.rampT <= 0) this.float('YIKIM BİTTİ', ''); }
     if (this.ghostT > 0) { this.ghostT -= dt; if (this.ghostT <= 0) { this.setGhost(false); this.float('HAYALET BİTTİ', ''); } }
     if (this.riskT > 0) { this.riskT -= dt; if (this.riskT <= 0) this.float('RİSK BİTTİ', ''); }
@@ -685,6 +687,50 @@ export class Runner {
     this.kick += 1; this.trauma = Math.min(1, this.trauma + 0.1);
     this.float(this.cannonN > 0 ? `KARTOPU! ${this.cannonN} KALDI` : 'KANON BİTTİ', '');
     if (this.cannonN <= 0) this.cannonT = 0;
+  }
+
+  // YETİ ÖFKESİ meter: near misses + stomp chains fill it (~8 near misses); full -> 5 s of snowball rain, invulnerable, score x2.
+  addFury(a) {
+    if (this.furyT > 0 || this.state !== 'play') return;
+    this.fury = Math.min(1, this.fury + a);
+    if (this.fury < 1) return;
+    this.fury = 1; this.furyT = 5; this.furyCd = 0;
+    const { audio, platform } = this.ctx;
+    this.queueBanner('YETİ ÖFKESİ!', 5, 1.6, true);
+    audio.milestone?.(5); audio.win?.(); platform.haptic('success');
+    this.mistBurst(24, 0xff6a3a, 6, 1.3); this.kick += 4; this.punch = Math.min(1.5, this.punch + 1);
+  }
+
+  furyTick(dt) {
+    const ui = this.ctx.ui;
+    if (this.furyT <= 0) {
+      if (this.fury > 0 && this.state === 'play') { this.fury = Math.max(0, this.fury - 0.012 * dt); ui.runnerGoal?.('fury', 0, this.fury); }
+      return;
+    }
+    this.furyT -= dt;
+    this.fury = Math.max(0, this.furyT / 5);
+    this.invulnT = Math.max(this.invulnT, 0.25);
+    this.glowT = Math.max(this.glowT, 0.2);
+    ui.runnerGoal?.('fury', 0, this.fury);
+    if (this.furyT <= 0) { this.fury = 0; this.furyT = 0; this.float('ÖFKE BİTTİ', ''); if (this.level) ui.runnerGoal?.(null); return; }
+    this.furyCd -= dt;
+    const b = this.b;
+    if (Math.random() < dt * 14) {       // fiery sparks around the ball
+      this.track.toWorld(b.s + 1 + Math.random() * 3, b.u + (Math.random() - 0.5) * 2, b.h + 0.5 + Math.random(), _v);
+      this.ctx.fx.puff(_v.x, _v.y, _v.z, 0, 0.8, 0, 0.5, 0.4, Math.random() < 0.5 ? 0xff5a2a : 0xffb040, 0.9);
+    }
+    if (this.furyCd > 0 || this.grind || this.zip) return;
+    const o = this.obstacles.snipe?.(b.s, b.u, 40 + b.vs * 0.3);
+    if (!o) return;
+    this.furyCd = 0.22;
+    for (let i = 1; i <= 5; i++) {
+      const t = i / 5;
+      this.track.toWorld(b.s + (o.s - b.s) * t, b.u + (o.u - b.u) * t, b.h + 1.6 - 1.2 * t, _v);
+      this.ctx.fx.puff(_v.x, _v.y, _v.z, 0, 0.3, 0, 0.6, 0.4, 0xffffff, 0.9);
+    }
+    this.debris({ s: o.s, u: o.u, h: 0, color: o.color }, 12);
+    this.smashes++; this.score += 40 * Math.max(1, o.tough) * this.mult;
+    this.ctx.audio.crash?.(0.5); this.kick += 0.8; this.trauma = Math.min(1, this.trauma + 0.08);
   }
 
   // ---------- input actions ----------
@@ -1432,7 +1478,7 @@ export class Runner {
 
   // Goal strip: the next checkpoint (every layer), "REKORA n m" when your record is near, the Yeti's barrage while it lasts.
   updateGoal() {
-    if (this.level) return;
+    if (this.level || this.furyT > 0 || this.fury > 0) return;
     const ui = this.ctx.ui, s = this.b.s, r = this.rage;
     if (this.boss && this.boss.ph !== 'out') { ui.runnerGoal?.('boss', 0, this.boss.ph === 'in' ? 1 : Math.max(0, 1 - this.boss.t / this.boss.dur)); return; }
     if (r) { ui.runnerGoal?.('rage', 0, (s - r.s0) / Math.max(1, r.B - r.s0)); return; }
@@ -1984,6 +2030,7 @@ export class Runner {
         if ((e.toughness || 0) < 2) break;
         this.nearChain = this.nearT > 0 ? this.nearChain + 1 : 1;
         this.nearT = 2.6;
+        this.addFury(0.125);
         this.addFlow(4);
         const bonus = Math.round(50 * this.mult);
         this.score += bonus;
@@ -2316,6 +2363,7 @@ export class Runner {
     if (e.stomp) {
       obs.killCritter?.(e.id);
       this.stompN++;
+      if (this.stompN >= 2) this.addFury(0.06);
       this.stompTotal++;
       this.groundT = 0;
       this.grounded = false;
