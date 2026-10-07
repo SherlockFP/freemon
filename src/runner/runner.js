@@ -180,7 +180,7 @@ export class Runner {
     });
     this.rhythm?.dispose();
     this.rhythm = new RhythmLane(this);
-    this.obstacles = new Obstacles(scene, this.track, { seed: seed ^ 0x9e3779b9, jumpPadV: RCFG.jumpPadV, vGen: (s) => 1.1 * speedAt(s), tutorial: this.tut, endless: !level });
+    this.obstacles = new Obstacles(scene, this.track, { seed: seed ^ 0x9e3779b9, jumpPadV: RCFG.jumpPadV, vGen: (s) => 1.1 * speedAt(s), tutorial: this.tut, endless: !level, scarves: !level && !this.tut });
     this.track.onPiece = (piece) => {
       const bi = biomeAt(piece.s0, _bi);
       this.obstacles.spawn(piece, piece.diff ?? Math.min(1, piece.s0 / 5000), piece.biome ?? bi.index, bi.biome.id);
@@ -413,7 +413,7 @@ export class Runner {
     this.ctx.meta?.track?.('run_start', { mode: 'endless' });
     this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.()?.nextLetter ?? null);
     this.yetiN = 0; this.dblT = 0; this.turboN = 0; this.turboT = 0;
-    this.bait = 0; this.baitT = 0; this.baitBonus = 0; this.baitTap = -9; this.baitChip(); this.bread = 0; this.breadChip(); this.cannonChip();
+    this.bait = 0; this.baitT = 0; this.baitBonus = 0; this.baitTap = -9; this.baitChip(); this.seasonTokens = 0; this.scarfChip(); this.bread = 0; this.breadChip(); this.cannonChip();
     this.obstacles.setYetiLetter?.('Y');
     this.bossIntro = 0; this.ghostPassed = false; this.ghostRec = null; this.ghostLen = 0;
     this.initGhost();
@@ -1160,6 +1160,18 @@ export class Runner {
     const el = this._chipEl('_cannonEl', 27);
     el.style.display = this.cannonN > 0 ? 'block' : 'none';
     el.textContent = '❄️ KANON ×' + Math.max(0, this.cannonN);
+  }
+
+  scarfChip() {
+    let el = this._scarfEl;
+    if (!this.seasonTokens) { if (el) el.style.display = 'none'; return; }
+    if (!el) {
+      el = this._scarfEl = document.createElement('div');
+      el.style.cssText = 'position:fixed;right:12px;bottom:34%;z-index:30;padding:4px 9px;border-radius:14px;background:rgba(150,30,40,.78);color:#fff;font:700 14px system-ui,sans-serif;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.35)';
+      document.body.appendChild(el);
+    }
+    el.style.display = 'block';
+    el.textContent = '🧣 ' + this.seasonTokens;
   }
 
   baitChip() {
@@ -2668,6 +2680,11 @@ export class Runner {
         this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.()?.nextLetter ?? null);
         break;
       }
+      case 'scarf':
+        this.seasonTokens = (this.seasonTokens || 0) + 1;
+        this.ctx.meta?.track?.('season_token', { n: 1 });
+        this.score += 50 * this.mult; audio.star(3); platform.haptic('light'); this.scarfChip();
+        break;
       case 'timewarp':
         this.warpT = 3.5;
         audio.milestone(3);
@@ -2844,7 +2861,7 @@ export class Runner {
       distance: Math.round(this.b.s), score: Math.round(this.score), coins: this.coins,
       flakes: this.coins, flakesPct: clamp(this.coins / Math.max(1, len / 8), 0, 1),
       crashes: this.crashes, layersLost: this.layersLost, maxTier: this.maxTier,
-      minYetiGap: Number.isFinite(this.minGap) ? this.minGap : RCFG.yetiMax, perfects: this.perfects, powerups: this.powerups, time: this.time,
+      minYetiGap: Number.isFinite(this.minGap) ? this.minGap : RCFG.yetiMax, perfects: this.perfects, powerups: this.powerups, time: this.time, seasonTokens: this.seasonTokens || 0,
       turns: this.turns, stumbles: this.stumbles, stomps: this.stompTotal, killKind: this.killKind,
     };
   }
@@ -2852,6 +2869,7 @@ export class Runner {
   // ---------- death / result / revive ----------
   die(cause) {
     if (this._baitEl) this._baitEl.style.display = 'none';
+    if (this._scarfEl) this._scarfEl.style.display = 'none';
     if (this.state !== 'play') return;
     this.saveGhost();
     this.endBoss(false);
@@ -2930,6 +2948,7 @@ export class Runner {
   recordRun() {
     if (this.recorded) return this.recInfo || { rank: 0, dailyBest: false };
     this.recorded = true;
+    if (!this.level) this.ctx.meta?.track?.('season_run_end', { total: this.seasonTokens || 0, n: this.seasonTokens || 0 });
     const { save } = this.ctx;
     const meta = this.ctx.meta;
     const score = Math.round(this.score), dist = Math.round(this.b.s);
@@ -2937,7 +2956,7 @@ export class Runner {
     const dailyBest = !!save.recordDailyRunner?.(score);
     meta?.track?.('endless_end', {
       distance: dist, score, coins: this.coins, crashes: this.crashes, cause: this.cause, killKind: this.killKind,
-      maxTier: this.maxTier, jumps: this.jumps, smashes: this.smashes, turns: this.turns, stumbles: this.stumbles, stomps: this.stompTotal,
+      maxTier: this.maxTier, seasonTokens: this.seasonTokens || 0, jumps: this.jumps, smashes: this.smashes, turns: this.turns, stumbles: this.stumbles, stomps: this.stompTotal,
     });
     if (this.boxes) meta?.addBoxes?.(this.boxes);      // credited silently
     this.recInfo = { rank, dailyBest };
@@ -3030,6 +3049,7 @@ export class Runner {
       missions: meta?.missions?.() ?? [],
       layer: this.layer + 1,
       boxes: this.boxes,
+      seasonTokens: this.seasonTokens || 0,
       reviveCost: this.reviveCost,
       crystals: meta?.crystals ?? 0,
       distance: dist,
@@ -3583,6 +3603,7 @@ export class Runner {
     }
     ui.speedLines?.(0);
     if (this._baitEl) { this._baitEl.remove(); this._baitEl = null; }
+    if (this._scarfEl) { this._scarfEl.remove(); this._scarfEl = null; }
     for (const o of [this.avalanche, this.yeti]) {
       if (!o) continue;
       this.ctx.scene.remove(o.group);

@@ -593,6 +593,19 @@ const CSS = `
 .fm-today .tl { flex: none; font-size: 10px; letter-spacing: 0.06em; color: #cfe2ff; text-shadow: var(--ol-sm); }
 .fm-tchip { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 11px; border-radius: 15px; border: 2.5px solid var(--ink); background: #fff; color: var(--ink); font-size: 12.5px; font-weight: 800; line-height: 1; letter-spacing: 0; white-space: nowrap; cursor: pointer; text-shadow: none; transform: none; filter: none; -webkit-font-smoothing: antialiased; }
 .fm-tchip.hot { background: #ffd84a; color: var(--ink); }
+.fm-todaywrap.fm-lock { filter: none !important; opacity: 1 !important; }
+.fm-todaywrap.fm-lock .fm-tchip { background: #1b2a52; color: #fff; border-color: #0d1630; opacity: 0.92; }
+.fm-todaywrap.fm-lock::after { background: #0d1630; color: #fff; font-size: 12px; padding: 4px 10px; border: 2px solid #fff; }
+.fm-seatrack { display: flex; gap: 8px; overflow-x: auto; padding: 8px 4px 14px; -webkit-overflow-scrolling: touch; }
+.fm-seacard { flex: none; width: 92px; padding: 8px 4px; border-radius: 14px; border: 2.5px solid var(--ink); background: #fff; color: var(--ink); text-align: center; font-size: 11px; font-weight: 800; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.fm-seacard.ready { background: #ffd84a; }
+.fm-seacard.claimed { background: #cfe9d4; opacity: 0.8; }
+.fm-seacard.lk { background: #dbe4f3; }
+.fm-seacard .si { font-size: 26px; line-height: 1.1; }
+.fm-seacard .sn { font-size: 10.5px; opacity: 0.8; }
+.fm-seacard .sb { min-height: 26px; padding: 0 8px; border-radius: 12px; border: 2px solid var(--ink); background: #3ecf6a; color: #fff; font-size: 11px; font-weight: 900; cursor: pointer; }
+.fm-seabar { height: 12px; margin: 6px 4px; border-radius: 8px; border: 2.5px solid var(--ink); background: rgba(255,255,255,.6); overflow: hidden; }
+.fm-seabar i { display: block; height: 100%; background: #ff7a3a; }
 @media (max-height: 700px) { .fm-todaywrap { margin: -8px auto 8px; } .fm-tchip { height: 28px; } }
 @media (max-height: 600px) { .fm-todaywrap { display: none; } }
 .fm-bonushd.full { background: linear-gradient(180deg, #ffe27a, #ffae00); color: var(--ink); text-shadow: none; }
@@ -1401,6 +1414,42 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
   // ---------------------------------------------------------------------------------------------- achievements
 
+  function seasonRewardTxt(t) {
+    if (t.coins) return ['❄️', '+' + t.coins];
+    if (t.crystals) return ['💎', '+' + t.crystals];
+    if (t.boxes) return ['🎁', 'Kutu x' + t.boxes];
+    if (t.trail) return ['✨', nameOf(TRAILS, t.trail)];
+    return ['👕', nameOf(SKINS, t.skin)];
+  }
+  function openSeason() {
+    sfx('click');
+    const p = openPanel({ id: 'season', title: 'SEZON AVI', pills: ['coins', 'crystals'] });
+    const draw = () => {
+      const s = meta.season();
+      p.setSub(`🧣 ${s.tokens} · Ödül ${s.claimed}/${s.total} · ${s.daysLeft} gün kaldı`);
+      clear(p.list);
+      const nx = s.tiers.find((t) => t.state === 'locked');
+      const prev = nx ? (s.tiers[nx.n - 2] ? s.tiers[nx.n - 2].need : 0) : 0;
+      const frac = nx ? Math.min(1, (s.tokens - prev) / Math.max(1, nx.need - prev)) : 1;
+      const bar = el('div', 'fm-seabar'); const f = el('i'); f.style.width = Math.round(frac * 100) + '%'; bar.appendChild(f);
+      p.list.appendChild(el('div', 'fm-sec', nx ? `SONRAKİ ÖDÜL: ${s.tokens}/${nx.need} 🧣` : 'TÜM ÖDÜLLER TAMAM!'));
+      p.list.appendChild(bar);
+      p.list.appendChild(el('div', 'fm-sec', 'Rush koşusunda eşarp topla, ödülleri aç. Sezon bitince yeni sezon başlar.'));
+      const tr = el('div', 'fm-seatrack');
+      for (const t of s.tiers) {
+        const [ic, tx] = seasonRewardTxt(t);
+        const c = el('div', `fm-seacard ${t.state === 'ready' ? 'ready' : t.state === 'claimed' ? 'claimed' : 'lk'}`);
+        add(c, el('div', 'sn', '#' + t.n), el('div', 'si', ic), el('div', 'sn', tx), el('div', 'sn', t.state === 'claimed' ? '✓' : `🧣 ${t.need}`));
+        if (t.state === 'ready') c.appendChild(button('sb', 'AL!', () => {
+          const g = meta.seasonClaim(t.n);
+          if (g) { sfx('confirm'); confetti(30); toast({ icon: ic, title: 'SEZON ÖDÜLÜ', sub: tx, kind: 'gold', ms: 1800 }); p.refreshPills(true); draw(); updateMain(); }
+        }));
+        tr.appendChild(c);
+      }
+      p.list.appendChild(tr);
+    };
+    draw();
+  }
   function openPassport() {
     sfx('click');
     const p = openPanel({ id: 'pass', title: 'KIŞ PASAPORTU', pills: ['coins'] });
@@ -3015,6 +3064,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       chips.push(['🛒', wd < 1 ? 'Pazar yarın' : `Pazar ${wd}g`, wd < 1, () => { try { localStorage.setItem('patpat.shopTab', 'pazar'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]);
       if (cb.onDaily && save.cigDailyOpen && save.cigDailyOpen()) chips.push(['🏔', 'Günün Dağı', !(info.dailyBest > 0), () => { try { meta.setMode('daily'); } catch { /* ignore */ } cb.onDaily(); }]);
       try { const vt = vitrinInfo(save); if (vt && !vt.owned) chips.push(['⭐', 'Vitrin', false, () => { try { localStorage.setItem('patpat.shopTab', 'skin'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]); } catch { /* ignore */ }
+      try { const se = meta.season(); chips.push(['🧣', `Sezon: ${se.tokens} · Ödül ${se.claimed}/${se.total}`, se.ready > 0, () => openSeason()]); } catch { /* ignore */ }
       r.today.appendChild(el('span', 'tl', 'BUGÜN'));
       clear(r.tdots);
       for (const [ic, tx, hot, fn] of chips) { r.today.appendChild(button(`fm-tchip${hot ? ' hot' : ''}`, `${ic} ${tx}`, () => { sfx('click'); fn(); })); r.tdots.appendChild(el('i')); }
@@ -3108,12 +3158,13 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     };
     if (!r.ftHint) {
       r.ftHint = el('div', 'fm-fthint');
-      r.ftHint.style.cssText = 'position:absolute;left:0;right:0;bottom:calc(10px + env(safe-area-inset-bottom,0px));text-align:center;font-size:12px;font-weight:800;color:#fff;opacity:.8;text-shadow:0 1px 3px rgba(0,0,0,.55);pointer-events:none;z-index:3';
-      r.root.appendChild(r.ftHint);
+      r.ftHint.style.cssText = 'flex:none;position:relative;margin:0 0 4px;text-align:center;font-size:12px;font-weight:800;color:#fff;opacity:.8;text-shadow:0 1px 3px rgba(0,0,0,.55);pointer-events:none;z-index:3';
+      { const botEl = r.root.querySelector('.fm-bot'); if (botEl && botEl.parentNode) botEl.parentNode.insertBefore(r.ftHint, botEl); else r.root.appendChild(r.ftHint); }
     }
     const left = Math.max(0, 2 - runs);
     r.ftHint.textContent = left > 0 ? `Daha fazlası ${left} koşu sonra açılıyor ✨` : (runs < 3 ? 'Daha fazlası 1 koşu sonra açılıyor ✨' : '');
-    r.ftHint.style.display = on && runs < 3 ? '' : 'none';
+    let tight = false; try { tight = window.innerHeight < 700; } catch { /* ignore */ }
+    r.ftHint.style.display = on && runs < 3 && !tight ? '' : 'none';
     sh(r.twrap, runs >= 2, 'today');
     sh(r.globe, runs >= 3, 'globe');
     sh(r.post, runs >= 3, 'post');

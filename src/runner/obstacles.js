@@ -230,6 +230,7 @@ function makeGeometries() {
   G.gift = merge([[B(0.6, 0.6, 0.6), 0xc23ad8], [B(0.64, 0.14, 0.64), 0xffd23a], [B(0.14, 0.64, 0.64), 0xffd23a], [B(0.64, 0.64, 0.14), 0xffd23a],
     [B(0.2, 0.2, 0.2), 0xffd23a, 0, 0.4, 0]], false);
   G.letter = letterGeometry('A');
+  G.scarf = merge([0, 1, 2, 3, 4].map((i) => [B(0.2, 0.34, 0.5), i % 2 ? 0xffffff : 0xd9302f, -0.4 + i * 0.2, 0.1, 0]).concat([[B(0.14, 0.5, 0.08), 0xd9302f, 0.3, -0.25, 0.2], [B(0.14, 0.5, 0.08), 0xffffff, 0.46, -0.3, 0.2], [B(0.16, 0.06, 0.1), 0x2a7ad8, 0.3, -0.5, 0.2], [B(0.16, 0.06, 0.1), 0x2a7ad8, 0.46, -0.55, 0.2]]), false);
   G.beamBox = merge([[B(1, 1, 1), null]], false);
   G.timewarp = merge([[new THREE.ConeGeometry(0.3, 0.38, 8), 0x6ad8ff, 0, 0.19, 0, PI, 0, 0], [new THREE.ConeGeometry(0.3, 0.38, 8), 0xffd23a, 0, -0.19, 0],
     [B(0.8, 0.09, 0.8), 0xb07a42, 0, 0.45, 0], [B(0.8, 0.09, 0.8), 0xb07a42, 0, -0.45, 0], [B(0.07, 0.9, 0.07), 0xdddddd, 0.36, 0, 0.36], [B(0.07, 0.9, 0.07), 0xdddddd, -0.36, 0, -0.36]], false);
@@ -281,12 +282,12 @@ const POOLS = {
   ice: ['box', 'ice', 90], wedge: ['wedge', 'lit', 40], lamp: ['ball', 'glow', 120], disc: ['disc', 'glow', 140], puff: ['ball', 'ice', 60],
   ring: ['torus', 'pulse', 90], chev: ['chev', 'pulse', 300], hex: ['hex', 'pulse', 320],
   flake: ['flake', 'glow', 560], star: ['star', 'glow', 16], magnet: ['magnet', 'glow', 12], helmet: ['helmet', 'glow', 12],
-  rocket: ['rocket', 'glow', 12], spring: ['spring', 'glow', 12], crystal: ['crystal', 'glow', 12], gift: ['gift', 'glow', 12], letter: ['letter', 'glow', 6],
+  rocket: ['rocket', 'glow', 12], spring: ['spring', 'glow', 12], crystal: ['crystal', 'glow', 12], gift: ['gift', 'glow', 12], letter: ['letter', 'glow', 6], scarf: ['scarf', 'glow', 14],
   timewarp: ['timewarp', 'glow', 12], ghost: ['ghost', 'glow', 12], risk: ['risk', 'glow', 12], clone: ['clone', 'glow', 12],
   beam: ['beamBox', 'glow', 220],
 };
 // pickup kind -> pool
-const PICK_POOL = { flake: 'flake', snow: 'ball', x2: 'star', gem: 'gem', crystal: 'crystal', box: 'gift', letter: 'letter', magnet: 'magnet', helmet: 'helmet', rocket: 'rocket', superjump: 'spring', timewarp: 'timewarp', ghost: 'ghost', risk: 'risk', clone: 'clone', cannon: 'rocket', bait: 'gem', bread: 'gem' };
+const PICK_POOL = { flake: 'flake', snow: 'ball', x2: 'star', gem: 'gem', crystal: 'crystal', box: 'gift', letter: 'letter', scarf: 'scarf', magnet: 'magnet', helmet: 'helmet', rocket: 'rocket', superjump: 'spring', timewarp: 'timewarp', ghost: 'ghost', risk: 'risk', clone: 'clone', cannon: 'rocket', bait: 'gem', bread: 'gem' };
 
 export function pulseOf(phase) {
   const p = phase > 0.5 ? phase - 1 : phase, a = 1 - Math.abs(p) / 0.3;
@@ -336,9 +337,10 @@ export class Obstacles {
     this.powerW = { cannon: 1, magnet: 1, x2: 1, superjump: 1, rocket: 1, helmet: 1, timewarp: 1, ghost: 1, risk: 1, clone: 1 };
     this._cid = 'main';
     this.rng = makeRng((this.seed ^ 0xa5a5a5a5) >>> 0);
-    this.next = { power: 260, gem: 520, box: 340, letter: 300, chain: 420, yeti: 330, plow: 1000, tunnel: 900, slide: 380 };   // distance accumulators for rare pickups
+    this.next = { power: 260, gem: 520, box: 340, letter: 300, scarf: 140, chain: 420, yeti: 330, plow: 1000, tunnel: 900, slide: 380 };   // distance accumulators for rare pickups
     this.tutorial = !!opts.tutorial;
     this.endless = opts.endless ?? !track.level;
+    this.scarves = opts.scarves ?? false;       // season hunt: scarf tokens (endless runs only)
     this.boxes = !!opts.boxes;                  // surprise boxes / letters on the track (off: the endless run credits rewards silently)
     this.snowK = opts.snowK ?? 1;               // multiplier of the snow supply (tiers / s of snow on offer, see _trails)
     this._snowOwed = 0;                         // snow piles still owed to the player (supply accumulator)
@@ -697,9 +699,9 @@ export class Obstacles {
     const pool = PICK_POOL[kind], idx = this._alloc(pool);
     if (idx < 0) return null;
     const f = this._frameOf(s);
-    const sc = opts.sc || (kind === 'flake' ? 0.78 : kind === 'letter' ? 1.0 : kind === 'gem' ? 1.25 : kind === 'crystal' ? 1.3 : 1.35);
+    const sc = opts.sc || (kind === 'flake' ? 0.78 : kind === 'letter' ? 1.0 : kind === 'scarf' ? 1.1 : kind === 'gem' ? 1.25 : kind === 'crystal' ? 1.3 : 1.35);
     const k = { kind, pool, s, u, h, f, idx, alive: true, ph: (s * 1.7) % TAU, sc, value: opts.value ?? 1, sh: -1,
-      rad: opts.rad ?? (kind === 'snow' ? 0.65 : kind === 'letter' ? 1.0 : kind === 'flake' ? 0.5 : kind === 'gem' ? 0.75 : 0.62), letter: opts.letter || '' };
+      rad: opts.rad ?? (kind === 'snow' ? 0.65 : kind === 'letter' || kind === 'scarf' ? 1.0 : kind === 'flake' ? 0.5 : kind === 'gem' ? 0.75 : 0.62), letter: opts.letter || '' };
     if (kind === 'snow') {
       this._col('ball', idx, COL.pile); this._set('ball', idx, f, u, 0.4, k.ph, 0, 1.3, 0.9, 1.3);
       k.sh = this._alloc('shadow');                                                            // contact shadow: the pile reads on white snow
@@ -1773,6 +1775,7 @@ Object.assign(Obstacles.prototype, {
               persist.push({ lane: l, s0: s, s1: s + rl + L });
               const sp = this._sp(s);
               for (let x = s + rl + 1.5; x < s + rl + L - 1; x += sp) this._pickup('flake', x, LANES[l], H + 0.9);   // roof coins
+              if (this.scarves && l === ramp && rng.chance(0.3) && s > this.next.scarf - 60) { this._pickup('scarf', s + rl + L / 2, LANES[l], H + 1.1); this.next.scarf = Math.max(this.next.scarf, s + 70); }   // roof token
             }
             ext = L + rl + 1;
           } else {
@@ -2415,6 +2418,11 @@ Object.assign(Obstacles.prototype, {
         const s = freeS(mid), l = rng.int(0, NL - 1);
         this._mk(plan, { kind: 'oncoming', s, sP: s, u: LANES[l], lane: l, vt: 9, ride: false, L: 12, ext: 74, plow: true, glow: this._pal(s).glow });
         this.next.plow = s + rng.range(1100, 1700);
+      }
+      if (this.scarves && s0 >= 120 && normal && s1 > this.next.scarf) {      // season token: off-route, mostly above a jump arc (h 2.3) or at the end of the piece (slalom)
+        const s = kind === 'slalom' ? Math.min(s1 - 6, freeS(s1 - 14)) : freeS(mid + 6);
+        this._pickup('scarf', s, LANES[offRoute(s)], rng.chance(0.55) ? 2.3 : 1.3);
+        this.next.scarf = s + Math.min(260, 105 + s * 0.016) * rng.range(0.8, 1.25);      // ~8-9 per km early, ~4 per km by 8 km
       }
       if (this.boxes && s0 >= 100 && normal && s1 > this.next.box) {       // (surprise boxes / letters: only when a mode asks for them; the endless run credits rewards silently)
         const s = freeS(mid - 5);

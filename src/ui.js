@@ -278,6 +278,9 @@ ${dist} m`; }
     const chips = [`<div class="rx-chip${isScoreRec ? ' gold' : ''}"><small>EN İYİ</small><b>${isScoreRec ? '★ ' : ''}${fmtN(Math.max(best, score))}</b></div>`];
     if (coins) chips.push(`<div class="rx-chip"><small>KAZANÇ</small><b>❄️ +${fmtN(coins)}</b></div>`);
     if ((this._bestCombo || 0) >= 3) chips.push(`<div class="rx-chip"><small>KOMBO</small><b>🔥 x${this._bestCombo}</b></div>`);
+    let seaTok = 0;
+    try { seaTok = Math.floor(Number(p && (p.seasonTokens ?? (p.stats && p.stats.seasonTokens))) || meta.stats().seasonTokens || 0); } catch { seaTok = 0; }
+    if (seaTok > 0) chips.push(`<div class="rx-chip"><small>SEZON</small><b>+${fmtN(seaTok)} 🧣</b></div>`);
     html += `<div class="rx-stats">${chips.join('')}</div>`;
     if (note) html += `<div class="rx-line">${note}</div>`;
     if (!isRec && tipTxt) html += `<div class="rx-dim">${tipTxt}</div>`;

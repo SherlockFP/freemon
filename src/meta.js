@@ -790,6 +790,45 @@ function onCigEnd(d) {
   addXp(20 + nz(d.stars) * 30 + nz(d.pct) * 40 + Math.sqrt(tons) * 0.8);
 }
 
+// ---- SEZON AVI: season tokens + 15-tier reward track (own localStorage key; a season lasts 28 days from its first launch) ----
+const SEASON_KEY = 'patpat.season';
+const SEASON_MS = 28 * 86400000;
+const SEASON_TIERS = (() => {
+  const need = [8, 20, 40, 65, 95, 130, 170, 215, 265, 320, 385, 455, 530, 610, 700];
+  const rw = [
+    { coins: 60 }, { coins: 80 }, { crystals: 3 }, { boxes: 1 }, { coins: 150 },
+    { crystals: 5 }, { coins: 200 }, { boxes: 1 }, { crystals: 8 }, { trail: 'simsek' },
+    { coins: 300 }, { boxes: 2 }, { crystals: 12 }, { coins: 500 }, { skin: 'plazma' },
+  ];
+  return rw.map((r, i) => ({ n: i + 1, need: need[i], ...r }));
+})();
+let SS = null;
+function seasonLoad() {
+  if (SS) return SS;
+  let o = null;
+  try { o = JSON.parse(globalThis.localStorage.getItem(SEASON_KEY) || 'null'); } catch { o = null; }
+  SS = isObj(o) ? o : null;
+  return SS;
+}
+function seasonSave() { try { globalThis.localStorage.setItem(SEASON_KEY, JSON.stringify(SS)); } catch { /* ignore */ } }
+function seasonCur() {
+  const t = Date.now();
+  let o = seasonLoad();
+  if (!o || !(o.id && o.end) || t >= o.end) {
+    const n = o && o.id ? (parseInt(String(o.id).split('-')[1], 10) || 0) + 1 : 1;
+    o = SS = { id: 'kis-' + n, start: t, end: t + SEASON_MS, tok: 0, claimed: [], last: 0, run: 0 };
+    seasonSave();
+  }
+  if (!Array.isArray(o.claimed)) o.claimed = [];
+  return o;
+}
+function seasonTrack(ev, d) {
+  const o = seasonCur();
+  const n = Math.max(0, Math.floor(num(d.n)));
+  if (ev === 'season_token') { o.tok += n || 1; o.run = (o.run || 0) + (n || 1); } else { o.last = n || o.run || 0; o.run = 0; }
+  seasonSave();
+}
+
 function handle(ev, d, newly) {
   const st = S.st;
   // The same ÇIĞ SONSUZ run may be reported twice (save.recordCigEndless hook + a direct 'cig_end'): count it once.
@@ -947,6 +986,7 @@ export const meta = {
     const d = data && typeof data === 'object' ? data : EMPTY;
     const newly = [];
     try { handle(event, d, newly); } catch { /* telemetry must never break gameplay */ }
+    try { if (event === 'season_token' || event === 'season_run_end') seasonTrack(event, d); } catch { /* ignore */ }
     try { stampCheck(event, d); } catch { /* ignore */ }
     try { dtOn(event, d); } catch { /* ignore */ }
     return newly.length ? newly : NONE;
@@ -1041,10 +1081,36 @@ export const meta = {
     return given;
   },
 
+  // ---- SEZON AVI ----
+  season() {
+    const o = seasonCur();
+    const tiers = SEASON_TIERS.map((t) => ({ ...t, state: o.claimed.includes(t.n) ? 'claimed' : o.tok >= t.need ? 'ready' : 'locked' }));
+    const msLeft = Math.max(0, o.end - Date.now());
+    return { id: o.id, tokens: o.tok, tiers, claimed: o.claimed.length, ready: tiers.filter((t) => t.state === 'ready').length, total: tiers.length, msLeft, daysLeft: Math.ceil(msLeft / 86400000), lastRun: o.last || 0 };
+  },
+  seasonClaim(n) {
+    const o = seasonCur();
+    const t = SEASON_TIERS.find((x) => x.n === n);
+    if (!t || o.claimed.includes(n) || o.tok < t.need) return null;
+    o.claimed.push(n); seasonSave();
+    const out = { n };
+    try {
+      if (t.coins) { wallet().addCoins(t.coins); out.coins = t.coins; }
+      if (t.crystals) { meta.addCrystals(t.crystals); out.crystals = t.crystals; }
+      if (t.boxes) { meta.addBoxes(t.boxes); out.boxes = t.boxes; }
+      if (t.trail) { wallet().own('trails', t.trail); out.trail = t.trail; }
+      if (t.skin) { wallet().own('skins', t.skin); out.skin = t.skin; }
+    } catch { /* ignore */ }
+    markDirty();
+    return out;
+  },
+
   // ---- stats / xp ----
   stats() {
     const st = S.st;
+    let sea = null; try { sea = seasonCur(); } catch { /* ignore */ }
     return {
+      seasonTokens: sea ? sea.last || 0 : 0, seasonTotal: sea ? sea.tok : 0,
       level: levelFor(S.xp), xp: S.xp,
       runs: st.runs, endlessRuns: st.endlessRuns, cigRuns: st.cigRuns,
       bestDistance: Math.round(st.bestDist), totalDistance: Math.round(st.totalDist), bestScore: Math.round(st.bestScore),
