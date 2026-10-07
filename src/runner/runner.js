@@ -385,7 +385,7 @@ export class Runner {
     this.off = null;
     const cam = this.ctx.camera;
     if (this.camNear0 === null) this.camNear0 = cam.near;
-    if (cam.near > 0.1) { cam.near = 0.1; cam.updateProjectionMatrix?.(); }
+    if (cam.near > 0.05) { cam.near = 0.05; cam.updateProjectionMatrix?.(); }
 
     this.obstacles.setHardness?.(this.baseHard);
     this.track.setHardness?.(this.baseHard);
@@ -2695,11 +2695,11 @@ export class Runner {
     let backT = 7.6 + r * 2.9 - this.closeK * 1.2 + 1.0 * speedK;
     let upT = 3.85 + r * 1.5 + this.closeK * 3.2 + curvK * 1.4 + pitchK * 1.5 + this.camRoundK * 0.8;
     let laT = 11 + 5 * speedK + 2 * this.closeK - 4 * this.cornerK;       // through a sharp corner: look a little shorter, swing a little slower
-    if (kind === 'tube') upT = Math.min(upT, 7);
+    if (kind === 'tube') { upT = Math.min(upT, 4.6); backT = Math.min(backT, 7); }   // stay inside the 5.6 m tube (axis 4 m up)
     // Inside a vertical loop (a circle only 5.5-11 m in radius) the camera is a rigid chase rig in the BALL's own frame:
     // close behind (along the tangent), up toward the circle's centre, looking at the track a short way ahead.
-    const loopT = pc && pc.loop && b.s > pc.loop.s0 - 14 && b.s < pc.loop.s1 + 6 ? 1 : 0;
-    this.camLoopK += (loopT - this.camLoopK) * kfil(snap, cdt, 7);
+    const loopT = pc && pc.loop && b.s > pc.loop.s0 - 4 && b.s < pc.loop.s1 + 2 ? 1 : 0;
+    this.camLoopK += (loopT - this.camLoopK) * kfil(snap, cdt, 6);
     if (loopT) { const R = pc.loop.R; backT = 0.8 * R + 0.8; upT = 0.5 * R + 0.5; laT = 0.8 * R; }
     const lk = this.camLoopK;
     this.camBackS += (backT - this.camBackS) * kfil(snap, cdt, 5);
@@ -2726,12 +2726,18 @@ export class Runner {
     tr.toWorld(camS, this.camU, 0, _v);
     _v.addScaledVector(_f.up, camH);          // centred over the track (only the camera's roll is limited, not its place)
     if (lk > 0.001 && pc && pc.loop) {
-      // Sonic-style side camera: off to the side of the loop plane (along the entry's right vector), looking at the ball.
-      tr.frame(pc.loop.s0 - 2, _f2);
+      // Camera INSIDE the loop circle (nothing can be there): near the circle's centre (ball + track-up * R), a little toward
+      // the entry side along the loop axis and slightly back along the motion, looking at the ball, up = ball -> centre.
+      tr.frame(Math.min(Math.max(b.s, pc.loop.s0), pc.loop.s1), _f2);
       const bp = this.ctx.ball.group.position, R = pc.loop.R;
-      _tp.copy(bp).addScaledVector(_f2.right, 2.2 * R + 2).addScaledVector(_f2.tan, -0.3 * R).addScaledVector(WORLD_UP, 0.25 * R);
+      _tp.copy(bp).addScaledVector(_f2.up, 0.85 * R).addScaledVector(_f2.right, 0.15 * R).addScaledVector(_f2.tan, -0.2 * R);
       _v.lerp(_tp, lk);
-      _x.lerp(WORLD_UP, lk).normalize();
+      _x.lerp(_f2.up, lk).normalize();
+    }
+    if (pc && (lk > 0.001 || ROUND_KINDS.has(kind)) && this.env?.groundAt) {
+      // Safety net: never below the terrain under the camera (+2 m), at most 6 m of correction.
+      const gy = this.env.groundAt(_v.x, _v.z, b.s);
+      if (gy !== null && _v.y < gy + 2) _v.y += Math.min(6, gy + 2 - _v.y);
     }
     // Look target: a point on the track ahead (the lead term cancels the filter's lag at speed).
     const laS = b.s + this.camLa + (snap ? 0 : b.vs * 0.1);

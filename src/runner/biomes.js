@@ -2650,6 +2650,11 @@ export class Environment {
     this._nI = bi; this._nT = bt; this._nD = Math.sqrt(bd2);
   }
 
+  /** Public: terrain height under world (x,z) near path position s (null when unknown). */
+  groundAt(x, z, s) {
+    try { const y = this._field(x, z, Math.max(0, Math.floor(s / SP))); return Number.isFinite(y) ? y : null; } catch (e) { return null; }
+  }
+
   /**
    * Terrain height at world (x,z): the ridge the track runs along. Sets _fy (terrain), _ff (valley floor), _fdu (distance
    * from the track edge), _fs (path parameter of the nearest path point), _fpy (track surface height there).
