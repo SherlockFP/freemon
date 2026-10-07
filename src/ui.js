@@ -127,6 +127,7 @@ export class UI {
     this._sc = this._co = this._di = this._mu = null; // HUD number caches: the next frame rewrites everything
     this._prog = -1;
     this.lastVitals = '';
+    this.el.hud.classList.remove('rush');
     this.buffClear();
     this.turnCue(0);
     this.hungerHide();
@@ -156,6 +157,7 @@ export class UI {
     this.el.yeti.classList.toggle('hidden', !on);
     this.el.flow.classList.toggle('hidden', !on);
     this.resetHud();
+    this.el.hud.classList.toggle('rush', on);
     if (!on) this.runnerDanger(0, 0, 0);
     this.runnerGoal(null); // the runner switches it on once it knows the next goal (endless only)
     this.runnerSurge(false);
@@ -205,7 +207,7 @@ export class UI {
       this.lastTier = tier;
       let html = '';
       for (let i = 0; i < tiers; i++) {
-        const s = 14 + i * 4;
+        const s = 12 + i * 3.5;
         const cls = i > tier ? 'off' : tier === 0 ? 'danger' : '';
         html += `<div class="pip ${cls}" style="width:${s}px;height:${s}px"></div>`;
       }
@@ -363,6 +365,7 @@ export class UI {
     this.el.toastSoft.innerHTML = '';
     this.el.result.classList.add('hidden');
     this.el.flow.classList.remove('hidden');
+    this.lastFlow = null;
     this.el.record.classList.remove('hidden');
     this.el.hud.classList.remove('hidden');
     this.el.coins.classList.remove('hidden');
@@ -434,6 +437,7 @@ export class UI {
   // left), 'rage' = the Yeti's boulder barrage (fill = how much of it is behind you), 'new' = record just broken.
   // mode null hides it (campaign, menus). Only touches the DOM when something visible changed.
   runnerGoal(mode, val = 0, frac = 0) {
+    if (mode === 'cp' && frac < 0.8) mode = null;   // declutter: the checkpoint strip only shows in the last 20% of a layer
     const pct = Math.round(Math.max(0, Math.min(1, frac)) * 100);
     if (mode === this.gMode && val === this.gVal && pct === this.gPct) return;
     const g = this.el.goal, mChanged = mode !== this.gMode;
@@ -473,7 +477,7 @@ export class UI {
     this.lastFlow = key;
     this.el.flowFill.style.width = `${Math.round(frac * 100)}%`;
     this.el.flowLbl.textContent = lvl ? `AKIŞ +${lvl}` : 'AKIŞ';
-    this.el.flow.className = `hud-flow l${lvl}`;
+    this.el.flow.className = `hud-flow l${lvl}${lvl === 0 && frac < 0.04 ? ' hidden' : ''}`;   // declutter: only while a streak is alive
   }
 
   // runnerRecord(bestDist, dist): distance record flag. Old callers pass only a score and get a plain label.

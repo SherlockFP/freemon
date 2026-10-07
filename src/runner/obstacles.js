@@ -342,7 +342,7 @@ export class Obstacles {
     this.snowK = opts.snowK ?? 1;               // multiplier of the snow supply (tiers / s of snow on offer, see _trails)
     this._snowOwed = 0;                         // snow piles still owed to the player (supply accumulator)
     this._clock = 0;                            // ROW CLOCK: s of the next row, carried across pieces
-    this._nextCrit = 190;                       // s of the next critter group
+    this._nextCrit = 160;                       // s of the next critter group
     this._teach = 0;                            // next scripted teaching row
     this._breath = null;                        // { a, b } the breather of the tension cycle
     this.tierBias = 0;
@@ -1792,9 +1792,9 @@ Object.assign(Obstacles.prototype, {
         }
         case 'critter': {
           const g = this._critterGroup(plan, c, s, free0, rm, prevRoute);
-          if (!g) { made = false; this._nextCrit = s + vs * 3; break; }
+          if (!g) { made = false; this._nextCrit = s + vs * 1.5; break; }
           free = g.free; ext = g.ext; rext = 3;
-          this._nextCrit = s + rng.range(15, 25) * vs;
+          this._nextCrit = s + rng.range(7.5, 12.5) * vs;
           for (const l of g.lanes) persist.push({ lane: l, s0: s - 1, s1: s + g.ext - 6 });       // the group walks on in its lane(s): no obstacle row there meanwhile
           break;
         }
@@ -2772,7 +2772,7 @@ Object.assign(Obstacles.prototype, {
     this.pending.length = 0; this.platforms.length = 0; this.rowsLog.length = 0; this.warnQ.length = 0; this.byId.clear();
     this.maxExt = 4.6; this.gateChain = 0; this.nextBoulder = 1e9; this._bArmed = false;
     this.next = { power: 260, gem: 520, box: 340, letter: 300 };
-    this._carry = null; this._clock = 0; this._nextCrit = this.track.level ? 150 : 190; this._teach = 0; this._breath = null; this._snowOwed = 0; this.tierBias = 0;
+    this._carry = null; this._clock = 0; this._nextCrit = this.track.level ? 130 : 160; this._teach = 0; this._breath = null; this._snowOwed = 0; this.tierBias = 0;
     if (this.critters) this.critters.reset();
     this.rng = makeRng((this.seed ^ (this.track.seed | 0) ^ 0xa5a5a5a5) >>> 0);
   },

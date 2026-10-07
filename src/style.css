@@ -98,8 +98,8 @@ html, body {
 #banner .b.l2 { color: #bfe6ff; }
 #banner .b.l3 { color: var(--gold); }
 #banner .b.l4, #banner .b.l5 { color: #ff8a5c; font-size: 62px; }
-/* runner: banners sit below the ball, never over the reaction strip */
-#banner.runner { top: 76%; }
+/* runner: banners sit up in the open track, clear of the HUD (top) and the ball + swipe hint (bottom) */
+#banner.runner { top: 30%; }
 #banner.runner .b { font-size: 44px; }
 #banner.runner .b.l4, #banner.runner .b.l5 { font-size: 50px; }
 @keyframes bannerPop {
@@ -528,3 +528,13 @@ html, body {
 @media (max-height: 560px) {
   .res-extra .rx-head { display: none; } .res-extra .rx-m { padding: 3px 8px; font-size: 11.5px; }
 }
+
+/* ---------- YETI RUSH HUD: compact centre column (score, then one small combo line, streak bar, goal strip) ---------- */
+#hud.rush .hud-tons { top: calc(var(--sat) + 52px); font-size: 38px; }
+#hud.rush .hud-coins { top: calc(var(--sat) + 56px); font-size: 16px; }
+#hud.rush .hud-combo, #hud.rush.has-goal .hud-combo { top: calc(var(--sat) + 94px); font-size: 14px; letter-spacing: 0.04em; }
+#hud.rush .hud-flow, #hud.rush.has-goal .hud-flow { top: calc(var(--sat) + 114px); }
+#hud.rush .hud-flow .flowbar { width: 90px; height: 7px; }
+#hud.rush .hud-flow .flow-lbl { font-size: 11px; }
+#hud.rush .hud-goal { top: calc(var(--sat) + 130px); }
+#hud.rush.has-goal ~ #danger { top: calc(var(--sat) + 156px); }

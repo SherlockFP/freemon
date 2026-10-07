@@ -60,13 +60,14 @@ export const RCFG = {
   helmetT: 20,
   sledCd: 45,
   // Hunger (melting). tiers per second = (meltBase + meltPerTier * tier) * (1 + meltGrow * min(1, s / meltRamp)).
-  // Start = tier 2 + half a tier: a player who eats nothing melts away in about 30-33 s (measured on the numbers: 5.1 + 11.8 + 13.9 s + 3 s grace).
-  // The snow supply (obstacles._trails) offers ~0.3 tiers/s early, so collecting a third of it sustains you.
-  meltBase: 0.072,
-  meltPerTier: 0.013,
+  // Start = tier 2 + half a tier: a player who eats nothing melts away in about 45 s (eased in the v2 wave-1 QA pass: a decent bot
+  // collecting snow still starved in 2 of 4 runs with 0.072 / 0.013 / 3 s grace).
+  // The snow supply (obstacles._trails) offers ~0.3 tiers/s early, so collecting a quarter of it sustains you.
+  meltBase: 0.055,
+  meltPerTier: 0.010,
   meltGrow: 0.6,
   meltRamp: 4000,
-  meltGrace: 3,          // s: no melting at the start of a run
+  meltGrace: 4,          // s: no melting at the start of a run
   // Buff cards.
   buffFirst: [24, 32],   // first card of a run
   buffEvery: [45, 60],   // then one every ... seconds of play (and at every checkpoint)
@@ -2555,7 +2556,8 @@ export class Runner {
     const b = this.b;
     // Only when it's really on the track (at the very start it would be clamped onto the start line, right in
     // front of the camera).
-    const show = this.b.s - this.gap > 1 && this.state !== 'idle';
+    // (It is also shown on the start line: the first metres extrapolate the track backwards so it looms right behind the ball.)
+    const show = this.state !== 'idle' && (this.b.s - this.gap > 1 || (this.gap < 12 && this.b.s < 40));
     y.group.visible = show;
     this.avalanche.group.visible = show;
     if (!show) return;
@@ -2568,6 +2570,7 @@ export class Runner {
     const run = Math.abs(Math.sin(y.t * 7));
     const sf = tr.surfaceAt(gs, y.u);
     tr.toWorld(Math.max(0, gs), y.u, Math.max(0, sf === -Infinity ? 0 : sf) + run * 0.8, _v);
+    if (gs < 0) _v.addScaledVector(_f.tan, gs);       // behind the start line: follow the tangent back
     _x.copy(_f.right).negate();
     _m.makeBasis(_x, _f.up, _f.tan);
     _q.setFromRotationMatrix(_m);
@@ -2582,8 +2585,9 @@ export class Runner {
     // A wall of powder rolls behind it.
     const av = this.avalanche;
     av.t += dt;
-    const as = Math.max(0, gs - 6);
-    tr.frame(as, _f);
+    const as = gs - 6;
+    tr.frame(Math.max(0, as), _f);
+    if (as < 0) _f.pos.addScaledVector(_f.tan, as);
     let k = 0;
     for (let i = 0; i < av.count; i++) {
       const row = i % 3;
