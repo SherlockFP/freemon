@@ -136,3 +136,41 @@ Kontrol: tüm modlar sessiz duman testinden geçti. ÇIĞ Dağ 1'i bot kazandı.
   - ÇIĞ ve Macera sonuçlarına SONRAKİ ÖDÜL.
   - Daha koyu sonuç arka planı.
   - Kış Pasaportu.
+
+## Tur 2 — Yapılanlar
+
+Hepsi push edildi.
+
+**Rush**
+- Öncelikli bildirim kuyruğu: ortada aynı anda tek mesaj gösterilir, mesafe bildirimleri üst kenara taşındı.
+- Boss bölümlerinde "BOSS!" girişi, bar ve kutlama eklendi.
+- **Kar Yankısı**: en iyi koşunun hayaleti. Onu geçersen "REKORU GEÇTİN!" çıkar.
+
+**ÇIĞ**
+- Dağ 1-5'te daha iri yiyecekler var.
+- Kenarlara kardan adam, çit ve kulübe gibi simgesel nesneler eklendi.
+- Dekor yoğunlaştı.
+- Dağ 2'den itibaren GÜVENLİ/RİSKLİ ✦ yol ayrımları geldi.
+- Dağ 6 ve sonrasında kapılar zorlaştı.
+- Boyut artık çap olarak gösteriliyor (Ø m).
+
+**Arena**
+- Doğunca etrafına yiyecek ve av/avcı botlar konuyor.
+- Zemin artık damalı, bölgeler ve kristal kuleler var.
+- 30 sn koruma eklendi.
+- "İLK YEMEK!" ve "SIRA 31 → 24!" bildirimleri.
+
+**Arayüz**
+- KOMBO ve skor çarpanı tek satıra indi.
+- SONRAKİ ÖDÜL artık Macera ve ÇIĞ sonuçlarında da var.
+- Arka plan daha koyu.
+- **Kış Pasaportu**: 16 damga.
+
+Kontrol sonucu: bot ÇIĞ Dağ 1'i kazandı, tüm modlar hatasız.
+
+**Tur 3 için not**
+- ÇIĞ'da kapı gereksinimi "⛔ 0 m" görünüyor.
+- Hız birimi "km/s" yazıyor.
+- "YENİ BÖLGE!" yazısı HUD'un üstüne biniyor.
+- Ön plandaki ağaçlar görüşü kapatıyor.
+- Rush'ta "KAÇ!" ve "BÜYÜDÜN" yazıları hâlâ yolun üstünde.
