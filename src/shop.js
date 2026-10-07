@@ -65,6 +65,18 @@ function isoWeekInfo(d = new Date()) {
   return { key: year + '-W' + week, seed: year * 100 + week, msLeft: Math.max(0, next - d) };
 }
 function seededPick(arr, seed) { return arr.length ? arr[(Math.imul(seed, 2654435761) >>> 0) % arr.length] : null; }
+// DÖNEN VİTRİN: one skin per 3 days (local midnight), 15% off; same for everyone
+export function vitrinInfo(sv) {
+  try {
+    const d = new Date(), t0 = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const dn = Math.floor((t0.getTime() - t0.getTimezoneOffset() * 60000) / 86400000), per = Math.floor(dn / 3);
+    const pool = SKINS.filter((it) => it.price > 0 && !(it.unlock && (it.unlock.stars || it.unlock.secret)));
+    const it = seededPick(pool, per * 31 + 5);
+    if (!it) return null;
+    const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + (3 - (dn % 3)));
+    return { id: it.id, name: it.name, was: it.price, price: Math.max(1, Math.round(it.price * 0.85)), msLeft: Math.max(0, end - d), owned: !!(sv && sv.isOwned && sv.isOwned('skin', it.id)) };
+  } catch { return null; }
+}
 const BUNDLES = [{ cr: 3, coins: 1500 }, { cr: 5, coins: 2800 }, { cr: 4, coins: 2100 }];
 function weeklyOffers(sv, wk) {
   const gate = (it) => it.price > 0 && !(it.unlock && (it.unlock.stars || it.unlock.secret));
@@ -581,6 +593,7 @@ const CSS = `
 
 /* ---- power tab: upgrade rows ---- */
 .cs-list { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 520px; margin: 0 auto; padding: 4px 16px 0; }
+.cs-vit { color: #b36200; font-weight: bold; }
 .cs-sec { margin: 6px 2px -4px; font-size: 13px; letter-spacing: 0.14em; color: var(--ink); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55); }
 .cs-up {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 20px; border: 3px solid var(--ink);
@@ -847,6 +860,8 @@ export function openShop({ save, onClose, onSelect } = {}) {
   }
 
   // ---- item state ----
+  function vitOf(it) { if (kind !== 'skin') return null; const v = vitrinInfo(save); return v && v.id === it.id ? v : null; }
+  function priceOf(it) { const v = vitOf(it); return v ? v.price : it.price; }
   function stateOf(it) {
     const stars = starsOf(save);
     const need = (it.unlock && it.unlock.stars) || 0;
@@ -856,7 +871,7 @@ export function openShop({ save, onClose, onSelect } = {}) {
     const secret = !owned && secretGate; // hidden until the meta module grants it
     const locked = !owned && (secret || need > stars);
     const needsBuy = !owned && !locked && it.price > 0;
-    const canAfford = save.coins >= it.price;
+    const canAfford = save.coins >= priceOf(it);
     return { stars, need, selected, owned, locked, secret, needsBuy, canAfford };
   }
 
@@ -889,7 +904,7 @@ export function openShop({ save, onClose, onSelect } = {}) {
     }
     let bought = false;
     if (st.needsBuy) {
-      if (!save.spend(it.price)) { anim(card, 'shake', 340); return; }
+      if (!save.spend(priceOf(it))) { anim(card, 'shake', 340); return; }
       save.own(kind, it.id);
       bought = true;
     } else if (!st.owned) {
@@ -914,12 +929,14 @@ export function openShop({ save, onClose, onSelect } = {}) {
       card.appendChild(h('span', 'cs-lockbadge', '🔒'));
     }
 
+    const vt = !st.owned && !st.locked ? vitOf(it) : null;
+    if (vt) card.appendChild(h('div', 'cs-note cs-vit', `⭐ VİTRİN -%15 · ⏳ ${fmtLeft(vt.msLeft)}`));
     let label, cls;
     if (st.selected) { label = 'SEÇİLİ ✓'; cls = 'on'; }
     else if (st.owned) { label = 'SEÇ'; cls = 'pick'; }
     else if (st.secret) { label = 'GİZLİ'; cls = 'lock'; }
     else if (st.locked) { label = `⭐ ${st.need} gerekli`; cls = 'lock'; }
-    else if (st.needsBuy) { label = `❄️ ${fmt(it.price)}`; cls = st.canAfford ? '' : 'poor'; }
+    else if (st.needsBuy) { label = `❄️ ${fmt(priceOf(it))}`; cls = st.canAfford ? '' : 'poor'; }
     else { label = 'SEÇ'; cls = 'pick'; }
     const btn = h('button', `cs-btn ${cls}`.trim(), label);
     btn.setAttribute('type', 'button');

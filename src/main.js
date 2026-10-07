@@ -682,9 +682,10 @@ function startCigLevel(arg, opts = {}) {
   ui.showPause(false);
   ui.startRun(plan.label);
   ensureLevelHud(plan);
-  const showHint = plan.n === 1 || (!G.hinted && (save.cigTut?.() ?? 0) < 3);
+  const showHint = plan.n <= 2 && (plan.n === 1 || (!G.hinted && (save.cigTut?.() ?? 0) < 3));
   ui.hint(showHint, 'sürükle · küçükleri ye, kapıyı kır');
   if (showHint && plan.n !== 1) save.bumpCigTut?.();
+  if (showHint) setTimeout(() => { if (G.state === 'play') ui.hint(false); }, 6000);
   scene.fog.near = 70; scene.fog.far = 300;
   ball.sync();
   updateCamera(0, !fromMenu);

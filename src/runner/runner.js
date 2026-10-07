@@ -296,7 +296,7 @@ export class Runner {
     this.speedTier = 0;
     this.flow = 0;
     this.flowLvl = 0;
-    this.flowT = 0;
+    this.flowT = 0; this.cmbN = 0; this.cmbAt = 0; this.cmbT = 0; this.stormKm = undefined; this.stormOn = false; this.stormHit = false;
     this.gustK = 0; this.gustDir = 1; this.gustWarn = false; this.gustSndT = 0;
     this.bestDist = save.runnerBestDist?.() ?? 0;
     this.bestScore = save.runnerBest?.() ?? 0;
@@ -1156,6 +1156,7 @@ export class Runner {
       this.trauma = Math.min(1, this.trauma + 0.12);
     }
     this.gustTick(dt);
+    this.stormTick(dt);
     // Flow decays when you stop doing skilful things.
     this.flowT -= dt;
     if (this.flowT <= 0 && this.flow > 0) this.flow = Math.max(0, this.flow - 18 * (this.buffs.has('akis') ? 0.5 : 1) * (1 - 0.06 * Math.min(5, this.perm.flow || 0)) * dt);
@@ -1435,6 +1436,63 @@ export class Runner {
     const cap = this.level ? 100 : Math.min(100, this.time < 60 ? 8 + this.time * 0.25 : 100);
     this.flow = Math.min(cap, this.flow + n);
     this.flowT = 1.8;
+    // HUD KOMBO: its own earned counter. +1 per skill event (grind ticks don't count), at most one per 0.7 s,
+    // breaks after 2 s without an event or on any hit.
+    if (n >= 1 && !this.level) {
+      const now = this.time || 0;
+      if (!this.cmbAt || now - this.cmbAt >= 0.7) {
+        this.cmbN = (this.cmbN || 0) + 1; this.cmbAt = now;
+        this.ctx.ui?.combo?.(this.cmbN);
+      }
+      this.cmbT = 2;
+    }
+  }
+
+  breakCombo() {
+    this.stormHit = true;
+    if (this.cmbN) { this.cmbN = 0; this.cmbAt = 0; this.ctx.ui?.combo?.(0); }
+    this.cmbT = 0;
+  }
+
+  // FIRTINA TÜNELİ: the last 100 m before every 1 km: snow-storm vignette + streaks; pass it without a hit = combo x2 + bonus.
+  stormTick(dt) {
+    if (this.cmbT > 0) { this.cmbT -= dt; if (this.cmbT <= 0 && this.cmbN) { const h = this.stormHit; this.breakCombo(); this.stormHit = h; } }
+    if (this.level) return;
+    const s = this.b.s, km = Math.floor(s / 1000), inZ = s >= 900 && s % 1000 >= 900;
+    if (this.stormKm === undefined) this.stormKm = km;
+    if (km > this.stormKm) {                       // crossed a milestone
+      this.stormKm = km;
+      if (this.stormOn && !this.stormHit) {
+        this.cmbN = Math.max(2, (this.cmbN || 0) * 2); this.cmbAt = this.time; this.cmbT = 2;
+        this.ctx.ui?.combo?.(this.cmbN);
+        this.flow = Math.min(100, this.flow + 10);
+        this.score += 400 * km * Math.max(1, this.mult);
+        this.float('TEMİZ GEÇİŞ!', 'big');
+        this.ctx.audio.milestone?.(4); this.ctx.platform.haptic('success');
+      }
+      this.stormOn = false;
+    }
+    if (inZ && !this.stormOn) { this.stormOn = true; this.stormHit = false; }
+    this.stormFx(inZ && this.stormOn);
+  }
+
+  stormFx(on) {
+    let el = this.stormEl;
+    if (!on) { if (el) el.style.opacity = '0'; return; }
+    if (!el || !el.isConnected) {
+      el = this.stormEl = document.createElement('div');
+      el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:5;opacity:0;transition:opacity .6s;animation:stormMv .35s linear infinite;' +
+        'background:radial-gradient(ellipse at center,rgba(255,255,255,0) 40%,rgba(190,225,255,.55) 100%),' +
+        'repeating-linear-gradient(100deg,rgba(255,255,255,0) 0 18px,rgba(255,255,255,.28) 19px 21px,rgba(255,255,255,0) 22px 46px);' +
+        'background-size:100% 100%,200px 200px;';
+      if (!document.getElementById('stormKf')) {
+        const st = document.createElement('style'); st.id = 'stormKf';
+        st.textContent = '@keyframes stormMv{to{background-position:0 0,-200px 200px}}'; document.head.appendChild(st);
+      }
+      document.body.appendChild(el);
+      void el.offsetWidth;
+    }
+    el.style.opacity = '1';
   }
 
   makeRecordFlag() {
@@ -1950,7 +2008,7 @@ export class Runner {
     if (this.grow < 0) { if (this.tier > 0) { this.tier--; this.grow += 1; this.syncRadius(); this.onMeltDrop?.(); } else this.grow = 0; }
     b.vs *= 0.88; this.squash = Math.max(this.squash, 0.45); this.trauma = Math.min(1, this.trauma + 0.35);
     this.invulnT = Math.max(this.invulnT, 0.9);
-    this.flow = Math.max(0, this.flow - 3); this.nearChain = 0;
+    this.flow = Math.max(0, this.flow - 3); this.nearChain = 0; this.breakCombo();
     this.debris(e, 10);
     this.float('YETİ ATTI!', 'bad'); this.ctx.audio.crash?.(0.4); this.ctx.platform.haptic('medium');
   }
@@ -2070,6 +2128,8 @@ export class Runner {
     this.crashes++;
     this.flow = 0;
     this.flowLvl = 0;
+    this.breakCombo();
+    this.breakCombo();
     this.layersLost++;
     this.ctx.meta?.track?.('crash', {});
     this.debris(e, 16);
@@ -2102,6 +2162,7 @@ export class Runner {
     this.crashes++;
     this.flow = 0;
     this.flowLvl = 0;
+    this.breakCombo();
     this.ctx.meta?.track?.('crash', {});
     this.layersLost++;
     this.debris(e, 10);
@@ -2168,7 +2229,7 @@ export class Runner {
         this.grow -= 0.3;
         if (this.grow < 0) { if (this.tier > 0) { this.tier--; this.grow += 1; this.onMeltDrop?.(); } else this.grow = 0; }
         b.vs *= 0.9; this.squash = Math.max(this.squash, 0.4); this.trauma = Math.min(1, this.trauma + 0.25);
-        this.flow = Math.max(0, this.flow - 2);
+        this.flow = Math.max(0, this.flow - 2); this.breakCombo();
         this.float('KARTOPU!', 'bad'); audio.bump?.(0.5); platform.haptic('medium');
         this.burst?.(12, 0xffffff, 3);
         break;
@@ -2609,6 +2670,7 @@ export class Runner {
     this.crashes++;
     this.flow = 0;
     this.flowLvl = 0;
+    this.breakCombo();
     this.layersLost++;
     this.ctx.meta?.track?.('crash', {});
     if (this.tier > 0) { this.tier--; this.grow = Math.min(this.grow, 0.5); }
@@ -3316,6 +3378,7 @@ export class Runner {
   }
 
   dispose() {
+    this.stormEl?.remove(); this.stormEl = null;
     this.closeOut();
     this.rhythm?.dispose(); this.rhythm = null;
     this.track?.dispose();

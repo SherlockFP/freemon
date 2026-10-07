@@ -271,12 +271,14 @@ export class AgarMode {
         const m2 = m.clone(); m2.scale.set(1, 1, 1); m2.position.set(A[0] / 2, 0.05, A[1] / 2); const l2 = Math.hypot(A[0], A[1]); m2.geometry = new THREE.PlaneGeometry(l2, 22).rotateX(-Math.PI / 2); m2.rotation.y = -Math.atan2(A[1], A[0]); sc.add(m2);
       }
       const NC = 70, cm = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 5), new THREE.MeshBasicMaterial({ color: 0xffffff }), NC);
-      const mt = new THREE.Matrix4(), q = new THREE.Quaternion(), pv = new THREE.Vector3(), sv = new THREE.Vector3(), cc = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
+      const cones = [], mt = new THREE.Matrix4(), q = new THREE.Quaternion(), pv = new THREE.Vector3(), sv = new THREE.Vector3(), cc = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
       for (let i = 0; i < NC; i++) {
         const a = pr() * 6.2832, d = Math.sqrt(pr()) * (R - 60), h = 8 + pr() * 22, w = 2 + pr() * 3;
         pv.set(Math.cos(a) * d, h / 2, Math.sin(a) * d); sv.set(w, h, w); q.setFromAxisAngle(up, pr() * 6);
         cm.setMatrixAt(i, mt.compose(pv, q, sv)); cm.setColorAt(i, cc.setHSL(0.52 + pr() * 0.15, 0.7, 0.62 + pr() * 0.15));
+        cones.push([pv.x, pv.z, h, w, q.clone()]);
       }
+      cm.instanceMatrix.setUsage(THREE.DynamicDrawUsage); this.coneMesh = cm; this.cones = cones;
       cm.frustumCulled = false; sc.add(cm);
     }
     const rim = new THREE.Mesh(new THREE.RingGeometry(R - 14, R + 6, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x4a9be8 }));
@@ -363,6 +365,14 @@ export class AgarMode {
       sc.add(sp);
       o.sprite = sp; o.tex = tex;
     }
+    this.meRing = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 56).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+    this.meRing.visible = false; this.meRing.frustumCulled = false; this.meRing.renderOrder = 6; sc.add(this.meRing);
+    {
+      const gm = new THREE.MeshBasicMaterial({ color: 0xffd23a, fog: false }), cg = new THREE.Group();
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.55, 0.38, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0xffc400, side: THREE.DoubleSide, fog: false })); band.position.y = 0.19; cg.add(band);
+      for (let k = 0; k < 5; k++) { const an = k * 1.2566, sp = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.6, 5), gm); sp.position.set(Math.cos(an) * 0.58, 0.66, Math.sin(an) * 0.58); cg.add(sp); const jb = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 6), new THREE.MeshBasicMaterial({ color: k % 2 ? 0xff4d6d : 0x4dd2ff, fog: false })); jb.position.set(Math.cos(an) * 0.58, 1.02, Math.sin(an) * 0.58); cg.add(jb); }
+      cg.visible = false; cg.frustumCulled = false; cg.renderOrder = 11; sc.add(cg); this.crown = cg; this.king = null; this.kingId = -1;
+    }
   }
 
   setName(o, name, isMe) {
@@ -371,12 +381,18 @@ export class AgarMode {
     const cvs = o.tex.image;
     const g = cvs.getContext('2d');
     g.clearRect(0, 0, 256, 64);
-    g.font = '900 38px "Trebuchet MS", system-ui, sans-serif';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.lineJoin = 'round'; g.lineWidth = 9; g.strokeStyle = 'rgba(10,30,60,0.92)';
-    g.strokeText(name, 128, 34, 246);
-    g.fillStyle = isMe ? '#ffe066' : '#ffffff';
-    g.fillText(name, 128, 34, 246);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+    if (isMe) {
+      g.font = '900 36px "Trebuchet MS", system-ui, sans-serif';
+      g.lineWidth = 10; g.strokeStyle = 'rgba(10,30,60,0.95)';
+      g.strokeText(name, 128, 22, 246); g.fillStyle = '#ffe066'; g.fillText(name, 128, 22, 246);
+      g.font = '900 26px system-ui, sans-serif'; g.lineWidth = 7;
+      g.strokeText('\u25BC', 128, 51); g.fillStyle = '#fff7b0'; g.fillText('\u25BC', 128, 51);
+    } else {
+      g.font = '700 28px "Trebuchet MS", system-ui, sans-serif';
+      g.lineWidth = 6; g.strokeStyle = 'rgba(10,30,60,0.6)';
+      g.strokeText(name, 128, 34, 246); g.fillStyle = 'rgba(235,245,255,0.78)'; g.fillText(name, 128, 34, 246);
+    }
     o.tex.needsUpdate = true;
   }
 
@@ -1153,7 +1169,9 @@ export class AgarMode {
   eatCell(pred, prey) {
     const po = this.owners[prey.o];
     if (po.shield > 0) return;
-    pred.m = Math.min(MAXM, pred.m + prey.m);
+    let kb = 0;
+    if (this.kingId === prey.o && pred.o !== prey.o && prey.m > po.mass * 0.4) { kb = prey.m * 0.25; this.pushFeed('KRAL DÜŞTÜ! ' + this.owners[pred.o].name + ', ' + po.name + accSuffix(po.name) + ' devirdi'); if (pred.o === this.me) { this.toast('KRAL DÜŞTÜ! +%25 bonus'); this.audio?.milestone?.(4); } this.kingId = -1; this.king = null; }
+    pred.m = Math.min(MAXM, pred.m + prey.m + kb);
     { const pw = this.owners[pred.o]; if (pw.prot && pw.shield > 0) { pw.shield = 0; pw.prot = false; if (pred.o === this.me) this.toast('KORUMA BİTTİ'); } }
     this.owners[pred.o].xpRun += prey.m;
     prey.on = false;
@@ -1173,8 +1191,8 @@ export class AgarMode {
       if (c.m > om * 1.25) {
         const e = d - c.r;
         if (e < 14 + orr * 2.5 + c.r * 1.5 && e < thrD) { thrD = e; thr = c; }
-      } else if (c.m * 1.25 < om && this.owners[c.o].shield <= 0 && d < 22 + orr * 4) {
-        const s = c.m / (d + 6);
+      } else if (c.m * 1.25 < om && this.owners[c.o].shield <= 0 && d < (c.o === this.kingId ? 60 + orr * 6 : 22 + orr * 4)) {
+        const s = (c.m / (d + 6)) * (c.o === this.kingId ? 2.5 : 1);
         if (s > preyS) { preyS = s; prey = c; preyD = d; }
       }
     }
@@ -1195,6 +1213,8 @@ export class AgarMode {
         if (o.boostCd <= 0 && om > 60 && Math.random() < 0.4) this.boost(o);
         else if (om > prey.m * 2.6 && om > 120 && o.cellN < 3 && o.splitCd <= 0 && Math.random() < 0.25) { o.ldx = (tx - cx) / (preyD + 0.01); o.ldz = (tz - cz) / (preyD + 0.01); this.split(o); }
       }
+    } else if (this.king && this.king.alive && this.king !== o && o.id % 4 === 1 && om > this.king.mass * 0.5 && Math.hypot(this.king.lx - cx, this.king.lz - cz) < 240) {
+      mode = 2; tx = this.king.lx; tz = this.king.lz;
     } else if (om > 50 && o.id % 3 === 0 && this.fortGoal(o)) {
       mode = 3; tx = this.tmpF.x; tz = this.tmpF.z;
     } else {
@@ -1268,7 +1288,7 @@ export class AgarMode {
       const paint = new THREE.Mesh(new THREE.CircleGeometry(PAINT_R, 40).rotateX(-Math.PI / 2), mat(0xffffff, 0)); paint.position.y = 0.15; paint.renderOrder = 2; paint.visible = false;
       g.add(paint, wall, tw, base, fill, pole, flag, sp); sc.add(g);
       f.paint = paint; f.pa = 0; f.pc = -1;
-      f.fill = fill; f.flag = flag; f.sp = sp; f.tex = tex;
+      f.fill = fill; f.flag = flag; f.sp = sp; f.tex = tex; f.grp = g; f.wallM = wall.material; f.twM = tw.material;
     }
   }
 
@@ -2144,14 +2164,40 @@ export class AgarMode {
     if (me.alive && me.shield > 0) { this.aura.visible = true; this.aura.position.set(me.lx, me.maxR, me.lz); this.aura.scale.setScalar(me.maxR * 1.18 + 0.4); } else this.aura.visible = false;
     if (me.alive && me.magnet > 0) { this.ring.visible = true; this.ring.position.set(me.lx, 0.3, me.lz); this.ring.scale.setScalar(me.maxR + 14); } else this.ring.visible = false;
     // name sprites
-    const camH = this.camH;
+    const camH = this.camH, camX = this.camX, camZ = this.camZ, king = this.king;
     for (let i = 0; i < NOWN; i++) {
       const o = owners[i], sp = o.sprite;
       if (!o.alive) { sp.visible = false; continue; }
       sp.visible = true;
-      const w = Math.max(o.maxR * 2.2, camH * 0.1);
+      const isM = i === this.me, w = Math.max(o.maxR * 2.2, camH * 0.1) * (isM ? 1.3 : 0.8);
       sp.scale.set(w, w * 0.25, 1);
-      sp.position.set(o.lx, o.maxR + 0.3 + w * 0.1, o.lz + o.maxR * 0.2);
+      sp.position.set(o.lx, o.maxR + 0.3 + w * 0.1 + (isM ? w * 0.08 : 0) + (o === king ? w * 0.35 : 0), o.lz + o.maxR * 0.2);
+      sp.renderOrder = isM ? 12 : 10; sp.material.opacity = isM ? 1 : 0.8;
+    }
+    // local player ring + crown + height caps / occlusion fade
+    const mr = this.meRing, pls = 0.5 + 0.5 * Math.sin(this.time * 6);
+    if (me.alive) { mr.visible = true; mr.position.set(me.lx, 0.6, me.lz); mr.scale.setScalar(me.maxR * (1.12 + 0.08 * pls) + 0.8); mr.material.color.setHex(me.col); mr.material.opacity = 0.65 + 0.35 * pls; } else mr.visible = false;
+    const cr = this.crown;
+    if (king && king.alive) { const cs = Math.max(king.maxR * 0.7, camH * 0.035); cr.visible = true; cr.position.set(king.lx, king.maxR * 2 + cs * 0.5, king.lz); cr.scale.setScalar(cs); cr.rotation.y = this.time * 1.6; } else cr.visible = false;
+    {
+      const cs = this.cones, cmesh = this.coneMesh;
+      if (cs) {
+        const cap = camH * 0.16, m4 = this._m4 || (this._m4 = new THREE.Matrix4()), pv = this._pv || (this._pv = new THREE.Vector3()), sv = this._sv || (this._sv = new THREE.Vector3());
+        for (let k = 0; k < cs.length; k++) {
+          const c = cs[k]; let h = Math.min(c[2], cap);
+          if (Math.abs(c[0] - camX) < c[3] + 5 + camH * 0.1 && c[1] - c[3] < camZ + h * 0.8 + camH * 0.08 && c[1] + c[3] > camZ - 4 - camH * 0.04) h *= 0.18;
+          cmesh.setMatrixAt(k, m4.compose(pv.set(c[0], h / 2, c[1]), c[4], sv.set(c[3], h, c[3])));
+        }
+        cmesh.instanceMatrix.needsUpdate = true;
+      }
+      const fs = Math.max(0.35, Math.min(1, camH * 0.3 / 30));
+      for (const f of this.forts) {
+        if (!f.grp) continue;
+        f.grp.scale.y = fs;
+        const near = Math.abs(me.lx - f.x) < FR + 30 && me.lz - f.z > -FR - 30 && me.lz - f.z < FR + 10 + camH * 0.4;
+        const op = near ? 0.28 : 1;
+        if (f.wallM.opacity !== op) { f.wallM.transparent = f.twM.transparent = near; f.wallM.opacity = f.twM.opacity = op; f.wallM.depthWrite = f.twM.depthWrite = !near; f.wallM.needsUpdate = f.twM.needsUpdate = true; }
+      }
     }
   }
 
@@ -2305,6 +2351,7 @@ export class AgarMode {
       for (let i = 0; i < NOWN; i++) if (this.owners[i].alive) this.lb[n++] = this.owners[i];
       this.lbN = n; this.lb.length = n;
       this.lb.sort(this._lbCmp);
+      { const k0 = this.lb[0]; this.king = k0 && n >= 3 && k0.mass > 60 ? k0 : null; this.kingId = this.king ? this.king.id : -1; }
       let myRank = -1;
       for (let i = 0; i < n; i++) if (this.lb[i] === me) { myRank = i; break; }
       for (let i = 0; i < 5; i++) {
@@ -2395,5 +2442,7 @@ export class AgarMode {
       g.fillRect(c0 + o.cx * sc - s / 2, c0 + o.cz * sc - s / 2, s, s);
     }
     if (me.alive) { g.fillStyle = '#ffe066'; g.beginPath(); g.arc(c0 + me.cx * sc, c0 + me.cz * sc, 3, 0, 6.2832); g.fill(); }
+    const kg = this.king;
+    if (kg && kg.alive) { g.font = '900 11px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 3; g.strokeStyle = '#5a3a00'; g.fillStyle = '#ffd23a'; g.strokeText('\u265B', c0 + kg.cx * sc, c0 + kg.cz * sc - 4); g.fillText('\u265B', c0 + kg.cx * sc, c0 + kg.cz * sc - 4); }
   }
 }

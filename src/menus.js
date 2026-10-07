@@ -15,7 +15,7 @@ import { SKINS, TRAILS, setGoldBall } from './skins.js';
 import { ACHIEVEMENTS, EGGS, DAILY_REWARDS, UPGRADES, SLED_PACK } from './meta.js';
 import { ACTS, LEVELS, levelById, BONUS } from './campaign.js';
 import { dagPlan, DAG_COUNT, planBrief } from './cigplan.js';
-import { nextGoal } from './shop.js';
+import { nextGoal, vitrinInfo } from './shop.js';
 import { hideBoot, runnerDeathText } from './ui.js';
 
 const STYLE_ID = 'freemon-menus-style';
@@ -547,13 +547,32 @@ const CSS = `
 .fm-bonushd { flex: none; margin: 0 auto 4px; padding: 4px 12px; border-radius: 12px; border: 2.5px solid var(--ink); background: linear-gradient(180deg, #b36bff, #7a35d6); color: #fff; font-size: 12.5px; text-shadow: var(--ol-sm); text-align: center; white-space: nowrap; }
 .fm-stormhd { flex: none; margin: 0 auto 4px; padding: 3px 12px; border-radius: 12px; border: 2.5px solid var(--ink); background: linear-gradient(180deg, #ffe27a, #ff9d1a); color: var(--ink); font-size: 12px; text-align: center; white-space: nowrap; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; }
 .fm-node.storm .sx { position: absolute; right: -14px; top: -10px; padding: 0 4px; border-radius: 8px; border: 2px solid var(--ink); background: linear-gradient(180deg, #ffe27a, #ff9d1a); color: var(--ink); font-size: 10px; line-height: 14px; text-shadow: none; pointer-events: none; z-index: 3; animation: fmDlWob 1.6s ease-in-out infinite; }
-.fm-today { flex: none; width: min(calc(100% - 24px), 380px); margin: -4px auto 8px; display: flex; gap: 5px; align-items: center; overflow-x: auto; scrollbar-width: none; }
+.fm-todaywrap { flex: none; width: min(calc(100% - 24px), 380px); margin: -4px auto 12px; position: relative; }
+.fm-todaywrap::before, .fm-todaywrap::after { content: ""; position: absolute; top: 0; bottom: 8px; width: 18px; z-index: 2; pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+.fm-todaywrap::before { left: 0; background: linear-gradient(90deg, rgba(28, 22, 92, 0.85), rgba(28, 22, 92, 0)); }
+.fm-todaywrap::after { right: 0; background: linear-gradient(270deg, rgba(28, 22, 92, 0.85), rgba(28, 22, 92, 0)); }
+.fm-todaywrap.more-l::before, .fm-todaywrap.more-r::after { opacity: 1; }
+.fm-tdots { display: flex; justify-content: center; gap: 4px; height: 6px; margin-top: 3px; }
+.fm-tdots i { width: 5px; height: 5px; border-radius: 50%; background: rgba(255, 255, 255, 0.35); }
+.fm-tdots i.on { background: #ffe27a; width: 12px; border-radius: 3px; }
+.fm-today { width: 100%; margin: 0; display: flex; gap: 5px; align-items: center; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; touch-action: pan-x; padding: 1px 2px; }
+.fm-today > * { scroll-snap-align: start; }
+.fm-sum { display: none; align-items: center; justify-content: center; gap: 6px; font-size: 13px; letter-spacing: 0.06em; color: #fff; text-shadow: var(--ol-sm); }
+.fm-info.cmp { padding: 6px 12px; gap: 0; margin-bottom: 14px; }
+.fm-info.cmp .fm-mrows, .fm-info.cmp .fm-hgoal, .fm-info.cmp .fm-ihead { display: none; }
+.fm-info.cmp .fm-sum { display: flex; }
+.fm-info.cmp.hot { animation: fmGlowPulse 1.4s ease-in-out infinite; }
+.fm-bot, .fm-secrow { z-index: 3; }
+.fm-sb, .fm-play, .fm-arena { touch-action: manipulation; }
+.fm-main[data-att="reward"] .fm-globe .fm-bdg, .fm-main[data-att="first"] .fm-globe .fm-bdg { display: none; }
+.fm-main[data-att="reward"] .fm-globe.ready, .fm-main[data-att="first"] .fm-globe.ready { animation: none; }
+.fm-main:not([data-att="reward"]) .fm-dl .fm-bdg, .fm-main:not([data-att="reward"]) .fm-rwc { display: none; }
 .fm-today::-webkit-scrollbar { display: none; }
 .fm-today .tl { flex: none; font-size: 10px; letter-spacing: 0.06em; color: #cfe2ff; text-shadow: var(--ol-sm); }
 .fm-tchip { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 24px; padding: 0 8px; border-radius: 12px; border: 2px solid var(--ink); background: linear-gradient(180deg, #3a6fc4, #1f4488); color: #fff; font-size: 11px; white-space: nowrap; cursor: pointer; text-shadow: none; }
 .fm-tchip.hot { background: linear-gradient(180deg, #ffe27a, #ff9d1a); color: var(--ink); }
-@media (max-height: 700px) { .fm-today { margin: -8px auto 4px; } .fm-tchip { height: 21px; font-size: 10.5px; } }
-@media (max-height: 600px) { .fm-today { display: none; } }
+@media (max-height: 700px) { .fm-todaywrap { margin: -8px auto 8px; } .fm-tchip { height: 21px; font-size: 10.5px; } }
+@media (max-height: 600px) { .fm-todaywrap { display: none; } }
 .fm-bonushd.full { background: linear-gradient(180deg, #ffe27a, #ffae00); color: var(--ink); text-shadow: none; }
 .fm-node.boss { width: 82px; height: 82px; font-size: 38px; --nc1: #ff8a7a; --nc2: #e0392b; --nsh: #8a1a12; }
 .fm-node.boss.done { --nc1: #ffe27a; --nc2: #ff9a00; --nsh: #b36f00; }
@@ -2109,6 +2128,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   }
 
   function stormOf() { try { return meta.storm(); } catch { return { ids: [], got: {}, msLeft: 0 }; } }
+  function fmtLeft3(ms) { const m = Math.max(0, Math.floor(ms / 60000)), d = Math.floor(m / 1440); return d > 0 ? `${d}g ${Math.floor((m % 1440) / 60)}s` : `${Math.floor(m / 60)}s ${String(m % 60).padStart(2, '0')}dk`; }
   function fmtLeftHM(ms) { const m = Math.max(0, Math.floor(ms / 60000)); return `${Math.floor(m / 60)}s ${String(m % 60).padStart(2, '0')}dk`; }
 
   function openMap(focusId) {
@@ -2651,13 +2671,28 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     infoCard.appendChild(r.mrows);
     r.goalBtn = button('fm-hgoal', '', () => { sfx('click'); if (cb.onShop) cb.onShop(); }, 'Sıradaki hedef');
     infoCard.appendChild(r.goalBtn);
-    infoCard.addEventListener('click', () => openDailyTasks());
+    infoCard.addEventListener('click', () => { if (infoCard.classList.contains('cmp')) { r.expanded = true; updateMain(); return; } openDailyTasks(); });
     infoCard.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDailyTasks(); } });
     r.streakChip.addEventListener('click', (e) => { e.stopPropagation(); sfx('click'); openDaily(); });
     r.info = infoCard;
     root0.appendChild(infoCard);
+    r.sum = el('div', 'fm-sum', '');
+    r.sum.addEventListener('click', (e) => { e.stopPropagation(); sfx('open'); openDailyTasks(); });
+    infoCard.insertBefore(r.sum, infoCard.firstChild);
     r.today = el('div', 'fm-today');
-    root0.appendChild(r.today);
+    r.tdots = el('div', 'fm-tdots');
+    r.twrap = add(el('div', 'fm-todaywrap'), r.today, r.tdots);
+    const tScroll = () => {
+      const t = r.today, w = r.twrap, max = t.scrollWidth - t.clientWidth;
+      w.classList.toggle('more-l', t.scrollLeft > 4);
+      w.classList.toggle('more-r', t.scrollLeft < max - 4);
+      const ds = r.tdots.children, n = ds.length;
+      const k = n > 1 && max > 0 ? Math.round((t.scrollLeft / max) * (n - 1)) : 0;
+      for (let i = 0; i < n; i++) ds[i].className = i === k ? 'on' : '';
+    };
+    r.tScroll = tScroll;
+    r.today.addEventListener('scroll', tScroll, { passive: true });
+    root0.appendChild(r.twrap);
 
     // ---- bottom: OYNA (straight into YETİ RUSH) + ÇIĞ SONSUZ · MACERA · Dolap · Görevler · Ayarlar ----
     const bot = el('div', 'fm-bot');
@@ -2761,6 +2796,22 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.streakChip.textContent = db.reward ? `🔥 ${db.streak} gün · AL` : `🔥 ${db.streak} gün`;
     r.streakChip.classList.toggle('hot', !!db.reward);
 
+    // single attention marker: claimable reward > Kar Küresi > İLK KOŞU
+    let gr0 = false; try { gr0 = meta.globeReady(); } catch { /* ignore */ }
+    const att = (db.available || dtl.claimable) ? 'reward' : gr0 ? 'globe' : bd <= 0 ? 'first' : '';
+    r.root.setAttribute('data-att', att);
+    if (bd <= 0 && att !== 'first') r.bestV.textContent = '—';
+    // compact daily card: 1-line summary when done or on short screens (tap to expand)
+    {
+      const nT = dtl.tasks.length, nDone = dtl.tasks.filter((m) => m.claimed).length;
+      const allDone = nT > 0 && dtl.tasks.every((m) => m.claimed || m.done);
+      let shortScr = false; try { shortScr = window.innerHeight < 760; } catch { /* ignore */ }
+      const cmp = (allDone || shortScr) && !r.expanded;
+      r.info.classList.toggle('cmp', cmp);
+      const rdy = !!(dtl.claimable || db.available);
+      r.info.classList.toggle('hot', cmp && rdy);
+      r.sum.textContent = `GÜNLÜK: ${nDone}/${nT}${rdy ? ' · 🎁 AL' : ''}`;
+    }
     // BUGÜN strip: live events, each chip is a shortcut
     try {
       clear(r.today);
@@ -2774,8 +2825,11 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       const wd = Math.floor(wl / 86400000);
       chips.push(['🛒', wd < 1 ? 'Yeti Pazarı yarın yenilenir' : `Yeti Pazarı ${wd}g`, wd < 1, () => { try { localStorage.setItem('patpat.shopTab', 'pazar'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]);
       if (cb.onDaily && save.cigDailyOpen && save.cigDailyOpen()) chips.push(['🏔️', `Günün Dağı #${info.dailyNum}`, !(info.dailyBest > 0), () => { try { meta.setMode('daily'); } catch { /* ignore */ } cb.onDaily(); }]);
+      try { const vt = vitrinInfo(save); if (vt && !vt.owned) chips.push(['👕', `Vitrin: ${vt.name} -%15 · ${fmtLeft3(vt.msLeft)}`, false, () => { try { localStorage.setItem('patpat.shopTab', 'skin'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]); } catch { /* ignore */ }
       r.today.appendChild(el('span', 'tl', 'BUGÜN'));
-      for (const [ic, tx, hot, fn] of chips) r.today.appendChild(button(`fm-tchip${hot ? ' hot' : ''}`, `${ic} ${tx}`, () => { sfx('click'); fn(); }));
+      clear(r.tdots);
+      for (const [ic, tx, hot, fn] of chips) { r.today.appendChild(button(`fm-tchip${hot ? ' hot' : ''}`, `${ic} ${tx}`, () => { sfx('click'); fn(); })); r.tdots.appendChild(el('i')); }
+      r.tScroll(); setTimeout(() => { try { r.tScroll(); } catch { /* ignore */ } }, 60);
     } catch { /* ignore */ }
 
     // next unlock goal

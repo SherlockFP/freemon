@@ -168,10 +168,11 @@ export class UI {
     this.lastVitals = '';
     if (!on) return;
     this.el.banner.classList.add('runner');
-    clearTimeout(this._banT); this.el.banner.innerHTML = '';
+    this._annReset();
     this.el.level.textContent = String(biomeName || '').toLocaleUpperCase('tr-TR');
     this.el.floats.innerHTML = '';
     this.floatCount = 0;
+    this._annReset();
     this.comboReset();
     this.scoreReset();
     // the swipe hint only teaches brand-new players
@@ -645,6 +646,7 @@ ${dist} m`; }
     this.el.level.textContent = label;
     this.el.floats.innerHTML = '';
     this.floatCount = 0;
+    this._annReset();
     this.comboReset();
     this.scoreReset();
   }
@@ -820,35 +822,48 @@ ${dist} m`; }
     this._dT = setTimeout(() => { this._comboSet(0); this._dN = 0; }, 2200);
   }
 
-  // Floating text is rationed (plain ones at most one a second, the rarer big/bad ones every 0.65 s) and never piles up.
+  // Floating text is rationed (plain ones at most one a second) and never piles up. Big/bad ones are announcements:
+  // they go through the single centre channel (bad = danger, big = milestone) and are dropped when blocked.
   float(text, x, y, cls = '') {
     const now = performance.now();
     const prio = cls === 'big' || cls === 'bad';
     if (this.el.hud.classList.contains('rush') && y < window.innerHeight * 0.27) y = window.innerHeight * 0.27;   // never into the top HUD block
-    if (now - this._lastFloat < (prio ? 650 : 1000) || this.floatCount > 2) return;
+    const mk = () => {
+      const d = document.createElement('div');
+      d.className = `float ${cls}`;
+      d.textContent = text;
+      d.style.left = `${x}px`;
+      d.style.top = `${y}px`;
+      this.floatCount++;
+      let gone = false;
+      const rm = () => { if (gone) return; gone = true; this.floatCount--; d.getAnimations?.().forEach((an) => an.cancel()); d.style.opacity = '0'; d.remove(); };
+      d.addEventListener('animationend', rm);
+      this.el.floats.appendChild(d);
+      return rm;
+    };
+    if (prio) {
+      this._say('c', { text, prio: cls === 'bad' ? 3 : 2, ms: 1100, drop: true, show: mk });
+      return;
+    }
+    if (now - this._lastFloat < 1000 || this.floatCount > 2) return;
     this._lastFloat = now;
-    const d = document.createElement('div');
-    d.className = `float ${cls}`;
-    d.textContent = text;
-    d.style.left = `${x}px`;
-    d.style.top = `${y}px`;
-    this.floatCount++;
-    d.addEventListener('animationend', () => { d.remove(); this.floatCount--; });
-    this.el.floats.appendChild(d);
+    mk();
   }
 
   banner(text, level = 1) {
-    const now = performance.now();
-    // a small banner never stomps a bigger one that is still on screen
-    if (now - this._banAt < 900 && level < this._banLv) return;
-    this._banAt = now; this._banLv = level;
-    this.el.banner.innerHTML = '';
-    const b = document.createElement('div');
-    b.className = `b l${level}`;
-    b.textContent = text;
-    this.el.banner.appendChild(b);
-    clearTimeout(this._banT);
-    this._banT = setTimeout(() => { this.el.banner.innerHTML = ''; }, 1500); // never leave a held banner (countdown digit) on the road
+    const t = String(text);
+    const count = /^\d+$/.test(t);   // countdown digits replace each other instantly
+    this._say('c', {
+      text: t, prio: level >= 4 ? 3 : level >= 2 ? 2 : 1, ms: count ? 900 : 1400, count,
+      show: () => {
+        const b = document.createElement('div');
+        b.className = `b l${level}`;
+        b.textContent = t;
+        this.el.banner.innerHTML = '';
+        this.el.banner.appendChild(b);
+        return () => { b.getAnimations?.().forEach((an) => an.cancel()); b.style.opacity = '0'; this.el.banner.innerHTML = ''; };
+      },
+    });
   }
 
   // ---------- v2 HUD API ----------
@@ -1034,49 +1049,102 @@ ${dist} m`; }
     this._cg = { kg: -1, tnRaw: null, fill: -1, dm: -1, bk: -1 };
   }
 
-  // announcements (tier banner, XP toast, power card) share one slot: they queue and show one at a time
-  _ann(run, ms) {
-    const q = this._annQ || (this._annQ = []);
-    if (q.length >= 4) q.shift();
-    q.push({ run, ms });
-    this._annPump();
+  // ---- ONE announcement scheduler (single source of truth) ----
+  // channels: 'c' = centre (banner / tier / big+bad floats), 't' = top toast. One visible message per channel,
+  // priority danger 3 > milestone 2 > info 1, >=1.2 s between centre messages, identical text deduped for 3 s,
+  // info waiting >2 s (milestones >5 s) is dropped, the previous element is fully cleared before the next shows.
+  _say(ch, r) {
+    const now = performance.now();
+    const D = this._dd || (this._dd = new Map());
+    if (r.text && !r.count) {
+      const k = ch + r.text, t0 = D.get(k);
+      if (t0 !== undefined && now - t0 < 3000) return;
+      D.set(k, now);
+      if (D.size > 40) for (const [kk, v] of D) if (now - v > 3000) D.delete(kk);
+    }
+    const st = (this._chs || (this._chs = {}))[ch] || (this._chs[ch] = { cur: null, q: [], t: null, last: -1e9 });
+    r.at = now;
+    r.gap = ch === 'c' && !r.count ? 1200 : 0;
+    if (r.count) { this._annStart(st, r, now); return; }
+    const busy = st.cur && now < st.cur.until;
+    if (!busy && now - st.last >= r.gap) { this._annStart(st, r, now); return; }
+    if (busy && ch === 'c' && r.prio >= 3 && r.prio > st.cur.prio && now - st.last >= 400) { this._annStart(st, r, now); return; }
+    if (r.drop) return;
+    if (st.q.length >= 4) { const i = st.q.reduce((m, x, j) => (x.prio < st.q[m].prio ? j : m), 0); st.q.splice(i, 1); }
+    st.q.push(r);
+    this._annSched(st, ch);
   }
-  _annPump() {
-    if (this._annBusy || !this._annQ || !this._annQ.length) return;
-    const a = this._annQ.shift();
-    this._annBusy = true;
-    try { a.run(); } catch { /* ignore */ }
-    clearTimeout(this._annT);
-    this._annT = setTimeout(() => { this._annBusy = false; this._annPump(); }, a.ms);
+  _annStart(st, r, now) {
+    try { st.cur?.clear?.(); } catch { /* ignore */ }
+    let clear = null;
+    try { clear = r.show(); } catch { /* ignore */ }
+    st.cur = { prio: r.prio, until: now + r.ms, clear };
+    st.last = now;
   }
-  _annReset() { clearTimeout(this._annT); this._annQ = []; this._annBusy = false; }
+  _annSched(st, ch) {
+    clearTimeout(st.t);
+    const now = performance.now();
+    const gap = ch === 'c' ? 1200 : 0;
+    const wait = Math.max(st.cur ? st.cur.until : 0, st.last + gap) - now;
+    st.t = setTimeout(() => this._annPump(st, ch), Math.max(30, wait + 20));
+  }
+  _annPump(st, ch) {
+    const now = performance.now();
+    st.q = st.q.filter((x) => now - x.at < (x.prio >= 3 ? 8000 : x.prio === 2 ? 5000 : 2000));
+    if (!st.q.length) return;
+    const gap = ch === 'c' ? 1200 : 0;
+    if ((st.cur && now < st.cur.until) || now - st.last < gap) { this._annSched(st, ch); return; }
+    let bi = 0;
+    st.q.forEach((x, i) => { if (x.prio > st.q[bi].prio) bi = i; });
+    const r = st.q.splice(bi, 1)[0];
+    this._annStart(st, r, now);
+    if (st.q.length) this._annSched(st, ch);
+  }
+  _annReset() {
+    for (const k in (this._chs || {})) {
+      const st = this._chs[k];
+      clearTimeout(st.t);
+      try { st.cur?.clear?.(); } catch { /* ignore */ }
+      st.cur = null; st.q = []; st.last = -1e9;
+    }
+    this._dd = new Map();
+    clearTimeout(this._cbT);
+    const cb = this.el.cigBanner;
+    cb.getAnimations?.().forEach((an) => an.cancel());
+    cb.classList.remove('on'); cb.classList.add('hidden');
+    this.el.banner.innerHTML = '';
+    this.el.toastSoft.innerHTML = '';
+  }
 
   cigTier(name) {
-    this._ann(() => this._cigTierNow(name), 1350);
-  }
-  _cigTierNow(name) {
-    const el = this.el.cigBanner;
-    this.el.cbN.textContent = String(name || '').toLocaleUpperCase('tr-TR');
-    el.classList.remove('hidden', 'on');
-    void el.offsetWidth;
-    el.classList.add('on');
-    clearTimeout(this._cbT);
-    this._cbT = setTimeout(() => { el.classList.remove('on'); el.classList.add('hidden'); }, 1300);
-    this.flash('gold');
-    try { meta.track('cig_tier', { name: String(name || '') }); } catch { /* ignore */ }
+    const nm = String(name || '').toLocaleUpperCase('tr-TR');
+    this._say('c', {
+      text: nm, prio: 2, ms: 1350,
+      show: () => {
+        const el = this.el.cigBanner;
+        this.el.cbN.textContent = nm;
+        el.getAnimations?.().forEach((an) => an.cancel());
+        el.classList.remove('hidden', 'on');
+        void el.offsetWidth;
+        el.classList.add('on');
+        clearTimeout(this._cbT);
+        this._cbT = setTimeout(() => { el.classList.remove('on'); el.classList.add('hidden'); }, 1300);
+        this.flash('gold');
+        try { meta.track('cig_tier', { name: String(name || '') }); } catch { /* ignore */ }
+        return () => { clearTimeout(this._cbT); el.getAnimations?.().forEach((an) => an.cancel()); el.classList.remove('on'); el.classList.add('hidden'); };
+      },
+    });
   }
 
   // ---- small non-blocking toast (top edge, never in the middle) ----
   toastSoft(text, opts) {
     if (!text) return;
-    const now = performance.now();
-    if (text === this._tsLast && now - this._tsAt < 2500) return;
-    this._tsLast = text; this._tsAt = now;
-    this._ann(() => this._toastNow(text, opts), 1250);
+    const prio = (opts && opts.prio) || (/REKOR|GÖREV|ÇARPAN|Yeni damga|YENİ/i.test(text) ? 2 : 1);
+    this._say('t', { text: String(text), prio, ms: 1250, show: () => this._toastNow(text, opts) });
   }
   _toastNow(text, opts) {
     const box = this.el.toastSoft;
-    while (box.children.length >= 1) box.firstChild.remove();   // ONE visible toast in-run
+    box.querySelectorAll('.ts').forEach((e) => { e.getAnimations?.().forEach((an) => an.cancel()); e.remove(); });
     const d = document.createElement('div');
     d.className = 'ts';
     const ico = opts && opts.icon;
@@ -1086,6 +1154,7 @@ ${dist} m`; }
     d.appendChild(t);
     d.addEventListener('animationend', () => d.remove());
     box.appendChild(d);
+    return () => { d.getAnimations?.().forEach((an) => an.cancel()); d.style.opacity = '0'; d.remove(); };
   }
 
   // ---- first-run tutor card (top edge). card = {icon, title, text} or null ----

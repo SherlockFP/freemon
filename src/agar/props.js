@@ -77,8 +77,8 @@ export class ArenaProps {
     this.tcount = new Int32Array(NT); this.tcap = new Int32Array(NT); this.tw = new Int32Array(NT); this.tprev = new Int32Array(NT);
     this.thx = new Float32Array(NT); this.thz = new Float32Array(NT); this.tr = new Float32Array(NT); this.th = new Float32Array(NT); this.tmass = new Float32Array(NT);
     this.defT = 0;
-    this.fmat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.25, depthWrite: false });
-    this.fmesh = new Array(NT).fill(null); this.fw = new Int32Array(NT); this.fprev = new Int32Array(NT); this.fcap = 40;
+    this.fmat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.18, depthWrite: false });
+    this.fmesh = new Array(NT).fill(null); this.fw = new Int32Array(NT); this.fprev = new Int32Array(NT); this.fcap = 160;
     // suction (flying props)
     this.npl = 0;
     this.plProp = new Int32Array(PULLCAP); this.plT = new Uint8Array(PULLCAP); this.plCell = new Int16Array(PULLCAP); this.plOwn = new Int16Array(PULLCAP);
@@ -553,7 +553,7 @@ export class ArenaProps {
     const gz0 = clampN(((zc - zh + R) / PGS) | 0, 0, PGN - 1), gz1 = clampN(((zc + zh + R) / PGS) | 0, 0, PGN - 1);
     const arrs = this.arrs || (this.arrs = new Array(NT));
     const fw = this.fw; fw.fill(0);
-    const capH = camH * 0.3, fmesh = this.fmesh;
+    const capH = camH * 0.22, fmesh = this.fmesh;
     for (let t = 0; t < NT; t++) arrs[t] = this.tmesh[t] ? this.tmesh[t].instanceMatrix.array : null;
     for (let gx = gx0; gx <= gx1; gx++) {
       for (let gz = gz0; gz <= gz1; gz++) {
@@ -565,7 +565,7 @@ export class ArenaProps {
           const th = this.th[t] * ps;
           if (th > capH) ps *= capH / th; // never let one prop swallow the view
           const pxi = this.prx[i], pzi = this.prz[i], pr = Math.max(this.thx[t], this.thz[t]) * ps * 0.8, ph = this.th[t] * ps;
-          if (Math.abs(pxi - camX) < pr + 3 + camH * 0.04 && pzi - pr < camZ + ph * 0.6 + 3 && pzi + pr > camZ - 3) {
+          if (Math.abs(pxi - camX) < pr + 4 + camH * 0.1 && pzi - pr < camZ + ph * 0.75 + camH * 0.08 && pzi + pr > camZ - 4 - camH * 0.04) {
             let fm = fmesh[t];
             if (!fm) { fm = fmesh[t] = new THREE.InstancedMesh(this.tdef[t].geometry, this.fmat, this.fcap); fm.instanceMatrix.setUsage(THREE.DynamicDrawUsage); fm.frustumCulled = false; fm.count = 0; fm.visible = false; fm.renderOrder = 3; fm.userData.keepGeo = true; this.scene.add(fm); }
             const fk = fw[t];

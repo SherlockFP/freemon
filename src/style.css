@@ -888,3 +888,22 @@ html, body {
 
 /* in-world floating texts: dark outline so they read on pale snow */
 .float { text-shadow: 0 2px 0 #0a2a4a, 2px 0 0 #0a2a4a, -2px 0 0 #0a2a4a, 0 -2px 0 #0a2a4a, 0 3px 6px rgba(0, 20, 50, 0.55); }
+
+/* ---- announcements: dark backing plate for contrast on snow; no ghosting ---- */
+#banner .b, .float.big, .float.bad, #cig-banner .cb-n, #cig-banner .cb-k, #stomp {
+  background: radial-gradient(ellipse at center, rgba(8, 22, 48, 0.5) 0%, rgba(8, 22, 48, 0.3) 60%, rgba(8, 22, 48, 0) 100%);
+  padding: 2px 18px; border-radius: 16px; -webkit-text-stroke: 0.6px rgba(8, 22, 48, 0.9); paint-order: stroke fill;
+}
+#cig-banner .cb-k, #cig-banner .cb-n { display: inline-block; }
+#toast-soft .ts { background: rgba(10, 25, 55, 0.94); }
+#banner, #cig-banner { contain: layout; }
+
+/* ---- ÇIĞ level HUD: compact (<= 15% of screen height) ---- */
+#hud.cig-lvl .hud-tons { top: calc(var(--sat) + 40px); font-size: 28px; line-height: 1; }
+#cig-lv { top: calc(var(--sat) + 74px); gap: 3px; }
+#cig-lv .cgl { min-height: 24px; padding: 1px 9px 2px; font-size: 12px; border-radius: 11px; border-width: 2px; }
+#cig-lv .cgl small { font-size: 9px; }
+#cig-lv .cgl.ch { top: 30px; font-size: 11px; }
+#hud.cig-lvl .buffs { top: calc(var(--sat) + 110px); }
+#hud.cig-lvl ~ #toast-soft:not(.res) { top: calc(var(--sat) + 112px); }
+@media (max-height: 700px) { #hud.cig-lvl .hud-tons { font-size: 24px; top: calc(var(--sat) + 38px); } #cig-lv { top: calc(var(--sat) + 66px); } }

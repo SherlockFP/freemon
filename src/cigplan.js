@@ -133,6 +133,7 @@ function build(n, daily, assist, opts) {
   const bossArena = boss && L.bossArena;
   const bossId = boss ? BOSS_IDS[n] || 'yeti' : null;
   const S = 2 + Math.floor(n / 7);
+  const ters = !daily && !boss && n >= 7 && n % 7 === 0;   // TERS ÇIĞ: the avalanche runs ahead, you chase it
   const tNom = Math.min(90, Math.round(45 + 1.5 * (n - 1)) + (boss ? 8 : 0));
   const par = Math.round(L.parK * tNom);
   const speedK = L.speedK0 + L.speedKStep * (n - 1);
@@ -147,7 +148,7 @@ function build(n, daily, assist, opts) {
 
   const P = {
     n, id: 'dag' + n, label: daily ? 'GÜNÜN DAĞI' : 'DAĞ ' + n, name: daily ? 'Günün Dağı' : NAMES[n - 1], seed, daily,
-    boss, bossId, bossHits: boss ? 6 + Math.floor(n / 5) : 0,
+    ters, boss, bossId, bossHits: boss ? 6 + Math.floor(n / 5) : 0,
     speedK, tNom, par, r0, rEnd, rCap, tierStart: tierOf(r0), tierCap: tierOf(rEnd), hw0, length, dF, S,
     gateK, star2K, r2: star2K * rEnd, meltMul: n <= 2 ? 0.7 : n <= 5 ? 0.85 : 1, assist,
     gates: [], finale: null, items: [], widths: [], chase: null, twist: null, mech: [], intro: null,
@@ -166,7 +167,7 @@ function build(n, daily, assist, opts) {
       skin = boss ? 'big' : (n % 2 ? 'wall' : 'big');
     }
     // (boss gate without an arena: a plain big gate, a bit easier than the plan)
-    const minR = boss && !bossArena && last ? 0.86 * rEnd : need;
+    const minR = ters ? 0.3 * need : boss && !bossArena && last ? 0.86 * rEnd : need;
     P.gates.push({ i, d, minR, kind, skin });
   }
   const fg = P.gates[S - 1];
@@ -175,7 +176,8 @@ function build(n, daily, assist, opts) {
   P.bossR = 2.2 * rEnd + 1;
 
   // ---- pace: chase, twist, mechanics, intro
-  if (n >= 3) {
+  if (ters) P.chase = { ters: true, t0: 3, gap0: 90, k: 0.82, clamp: 1 };
+  else if (n >= 3) {
     let k = Math.min(0.78, 0.42 + 0.012 * (n - 3)), gap0 = Math.max(70, 120 - 1.5 * (n - 3));
     if (n >= 26) { k += 0.08; gap0 -= 15; }
     if (assist) gap0 += 20;
