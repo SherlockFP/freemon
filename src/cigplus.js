@@ -15,6 +15,10 @@ import * as THREE from 'three';
 import { CFG, tierOf, bandAt, LABEL } from './config.js';
 import { makeRng } from './rng.js';
 import { patchMaterial } from './shaders.js';
+
+// input activity clock for the AFK melt (any pointer/touch/key event counts)
+let lastInputAt = performance.now();
+if (typeof window !== 'undefined') for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'touchstart', 'touchmove', 'keydown']) window.addEventListener(ev, () => { lastInputAt = performance.now(); }, { passive: true, capture: true });
 import { MOVE_ARMY, MOVE_NONE, clamp } from './world.js';
 
 const TAU = Math.PI * 2;
@@ -1520,10 +1524,10 @@ export class CigGame {
     const grace = sm01((G.t - CFG.meltGrace[0]) / (CFG.meltGrace[1] - CFG.meltGrace[0]));
     rate += 0.012 * clamp(Math.log2(Math.max(1, b.r / 6)), 0, 4);  // big balls burn faster: late game is harder
     rate *= grace;
-    // AFK: not steering for 8+ s melts you fast (an idle ball must not just coast and grow)
-    const tx = G.targetX;
-    if (this._afkTx === undefined || Math.abs(tx - this._afkTx) > 0.03) { this._afkTx = tx; this._afkT = 0; } else this._afkT = (this._afkT || 0) + dt;
-    rate += 0.1 * clamp((this._afkT - 8) / 6, 0, 1);
+    // AFK: no touch/drag input at all for 12+ s melts you fast (an idle ball must not just coast and grow)
+    // only real input activity counts (touch / drag / key): holding a lane with a still finger is not AFK
+    this._afkT = (performance.now() - lastInputAt) / 1000;
+    rate += 0.1 * clamp((this._afkT - 12) / 6, 0, 1);
     if (b.airborne || M.noMelt) rate = 0;
     let onPatch = false;
     if (!b.airborne && !M.noMelt && w.inPatch(b.x, b.d)) { rate += CFG.patchMelt; onPatch = true; }

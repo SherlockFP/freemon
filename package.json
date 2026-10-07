@@ -16,7 +16,8 @@
     "@capacitor/core": "^8.5.2",
     "@capacitor/haptics": "^8.0.2",
     "peerjs": "^1.5.5",
-    "three": "^0.186.1"
+    "three": "^0.186.1",
+    "trystero": "^0.26.0"
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.2",

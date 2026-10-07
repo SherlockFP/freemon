@@ -764,6 +764,77 @@ function crashSamples(k, t) {
   }
 }
 
+// ---------------------------------------------------------- KARTOPU ARENA set
+let arenaChain = 0, arenaChainT = 0;
+/**
+ * Arena one-shots with a volume (0..1, already distance-attenuated by the caller). kind: 'pellet' | 'gulp' | 'merge' | 'ice' | 'golden' |
+ * 'slide' | 'deep' | 'storm' | 'tick'. Each kind is rate-limited; everything is soft and respects mute.
+ */
+function arena(kind, vol) {
+  if (!ready()) return;
+  const k = clamp01(num(vol, 1));
+  if (k < 0.04) return;
+  const t = ctx.currentTime + 0.003;
+  if (kind === 'pellet') {
+    if (!throttle('apel', 0.07)) return;
+    if (t - arenaChainT > 0.6) arenaChain = 0; else arenaChain = Math.min(arenaChain + 1, 9);
+    arenaChainT = t;
+    const v = begin(P_POP, 0.25, 0.8 * k);
+    if (!v) return;
+    const f = BASE_HZ * 2 * Math.pow(2, scaleSemis(arenaChain) / 12);
+    const lp = filt('lowpass', 2600, 0.5); lp.connect(v.out);
+    const o = osc(v, 'sine', f, t, 0.15); const g = gain0(); env(g.gain, t, 0.12, 0.003, 0.07); link(o, g, lp);
+    nz(v, whiteBuf, t, 'bandpass', 1400, 700, 0.8, 0.05, 0.1, 0.003, 0.05);
+    if (has('snow_crunch') && throttle('apelS', 0.16)) smp('snow_crunch', 0.22 * k, rand(1.1, 1.4), P_POP, t, 0.09);
+  } else if (kind === 'gulp') {
+    if (!throttle('agulp', 0.1)) return;
+    const v = begin(P_BIG, 0.5, 0.9 * k);
+    if (!v) return;
+    tone(v, 'sine', t, 330, 150, 0.12, 0.26, 0.004, 0.18);
+    tone(v, 'sine', t + 0.07, 520, 760, 0.1, 0.12, 0.004, 0.14);
+    nz(v, whiteBuf, t, 'lowpass', 700, 300, 0.7, 0.1, 0.12, 0.004, 0.1);
+    if (has('impact_soft')) smp('impact_soft', 0.5 * k, rand(0.9, 1.1), P_BIG, t, 0);
+    if (has('coin')) smp('coin', 0.25 * k, rand(0.95, 1.1), P_POP, t + 0.08, 0);
+  } else if (kind === 'merge') {
+    if (!throttle('amrg', 0.15)) return;
+    const v = begin(P_POP, 0.3, 0.7 * k);
+    if (v) tone(v, 'sine', t, 300, 520, 0.09, 0.2, 0.004, 0.14);
+  } else if (kind === 'ice') {
+    if (!throttle('aice', 0.2)) return;
+    const v = begin(P_BIG, 0.6, 0.9 * k);
+    if (!v) return;
+    nz(v, whiteBuf, t, 'highpass', 2500, 4500, 0.7, 0.1, 0.12, 0.002, 0.18);
+    tone(v, 'triangle', t, 1800, 900, 0.15, 0.08, 0.002, 0.2);
+    if (has('crash_glass')) smp('crash_glass', 0.45 * k, rand(0.95, 1.15), P_BIG, t, 0.5);
+  } else if (kind === 'golden') {
+    if (!throttle('agold', 0.3)) return;
+    const v = begin(P_JINGLE, 1.1, 0.8 * k);
+    if (!v) return;
+    [0, 4, 7, 12].forEach((st, i) => tone(v, 'sine', t + i * 0.08, BASE_HZ * 2 * Math.pow(2, st / 12), 0, 0, 0.16, 0.004, 0.3));
+    if (has('jingle_star')) smp('jingle_star', 0.5 * k, 1, P_JINGLE, t, 0);
+  } else if (kind === 'slide') {
+    if (!throttle('aslide', 0.35)) return;
+    const v = begin(P_FX, 0.45, 0.5 * k);
+    if (v) swell(v, whiteBuf, t, 'bandpass', 2200, 3600, 2400, 0.6, 0.1, 0.12, 0.4);
+  } else if (kind === 'deep') {
+    if (!throttle('adeep', 0.5)) return;
+    const v = begin(P_FX, 0.6, 0.8 * k);
+    if (v) swell(v, brownBuf, t, 'lowpass', 300, 450, 200, 0.7, 0.35, 0.15, 0.55);
+  } else if (kind === 'storm') {
+    if (!throttle('astorm', 3)) return;
+    const v = begin(P_FX, 3.2, 0.9 * k);
+    if (!v) return;
+    swell(v, brownBuf, t, 'lowpass', 160, 380, 120, 0.8, 0.6, 1.2, 3);
+    tswell(v, 'sine', t, 45, 38, 0.25, 1.2, 3);
+    swell(v, whiteBuf, t, 'bandpass', 500, 1200, 400, 0.5, 0.07, 1.3, 3);
+  } else if (kind === 'tick') {
+    if (!throttle('atick', 0.12)) return;
+    const v = begin(P_UI, 0.12, 0.6 * k);
+    if (v) tone(v, 'sine', t, 1500, 1100, 0.04, 0.12, 0.002, 0.05);
+  }
+}
+
+
 function whoosh() {
   if (!ready() || !throttle('whoosh', 0.5)) return;
   const v = begin(P_FX, 1.3, MIX.whoosh);
@@ -1015,6 +1086,8 @@ export const audio = {
   /** Per-frame rolling rumble. speed01 = 0 silences it. */
   setRoll: guard(setRoll),
   whoosh: guard(whoosh),
+  /** KARTOPU ARENA one-shots: arena(kind, volume01) - see arena(). */
+  arena: guard(arena),
   land: guard(land),
   /** level 1..n gets grander (capped at 6). */
   milestone: guard(milestone),

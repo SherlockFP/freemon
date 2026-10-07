@@ -135,6 +135,7 @@ export class UI {
     this.el.stomp.classList.add('hidden');
     this.el.cigBanner.classList.remove('on'); this.el.cigBanner.classList.add('hidden');
     this.el.buffFly.innerHTML = '';
+    this._annReset();
     this.el.toastSoft.innerHTML = '';
     this.el.toastSoft.classList.remove('res');
     this.runnerTutor(null);
@@ -629,7 +630,11 @@ export class UI {
     try { meta.track('buff', { id }); } catch { /* ignore */ }
     snd('chime');
     // fly-in card
-    if (this.el.buffFly.children.length < 3) {
+    this._ann(() => this._buffCardNow(b, icon, name, secs), 1000);
+  }
+
+  _buffCardNow(b, icon, name, secs) {
+    {
       const card = document.createElement('div');
       card.className = 'buff-card';
       const ic = document.createElement('div'); ic.className = 'bc-i'; ic.textContent = icon || '✨';
@@ -641,7 +646,7 @@ export class UI {
       const r = b.el.getBoundingClientRect();
       const W = window.innerWidth || 390;
       card.style.setProperty('--dx', `${Math.round(r.left + r.width / 2 - W / 2)}px`);
-      card.style.setProperty('--dy', `${Math.round(r.top + r.height / 2 - 70)}px`);
+      card.style.setProperty('--dy', `${Math.round(r.top + r.height / 2 - 188)}px`);
       card.addEventListener('animationend', () => card.remove());
       this.el.buffFly.appendChild(card);
     }
@@ -783,7 +788,27 @@ export class UI {
     this._cg = { kg: -1, tnRaw: null, fill: -1, dm: -1, bk: -1 };
   }
 
+  // announcements (tier banner, XP toast, power card) share one slot: they queue and show one at a time
+  _ann(run, ms) {
+    const q = this._annQ || (this._annQ = []);
+    if (q.length >= 4) q.shift();
+    q.push({ run, ms });
+    this._annPump();
+  }
+  _annPump() {
+    if (this._annBusy || !this._annQ || !this._annQ.length) return;
+    const a = this._annQ.shift();
+    this._annBusy = true;
+    try { a.run(); } catch { /* ignore */ }
+    clearTimeout(this._annT);
+    this._annT = setTimeout(() => { this._annBusy = false; this._annPump(); }, a.ms);
+  }
+  _annReset() { clearTimeout(this._annT); this._annQ = []; this._annBusy = false; }
+
   cigTier(name) {
+    this._ann(() => this._cigTierNow(name), 1300);
+  }
+  _cigTierNow(name) {
     const el = this.el.cigBanner;
     this.el.cbN.textContent = String(name || '').toLocaleUpperCase('tr-TR');
     el.classList.remove('hidden', 'on');
@@ -801,6 +826,9 @@ export class UI {
     const now = performance.now();
     if (text === this._tsLast && now - this._tsAt < 2500) return;
     this._tsLast = text; this._tsAt = now;
+    this._ann(() => this._toastNow(text, opts), 1500);
+  }
+  _toastNow(text, opts) {
     const box = this.el.toastSoft;
     while (box.children.length >= 2) box.firstChild.remove();
     const d = document.createElement('div');

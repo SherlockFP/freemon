@@ -1,17 +1,23 @@
 // KARTOPU ARENA - agar.io style snowball mode. Own scene + camera, own DOM overlay, own pointer input.
-// Single player runs entirely here (no network code is loaded). A P2P lobby (PeerJS, src/agar/net.js) is imported lazily:
+// Single player runs entirely here (no network code is loaded). Online (all lazily imported): PeerJS game link (net.js) + Trystero serverless room discovery (lobby.js):
 // the host runs the whole simulation, clients only send input and render snapshots.
 import * as THREE from 'three';
+import { VERSION, MAX_HUMANS } from './proto.js';
+import { Terrain, NICE, NDEEP, NRAMP } from './terrain.js';
+import { generateNames, BOT_CHAT } from './names.js';
 
 // ------------------------------------------------------------------ constants
-const R = 300; // arena radius (m)
-const CAP = 160; // max live cells
-const NOWN = 28; // owners (players + bots)
-const FOOD = 2600, SPARE = 400, FT = FOOD + SPARE; // permanent pellets + slots for boost-trail pellets
-const NVIR = 26, NPUP = 14;
-const GS = 20, GN = 30; // food grid
+const R = 1100; // arena radius (m) - a big agar.io-like map (2.2 km across)
+const CAP = 260; // max live cells
+const NOWN = 52; // owners (players + bots): up to 8 humans, the rest are bots
+const FOOD = 24000, SPARE = 800, FT = FOOD + SPARE; // permanent pellets + slots for boost-trail pellets
+const NVIR = 90, NPUP = 40;
+const GS = 40, GN = 55; // food grid (GN * GS >= 2 * R)
 const KR = 0.3; // radius = KR * sqrt(mass)
-const MAXM = 22000;
+const MAXM = 60000;
+const TRAIL_N = 2000, TRAIL_LIFE = 7.5; // groove stamps (ring buffer)
+const TITLES = [[0, 'Çömez'], [60, 'Kar Tanesi'], [150, 'Kartopu'], [400, 'Dev Kartopu'], [1000, 'Çığ'], [2500, 'Buzul'], [6000, 'Kış Kralı'], [15000, 'Efsane Yeti'], [35000, 'Kartopu Tanrısı']];
+const titleOf = (m) => { let k = 0; for (let i = 1; i < TITLES.length; i++) if (m >= TITLES[i][0]) k = i; return k; };
 const VIRR = 3, VIR_MIN = 130; // ice crystal radius / smallest mass that gets shattered
 const MAXPIECES = 16;
 const BEST_KEY = 'patpat.agar.best', XP_KEY = 'patpat.agar.xp', NICK_KEY = 'patpat.agar.nick';
@@ -20,12 +26,11 @@ const PUP_TYPES = [
   { id: 'shd', emoji: '🛡️', name: 'KALKAN', col: 0x4aa8ff, t: 7 },
   { id: 'spd', emoji: '⚡', name: 'HIZ', col: 0xffd23f, t: 7 },
   { id: 'big', emoji: '🍄', name: 'DEV', col: 0xb06bff, t: 0 },
+  { id: 'gld', emoji: '❄️', name: 'ALTIN KAR TANESİ', col: 0xffc400, t: 0 },
 ];
-const BOT_NAMES = ['Buzkıran', 'KarTanesi', 'Çığ Avcısı', 'YetiAvcısı', 'Kutup Ayısı', 'DondurmaKral', 'Pamuk', 'Bora', 'Kızakçı', 'BuzAdam', 'KarPanda',
-  'Soğuk Zeki', 'Kartopu Ali', 'Penguen Mehmet', 'Hasan Çığ', 'Eskimo Cemal', 'Zeybek', 'Fırtına', 'Kış Prensi', 'Sucuk', 'Lokum', 'Pofuduk', 'Ayaz', 'Kırağı',
-  'Boran', 'Tipi', 'Karakış', 'Dondurma Ayşe', 'Çiğdem', 'Şerbetçi', 'Bulut', 'Karlı Kaya', 'Don Kişot', 'Kristal', 'Yumak', 'Poyraz'];
 const FOOD_PAL = [0xffffff, 0xbfe6ff, 0xffd9e8, 0xfff3b0, 0xcdf5d0, 0xe3d4ff, 0xffc9a8, 0xa8f0f0];
 const VOWELS = 'aeıioöuü';
+const BAD = new Set(['amk', 'aq', 'mk', 'orospu', 'piç', 'pic', 'siktir', 'sik', 'sikik', 'yarrak', 'yarak', 'göt', 'oç', 'ananı', 'anani', 'amına', 'amina', 'amcık', 'amcik', 'sikerim', 'bok']);
 
 const speedFor = (m) => 17 * Math.pow(m, -0.12);
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -43,7 +48,64 @@ function accSuffix(name) {
 }
 const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, String(v)); } catch { /* ignore */ } };
+const fract = (x) => x - Math.floor(x);
 const lvlOf = (xp) => Math.floor(Math.sqrt(Math.max(0, xp) / 60)) + 1;
+
+
+// matrix = translation * scale(sx,sy,sz) * rotation(q)  (instanced snowballs roll and can be squashed in world axes)
+function wmq(a, p, x, y, z, sx, sy, sz, qx, qy, qz, qw) {
+  const xx = qx * qx, yy = qy * qy, zz = qz * qz, xy = qx * qy, xz = qx * qz, yz = qy * qz, wx = qw * qx, wy = qw * qy, wz = qw * qz;
+  a[p] = sx * (1 - 2 * (yy + zz)); a[p + 1] = sy * 2 * (xy + wz); a[p + 2] = sz * 2 * (xz - wy); a[p + 3] = 0;
+  a[p + 4] = sx * 2 * (xy - wz); a[p + 5] = sy * (1 - 2 * (xx + zz)); a[p + 6] = sz * 2 * (yz + wx); a[p + 7] = 0;
+  a[p + 8] = sx * 2 * (xz + wy); a[p + 9] = sy * 2 * (yz - wx); a[p + 10] = sz * (1 - 2 * (xx + yy)); a[p + 11] = 0;
+  a[p + 12] = x; a[p + 13] = y; a[p + 14] = z; a[p + 15] = 1;
+}
+
+/** lumpy, subdivided snow sphere */
+function snowGeometry() {
+  const g = new THREE.SphereGeometry(1, 40, 28);
+  const pos = g.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const n = Math.sin(v.x * 5.1 + 1.3) * Math.sin(v.y * 6.2 + 0.7) * Math.sin(v.z * 5.6 + 2.1) * 0.035 + Math.sin(v.x * 13 + v.z * 9) * Math.sin(v.y * 11 + 0.4) * 0.012;
+    v.multiplyScalar(1 + n);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** soft snow shading: white body with noise, the player colour as a belt + cap, a faint sparkle */
+function snowMaterial(uTime) {
+  const m = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uTime = uTime;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vON;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvON = normal;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vON;\nuniform float uTime;')
+      .replace('#include <color_fragment>', `
+        float band = 1.0 - smoothstep(0.10, 0.20, abs(vON.y - 0.05));
+        float hat = smoothstep(0.68, 0.80, vON.y);
+        float tint = max(band, hat);
+        vec3 snow = vec3(0.95, 0.975, 1.0);
+        snow *= 0.93 + 0.07 * sin(vON.x * 23.0) * sin(vON.y * 19.0 + 1.0) * sin(vON.z * 21.0 + 2.0);
+        diffuseColor.rgb *= mix(snow, vColor.rgb * 1.05, tint);`)
+      .replace('#include <dithering_fragment>', `#include <dithering_fragment>
+        float sh1 = fract(sin(dot(floor(vON * 34.0), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+        float tw = step(0.992, sh1) * (0.5 + 0.5 * sin(uTime * 4.0 + sh1 * 60.0));
+        gl_FragColor.rgb += vec3(0.35) * tw * (1.0 - tint);`);
+  };
+  return m;
+}
+
+function canvasTex(w, h, draw, repeat) {
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  draw(cv.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat); t.anisotropy = 4; }
+  return t;
+}
 
 function wm(a, p, x, y, z, s) {
   a[p] = s; a[p + 1] = 0; a[p + 2] = 0; a[p + 3] = 0;
@@ -76,7 +138,7 @@ export class AgarMode {
     this.renderer = renderer; this.post = post; this.ui = ui; this.audio = audio; this.save = save; this.platform = platform; this.onExit = onExit;
     this._scene = new THREE.Scene();
     this._scene.background = new THREE.Color(0x6fb0e6);
-    this._camera = new THREE.PerspectiveCamera(50, 0.5, 2, 3500);
+    this._camera = new THREE.PerspectiveCamera(50, 0.5, 4, 9000);
     this.app = document.getElementById('app') || document.body;
     this.dom = this.renderer.domElement;
     this.sz = new THREE.Vector2();
@@ -84,6 +146,7 @@ export class AgarMode {
     this.state = 'title'; // title | lobby | play | dead
     this.mp = null; // null | 'host' | 'client'
     this.net = null;
+    this.presence = null; this._tok = 0; this.privRoom = false; this.humans = 1;
     this.me = 0;
     this.time = 0;
     this.nick = (lsGet(NICK_KEY, '') || '').slice(0, 12);
@@ -99,6 +162,11 @@ export class AgarMode {
     this.fdn = 0;
     this.lb = []; this.lbN = 0;
     this.lastLevel = 1;
+    this.terrain = new Terrain(R); this.seed = 1; this.uTime = { value: 0 };
+    this.storm = { on: false, x: 0, z: 0, dx: 0, dz: 0, t: 0, next: 40, r: 170 }; this.stormSndT = 0;
+    this.titleIdx = 0; this.meZone = 0; this.lastMyMass = 0; this.botChatT = 20;
+    this.chatLog = []; this.lastChat = 0;
+    this.trN = 0;
     this.resultEl = null; this.screenEl = null;
     this._lbCmp = (a, b) => b.mass - a.mass;
 
@@ -115,7 +183,7 @@ export class AgarMode {
   // ------------------------------------------------------------------ data
   initData() {
     this.cells = [];
-    for (let i = 0; i < CAP; i++) this.cells.push({ on: false, o: 0, x: 0, z: 0, vx: 0, vz: 0, m: 0, r: 0, merge: 0, tx: 0, tz: 0, killer: -1 });
+    for (let i = 0; i < CAP; i++) this.cells.push({ on: false, o: 0, x: 0, z: 0, vx: 0, vz: 0, m: 0, r: 0, merge: 0, tx: 0, tz: 0, killer: -1, mvx: 0, mvz: 0, qx: 0, qy: 0, qz: 0, qw: 1, px0: 0, pz0: 0, lsx: 0, lsz: 0, rampT: 0 });
     this.act = new Int16Array(CAP);
     this.tmpIdx = new Int16Array(CAP);
     this.owners = [];
@@ -129,7 +197,7 @@ export class AgarMode {
     }
     // food
     this.fx = new Float32Array(FT); this.fz = new Float32Array(FT); this.fv = new Float32Array(FT);
-    this.fcol = new Int32Array(FT);
+    this.fcol = new Int32Array(FT); this.fcr = new Float32Array(FT); this.fcg = new Float32Array(FT); this.fcb = new Float32Array(FT);
     this.fnext = new Int32Array(FT); this.fprev = new Int32Array(FT); this.fcell = new Int32Array(FT); this.fin = new Uint8Array(FT);
     this.fd = new Uint8Array(FT); this.fdl = new Int32Array(FT);
     this.ghead = new Int32Array(GN * GN).fill(-1);
@@ -147,30 +215,31 @@ export class AgarMode {
     const dl = new THREE.DirectionalLight(0xffffff, 1.35);
     dl.position.set(0.5, 1, 0.35);
     sc.add(dl);
-    // ground
-    const cv = document.createElement('canvas');
-    cv.width = cv.height = 512;
-    const g = cv.getContext('2d');
-    g.fillStyle = '#eef6ff'; g.fillRect(0, 0, 512, 512);
-    for (let i = 0; i < 700; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(200,225,250,0.35)' : 'rgba(255,255,255,0.6)'; g.fillRect(Math.random() * 512, Math.random() * 512, 3 + Math.random() * 6, 3 + Math.random() * 6); }
-    g.strokeStyle = 'rgba(150,190,230,0.55)'; g.lineWidth = 1.5;
-    for (let i = 0; i <= 20; i++) { const p = (i * 512) / 20; g.beginPath(); g.moveTo(p, 0); g.lineTo(p, 512); g.stroke(); g.beginPath(); g.moveTo(0, p); g.lineTo(512, p); g.stroke(); }
-    this.groundTex = new THREE.CanvasTexture(cv);
-    this.groundTex.colorSpace = THREE.SRGBColorSpace;
-    this.groundTex.anisotropy = 4;
-    const gm = new THREE.Mesh(new THREE.CircleGeometry(R, 72).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: this.groundTex }));
+    // ground: a tiling snow texture (subtle variation, faint blue shadows, soft grid)
+    this.groundTex = canvasTex(512, 512, (g, W, H) => {
+      g.fillStyle = '#eef6ff'; g.fillRect(0, 0, W, H);
+      for (let i = 0; i < 260; i++) {
+        const x = Math.random() * W, y = Math.random() * H, r = 10 + Math.random() * 38;
+        const gr = g.createRadialGradient(x, y, 0, x, y, r);
+        gr.addColorStop(0, Math.random() < 0.55 ? 'rgba(190,215,245,0.20)' : 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+      }
+      for (let i = 0; i < 900; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(200,225,250,0.32)' : 'rgba(255,255,255,0.7)'; g.fillRect(Math.random() * W, Math.random() * H, 2 + Math.random() * 4, 2 + Math.random() * 4); }
+      g.strokeStyle = 'rgba(150,190,230,0.30)'; g.lineWidth = 1.5;
+      for (let i = 0; i <= 4; i++) { const q = (i * W) / 4; g.beginPath(); g.moveTo(q, 0); g.lineTo(q, H); g.stroke(); g.beginPath(); g.moveTo(0, q); g.lineTo(W, q); g.stroke(); }
+    }, 40);
+    const gm = new THREE.Mesh(new THREE.CircleGeometry(R, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: this.groundTex }));
     sc.add(gm);
-    const sea = new THREE.Mesh(new THREE.CircleGeometry(3000, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x4f90c9 }));
-    sea.position.y = -0.3;
+    const sea = new THREE.Mesh(new THREE.CircleGeometry(6000, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x4f90c9 }));
+    sea.position.y = -0.6;
     sc.add(sea);
-    const wall = new THREE.Mesh(new THREE.CylinderGeometry(R + 1.5, R + 1.5, 4, 72, 1, true), new THREE.MeshBasicMaterial({ color: 0xbfe3ff, side: THREE.DoubleSide, transparent: true, opacity: 0.85 }));
-    wall.position.y = 2;
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(R + 1.5, R + 1.5, 6, 96, 1, true), new THREE.MeshBasicMaterial({ color: 0xbfe3ff, side: THREE.DoubleSide, transparent: true, opacity: 0.85 }));
+    wall.position.y = 3;
     sc.add(wall);
-    const rim = new THREE.Mesh(new THREE.RingGeometry(R - 2, R + 3, 72).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x8cc8f5 }));
-    rim.position.y = 0.05;
+    const rim = new THREE.Mesh(new THREE.RingGeometry(R - 3, R + 6, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x8cc8f5 }));
+    rim.position.y = 0.1;
     sc.add(rim);
 
-    // cells (+ blob shadows)
     const mk = (geo, mat, n, color) => {
       const m = new THREE.InstancedMesh(geo, mat, n);
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -180,11 +249,46 @@ export class AgarMode {
       sc.add(m);
       return m;
     };
-    this.shadowMesh = mk(new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x1a3a66, transparent: true, opacity: 0.2, depthWrite: false }), CAP, false);
-    this.shadowMesh.position.y = 0.06;
-    this.cellMesh = mk(new THREE.SphereGeometry(1, 22, 15), new THREE.MeshLambertMaterial({ color: 0xffffff }), CAP, true);
+    this._mk = mk;
+    const decal = (opts) => new THREE.MeshBasicMaterial(Object.assign({ transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }, opts));
+    const flat = (n) => new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
+    // terrain: deep snow, ice, drifts (ramps)
+    const deepTex = canvasTex(256, 256, (g, W, H) => {
+      const gr = g.createRadialGradient(W / 2, H / 2, W * 0.15, W / 2, H / 2, W / 2); gr.addColorStop(0, 'rgba(255,255,255,0.95)'); gr.addColorStop(0.82, 'rgba(238,246,255,0.8)'); gr.addColorStop(1, 'rgba(238,246,255,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      for (let i = 0; i < 70; i++) { const x = W / 2 + (Math.random() - 0.5) * W * 0.8, y = H / 2 + (Math.random() - 0.5) * H * 0.8; g.fillStyle = 'rgba(170,200,235,0.35)'; g.beginPath(); g.arc(x, y, 3 + Math.random() * 5, 0, 6.3); g.fill(); }
+      g.strokeStyle = 'rgba(120,160,210,0.4)'; g.lineWidth = 3; g.beginPath(); g.arc(W / 2, H / 2, W * 0.4, 0, 6.3); g.stroke();
+    });
+    const iceTex = canvasTex(256, 256, (g, W, H) => {
+      const gr = g.createRadialGradient(W / 2, H / 2, W * 0.1, W / 2, H / 2, W / 2); gr.addColorStop(0, 'rgba(150,220,255,0.78)'); gr.addColorStop(0.85, 'rgba(120,200,250,0.7)'); gr.addColorStop(1, 'rgba(120,200,250,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      g.strokeStyle = 'rgba(255,255,255,0.75)'; g.lineWidth = 2;
+      for (let i = 0; i < 14; i++) { let x = W / 2 + (Math.random() - 0.5) * W * 0.5, y = H / 2 + (Math.random() - 0.5) * H * 0.5; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += (Math.random() - 0.5) * 70; y += (Math.random() - 0.5) * 70; g.lineTo(x, y); } g.stroke(); }
+      g.strokeStyle = 'rgba(70,150,215,0.55)'; g.lineWidth = 4; g.beginPath(); g.arc(W / 2, H / 2, W * 0.42, 0, 6.3); g.stroke();
+    });
+    this.deepMesh = mk(flat(), decal({ map: deepTex }), NDEEP, false); this.deepMesh.position.y = 0.1; this.deepMesh.renderOrder = 1;
+    this.iceMesh = mk(flat(), decal({ map: iceTex }), NICE, false); this.iceMesh.position.y = 0.14; this.iceMesh.renderOrder = 2;
+    this.rampMesh = mk(new THREE.SphereGeometry(1, 14, 8, 0, 6.2832, 0, 1.5708), new THREE.MeshLambertMaterial({ color: 0xe9f4ff }), NRAMP, false);
+    // storm: two counter-rotating swirl discs
+    const stormTex = canvasTex(256, 256, (g, W, H) => {
+      const gr = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W / 2); gr.addColorStop(0, 'rgba(235,245,255,0.35)'); gr.addColorStop(0.7, 'rgba(235,245,255,0.28)'); gr.addColorStop(1, 'rgba(235,245,255,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 5; g.lineCap = 'round';
+      for (let k = 0; k < 9; k++) { g.beginPath(); for (let t = 0; t < 1; t += 0.05) { const ang = k * 0.7 + t * 5, rr = 20 + t * 100; const x = W / 2 + Math.cos(ang) * rr, y = H / 2 + Math.sin(ang) * rr; if (t === 0) g.moveTo(x, y); else g.lineTo(x, y); } g.stroke(); }
+    });
+    this.stormA = new THREE.Mesh(new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2), decal({ map: stormTex, opacity: 0.9 }));
+    this.stormB = new THREE.Mesh(new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2), decal({ map: stormTex, opacity: 0.6 }));
+    this.stormA.position.y = 0.5; this.stormB.position.y = 1.4; this.stormA.visible = this.stormB.visible = false; this.stormA.renderOrder = this.stormB.renderOrder = 6;
+    sc.add(this.stormA); sc.add(this.stormB);
+    // trail grooves (ring buffer of faint stamps)
+    this.trX = new Float32Array(TRAIL_N); this.trZ = new Float32Array(TRAIL_N); this.trR = new Float32Array(TRAIL_N); this.trT = new Float32Array(TRAIL_N).fill(-99);
+    this.trailMesh = mk(new THREE.CircleGeometry(1, 12).rotateX(-Math.PI / 2), decal({ opacity: 0.5 }), TRAIL_N, true); this.trailMesh.position.y = 0.17; this.trailMesh.renderOrder = 3;
+    // cells (+ soft blob shadows)
+    const shTex = canvasTex(64, 64, (g, W, H) => { const gr = g.createRadialGradient(W / 2, H / 2, 2, W / 2, H / 2, W / 2); gr.addColorStop(0, 'rgba(25,55,100,0.55)'); gr.addColorStop(0.6, 'rgba(25,55,100,0.28)'); gr.addColorStop(1, 'rgba(25,55,100,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, H); });
+    this.shadowMesh = mk(flat(), decal({ map: shTex }), CAP, false);
+    this.shadowMesh.position.y = 0.22; this.shadowMesh.renderOrder = 4;
+    this.cellMesh = mk(snowGeometry(), snowMaterial(this.uTime), CAP, true);
     this.foodMesh = mk(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({ color: 0xffffff }), FT, true);
-    this.foodMesh.count = FT;
     this.virMesh = mk(spikyGeometry(), new THREE.MeshLambertMaterial({ color: 0x9fe8ff, flatShading: true, emissive: 0x1a6a8a }), NVIR, false);
     this.pupMesh = mk(new THREE.OctahedronGeometry(1.3, 0), new THREE.MeshBasicMaterial({ color: 0xffffff }), NPUP, true);
     this.pupMesh.count = NPUP;
@@ -192,7 +296,7 @@ export class AgarMode {
     this.aura.visible = false; this.aura.frustumCulled = false;
     sc.add(this.aura);
     this.ring = new THREE.Mesh(new THREE.RingGeometry(0.94, 1, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff6a6a, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }));
-    this.ring.visible = false; this.ring.position.y = 0.2; this.ring.frustumCulled = false;
+    this.ring.visible = false; this.ring.position.y = 0.3; this.ring.frustumCulled = false;
     sc.add(this.ring);
     // name sprites
     for (const o of this.owners) {
@@ -245,18 +349,11 @@ export class AgarMode {
     this.fin[i] = 0;
   }
   foodSize(v) { return (v >= 5 ? 0.95 : v >= 2 ? 0.58 : 0.42) * this.fs; }
-  writeFood(i) {
-    const a = this.foodMesh.instanceMatrix.array;
-    const v = this.fv[i];
-    if (v > 0) { const s = this.foodSize(v); wm(a, i * 16, this.fx[i], s, this.fz[i], s); } else wm(a, i * 16, 0, -5, 0, 0);
-    this.mDirty = true;
-  }
+  writeFood() { /* pellets are drawn compactly from the grid every frame (see render) */ }
   setFoodColor(i, hex) {
     this.fcol[i] = hex;
     this.tmpC.setHex(hex);
-    const a = this.foodMesh.instanceColor.array;
-    a[i * 3] = this.tmpC.r; a[i * 3 + 1] = this.tmpC.g; a[i * 3 + 2] = this.tmpC.b;
-    this.cDirty = true;
+    this.fcr[i] = this.tmpC.r; this.fcg[i] = this.tmpC.g; this.fcb[i] = this.tmpC.b;
   }
   foodMark(i) { if (this.mp === 'host' && !this.fd[i]) { this.fd[i] = 1; this.fdl[this.fdn++] = i; } }
   foodPlace(i, x, z, v) {
@@ -290,6 +387,9 @@ export class AgarMode {
   initWorld() {
     const p = { x: 0, z: 0 };
     this.fs = 1;
+    this.genTerrain((Math.random() * 2147483647) | 0);
+    this.storm.on = false; this.storm.next = 35 + Math.random() * 25; this.stormA.visible = this.stormB.visible = false;
+    this.trT.fill(-99); this.trN = 0;
     for (let i = 0; i < FT; i++) { this.gRemove(i); this.fv[i] = 0; }
     this.ghead.fill(-1); this.fin.fill(0);
     for (let i = 0; i < FOOD; i++) {
@@ -299,34 +399,46 @@ export class AgarMode {
       this.fx[i] = p.x; this.fz[i] = p.z; this.fv[i] = this.baseVal(i);
       this.gAdd(i);
     }
-    for (let i = FOOD; i < FT; i++) wm(this.foodMesh.instanceMatrix.array, i * 16, 0, -5, 0, 0);
-    for (let i = 0; i < FOOD; i++) this.writeFood(i);
-    this.mDirty = true;
     for (let i = 0; i < NVIR; i++) { this.randPos(p, 12); this.vx[i] = p.x; this.vz[i] = p.z; this.von[i] = 1; this.vt[i] = 0; }
     this.vDirty = true;
-    for (let i = 0; i < NPUP; i++) { this.randPos(p, 12); this.px[i] = p.x; this.pz[i] = p.z; this.pon[i] = 1; this.ptype[i] = i % 4; this.pt[i] = 0; this.setPupColor(i); }
+    for (let i = 0; i < NPUP; i++) { this.randPos(p, 12); this.px[i] = p.x; this.pz[i] = p.z; this.pon[i] = 1; this.ptype[i] = i === 7 || i === 23 ? 4 : i % 4; this.pt[i] = 0; this.setPupColor(i); }
     for (const c of this.cells) c.on = false;
     // bots
-    const names = BOT_NAMES.slice();
-    for (let i = names.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; const t = names[i]; names[i] = names[j]; names[j] = t; }
+    const names = generateNames(NOWN, [this.nick]);
     for (let i = 0; i < NOWN; i++) {
       const o = this.owners[i];
       o.bot = i !== 0; o.human = null; o.alive = false; o.wasAlive = false; o.respawnT = 0; o.shield = o.magnet = o.speed = o.boostT = o.boostCd = 0;
       if (i === 0) { this.setColor(o, 0xbfeaff); this.setName(o, this.nick || 'Sen', true); } else {
         this.tmpC.setHSL((i * 0.6180339) % 1, 0.72, 0.56);
         this.setColor(o, this.tmpC.getHex());
-        this.setName(o, names[i % names.length], false);
+        this.setName(o, names[i], false);
         o.isMeTag = false;
       }
     }
     this.fdn = 0; this.fd.fill(0);
     if (this.mp !== 'client') {
       for (let i = 1; i < NOWN; i++) {
-        let m = 22 * Math.exp(Math.random() * 3.1);
-        if (i <= 2) m = rnd(1400, 3200);
+        let m = 22 * Math.exp(Math.random() * 3.4);
+        if (i <= 3) m = rnd(900, 2600);
         this.spawnOwner(this.owners[i], m);
       }
     }
+  }
+
+  genTerrain(seed) {
+    this.seed = seed;
+    const T = this.terrain;
+    T.gen(seed);
+    const w = (mesh, arr, n, h) => {
+      const a = mesh.instanceMatrix.array;
+      for (let i = 0; i < n; i++) wm(a, i * 16, arr[i * 3], h, arr[i * 3 + 1], arr[i * 3 + 2]);
+      mesh.count = n; mesh.instanceMatrix.needsUpdate = true;
+    };
+    w(this.deepMesh, T.deep, NDEEP, 0);
+    w(this.iceMesh, T.ice, NICE, 0);
+    const ra = this.rampMesh.instanceMatrix.array;
+    for (let i = 0; i < NRAMP; i++) { const r = T.ramp[i * 3 + 2]; wm(ra, i * 16, T.ramp[i * 3], 0, T.ramp[i * 3 + 1], r); ra[i * 16 + 5] = r * 0.45; }
+    this.rampMesh.count = NRAMP; this.rampMesh.instanceMatrix.needsUpdate = true;
   }
 
   setPupColor(i) {
@@ -339,7 +451,7 @@ export class AgarMode {
   newCell(o, x, z, m) {
     for (let i = 0; i < CAP; i++) {
       const c = this.cells[i];
-      if (!c.on) { c.on = true; c.o = o.id; c.x = c.tx = x; c.z = c.tz = z; c.vx = c.vz = 0; c.m = m; c.r = KR * Math.sqrt(m); c.merge = 0; c.killer = -1; return c; }
+      if (!c.on) { c.on = true; c.o = o.id; c.x = c.tx = x; c.z = c.tz = z; c.vx = c.vz = 0; c.m = m; c.r = KR * Math.sqrt(m); c.merge = 0; c.killer = -1; c.mvx = c.mvz = 0; c.qx = c.qy = c.qz = 0; c.qw = 1; c.px0 = x; c.pz0 = z; c.lsx = x; c.lsz = z; c.rampT = 0; return c; }
     }
     return null;
   }
@@ -353,6 +465,7 @@ export class AgarMode {
       if (ok) break;
     }
     this.newCell(o, p.x, p.z, m);
+    if (o.id === this.me) this.titleIdx = 0;
     o.alive = true; o.wasAlive = true; o.cellN = 1; o.mass = m; o.cx = p.x; o.cz = p.z; o.lx = p.x; o.lz = p.z;
     o.boostT = o.boostCd = o.splitCd = o.magnet = o.speed = 0; o.shield = o.bot ? 0 : 3;
     o.kills = 0; o.xpRun = 0; o.t0 = this.time; o.bestRank = 99; o.maxMass = m; o.killer = -1;
@@ -360,7 +473,7 @@ export class AgarMode {
     o.dx = Math.cos(Math.random() * 6.28); o.dz = Math.sin(Math.random() * 6.28);
   }
 
-  startMass() { return Math.min(80, 20 + (lvlOf(this.xp) - 1) * 3); }
+  startMass() { return 24; } // everybody starts equal (XP / level is cosmetic only)
 
   // ------------------------------------------------------------------ lifecycle
   start() {
@@ -385,7 +498,7 @@ export class AgarMode {
 
   respawnMe() {
     this.closeResult();
-    if (this.mp === 'client') { this.net && this.net.send({ t: 'respawn' }); this.state = 'play'; this.owners[this.me].t0 = this.time; this.owners[this.me].maxMass = 0; this.owners[this.me].bestRank = 99; return; }
+    if (this.mp === 'client') { this.net && this.net.send({ t: 'respawn' }); this.titleIdx = 0; this.lastMyMass = 0; this.state = 'play'; this.owners[this.me].t0 = this.time; this.owners[this.me].maxMass = 0; this.owners[this.me].bestRank = 99; return; }
     const o = this.owners[this.me];
     o.bot = false;
     this.spawnOwner(o, this.startMass());
@@ -394,7 +507,9 @@ export class AgarMode {
   }
 
   exit() {
+    this._tok++;
     if (this.net) { try { this.net.close(); } catch { /* ignore */ } this.net = null; }
+    this.stopPresence();
     this.mp = null;
     if (this.onExit) this.onExit();
   }
@@ -402,7 +517,9 @@ export class AgarMode {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    clearInterval(this._brT);
     if (this.net) { try { this.net.close(); } catch { /* ignore */ } this.net = null; }
+    this.stopPresence();
     this.unbindInput();
     if (this.hud && this.hud.root) this.hud.root.remove();
     if (this.screenEl) this.screenEl.remove();
@@ -421,6 +538,7 @@ export class AgarMode {
     this._style = d.style.touchAction;
     d.style.touchAction = 'none';
     this.onDown = (e) => {
+      this.audio?.init?.();
       if (this.state !== 'play') return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       if (this.stickId !== null) return;
@@ -552,19 +670,24 @@ export class AgarMode {
       nc.merge = 12; nc.r = c.r * 0.7;
     }
     c.merge = 12;
-    if (o.id === this.me || o.human === 'host') { this.audio?.crash?.(); this.platform?.haptic?.('heavy'); }
+    if (o.id === this.me || o.human === 'host') { this.audio?.crash?.(0.5); this.platform?.haptic?.('heavy'); }
+    this.sfxTo(o.id, 'ice', 1);
+    if (o.id !== this.me) this.snd('ice', c.x, c.z, 0.6);
   }
 
   applyPickup(o, type) {
     const t = PUP_TYPES[type];
     if (type === 0) o.magnet = t.t; else if (type === 1) o.shield = t.t; else if (type === 2) o.speed = t.t;
+    else if (type === 4) { for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.o === o.id) c.m = Math.min(MAXM, c.m + 80 + c.m * 0.2); } this.pushFeed(o.name + ' altın kar tanesi aldı!'); }
     else for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.o === o.id) c.m = Math.min(MAXM, c.m * 1.3 + 10); }
-    if (o.id === this.me || o.human === 'host') this.audio?.chime?.();
+    this.sfxTo(o.id, type === 4 ? 'golden' : 'chime', 1);
   }
 
   // ------------------------------------------------------------------ simulation (single player + host)
   simulate(dt) {
     const owners = this.owners, cells = this.cells;
+    this.stormTick(dt);
+    this.botChatTick(dt);
     // local player input
     const me = owners[this.me];
     if (me.alive && this.state === 'play') {
@@ -608,17 +731,30 @@ export class AgarMode {
       if (!c.on) continue;
       this.act[n++] = i;
       const o = owners[c.o];
-      let sp = speedFor(c.m) * (o.speed > 0 ? 1.45 : 1);
+      const zone = this.terrain.zone(c.x, c.z);
+      let sp = speedFor(c.m) * (o.speed > 0 ? 1.45 : 1) * (zone === 2 ? 0.62 : 1);
       let dx = o.dx, dz = o.dz, mg = o.mag;
       if (o.boostT > 0) { sp *= 2.4; dx = o.ldx; dz = o.ldz; mg = 1; }
-      let vx = dx * sp * mg + c.vx, vz = dz * sp * mg + c.vz;
+      // ice: the velocity only slowly follows the steering (slide + momentum); everywhere else it snaps to it
+      const ik = zone === 1 ? Math.min(1, dt * 0.9) : 1;
+      c.mvx += (dx * sp * mg - c.mvx) * ik; c.mvz += (dz * sp * mg - c.mvz) * ik;
+      if (zone === 2) c.m = Math.min(MAXM, c.m + dt * clampN(c.m * 0.003, 0.5, 5)); // deep snow: slow, but it packs on mass
+      if (c.rampT > 0) c.rampT -= dt;
+      else if (this.terrain.rampAt(c.x, c.z, c.r) >= 0) {
+        c.rampT = 1.2;
+        const rl = Math.hypot(c.mvx, c.mvz) + 0.001;
+        c.vx += (c.mvx / rl) * 55; c.vz += (c.mvz / rl) * 55;
+        if (c.o === this.me) this.snd('slide', undefined, undefined, 0.9); else this.snd('slide', c.x, c.z, 0.6);
+      }
+      if (zone === 1 && c.o === this.me && Math.hypot(c.mvx, c.mvz) > 6) this.snd('slide');
+      let vx = c.mvx + c.vx, vz = c.mvz + c.vz;
       if (c.merge <= 0 && o.cellN > 1) { const ax = o.cx - c.x, az = o.cz - c.z; const ad = Math.hypot(ax, az) + 0.01; vx += (ax / ad) * 2.5; vz += (az / ad) * 2.5; }
       c.x += vx * dt; c.z += vz * dt;
       c.vx *= f; c.vz *= f;
       if (c.merge > 0) c.merge -= dt;
       const d2 = c.x * c.x + c.z * c.z, lim = R - 1;
       if (d2 > lim * lim) { const k = lim / Math.sqrt(d2); c.x *= k; c.z *= k; }
-      if (c.m > 150) c.m -= c.m * 0.0018 * dt;
+      if (c.m > 300) c.m -= c.m * 0.0012 * dt; // big balls slowly shrink: growth stays gradual
     }
     // cell vs cell
     const gk = Math.min(1, dt * 10);
@@ -637,6 +773,7 @@ export class AgarMode {
             ca.x -= nx * push; ca.z -= nz * push; cb.x += nx * push; cb.z += nz * push;
           } else if (d2 < Math.pow(Math.max(ca.r, cb.r) * 0.6, 2)) {
             if (ca.m >= cb.m) { ca.m = Math.min(MAXM, ca.m + cb.m); cb.on = false; } else { cb.m = Math.min(MAXM, cb.m + ca.m); ca.on = false; }
+            this.sfxTo(ca.o, 'merge', 0.8);
           }
           continue;
         }
@@ -662,6 +799,7 @@ export class AgarMode {
             if (d2 < r2) {
               const v = this.fv[i];
               c.m = Math.min(MAXM, c.m + v); o.xpRun += v;
+              if (c.o === this.me) this.snd('pellet');
               if (i < FOOD) { const p = this.tmpP || (this.tmpP = { x: 0, z: 0 }); this.randPos(p, 2); this.foodPlace(i, p.x, p.z, this.baseVal(i)); } else this.foodPlace(i, 0, 0, 0);
             } else if (pull && d2 < p2) {
               const dd = Math.sqrt(d2), st = Math.min(dd - c.r * 0.5, 30 * dt);
@@ -687,7 +825,94 @@ export class AgarMode {
       }
     }
     for (let v = 0; v < NVIR; v++) if (!this.von[v]) { this.vt[v] -= dt; if (this.vt[v] <= 0) { const p = this.tmpP || (this.tmpP = { x: 0, z: 0 }); this.randPos(p, 12); this.vx[v] = p.x; this.vz[v] = p.z; this.von[v] = 1; this.vDirty = true; } }
-    for (let p = 0; p < NPUP; p++) if (!this.pon[p]) { this.pt[p] -= dt; if (this.pt[p] <= 0) { const q = this.tmpP || (this.tmpP = { x: 0, z: 0 }); this.randPos(q, 12); this.px[p] = q.x; this.pz[p] = q.z; this.ptype[p] = (Math.random() * 4) | 0; this.pon[p] = 1; this.setPupColor(p); } }
+    for (let p = 0; p < NPUP; p++) if (!this.pon[p]) { this.pt[p] -= dt; if (this.pt[p] <= 0) { const q = this.tmpP || (this.tmpP = { x: 0, z: 0 }); this.randPos(q, 12); this.px[p] = q.x; this.pz[p] = q.z; this.ptype[p] = Math.random() < 0.04 ? 4 : (Math.random() * 4) | 0; this.pon[p] = 1; this.setPupColor(p); } }
+  }
+
+  // ------------------------------------------------------------------ sound / events
+  /** arena sound; x,z = world position of the event (distance-attenuated), none = own sound at full volume */
+  snd(kind, x, z, k) {
+    const a = this.audio;
+    if (!a || !a.arena) return;
+    let v = k === undefined ? 1 : k;
+    if (x !== undefined) v *= clampN(1 - Math.hypot(x - this.camX, z - this.camZ) / (this.camH * 1.3 + 40), 0, 1);
+    if (v > 0.04) a.arena(kind, v);
+  }
+  /** an event that belongs to one owner: local sound, a message to the remote human, or a faint positional sound for bots */
+  sfxTo(id, kind, v, x, z) {
+    const o = this.owners[id];
+    if (!o) return;
+    if (id === this.me) { if (kind === 'chime') this.audio?.chime?.(); else this.snd(kind, undefined, undefined, v); } else if (o.human && o.human !== 'host') { if (this.net) this.net.sendTo(o.human, { t: 'sfx', k: kind, v }); } else if (x !== undefined) this.snd(kind, x, z, 0.5);
+  }
+
+  // ------------------------------------------------------------------ snow storm
+  stormTick(dt) {
+    const s = this.storm;
+    if (!s.on) {
+      s.next -= dt;
+      if (s.next <= 0 && this.state === 'play') {
+        s.on = true; s.t = 38; s.x = rnd(-80, 80); s.z = rnd(-80, 80);
+        const a = Math.random() * 6.2832; s.dx = Math.cos(a) * 16; s.dz = Math.sin(a) * 16;
+        this.pushFeed('❄ Kar fırtınası başladı! Yemler savruluyor');
+      }
+      return;
+    }
+    s.t -= dt; s.x += s.dx * dt; s.z += s.dz * dt;
+    if (Math.hypot(s.x, s.z) > R - 60) { s.dx = -s.dx; s.dz = -s.dz; }
+    // scatter pellets that sit inside the storm
+    const n = Math.ceil(dt * 220), p = this.tmpP || (this.tmpP = { x: 0, z: 0 });
+    for (let k = 0; k < n; k++) {
+      const a = Math.random() * 6.2832, d = Math.sqrt(Math.random()) * s.r;
+      const gx = clampN(((s.x + Math.cos(a) * d + R) / GS) | 0, 0, GN - 1), gz = clampN(((s.z + Math.sin(a) * d + R) / GS) | 0, 0, GN - 1);
+      const i = this.ghead[gx * GN + gz];
+      if (i === -1 || i >= FOOD) continue;
+      p.x = this.fx[i] + rnd(-48, 48); p.z = this.fz[i] + rnd(-48, 48);
+      const e = Math.hypot(p.x, p.z); if (e > R - 3) { p.x *= (R - 3) / e; p.z *= (R - 3) / e; }
+      this.foodMove(i, p.x, p.z);
+    }
+    for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && Math.hypot(c.x - s.x, c.z - s.z) < s.r) { c.vx += s.dx * 0.8 * dt; c.vz += s.dz * 0.8 * dt; } }
+    if (s.t <= 0) { s.on = false; s.next = 80 + Math.random() * 60; }
+  }
+
+  // ------------------------------------------------------------------ chat
+  cleanChat(t) {
+    t = String(t || '').replace(/[\u0000-\u001f<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!t) return '';
+    return t.split(' ').map((w) => (BAD.has(w.toLocaleLowerCase('tr').replace(/[^a-zçğıöşü0-9]/g, '')) ? '*'.repeat(Math.min(5, w.length)) : w)).join(' ');
+  }
+  chatAdd(name, col, text) {
+    const L = this.chatLog;
+    L.push({ n: name, c: col, x: text, until: this.time + 9 });
+    if (L.length > 6) L.shift();
+    this.chatDirty = true;
+    this.snd('tick');
+  }
+  /** the local player types / taps a phrase */
+  sendChat(text) {
+    text = this.cleanChat(text);
+    if (!text || !this.mp) return;
+    if (this.time - this.lastChat < 1.2) { this.toast('Yavaş yaz!'); return; }
+    this.lastChat = this.time;
+    if (this.mp === 'client') this.net && this.net.send({ t: 'chat', x: text });
+    else this.hostChat(this.owners[this.me], text);
+  }
+  hostChat(o, text) {
+    text = this.cleanChat(text);
+    if (!text) return;
+    if (o.id !== this.me) { if (this.time - (o.chatAt || -9) < 1) return; o.chatAt = this.time; }
+    this.chatAdd(o.name, o.col, text);
+    if (this.net) this.net.broadcast({ t: 'chat', n: o.name, c: o.col, x: text });
+  }
+  botChatTick(dt) {
+    if (this.state !== 'play') return;
+    this.botChatT -= dt;
+    if (this.botChatT > 0) return;
+    this.botChatT = 14 + Math.random() * 30;
+    const bots = [];
+    for (let k = 1; k < NOWN; k++) { const o = this.owners[k]; if (o.bot && !o.human && o.alive) bots.push(o); }
+    if (!bots.length) return;
+    const o = bots[(Math.random() * bots.length) | 0];
+    this.chatAdd(o.name, o.col, BOT_CHAT[(Math.random() * BOT_CHAT.length) | 0]);
+    if (this.net) this.net.broadcast({ t: 'chat', n: o.name, c: o.col, x: this.chatLog[this.chatLog.length - 1].x });
   }
 
   eatCell(pred, prey) {
@@ -697,7 +922,7 @@ export class AgarMode {
     this.owners[pred.o].xpRun += prey.m;
     prey.on = false;
     po.killer = pred.o;
-    if (pred.o === this.me || this.owners[pred.o].human === 'host') this.audio?.pop?.(clampN(prey.m / 400, 0.1, 1), 1);
+    this.sfxTo(pred.o, 'gulp', 1, pred.x, pred.z);
   }
 
   // ------------------------------------------------------------------ bot AI
@@ -755,6 +980,17 @@ export class AgarMode {
     let dx = tx - cx, dz = tz - cz;
     const dl = Math.hypot(dx, dz) + 0.001;
     dx /= dl; dz /= dl;
+    // a bot that is being chased stays off the ice (it would slide straight into the hunter); everybody dodges the storm
+    if (mode === 1) {
+      const T = this.terrain, la = 28;
+      if (T.zone(cx, cz) === 1 || T.zone(cx + dx * la, cz + dz * la) === 1) {
+        for (const ang of [0.8, -0.8, 1.6, -1.6]) {
+          const cs = Math.cos(ang), sn = Math.sin(ang), nx = dx * cs - dz * sn, nz = dx * sn + dz * cs;
+          if (T.zone(cx + nx * la, cz + nz * la) !== 1) { dx = nx; dz = nz; break; }
+        }
+      }
+    }
+    if (this.storm.on) { const sx = cx - this.storm.x, sz = cz - this.storm.z, sd = Math.hypot(sx, sz); if (sd < this.storm.r + 30) { dx += (sx / (sd + 0.01)) * 1.3; dz += (sz / (sd + 0.01)) * 1.3; } }
     if (om > 150) {
       for (let v = 0; v < NVIR; v++) {
         if (!this.von[v]) continue;
@@ -810,7 +1046,13 @@ export class AgarMode {
   dropHuman(id) {
     for (let k = 1; k < NOWN; k++) {
       const o = this.owners[k];
-      if (o.human === id) { o.human = null; o.bot = true; o.respawnT = 2; this.pushFeed(o.name + ' ayrıldı'); if (!o.alive) o.wasAlive = false; }
+      if (o.human === id) {
+        this.pushFeed(o.name + ' odadan ayrıldı');
+        o.human = null; o.bot = true; o.respawnT = 2; if (!o.alive) o.wasAlive = false;
+        const used = this.owners.map((q) => q.name); // a bot takes the slot back under a fresh, player-like name
+        this.setName(o, generateNames(1, used)[0], false);
+        if (this.net) this.net.broadcast({ t: 'own', i: o.id, n: o.name, c: o.col, h: 0 });
+      }
     }
     if (this.net) this.net.kick(id);
   }
@@ -821,7 +1063,7 @@ export class AgarMode {
     this.state = 'dead';
     this.deadT = 1.1;
     this.deadKiller = killer ? killer.name : '';
-    this.audio?.crash?.();
+    this.audio?.lose?.();
     this.platform?.haptic?.('heavy');
     this.bank(o);
   }
@@ -855,7 +1097,7 @@ export class AgarMode {
   closeResult() { if (this.resultEl) { this.resultEl.remove(); this.resultEl = null; } }
 
   // ------------------------------------------------------------------ title / lobby screens
-  clearScreen() { if (this.screenEl) { this.screenEl.remove(); this.screenEl = null; } }
+  clearScreen() { clearInterval(this._brT); this._brRender = null; if (this.screenEl) { this.screenEl.remove(); this.screenEl = null; } }
 
   card(title) {
     this.clearScreen();
@@ -886,103 +1128,232 @@ export class AgarMode {
   ensureNick() { if (!this.nick.trim()) { this.nick = 'Yeti' + ((Math.random() * 900 + 100) | 0); lsSet(NICK_KEY, this.nick); } return this.nick.trim(); }
 
   showTitle() {
+    this._tok++;
+    this.closedShown = false;
     const c = this.card('KARTOPU ARENA');
     const s = document.createElement('div'); s.className = 'ag-sub'; s.textContent = 'Büyü, yut, hayatta kal! Rekor kütle: ' + fmtM(this.best) + ' · Seviye ' + lvlOf(this.xp); c.appendChild(s);
     this.nickInput(c);
     this.btn(c, 'TEK OYUNCU', () => { this.ensureNick(); this.playSolo(); }, 'go');
-    this.btn(c, '👥 ODA KUR', () => this.hostLobby(), 'blue');
-    this.btn(c, '🔑 ODAYA KATIL', () => this.joinScreen(), 'blue');
+    this.btn(c, '⚡ HIZLI OYNA', () => this.quickPlay(), 'blue');
+    this.btn(c, '🌐 AÇIK ODALAR', () => this.openBrowser(), 'blue');
+    this.btn(c, '👥 ODA KUR', () => this.hostScreen(), 'blue');
+    this.btn(c, '🔑 KODLA KATIL', () => this.joinScreen(), 'blue');
     this.btn(c, 'MENÜ', () => this.exit());
   }
 
   statusEl(card) { const s = document.createElement('div'); s.className = 'ag-status'; card.appendChild(s); return s; }
 
-  async hostLobby() {
-    const nick = this.ensureNick();
+  // ---- helpers
+  closeNet() { if (this.net) { try { this.net.close(); } catch { /* ignore */ } this.net = null; } }
+  stopPresence() { if (this.presence) { try { this.presence.stop(); } catch { /* ignore */ } this.presence = null; } }
+  /** back to the (bot demo) title world after an online session */
+  resetToMenu() {
+    this.closeNet();
+    this.mp = null; this.me = 0; this.state = 'title';
+    this.closeResult();
+    this.initWorld();
+    this.hud.root.classList.add('ag-menu');
+  }
+  async ensurePresence() {
+    if (this.disposed) return null;
+    if (!this.presence || this.presence.dead) {
+      const { Presence } = await import('./lobby.js');
+      if (this.disposed) return null;
+      this.presence = new Presence(() => this.onPresence());
+    }
+    const p = this.presence;
+    p.start();
+    return p;
+  }
+  onPresence() { if (this._brRender) this._brRender(); }
+
+  // ---- host: public (default) or private room, starts playing immediately
+  hostScreen() {
     const c = this.card('ODA KUR');
+    const s = document.createElement('div'); s.className = 'ag-sub'; s.textContent = 'Oda hemen açılır, oyun başlar. Herkes istediği an katılabilir (en fazla ' + MAX_HUMANS + ' kişi), boşlukları botlar doldurur.'; c.appendChild(s);
+    this.nickInput(c);
+    const tg = this.btn(c, '', () => { this.privRoom = !this.privRoom; upd(); }, 'blue');
+    const note = document.createElement('div'); note.className = 'ag-sub'; c.appendChild(note);
+    const upd = () => {
+      tg.textContent = this.privRoom ? '🔒 Özel oda: AÇIK' : '🌐 Özel oda: KAPALI';
+      note.textContent = this.privRoom ? 'Sadece kodu bilenler katılır, listede görünmez.' : 'Oda herkese açık: Açık Odalar listesinde görünür.';
+    };
+    upd();
+    this.btn(c, 'KUR VE OYNA', () => this.createRoom(!this.privRoom), 'go');
+    this.btn(c, 'GERİ', () => this.showTitle());
+  }
+
+  async createRoom(pub) {
+    const nick = this.ensureNick();
+    const tok = ++this._tok;
+    const c = this.card('ODA KURULUYOR');
     const st = this.statusEl(c); st.textContent = 'Oda açılıyor...';
+    this.btn(c, 'İPTAL', () => { this._tok++; this.closeNet(); this.showTitle(); });
     try {
       const { ArenaNet } = await import('./net.js');
-      if (this.disposed) return;
+      if (this.disposed || tok !== this._tok) return;
       this.net = new ArenaNet({
-        onLobby: (list, code) => this.renderLobby(list, code, true),
         onData: (id, msg) => this.onHostData(id, msg),
         onGone: (id) => this.dropHuman(id),
+        onLate: (id, rec) => this.lateJoin(id, rec),
         onClosed: () => { /* host side: nothing */ },
       });
       const code = await this.net.host(nick);
-      if (this.disposed) return;
-      this.renderLobby(this.net.list(), code, true);
+      if (this.disposed || tok !== this._tok) { this.closeNet(); return; }
+      this.net.pub = !!pub;
+      this.hostStart();
+      if (pub) this.announceRoom(); else this.stopPresence();
+      this.toast(pub ? '🌐 Herkese açık oda kuruldu · ' + code : '🔒 Özel oda · kod: ' + code);
     } catch (e) {
-      if (this.net) { try { this.net.close(); } catch { /* ignore */ } this.net = null; }
-      const c2 = this.card('ODA KUR');
-      const s2 = this.statusEl(c2); s2.textContent = 'Oda kurulamadı. İnternet bağlantını kontrol et.';
+      this.closeNet();
+      if (tok !== this._tok) return;
+      const c2 = this.card('ODA KURULAMADI');
+      const s2 = this.statusEl(c2); s2.textContent = 'İnternet bağlantını kontrol et ve tekrar dene.';
       this.btn(c2, 'GERİ', () => this.showTitle());
     }
   }
 
-  renderLobby(list, code, isHost) {
+  async announceRoom() {
+    const p = await this.ensurePresence();
+    if (!p || !this.net || this.net.role !== 'host') return;
+    p.announce(() => {
+      const n = this.net;
+      if (!n || n.dead) return null;
+      return { code: n.code, name: n.nick + ' odası', host: n.nick, n: n.clients.size + 1, max: MAX_HUMANS, map: R, v: VERSION };
+    });
+  }
+
+  // ---- public room browser
+  async openBrowser() {
+    this._tok++;
+    this.closedShown = false;
+    const c = this.card('AÇIK ODALAR');
+    const st = this.statusEl(c);
+    const list = document.createElement('div');
+    list.style.cssText = 'display:flex;flex-direction:column;gap:6px;max-height:34vh;overflow:auto';
+    c.appendChild(list);
+    this.btn(c, '⚡ HIZLI OYNA', () => this.quickPlay(), 'go');
+    this.btn(c, '🔑 KODLA KATIL', () => this.joinScreen(), 'blue');
+    this.btn(c, '👥 ODA KUR', () => this.hostScreen(), 'blue');
+    this.btn(c, 'GERİ', () => this.showTitle());
+    let spin = 0;
+    const render = () => {
+      if (!list.isConnected) return;
+      const p = this.presence;
+      const rooms = p ? p.list(VERSION) : [];
+      spin++;
+      const on = p && p.ok && p.online > 1 ? '🟢 ' + p.online + ' çevrimiçi · ' : '';
+      if (p && p.failed) st.textContent = 'Oda listesine ulaşılamadı. Kodla katılabilir veya oda kurabilirsin.';
+      else st.textContent = on + (['◐', '◓', '◑', '◒'][spin % 4]) + ' ' + (p && p.ok ? 'Odalar aranıyor...' : 'Bağlanılıyor...');
+      list.textContent = '';
+      if (!rooms.length) {
+        const d = document.createElement('div'); d.className = 'ag-sub'; d.textContent = 'Açık oda yok — bir tane kur!'; list.appendChild(d);
+        return;
+      }
+      const now = Date.now();
+      for (const r of rooms) {
+        const full = r.n >= r.max;
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'ag-btn blue'; b.style.fontSize = '15px';
+        b.textContent = (full ? '⛔ ' : '▶ ') + r.name + ' · ' + r.n + '/' + r.max + ' · ' + Math.max(0, Math.round((now - r.ts) / 1000)) + 's';
+        b.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('click'); if (full) { this.toast('Oda dolu'); return; } this.doJoin(r.code, () => this.openBrowser()); });
+        list.appendChild(b);
+      }
+    };
+    this._brRender = render;
+    this._brT = setInterval(render, 1000);
+    render();
+    await this.ensurePresence();
+    render();
+  }
+
+  // ---- quick play: fullest non-full public room, else create one after ~3 s
+  async quickPlay() {
+    this.ensureNick();
+    const tok = ++this._tok;
+    this.closedShown = false;
+    const c = this.card('HIZLI OYNA');
+    const st = this.statusEl(c); st.textContent = 'Oda aranıyor...';
+    this.btn(c, 'İPTAL', () => { this._tok++; this.showTitle(); });
+    const p = await this.ensurePresence();
+    if (!p || tok !== this._tok) return;
+    const t0 = performance.now();
+    const step = () => {
+      if (tok !== this._tok || this.disposed) return;
+      const open = p.list(VERSION).filter((r) => r.n < r.max);
+      if (open.length) { st.textContent = open[0].name + ' odasına giriliyor...'; this.doJoin(open[0].code, () => this.openBrowser()); return; }
+      if (p.failed || performance.now() - t0 > 3000) { st.textContent = 'Açık oda yok, yenisi kuruluyor...'; this.createRoom(true); return; }
+      setTimeout(step, 300);
+    };
+    step();
+  }
+
+  // ---- join a room by code (from the browser list, quick play or the code screen)
+  async doJoin(code, back) {
+    const nick = this.ensureNick();
+    const tok = ++this._tok;
+    this.closedShown = false;
+    this.closeNet();
+    const c = this.card('BAĞLANILIYOR');
+    const st = this.statusEl(c); st.textContent = 'Odaya bağlanılıyor...';
+    this.btn(c, 'İPTAL', () => { this._tok++; this.closeNet(); back(); });
+    try {
+      const { ArenaNet } = await import('./net.js');
+      if (this.disposed || tok !== this._tok) return;
+      this.net = new ArenaNet({
+        onLobby: (list) => { if (this.state !== 'play') this.renderLobby(list, code, false); },
+        onStart: (m) => this.clientStart(m),
+        onData: (id, msg) => this.onClientData(msg),
+        onClosed: (why) => this.onRoomClosed(why, back),
+      });
+      await this.net.join(code, nick);
+      if (this.disposed || tok !== this._tok) { this.closeNet(); return; }
+      this.stopPresence(); // players leave the discovery mesh once they are in a room
+      st.textContent = 'Katıldın, oyun yükleniyor...';
+    } catch (e) {
+      this.closeNet();
+      if (this.disposed || tok !== this._tok) return;
+      this.toast(e && e.type === 'peer-unavailable' ? 'Oda bulunamadı' : e && e.type === 'timeout' ? 'Bağlantı zaman aşımı' : 'Bağlanılamadı');
+      back();
+    }
+  }
+
+  renderLobby(list, code) {
     if (this.state === 'play') return;
-    const c = this.card(isHost ? 'ODA: ' + code : 'ODADASIN: ' + code);
+    const c = this.card('ODADASIN: ' + code);
     c.querySelector('h2').classList.add('code');
-    const s = document.createElement('div'); s.className = 'ag-sub';
-    s.textContent = isHost ? 'Arkadaşların bu kodla katılsın. Boş yerleri botlar doldurur.' : 'Kurucu oyunu başlatınca açılır...';
-    c.appendChild(s);
+    const s = document.createElement('div'); s.className = 'ag-sub'; s.textContent = 'Oyun yükleniyor...'; c.appendChild(s);
     const ul = document.createElement('div'); ul.className = 'ag-plist';
     list.forEach((n, i) => { const d = document.createElement('div'); d.textContent = (i === 0 ? '👑 ' : '⛄ ') + n; ul.appendChild(d); });
     c.appendChild(ul);
-    if (isHost) {
-      this.btn(c, '📋 KODU KOPYALA / PAYLAŞ', () => {
-        const text = 'KARTOPU ARENA odası: ' + code;
-        try { if (navigator.share) { navigator.share({ title: 'KARTOPU ARENA', text, url: location.href }).catch(() => {}); return; } } catch { /* ignore */ }
-        try { navigator.clipboard.writeText(text); this.toast('Kopyalandı!'); } catch { this.toast(code); }
-      }, 'blue');
-      this.btn(c, 'BAŞLAT (' + list.length + ' oyuncu)', () => this.hostStart(), 'go');
-    }
-    this.btn(c, isHost ? 'ODAYI KAPAT' : 'ÇIK', () => { if (this.net) { try { this.net.close(); } catch { /* ignore */ } this.net = null; } this.showTitle(); });
+    this.btn(c, 'ÇIK', () => { this._tok++; this.closeNet(); this.openBrowser(); });
   }
 
   joinScreen() {
-    const c = this.card('ODAYA KATIL');
+    const c = this.card('KODLA KATIL');
     const inp = document.createElement('input');
     inp.className = 'ag-inp code'; inp.maxLength = 5; inp.placeholder = 'KOD'; inp.autocomplete = 'off'; inp.autocapitalize = 'characters';
     c.appendChild(inp);
     this.nickInput(c);
     const st = this.statusEl(c);
-    this.btn(c, 'KATIL', async () => {
+    this.btn(c, 'KATIL', () => {
       const code = inp.value.trim().toUpperCase();
       if (code.length !== 5) { st.textContent = '5 haneli kodu gir.'; return; }
-      const nick = this.ensureNick();
-      st.textContent = 'Bağlanılıyor...';
-      try {
-        const { ArenaNet } = await import('./net.js');
-        if (this.disposed) return;
-        this.net = new ArenaNet({
-          onLobby: (list) => this.renderLobby(list, code, false),
-          onStart: (m) => this.clientStart(m),
-          onData: (id, msg) => this.onClientData(msg),
-          onClosed: (why) => this.onRoomClosed(why),
-        });
-        await this.net.join(code, nick);
-        if (this.disposed) return;
-        this.renderLobby([nick], code, false);
-      } catch (e) {
-        if (this.net) { try { this.net.close(); } catch { /* ignore */ } this.net = null; }
-        st.textContent = e && e.type === 'peer-unavailable' ? 'Oda bulunamadı.' : 'Bağlanılamadı.';
-      }
+      this.doJoin(code, () => this.joinScreen());
     }, 'go');
     this.btn(c, 'GERİ', () => this.showTitle());
   }
 
-  onRoomClosed(why) {
+  onRoomClosed(why, back) {
     if (this.disposed || this.closedShown) return;
     this.closedShown = true;
-    this.closeResult();
-    const c = this.card(why === 'full' ? 'Oda dolu' : 'Oda kapandı');
-    this.btn(c, 'MENÜ', () => this.exit(), 'go');
-    this.state = 'title';
-    if (this.net) { try { this.net.close(); } catch { /* ignore */ } this.net = null; }
-    this.mp = null;
+    this._tok++;
+    const inGame = this.mp === 'client';
+    const msg = why === 'full' ? 'Oda dolu' : why === 'ver' ? 'Sürüm uyumsuz — oyunu güncelle' : why === 'timeout' ? 'Bağlantı zaman aşımı' : 'Oda kapandı';
+    this.resetToMenu();
+    if (!inGame) { this.toast(msg); (back || (() => this.openBrowser()))(); return; }
+    const c = this.card(msg);
+    this.btn(c, '🌐 AÇIK ODALAR', () => this.openBrowser(), 'go');
+    this.btn(c, 'MENÜ', () => this.showTitle());
   }
 
   toast(t) {
@@ -1023,10 +1394,45 @@ export class AgarMode {
     const food = new Array(FOOD * 2);
     for (let i = 0; i < FOOD; i++) { food[i * 2] = Math.round(this.fx[i] * 10); food[i * 2 + 1] = Math.round(this.fz[i] * 10); }
     const own = this.owners.map((o) => [o.name, o.col, o.human ? 1 : 0]);
-    ids.forEach((id, k) => this.net.sendTo(id, { t: 'start', me: k + 1, owners: own, food }));
+    ids.forEach((id, k) => this.net.sendTo(id, { t: 'start', me: k + 1, owners: own, food, fc: this.foodColors(), seed: this.seed }));
     this.state = 'play';
     this.lastLevel = lvlOf(this.xp);
-    this.pushFeed('Oda açıldı: ' + (ids.length + 1) + ' oyuncu');
+    this.pushFeed('Oda açıldı - katılmak serbest!');
+  }
+
+  foodColors() { const a = new Array(FOOD); for (let i = 0; i < FOOD; i++) a[i] = this.fcol[i]; return a; }
+
+  /** a human connected while the match is running: he takes over the smallest bot slot as a fresh small ball */
+  lateJoin(id, rec) {
+    let slot = null;
+    for (let k = 1; k < NOWN; k++) {
+      const o = this.owners[k];
+      if (!o.bot || o.human) continue;
+      if (!slot || (o.alive ? o.mass : -1) < (slot.alive ? slot.mass : -1)) slot = o;
+    }
+    if (!slot) return false;
+    for (let i = 0; i < CAP; i++) {
+      const c = this.cells[i];
+      if (c.on && c.o === slot.id) { c.on = false; for (let k = 0; k < Math.min(8, c.m / 8); k++) this.spawnPellet(c.x + rnd(-c.r, c.r), c.z + rnd(-c.r, c.r), 1, slot.col); } // despawn with a poof of pellets
+    }
+    const used = new Set(this.owners.filter((q) => q !== slot && (q.human || q.id === this.me)).map((q) => q.name));
+    let nm = rec.nick;
+    while (used.has(nm)) nm = nm.slice(0, 11) + ((Math.random() * 9 + 1) | 0);
+    used.add(nm);
+    slot.bot = false; slot.human = id; slot.seen = this.time;
+    this.setName(slot, nm, false);
+    this.spawnOwner(slot, 24);
+    const own = this.owners.map((o) => [o.name, o.col, o.human ? 1 : 0]);
+    this.net.sendTo(id, { t: 'start', me: slot.id, owners: own, food: this.foodPositions(), fc: this.foodColors(), seed: this.seed });
+    this.net.broadcast({ t: 'own', i: slot.id, n: slot.name, c: slot.col, h: 1 });
+    this.pushFeed(nm + ' odaya katıldı');
+    return true;
+  }
+
+  foodPositions() {
+    const food = new Array(FOOD * 2);
+    for (let i = 0; i < FOOD; i++) { food[i * 2] = Math.round(this.fx[i] * 10); food[i * 2 + 1] = Math.round(this.fz[i] * 10); }
+    return food;
   }
 
   onHostData(id, msg) {
@@ -1039,6 +1445,7 @@ export class AgarMode {
       if (m > 0) { o.ldx = dx; o.ldz = dz; }
     } else if (msg.t === 'b') this.boost(o);
     else if (msg.t === 's') this.split(o);
+    else if (msg.t === 'chat') this.hostChat(o, msg.x);
     else if (msg.t === 'respawn') { if (!o.alive) this.spawnOwner(o, 24); }
   }
 
@@ -1057,7 +1464,7 @@ export class AgarMode {
     for (const [id, rec] of net.clients) {
       const o = this.owners.find((q) => q.human === id);
       if (!o || !rec.conn.open) continue;
-      net.sendTo(id, { t: 's', c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
+      net.sendTo(id, { t: 's', hn: net.clients.size + 1, st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
     }
   }
 
@@ -1065,6 +1472,7 @@ export class AgarMode {
   clientStart(m) {
     this.mp = 'client';
     this.me = m.me;
+    this.genTerrain(m.seed | 0); this.titleIdx = 0; this.lastMyMass = 0; this.chatLog.length = 0; this.chatDirty = true; this.trT.fill(-99); this.storm.on = false;
     this.clearScreen();
     this.hud.root.classList.remove('ag-menu');
     for (const c of this.cells) c.on = false;
@@ -1077,7 +1485,7 @@ export class AgarMode {
     for (let i = 0; i < FT; i++) { this.gRemove(i); this.fv[i] = 0; }
     this.ghead.fill(-1);
     for (let i = 0; i < FOOD; i++) {
-      this.setFoodColor(i, i % 60 === 0 ? 0xffc400 : FOOD_PAL[i % FOOD_PAL.length]);
+      this.setFoodColor(i, m.fc && m.fc[i] ? m.fc[i] : i % 60 === 0 ? 0xffc400 : FOOD_PAL[i % FOOD_PAL.length]);
       this.fx[i] = m.food[i * 2] / 10; this.fz[i] = m.food[i * 2 + 1] / 10; this.fv[i] = this.baseVal(i); this.gAdd(i);
     }
     for (let i = 0; i < FT; i++) this.writeFood(i);
@@ -1091,18 +1499,23 @@ export class AgarMode {
   onClientData(msg) {
     if (msg.t === 's') this.applySnapshot(msg);
     else if (msg.t === 'k') this.pushFeed(msg.x);
+    else if (msg.t === 'chat') this.chatAdd(String(msg.n || '').slice(0, 14), msg.c | 0, String(msg.x || '').slice(0, 80));
+    else if (msg.t === 'sfx') { if (msg.k === 'chime') this.audio?.chime?.(); else this.snd(String(msg.k), undefined, undefined, +msg.v || 1); }
+    else if (msg.t === 'own') { const o = this.owners[msg.i]; if (o) { this.setColor(o, msg.c); this.setName(o, msg.n, msg.i === this.me); o.bot = !msg.h; } }
     else if (msg.t === 'dead') { this.deadKiller = msg.k || ''; this.state = 'dead'; this.deadT = 1.1; this.bank(this.owners[this.me]); this.audio?.crash?.(); }
   }
 
   applySnapshot(m) {
     this.lastSnap = this.time;
+    if (m.hn) this.humans = m.hn;
+    if (m.st) { const sw = this.storm.on; this.storm.on = !!m.st[0]; this.storm.x = m.st[1]; this.storm.z = m.st[2]; if (this.storm.on && !sw) { this.pushFeed('❄ Kar fırtınası başladı!'); this.stormSndT = 0; } }
     const cells = this.cells;
     for (let i = 0; i < CAP; i++) cells[i].killer = 0; // 0 = not seen this snapshot
     const c = m.c;
     for (let k = 0; k + 4 < c.length; k += 5) {
       const q = cells[c[k]];
       if (!q) continue;
-      if (!q.on) { q.on = true; q.x = c[k + 2]; q.z = c[k + 3]; q.r = KR * Math.sqrt(c[k + 4]); q.vx = q.vz = 0; }
+      if (!q.on) { q.on = true; q.x = c[k + 2]; q.z = c[k + 3]; q.r = KR * Math.sqrt(c[k + 4]); q.vx = q.vz = 0; q.px0 = q.x; q.pz0 = q.z; q.lsx = q.x; q.lsz = q.z; q.qx = q.qy = q.qz = 0; q.qw = 1; }
       q.o = c[k + 1]; q.tx = c[k + 2]; q.tz = c[k + 3]; q.m = c[k + 4]; q.killer = 1;
     }
     for (let i = 0; i < CAP; i++) if (cells[i].on && cells[i].killer === 0) cells[i].on = false;
@@ -1116,6 +1529,10 @@ export class AgarMode {
     this.vDirty = true;
     for (let i = 0; i < NPUP; i++) { const x = m.p[i * 3]; this.pon[i] = x < 90000 ? 1 : 0; this.px[i] = x / 10; this.pz[i] = m.p[i * 3 + 1] / 10; const t = m.p[i * 3 + 2]; if (t !== this.ptype[i]) { this.ptype[i] = t; this.setPupColor(i); } }
     const o = this.owners[this.me], a = m.me;
+    // my own pellet / gulp sounds are inferred from the mass change (the host does the real simulation)
+    let mm = 0; for (let i = 0; i < CAP; i++) if (cells[i].on && cells[i].o === this.me) mm += cells[i].m;
+    if (this.lastMyMass > 0 && this.state === 'play') { const d = mm - this.lastMyMass; if (d >= 0.9 && d < 8) this.snd('pellet'); }
+    this.lastMyMass = mm;
     o.shield = a[0]; o.magnet = a[1]; o.speed = a[2]; o.boostCd = a[3]; o.kills = a[4]; o.xpRun = a[5];
   }
 
@@ -1152,9 +1569,10 @@ export class AgarMode {
     const k = Math.min(1, dt * 9);
     for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on) c.r += (KR * Math.sqrt(c.m) - c.r) * k; }
     this.accumulate();
+    this.watch(dt);
     if (this.mp !== 'client') this.checkDeaths();
     // host snapshots
-    if (this.mp === 'host') { this.netT -= dt; if (this.netT <= 0) { this.netT = 0.066; this.sendSnapshot(); } }
+    if (this.mp === 'host') { this.netT -= dt; if (this.netT <= 0) { this.netT = 0.08; this.sendSnapshot(); } }
     if (this.state === 'dead') { this.deadT -= dt; if (this.deadT <= 0 && !this.resultEl) this.showResult(); }
     this.render(dt);
     this.updateHud(dt);
@@ -1163,11 +1581,11 @@ export class AgarMode {
   render(dt) {
     const owners = this.owners, cells = this.cells;
     const me = owners[this.me];
+    this.uTime.value = this.time;
     // follow target
     let fo = me;
     if (!me.alive) { fo = null; let bm = -1; for (let i = 0; i < NOWN; i++) if (owners[i].alive && owners[i].mass > bm) { bm = owners[i].mass; fo = owners[i]; } }
-    // camera
-    const dom = this.dom;
+    // camera: zooms out smoothly with size, stays inside the arena
     this.renderer.getSize(this.sz);
     const asp = (this.sz.x || 1) / (this.sz.y || 1);
     if (Math.abs(asp - this._camera.aspect) > 0.001) { this._camera.aspect = asp; this._camera.updateProjectionMatrix(); }
@@ -1180,29 +1598,83 @@ export class AgarMode {
       this.camX += (fo.cx + (me.alive ? this.inp.dx * this.inp.mag * rEff * 0.5 : 0) - this.camX) * kk;
       this.camZ += (fo.cz + (me.alive ? this.inp.dz * this.inp.mag * rEff * 0.5 : 0) - this.camZ) * kk;
     }
-    ht = Math.min(ht, 1100);
-    this.camH += (ht - this.camH) * Math.min(1, dt * 2.2);
+    ht = Math.min(ht, 1500);
+    this.camH += (ht - this.camH) * Math.min(1, dt * 1.4);
+    const cdist = Math.hypot(this.camX, this.camZ), clim = R * 0.97;
+    if (cdist > clim) { this.camX *= clim / cdist; this.camZ *= clim / cdist; }
     this._camera.position.set(this.camX, this.camH, this.camZ + this.camH * 0.6);
     this._camera.lookAt(this.camX, 0, this.camZ);
-    // food scale steps with zoom
-    const fs = 1 + Math.floor(this.camH / 70) * 0.45;
-    if (fs !== this.fs) { this.fs = fs; for (let i = 0; i < FT; i++) if (this.fv[i] > 0) this.writeFood(i); }
-    // cells
+    // visible ground rectangle (everything outside is skipped: pellets are drawn compactly from the grid)
+    const H = this.camH, hx = H * (0.85 * asp + 0.12) * 1.15 + 25, zmin = this.camZ - 0.95 * H - 25, zmax = this.camZ + 0.62 * H + 25;
+    const gx0 = clampN(((this.camX - hx + R) / GS) | 0, 0, GN - 1), gx1 = clampN(((this.camX + hx + R) / GS) | 0, 0, GN - 1);
+    const gz0 = clampN(((zmin + R) / GS) | 0, 0, GN - 1), gz1 = clampN(((zmax + R) / GS) | 0, 0, GN - 1);
+    const fs = 1 + Math.floor(H / 70) * 0.45;
+    this.fs = fs;
+    const fa = this.foodMesh.instanceMatrix.array, fcc = this.foodMesh.instanceColor.array;
+    let fn = 0;
+    for (let gx = gx0; gx <= gx1; gx++) {
+      for (let gz = gz0; gz <= gz1; gz++) {
+        for (let i = this.ghead[gx * GN + gz]; i !== -1; i = this.fnext[i]) {
+          const v = this.fv[i];
+          if (v <= 0) continue;
+          const sz = this.foodSize(v);
+          wm(fa, fn * 16, this.fx[i], sz, this.fz[i], sz);
+          fcc[fn * 3] = this.fcr[i]; fcc[fn * 3 + 1] = this.fcg[i]; fcc[fn * 3 + 2] = this.fcb[i];
+          fn++;
+        }
+      }
+    }
+    this.foodMesh.count = fn;
+    this.foodMesh.instanceMatrix.needsUpdate = true; this.foodMesh.instanceColor.needsUpdate = true;
+    // snowballs: roll in the movement direction, squash on boost, belt/cap carry the player colour; grooves behind them
     const ca = this.cellMesh.instanceMatrix.array, cc = this.cellMesh.instanceColor.array, sa = this.shadowMesh.instanceMatrix.array;
     let n = 0;
     for (let i = 0; i < CAP; i++) {
       const c = cells[i];
       if (!c.on) continue;
       const o = owners[c.o], r = c.r;
-      wm(ca, n * 16, c.x, r, c.z, r);
-      wm(sa, n * 16, c.x + r * 0.15, 0, c.z + r * 0.2, r * 1.12);
+      const ddx = c.x - c.px0, ddz = c.z - c.pz0;
+      c.px0 = c.x; c.pz0 = c.z;
+      const dd = Math.sqrt(ddx * ddx + ddz * ddz);
+      if (dd > 1e-4 && dd < 40) {
+        const ang = dd / Math.max(0.5, r), sh = Math.sin(ang * 0.5), ch = Math.cos(ang * 0.5);
+        const ex = (ddz / dd) * sh, ez = (-ddx / dd) * sh;
+        const nw = ch * c.qw - ex * c.qx - ez * c.qz;
+        const nx = ch * c.qx + ex * c.qw - ez * c.qy;
+        const ny = ch * c.qy - ex * c.qz + ez * c.qx;
+        const nz = ch * c.qz + ex * c.qy + ez * c.qw;
+        const nl = 1 / Math.sqrt(nw * nw + nx * nx + ny * ny + nz * nz);
+        c.qw = nw * nl; c.qx = nx * nl; c.qy = ny * nl; c.qz = nz * nl;
+      }
+      const sq = o.boostT > 0;
+      const sx = sq ? r * 1.12 : r, sy = sq ? r * 0.8 : r;
+      wmq(ca, n * 16, c.x, sy, c.z, sx, sy, sx, c.qx, c.qy, c.qz, c.qw);
+      wm(sa, n * 16, c.x + r * 0.12, 0, c.z + r * 0.18, r * 1.6);
       cc[n * 3] = o.cr; cc[n * 3 + 1] = o.cg; cc[n * 3 + 2] = o.cb;
       n++;
+      // groove stamp
+      const sdx = c.x - c.lsx, sdz = c.z - c.lsz, gap = r * 0.9 + 0.8;
+      if (sdx * sdx + sdz * sdz > gap * gap) {
+        c.lsx = c.x; c.lsz = c.z;
+        if (Math.abs(c.x - this.camX) < hx && c.z > zmin && c.z < zmax) {
+          const k = this.trN++ % TRAIL_N;
+          this.trX[k] = c.x; this.trZ[k] = c.z; this.trR[k] = r * 0.55; this.trT[k] = this.time;
+        }
+      }
     }
     this.cellMesh.count = n; this.shadowMesh.count = n;
     this.cellMesh.instanceMatrix.needsUpdate = true; this.cellMesh.instanceColor.needsUpdate = true; this.shadowMesh.instanceMatrix.needsUpdate = true;
-    if (this.mDirty) { this.foodMesh.instanceMatrix.needsUpdate = true; this.mDirty = false; }
-    if (this.cDirty) { this.foodMesh.instanceColor.needsUpdate = true; this.cDirty = false; }
+    // grooves fade out over ~7 s (colour towards the ground, width shrinking)
+    const ta = this.trailMesh.instanceMatrix.array, tc = this.trailMesh.instanceColor.array;
+    let tn = 0;
+    for (let k = 0; k < TRAIL_N; k++) {
+      const age = (this.time - this.trT[k]) / TRAIL_LIFE;
+      if (age >= 1 || age < 0) continue;
+      wm(ta, tn * 16, this.trX[k], 0, this.trZ[k], this.trR[k] * (1 - 0.4 * age));
+      tc[tn * 3] = 0.66 + 0.3 * age; tc[tn * 3 + 1] = 0.77 + 0.2 * age; tc[tn * 3 + 2] = 0.92 + 0.07 * age;
+      tn++;
+    }
+    this.trailMesh.count = tn; this.trailMesh.instanceMatrix.needsUpdate = true; this.trailMesh.instanceColor.needsUpdate = true;
     if (this.vDirty) {
       const va = this.virMesh.instanceMatrix.array;
       let vn = 0;
@@ -1211,12 +1683,20 @@ export class AgarMode {
     }
     const pa = this.pupMesh.instanceMatrix.array;
     for (let i = 0; i < NPUP; i++) {
-      if (this.pon[i]) wm(pa, i * 16, this.px[i], 2 + Math.sin(this.time * 3 + i) * 0.5, this.pz[i], 1 + Math.sin(this.time * 4 + i) * 0.1); else wm(pa, i * 16, 0, -9, 0, 0);
+      if (this.pon[i]) wm(pa, i * 16, this.px[i], 2 + Math.sin(this.time * 3 + i) * 0.5, this.pz[i], (this.ptype[i] === 4 ? 1.9 : 1) * (1 + Math.sin(this.time * 4 + i) * 0.1)); else wm(pa, i * 16, 0, -9, 0, 0);
     }
     this.pupMesh.instanceMatrix.needsUpdate = true;
+    // storm
+    const st = this.storm;
+    this.stormA.visible = this.stormB.visible = st.on;
+    if (st.on) {
+      this.stormA.position.x = this.stormB.position.x = st.x; this.stormA.position.z = this.stormB.position.z = st.z;
+      this.stormA.scale.set(st.r, 1, st.r); this.stormB.scale.set(st.r * 1.25, 1, st.r * 1.25);
+      this.stormA.rotation.y += dt * 0.9; this.stormB.rotation.y -= dt * 0.55;
+    }
     // auras (local player)
     if (me.alive && me.shield > 0) { this.aura.visible = true; this.aura.position.set(me.lx, me.maxR, me.lz); this.aura.scale.setScalar(me.maxR * 1.18 + 0.4); } else this.aura.visible = false;
-    if (me.alive && me.magnet > 0) { this.ring.visible = true; this.ring.position.set(me.lx, 0.2, me.lz); this.ring.scale.setScalar(me.maxR + 14); } else this.ring.visible = false;
+    if (me.alive && me.magnet > 0) { this.ring.visible = true; this.ring.position.set(me.lx, 0.3, me.lz); this.ring.scale.setScalar(me.maxR + 14); } else this.ring.visible = false;
     // name sprites
     const camH = this.camH;
     for (let i = 0; i < NOWN; i++) {
@@ -1229,15 +1709,35 @@ export class AgarMode {
     }
   }
 
+  /** per-frame watchers: terrain-entry sounds, size titles, storm rumble */
+  watch(dt) {
+    const me = this.owners[this.me];
+    if (me.alive && this.state === 'play') {
+      const z = this.terrain.zone(me.lx, me.lz);
+      if (z !== this.meZone) { this.meZone = z; if (z === 2) this.snd('deep'); else if (z === 1) this.snd('slide'); }
+      const ti = titleOf(me.mass);
+      if (ti > this.titleIdx) { this.titleIdx = ti; this.toast('★ ' + TITLES[ti][1] + '!'); this.audio?.milestone?.(Math.min(6, ti)); }
+    }
+    const st = this.storm;
+    if (st.on && this.state !== 'title') {
+      this.stormSndT -= dt;
+      if (this.stormSndT <= 0) {
+        this.stormSndT = 3;
+        const v = clampN(1 - Math.hypot(st.x - this.camX, st.z - this.camZ) / (st.r * 3.5), 0, 1);
+        if (v > 0.05) this.audio?.arena?.('storm', v);
+      }
+    }
+  }
+
   // ------------------------------------------------------------------ HUD
   buildHud() {
     const root = document.createElement('div');
     root.id = 'ag-root';
     root.className = 'ag-root';
     root.innerHTML =
-      '<div class="ag-tl"><div class="ag-mass"><small>KÜTLE</small><b class="m">0</b></div>' +
+      '<div class="ag-tl"><div class="ag-mass"><small>KÜTLE</small><b class="m">0</b><small class="tt"></small></div>' +
       '<div class="ag-lvl"><span class="lv">Sv 1</span><div class="bar"><i></i></div></div>' +
-      '<div class="ag-online">🟢 <span class="on">0</span> oyuncu çevrimiçi</div>' +
+      '<div class="ag-room"></div><div class="ag-online">🟢 <span class="on">0</span> oyuncu çevrimiçi</div>' +
       '<div class="ag-rank">SIRA <b>-</b></div><div class="ag-feed"></div><div class="ag-chips"></div></div>' +
       '<div class="ag-tr"><div class="ag-lb"><div class="t">LİDERLER</div><div class="rows"></div></div><canvas class="ag-map" width="84" height="84"></canvas></div>' +
       '<div class="ag-stick"><i></i></div><div class="ag-toast"></div>' +
@@ -1253,12 +1753,31 @@ export class AgarMode {
     const feeds = [];
     for (let i = 0; i < 4; i++) { const d = document.createElement('div'); d.className = 'f'; q('.ag-feed').appendChild(d); feeds.push(d); }
     this.hud = {
-      root, rows, chips, feeds, mass: q('.m'), lv: q('.lv'), bar: q('.bar i'), online: q('.on'), rank: q('.ag-rank b'), stick: q('.ag-stick'), knob: q('.ag-stick i'), toast: q('.ag-toast'),
+      root, rows, chips, feeds, mass: q('.m'), tt: q('.tt'), lv: q('.lv'), bar: q('.bar i'), online: q('.on'), room: q('.ag-room'), rank: q('.ag-rank b'), stick: q('.ag-stick'), knob: q('.ag-stick i'), toast: q('.ag-toast'),
       map: q('.ag-map'), mctx: q('.ag-map').getContext('2d'), boost: q('.boost'), cd: q('.cd'), bsplit: q('.split'),
     };
     const press = (el, fn) => {
       el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.audio?.init?.(); fn(); });
     };
+    // chat (log is always shown - bots talk too; the input is only offered in online rooms)
+    const chat = document.createElement('div');
+    chat.className = 'ag-chat';
+    chat.innerHTML = '<div class="ag-clog"></div><div class="ag-cpanel"><div class="ag-cin"><input maxlength="80" placeholder="Mesaj yaz..." autocomplete="off"><button type="button">➤</button></div><div class="ag-cq"></div></div><button type="button" class="ag-cbtn">💬</button>';
+    root.appendChild(chat);
+    const cl = chat.querySelector('.ag-clog'), cin = chat.querySelector('input'), cpanel = chat.querySelector('.ag-cpanel'), cbtn = chat.querySelector('.ag-cbtn');
+    const cels = [];
+    for (let i = 0; i < 6; i++) { const d = document.createElement('div'); d.className = 'ag-cl'; d.innerHTML = '<b></b><span></span>'; cl.appendChild(d); cels.push(d); }
+    const send = () => { const t = cin.value; cin.value = ''; if (t.trim()) this.sendChat(t); };
+    chat.querySelector('.ag-cin button').addEventListener('click', () => { this.audio?.init?.(); send(); });
+    cin.addEventListener('keydown', (e) => { if (e.key === 'Enter') { send(); e.preventDefault(); } e.stopPropagation(); });
+    cin.addEventListener('keyup', (e) => e.stopPropagation());
+    for (const ph of ['Selam!', 'GG', 'Kaç!', 'Takım?']) {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = ph;
+      b.addEventListener('click', () => { this.audio?.init?.(); this.sendChat(ph); });
+      chat.querySelector('.ag-cq').appendChild(b);
+    }
+    cbtn.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('click'); cpanel.classList.toggle('on'); if (cpanel.classList.contains('on')) { try { cin.focus(); } catch { /* ignore */ } } });
+    this.hud.chat = { root: chat, els: cels, btn: cbtn, panel: cpanel };
     press(this.hud.boost, () => this.doBoost());
     press(this.hud.bsplit, () => this.doSplit());
   }
@@ -1291,10 +1810,21 @@ export class AgarMode {
     if (this.hudT <= 0) {
       this.hudT = 0.1;
       h.mass.textContent = me.alive ? fmtM(me.mass) : '0';
+      h.tt.textContent = TITLES[titleOf(me.alive ? me.mass : 0)][1];
+      const ch = h.chat;
+      ch.btn.style.display = this.mp ? '' : 'none';
+      if (!this.mp) ch.panel.classList.remove('on');
+      if (this.chatDirty) {
+        const L = this.chatLog;
+        for (let i = 0; i < 6; i++) { const e = ch.els[i], m = L[L.length - 6 + i]; if (m) { e.children[0].textContent = m.n + ': '; e.children[0].style.color = '#' + ('000000' + m.c.toString(16)).slice(-6); e.children[1].textContent = m.x; } else { e.children[0].textContent = ''; e.children[1].textContent = ''; } }
+        this.chatDirty = false;
+      }
+      for (let i = 0; i < 6; i++) { const m = this.chatLog[this.chatLog.length - 6 + i]; ch.els[i].style.opacity = m ? clampN((m.until - this.time) / 1.5, 0, 1).toFixed(2) : '0'; }
+      if (this.mp && this.net) { const hn = this.mp === 'host' ? this.net.clients.size + 1 : this.humans; h.room.style.display = ''; h.room.textContent = (this.net.pub === false ? '🔒 ' : this.net.pub ? '🌐 ' : '🏠 ') + this.net.code + ' · ' + hn + '/' + MAX_HUMANS + ' oyuncu'; } else h.room.style.display = 'none';
       const xp = this.xp + me.xpRun, lv = lvlOf(xp), lo = 60 * (lv - 1) * (lv - 1), hi = 60 * lv * lv;
       h.lv.textContent = 'Sv ' + lv;
       h.bar.style.width = clampN(((xp - lo) / (hi - lo)) * 100, 0, 100).toFixed(0) + '%';
-      if (lv > this.lastLevel && this.state === 'play') { this.toast('SEVİYE ' + lv + '! Başlangıç kütlen arttı'); this.audio?.milestone?.(Math.min(6, lv)); }
+      if (lv > this.lastLevel && this.state === 'play') { this.toast('SEVİYE ' + lv + '!'); this.audio?.milestone?.(Math.min(6, lv)); }
       this.lastLevel = lv;
       // chips
       let ci = 0;
@@ -1315,6 +1845,12 @@ export class AgarMode {
     g.clearRect(0, 0, W, W);
     g.fillStyle = 'rgba(20,50,95,0.55)'; g.beginPath(); g.arc(c0, c0, c0 - 1, 0, 6.2832); g.fill();
     const me = this.owners[this.me];
+    const T = this.terrain;
+    g.fillStyle = 'rgba(140,215,255,0.35)';
+    for (let i = 0; i < NICE; i++) { g.beginPath(); g.arc(c0 + T.ice[i * 3] * sc, c0 + T.ice[i * 3 + 1] * sc, Math.max(1, T.ice[i * 3 + 2] * sc), 0, 6.2832); g.fill(); }
+    g.fillStyle = 'rgba(255,255,255,0.22)';
+    for (let i = 0; i < NDEEP; i++) { g.beginPath(); g.arc(c0 + T.deep[i * 3] * sc, c0 + T.deep[i * 3 + 1] * sc, Math.max(1, T.deep[i * 3 + 2] * sc), 0, 6.2832); g.fill(); }
+    if (this.storm.on) { g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1.5; g.beginPath(); g.arc(c0 + this.storm.x * sc, c0 + this.storm.z * sc, this.storm.r * sc, 0, 6.2832); g.stroke(); }
     for (let i = 0; i < NOWN; i++) {
       const o = this.owners[i];
       if (!o.alive || o === me) continue;

@@ -3,6 +3,7 @@
 const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const makeCode = () => { let s = ''; for (let i = 0; i < 5; i++) s += CHARS[(Math.random() * CHARS.length) | 0]; return s; };
 const PREFIX = 'patpat-';
+import { VERSION, MAX_HUMANS } from './proto.js';
 
 export class ArenaNet {
   /** h: { onStatus(text), onLobby(list, code), onStart(msg), onData(fromId|null, msg), onGone(id), onClosed(reason) } */
@@ -15,7 +16,7 @@ export class ArenaNet {
     this.conn = null; // client: connection to the host
     this.started = false;
     this.dead = false;
-    this.maxHumans = 8;
+    this.maxHumans = MAX_HUMANS;
     this.nick = '';
     this.names = [];
   }
@@ -56,10 +57,12 @@ export class ArenaNet {
       if (!d || typeof d !== 'object') return;
       if (d.t === 'hello') {
         if (rec) return;
-        if (this.started || this.clients.size + 1 >= this.maxHumans) { try { c.send({ t: 'full' }); } catch { /* ignore */ } setTimeout(() => { try { c.close(); } catch { /* ignore */ } }, 300); return; }
+        const refuse = (t) => { try { c.send({ t }); } catch { /* ignore */ } setTimeout(() => { try { c.close(); } catch { /* ignore */ } }, 300); };
+        if ((d.v | 0) !== VERSION) { refuse('ver'); return; }
+        if (this.clients.size + 1 >= this.maxHumans) { refuse('full'); return; }
         rec = { conn: c, nick: String(d.nick || 'Yeti').slice(0, 12) };
         this.clients.set(c.peer, rec);
-        this.pushLobby();
+        if (this.started) { if (this.h.onLate && this.h.onLate(c.peer, rec) === false) { this.clients.delete(c.peer); rec = null; refuse('full'); } } else this.pushLobby();
         return;
       }
       if (rec) this.h.onData && this.h.onData(c.peer, d);
@@ -100,15 +103,17 @@ export class ArenaNet {
       this.peer.on('error', (e) => { if (done) { return; } done = true; clearTimeout(to); rej(e || { type: 'error' }); });
       c.on('open', () => {
         if (done) return; done = true; clearTimeout(to);
-        c.send({ t: 'hello', nick });
+        c.send({ t: 'hello', nick, v: VERSION });
         res();
+        // the host answers a hello at once (lobby / start / full / ver); stay silent for too long = dead host
+        this._hs = setTimeout(() => { if (!this.started && !this.gotLobby && !this.dead) this.h.onClosed && this.h.onClosed('timeout'); }, 9000);
       });
       c.on('data', (d) => {
         if (!d || typeof d !== 'object') return;
-        if (d.t === 'lobby') { this.h.onLobby && this.h.onLobby(d.list, this.code); return; }
-        if (d.t === 'full') { this.h.onClosed && this.h.onClosed('full'); return; }
+        if (d.t === 'lobby') { this.gotLobby = true; this.h.onLobby && this.h.onLobby(d.list, this.code); return; }
+        if (d.t === 'full' || d.t === 'ver') { this.h.onClosed && this.h.onClosed(d.t); return; }
         if (d.t === 'closed') { this.h.onClosed && this.h.onClosed('closed'); return; }
-        if (d.t === 'start') { this.started = true; this.h.onStart && this.h.onStart(d); return; }
+        if (d.t === 'start') { this.started = true; clearTimeout(this._hs); this.h.onStart && this.h.onStart(d); return; }
         this.h.onData && this.h.onData(null, d);
       });
       c.on('close', () => { if (!this.dead) this.h.onClosed && this.h.onClosed('closed'); });
@@ -127,6 +132,7 @@ export class ArenaNet {
   close() {
     if (this.dead) return;
     this.dead = true;
+    clearTimeout(this._hs);
     if (this.role === 'host') this.broadcast({ t: 'closed' });
     const p = this.peer;
     setTimeout(() => { try { p && p.destroy(); } catch { /* ignore */ } }, 250);
