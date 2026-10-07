@@ -179,7 +179,7 @@ export class AgarMode {
     this.duel = { on: false, a: -1, b: -1, ia: -1, ib: -1, cx: 0, cz: 0, nx: 1, nz: 0, r: 20, s: 0, t: 0, cd: 12, bt: [0, 0] };
     this.zn = { st: 0, t: 0, cx: 0, cz: 0, r: R, rt: R * 0.42, next: 300 }; this.sessT = 0; this.wo = { st: 0, t: 0, next: 240 + Math.random() * 120, k: 0 }; this.dirCalm = 25;
     this.av = { st: 0, t: 0, next: 150 + Math.random() * 60, a: 0, off: 0, w: 55, id: 0, rum: 0, s: 0 }; this.tipT = 0; this.tipDone = false; this.boss = { id: -1, hp: 0, max: 0, next: 280 + Math.random() * 40, hitCd: 0, t: 0 };
-    this.titleIdx = 0; this.meZone = 0; this.lastMyMass = 0; this.botChatT = 20;
+    this.titleIdx = 0; this.meZone = 0; this.lastMyMass = 0; this.botChatT = 20; this.botCap = 400;
     this.chatLog = []; this.lastChat = 0;
     this.trN = 0;
     this.resultEl = null; this.screenEl = null;
@@ -517,15 +517,15 @@ export class AgarMode {
       this.toast('BÜYÜK LOKMA! 🍖', 1800);
     }
     if (me.mass < 500) { const nb = Math.min(6, 1 + ((me.mass / 50) | 0)), hx = FOOD_PAL[(Math.random() * FOOD_PAL.length) | 0]; for (let k = 0; k < nb; k++) { const a1 = Math.random() * 6.2832, d1 = 8 + Math.random() * 50, px = me.lx + Math.cos(a1) * d1, pz = me.lz + Math.sin(a1) * d1; if (px * px + pz * pz < (R - 4) * (R - 4)) this.spawnPellet(px, pz, 1, hx); } } // density scales with player mass
-    let near = 0, far = null;
+    let near = 0, far = null, pn = 0;
     for (let k = 1; k < NOWN; k++) {
       const o = this.owners[k];
       if (!o.alive || !o.bot || o.human) continue;
       const d = Math.hypot(o.lx - me.lx, o.lz - me.lz);
-      if (d < 90) near++; else if (d > 160 && o.cellN === 1 && (!far || Math.random() < 0.3)) far = o;
+      if (d < 90) { near++; if (o.mass > me.mass * 0.35 && o.mass < me.mass * 0.85 && o.cellN === 1) pn++; } else if (d > 160 && o.cellN === 1 && (!far || Math.random() < 0.3)) far = o;
     }
-    if (near >= (early ? 5 : this.time - me.t0 > 60 ? 4 : 3) || !far) return;
-    const a = Math.random() * 6.2832, d = 55 + Math.random() * 30, m = me.mass * (early ? 0.4 + Math.random() * 0.45 : near === 0 ? 0.6 : 0.5 + Math.random() * 0.8);
+    if ((near >= (early ? 5 : this.time - me.t0 > 60 ? 4 : 3) && pn > 0) || !far) return;
+    const a = Math.random() * 6.2832, d = 55 + Math.random() * 30, m = me.mass * (early ? 0.4 + Math.random() * 0.45 : pn === 0 ? 0.5 + Math.random() * 0.3 : 0.5 + Math.random() * 0.8);
     this.placeBot(far, me.lx + Math.cos(a) * d, me.lz + Math.sin(a) * d, Math.max(12, m));
   }
   spawnPellet(x, z, v, hex) {
@@ -861,6 +861,7 @@ export class AgarMode {
     this.stormTick(dt); this.rainTick(dt);
     this.props.tick(dt);
     this.nearTick(dt);
+    { const me0 = this.owners[this.me]; this.botCap = Math.max(220, 3 * (me0 && me0.alive && !me0.bot ? me0.mass : 0), 3 * (this.medHuman || 0)); }
     this.botChatTick(dt);
     if (this.mp !== 'client') { this.fortTick(dt); this.zoneTick(dt); this.duelTick(dt); }
     if (this.mp !== 'client' && this.state === 'play') this.popTick(dt);
@@ -939,6 +940,7 @@ export class AgarMode {
       const d2 = c.x * c.x + c.z * c.z, lim = R - 1;
       if (d2 > lim * lim) { const k = lim / Math.sqrt(d2); c.x *= k; c.z *= k; }
       if (o.burCd <= 0 && c.m < BUR_M && o.cellN === 1 && this.mp !== 'client' && (!o.bot || o.fleeT > 0)) { for (let b = 0; b < NBUR; b++) { const bx = BUR[b].x - c.x, bz = BUR[b].z - c.z; if (bx * bx + bz * bz < BUR_IN * BUR_IN) { this.burIn(o, c, b); break; } } }
+      if (o.bot && c.m > this.botCap) c.m -= c.m * 0.012 * dt;
       if (c.m > 400) c.m -= c.m * 0.0012 * dt; // big balls slowly shrink: growth stays gradual
       if (this.zn.st === 2 && this.mp !== 'client' && c.m > 10 && !(o.shield > 0 && o.prot)) { const zx = c.x - this.zn.cx, zz = c.z - this.zn.cz; if (zx * zx + zz * zz > this.zn.r * this.zn.r) c.m = Math.max(10, c.m - (c.m * 0.015 + 0.4) * dt); }
     }
@@ -989,6 +991,7 @@ export class AgarMode {
             if (d2 < r2) {
               const v = this.fv[i];
               let pv = o.bot ? v * (this.time - this.sessT < 150 ? 0.5 : this.time - this.sessT < 240 ? 0.75 : 1) : v;
+              if (o.bot && c.m > this.botCap) pv *= 0.1;
               for (const f of this.forts) if (f.pa > 0.5 && f.pc === c.o) { const px = this.fx[i] - f.x, pz = this.fz[i] - f.z; if (px * px + pz * pz < PAINT_R * PAINT_R) { pv *= 1.2; break; } }
               c.m = Math.min(MAXM, c.m + pv); o.xpRun += v;
               if (c.o === this.me) { this.snd('pellet'); if (!this.firstEat && this.state === 'play') { this.firstEat = true; this.toast('İLK YEMEK! 🎉'); this.audio?.milestone?.(1); } }

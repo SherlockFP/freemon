@@ -170,6 +170,7 @@ const menus = createMenus({
   callbacks: {
     // OYNA = YETİ RUSH straight away; ÇIĞ SONSUZ and MACERA are small buttons.
     onEndless: () => startEndless(),
+    onDailyRush: () => { window.patpatDailyRush?.(); startEndless(); },  // GÜNÜN RUSH'I (seeded by date)
     onCigEndless: () => startCigEndless(),    // (the menu only offers it once DAĞ 10 is cleared)
     onCigLevel: (n, o) => startCigLevel(n, o),
     onAgar: () => startAgar(),

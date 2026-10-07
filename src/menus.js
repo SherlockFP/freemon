@@ -595,7 +595,8 @@ const CSS = `
 .fm-tchip.hot { background: #ffd84a; color: var(--ink); }
 .fm-todaywrap.fm-lock { filter: none !important; opacity: 1 !important; }
 .fm-todaywrap.fm-lock .fm-tchip { background: #1b2a52; color: #fff; border-color: #0d1630; opacity: 0.92; }
-.fm-todaywrap.fm-lock::after { content: attr(data-lock); opacity: 1; left: 50%; right: auto; top: 50%; bottom: auto; width: auto; transform: translate(-50%, -50%); background: #0d1630; color: #fff; font-size: 12px; font-weight: 900; padding: 4px 10px; border: 2px solid #fff; border-radius: 10px; white-space: nowrap; }
+.fm-lock[data-lock]::after { content: attr(data-lock); position: absolute; left: auto; right: 3px; top: 3px; bottom: auto; width: auto; transform: none; background: #0d1630; color: #fff; font-size: 9px; font-weight: 900; line-height: 1; padding: 2px 5px; border: 1.5px solid #fff; border-radius: 8px; white-space: nowrap; z-index: 5; pointer-events: none; opacity: 1; }
+.fm-todaywrap.fm-lock[data-lock]::after { top: -7px; right: 6px; }
 .fm-todaywrap.fm-lock::before { display: none; }
 .fm-tchip.fm-sz { position: relative; touch-action: manipulation; }
 .fm-sring { width: 22px; height: 22px; flex: none; display: block; pointer-events: none; }
@@ -3069,7 +3070,12 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
         const lo = prev ? prev.need : 0;
         const frac = nxt ? Math.max(0, Math.min(1, (se.tokens - lo) / Math.max(1, nxt.need - lo))) : 1;
         const gf = Math.max(0, Math.min(1, se.claimed / Math.max(1, se.total)));
-        chips.push({ sez: true, hot: se.ready > 0, frac, gf, text: `Sezon ${se.tokens}🧣 · ${se.claimed}/${se.total}`, fn: () => openSeason() });
+        chips.push({ sez: true, hot: se.ready > 0, frac, gf, text: `${se.tokens} · ${se.claimed}/${se.total}`, fn: () => openSeason() });
+      } catch { /* ignore */ }
+      try { let dr = null; try { dr = JSON.parse(localStorage.getItem('patpat.dailyRush') || 'null'); } catch { /* ignore */ }
+        const nd = new Date(), tk = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`;
+        const bst = dr && dr.dist > 0 && dr.key === tk ? dr.dist : 0;
+        chips.push(['🏃', bst ? `Günün Rush'ı · ${Math.round(bst)} m` : "Günün Rush'ı", !bst, () => { if (cb.onDailyRush) cb.onDailyRush(); }]);
       } catch { /* ignore */ }
       if (gr) chips.push(['🔮', 'Küre hazır', true, () => shakeGlobe()]);
       const sm = stormOf();

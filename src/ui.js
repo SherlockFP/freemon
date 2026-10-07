@@ -282,12 +282,21 @@ ${dist} m`; }
     try { seaTok = Math.floor(Number(p && (p.seasonTokens ?? (p.stats && p.stats.seasonTokens))) || meta.stats().seasonTokens || 0); } catch { seaTok = 0; }
     if (seaTok > 0) chips.push(`<div class="rx-chip"><small>SEZON</small><b>+${fmtN(seaTok)} 🧣</b></div>`);
     html += `<div class="rx-stats">${chips.join('')}</div>`;
-    if (note) html += `<div class="rx-line">${note}</div>`;
+    const dly = p && p.daily;
+    let shareTxt = '';
+    if (dly) {
+      const dm = Math.max(dly.best || 0, distance);
+      shareTxt = `🏔 PATPAT Günün Rush'ı #${dly.num} — ${fmtN(distance)} m` + ((this._bestCombo || 0) >= 3 ? ` 🔥x${this._bestCombo}` : '');
+      html += `<div class="rx-line">GÜNÜN RUSH'I #${dly.num}: ${fmtN(distance)} m${dm > distance ? ` · EN İYİ ${fmtN(dm)} m` : ''}</div><div class="rx-line"><button type="button" class="rx-share">PAYLAŞ</button> <span class="rx-dim">${shareTxt}</span></div>`;
+    }
+    if (note && !dly) html += `<div class="rx-line">${note}</div>`;
     if (!isRec && tipTxt) html += `<div class="rx-dim">${tipTxt}</div>`;
     html += mrep.html;
     html += this.goalBlock(coins);
     ex.innerHTML = html;
     ex.classList.toggle('hidden', !html);
+    const shb = ex.querySelector('.rx-share');
+    if (shb) shb.onclick = () => { try { if (navigator.share) navigator.share({ text: shareTxt }).catch(() => {}); else navigator.clipboard?.writeText(shareTxt); shb.textContent = 'KOPYALANDI'; } catch { /* ignore */ } };
 
     this.el.result.classList.remove('hidden');
     this.el.result.classList.add('runner');
@@ -844,6 +853,7 @@ ${dist} m`; }
       const rm = () => { if (gone) return; gone = true; this.floatCount--; d.getAnimations?.().forEach((an) => an.cancel()); d.style.opacity = '0'; d.remove(); };
       d.addEventListener('animationend', rm);
       this.el.floats.appendChild(d);
+      setTimeout(rm, 2200);      // hard max lifetime: a float can never linger
       return rm;
     };
     if (prio) {
@@ -1079,6 +1089,11 @@ ${dist} m`; }
     st.q.push(r);
     this._annSched(st, ch);
   }
+  /** true while the centre or top announcement lane is showing something */
+  annBusy() {
+    const n = performance.now(), c = this._chs || {};
+    return !!((c.c && c.c.cur && n < c.c.cur.until) || (c.t && c.t.cur && n < c.t.cur.until));
+  }
   _annStart(st, r, now) {
     try { st.cur?.clear?.(); } catch { /* ignore */ }
     let clear = null;
@@ -1145,7 +1160,7 @@ ${dist} m`; }
   toastSoft(text, opts) {
     if (!text) return;
     const prio = (opts && opts.prio) || (/REKOR|GÖREV|ÇARPAN|Yeni damga|YENİ/i.test(text) ? 2 : 1);
-    this._say('t', { text: String(text), prio, ms: 1250, show: () => this._toastNow(text, opts) });
+    this._say('t', { text: String(text), prio, ms: 1250, drop: !!(opts && opts.drop), show: () => this._toastNow(text, opts) });
   }
   _toastNow(text, opts) {
     const box = this.el.toastSoft;
@@ -1158,6 +1173,7 @@ ${dist} m`; }
     t.textContent = text;
     d.appendChild(t);
     d.addEventListener('animationend', () => d.remove());
+    setTimeout(() => d.remove(), 2200);
     box.appendChild(d);
     return () => { d.getAnimations?.().forEach((an) => an.cancel()); d.style.opacity = '0'; d.remove(); };
   }

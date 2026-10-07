@@ -138,6 +138,24 @@ const LETHAL_BASE = new Set(['rock', 'cabin']);                  // campaign: fr
 const LETHAL_CAR = new Set(['snowcat', 'oncoming', 'missile']);  // campaign: from level 30
 const LETHAL_WALL = new Set(['slidewall']);                      // campaign: from level 60
 
+/** GÜNÜN RUSH'I: same seed for everybody on a given local date. */
+export function dailyInfo() {
+  const d = new Date(), key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  let h = 2166136261; for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+  const num = Math.floor((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(2026, 0, 1)) / 86400000) + 1;
+  return { key, num, seed: (h >>> 0) % 1000000000 };
+}
+function storeDaily(dl, dist, score) {
+  let r = null;
+  try { r = JSON.parse(localStorage.getItem('patpat.dailyRush') || 'null'); } catch (e) { r = null; }
+  if (!r || r.key !== dl.key) r = { key: dl.key, dist: 0, score: 0 };
+  if (dist > r.dist) { r.dist = dist; r.score = score; }
+  try { localStorage.setItem('patpat.dailyRush', JSON.stringify(r)); } catch (e) { /* ignore */ }
+  return r;
+}
+// Menu hook: `window.patpatDailyRush()` flags the next runner.start() as the daily run (call it right before main's startEndless()).
+if (typeof window !== 'undefined') window.patpatDailyRush = () => { window.__patpatDailyRush = true; return dailyInfo(); };
+
 export class Runner {
   constructor(ctx) {
     this.ctx = ctx; // { scene, camera, lib, ball, fx, ui, audio, platform, save, input, meta, menus }
@@ -163,6 +181,11 @@ export class Runner {
     this.dispose();
     const save = this.ctx.save;
     this.level = level;
+    // GÜNÜN RUSH'I: the menu sets window.__patpatDailyRush = true right before startEndless(); retries of a daily stay daily
+    let dly = null;
+    if (!level && (window.__patpatDailyRush || (opts.retry && this.daily))) { dly = dailyInfo(); seed = dly.seed; }
+    window.__patpatDailyRush = false;
+    this.daily = dly;
     if (level) seed = level.seed >>> 0;
     this.seed = seed;
     this.tut = !level && !this.ctx.noTut && !(save.runnerTutDone?.() ?? true);
@@ -528,6 +551,10 @@ export class Runner {
         else { this.topMsg('KAÇ!', 'big'); this.roar(true); }
       }
       dt = 0;
+    }
+    if (this._introPend && this.countT <= 0 && this.introEl) {
+      this._introPend = false; const ie = this.introEl; ie.style.visibility = ''; ie.style.animation = 'none'; void ie.offsetWidth; ie.style.animation = '';
+      setTimeout(() => { if (this.introEl === ie) ie.classList.add('badge'); }, 1500);
     }
     if (play && this.countT <= 0) this.tickBanner(rdt);
     const beat = music.beat;
@@ -1486,7 +1513,7 @@ export class Runner {
     const s = this.b.s;
     if (!z.announced && s >= z.from && !this.jnOpen) {
       z.announced = true;
-      if (this.ctx.ui.toastSoft) this.ctx.ui.toastSoft(z.name); else this.ctx.ui.banner(z.name, 4);     // top edge, never over the track
+      if (this.ctx.ui.toastSoft) this.ctx.ui.toastSoft(z.name, { prio: 2 }); else this.ctx.ui.banner(z.name, 4);     // top edge, never over the track
       this.ctx.audio.milestone(3);
       this.ctx.platform.haptic('success');
     }
@@ -2226,8 +2253,8 @@ export class Runner {
     el.className = 'char-intro';
     el.innerHTML = '<span class="ci-ico">' + A.icon + '</span><b>' + String(name).toLocaleUpperCase('tr-TR') + '</b><i>' + A.text + '</i>';
     document.body.appendChild(el);
+    el.style.visibility = 'hidden'; this._introPend = true;      // revealed when the 3-2-1 ends (see step)
     this.ctx.ball.group.rotation.y = 0; this._introT = 1.5;
-    setTimeout(() => { el.classList.add('badge'); }, 1500);
     try {
       const T = this.ctx.ball.group.constructor && this.ctx.THREE;
       const g = new THREE.Group();
@@ -3001,6 +3028,7 @@ export class Runner {
     const score = Math.round(this.score), dist = Math.round(this.b.s);
     const rank = save.recordRunner?.(score, dist) || 0;
     const dailyBest = !!save.recordDailyRunner?.(score);
+    if (this.daily) this.dailyRec = storeDaily(this.daily, dist, score);
     meta?.track?.('endless_end', {
       distance: dist, score, coins: this.coins, crashes: this.crashes, cause: this.cause, killKind: this.killKind,
       maxTier: this.maxTier, seasonTokens: this.seasonTokens || 0, jumps: this.jumps, smashes: this.smashes, turns: this.turns, stumbles: this.stumbles, stomps: this.stompTotal,
@@ -3089,6 +3117,7 @@ export class Runner {
       title: (dt && dt.title) || DEATH_TEXT[this.cause] || 'BİTTİ!',
       tip: dt ? dt.tip : '',
       dailyBest,
+      daily: this.daily ? { num: this.daily.num, best: (this.dailyRec || { dist }).dist } : null,
       destruction: DESTRUCTION[this.destTier].name,
       tons: Math.round(this.destTons),
       rank,
@@ -3337,7 +3366,7 @@ export class Runner {
   // ball over the trail — never on the strip of track the player is reading.
   // ---- first-encounter tips: once ever per mechanic (localStorage), max one per 8 s, never in danger ----
   tip(key, text, slow) {
-    if (this.state !== 'play' || this.tipCd > 0 || this.countT > 0 || (this.time - this.floatT < 1.5 && this.floatPri >= 2)) return false;
+    if (this.state !== 'play' || this.tipCd > 0 || this.countT > 0 || this.bannerT > 0 || this.ctx.ui.annBusy?.() || (this.zone && this.zone.announced && this.b.s - this.zone.from < 60) || (this.time - this.floatT < 1.5 && this.floatPri >= 2)) return false;
     if (this.stumbleT > 0 || this.gap < 9 || this.boss || this.rage || this.hungerWarn || this.zip || this.grind) return false;
     let seen = this.tipsSeen;
     if (!seen) {
@@ -3348,7 +3377,7 @@ export class Runner {
     seen[key] = 1;
     try { localStorage.setItem('patpat.rush.tips', JSON.stringify(seen)); } catch (e) { /* ignore */ }
     this.tipCd = 8;
-    this.ctx.ui.toastSoft?.(text);
+    this.ctx.ui.toastSoft?.(text, { drop: true });
     if (slow) this.tipSlowT = 0.9;
     return true;
   }
@@ -3384,6 +3413,7 @@ export class Runner {
 
   float(text, cls) {
     const pri = FLOAT_PRI[cls] ?? 1;
+    if (pri < 2) return;                           // low-value info text (buff ends, +50, KAPI 1/3 ...) is never shown
     if (this.bannerT > 0 && pri < 3) return;      // one big centre text at a time: a banner owns the slot
     const lastSame = this.floatSeen.get(text);
     if (lastSame !== undefined && this.time - lastSame < (pri >= 3 ? 1.5 : 4)) return;   // repeat throttle
@@ -3628,7 +3658,7 @@ export class Runner {
     this._rcpKill();
     this.stormEl?.remove(); this.stormEl = null;
     document.getElementById('rcol')?.remove(); this._baitEl = this._scarfEl = this._cannonEl = this._breadEl = null;
-    this.introEl?.remove(); this.introEl = null; this.accGroup?.parent?.remove(this.accGroup); this.accGroup = null;
+    this.introEl?.remove(); this.introEl = null; this._introPend = false; this.accGroup?.parent?.remove(this.accGroup); this.accGroup = null;
     this.closeOut();
     this.rhythm?.dispose(); this.rhythm = null;
     this.track?.dispose();
