@@ -1011,3 +1011,9 @@ Genel 7.1 · Rush 7.0 · ÇIĞ 6.5 (sıkı çapa) · Arena 6.5 · Menü 7.0 — 
 - Menü: BUGÜN 2 satıra sarıyor (kesik çip yok); hazır ödül parlıyor+zıplıyor.
 - Arena: başta yakın kamera, küçük hücre min görsel boyut, bölge dolgusu soft, ağaç fade güçlü; "YENDİN: X" ölüm kartı + "ilk 3'e N kütle" kancası.
 - Smoke: Rush/ÇIĞ/Arena/boss/günlük hatasız.
+
+## Döngü 22 — değerlendirme
+Genel 7.2 · Rush 7.1 · ÇIĞ 6.8 · Arena 6.6 · Menü 7.1 — çökme yok.
+- İyi: 547 m gündüz → 856 m gün batımı geçişi okunuyor; ÇIĞ "DAĞ TAMAM!" ekranı cilalı; arena yakın kamera okunurluğu düzeltti; menüde BUGÜN 2 satır.
+- Gelişmeli: Rush ölüm kamerası yetinin içine giriyor; hızda ekran kalabalık (öğretici toast + çipler); ÇIĞ sonuç istatistikleri satır kayıyor; arena'da tehdit işareti yok, başta #45/47 moral bozuyor, zemin parlaması; menüde çok fazla öğe (5 çip + ipucu satırı).
+- Şimdi: ölüm kamerası geri çekilme + slow-mo; öğretici toast kombo>3'te gizle; ÇIĞ istatistik ızgarası + eksik yıldız teaser; arena tehdit okları + "sonraki sıraya X kütle"; menü BUGÜN en fazla 3 çip.
