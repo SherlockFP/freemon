@@ -882,3 +882,26 @@ Bu oyunlarda olup bizde eksik olanlar:
 **Tur 17 notları**
 - Alttaki "Daha fazlası…" ipucu, menü etiketlerinin üstüne biniyor.
 - Kilitli BUGÜN çipleri okunmuyor.
+
+## Tur 17 — Yapılanlar (Rush çıtası, 2. adım)
+
+**Yeni: Sezon Avı** (Subway Surfers'taki sezon avından esinlenildi)
+- Rush koşularında "🧣 Atkı" jetonları çıkıyor. Hem tutorial'da hem Macera'da kapalı.
+  - Riskli noktalara konuluyor: zıplama yüksekliği, tren çatısı, slalom sonu.
+  - Başlangıçta km başına yaklaşık 8-9 jeton var, ilerledikçe seyreliyor.
+  - Koşu sırasında sayaç çipi görünüyor.
+- 28 günlük bir sezon ve 15 kademeli ödül yolu var:
+  - Ödüller: ❄️, 💎, kutu.
+  - 10. kademede iz, 15. kademede kostüm.
+- Menüde ayrıca:
+  - BUGÜN şeridine "🧣 Sezon" çipi eklendi.
+  - Ödül kartlarını gösteren bir SEZON paneli var.
+  - Sonuç ekranında "SEZON +N 🧣" yazıyor.
+
+**Menü**
+- "Daha fazlası…" ipucu artık alt menünün üstünde duruyor, üst üste binmiyor.
+- Kilitli çipler okunur hale getirildi.
+
+**Kontrol**
+- Tutorial koşusundan sonraki koşuda atkı jetonları çıktı.
+- Statik kontrol ve duman testi hatasız geçti.
