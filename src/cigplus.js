@@ -1105,6 +1105,7 @@ export class CigPlus {
   // strips (a chain of short quads that follow the ground), cannons with their telegraph lane, ice bridges
   // boss attack telegraphs: falling shadow marks, laser line, shockwave rings, charge lane (state lives in the boss AI: bossFx)
   _drawBoss(S, Gl, TP, t) {
+    const hwOf = (w, d) => w.halfWidth(d);
     const B = this.bossFx, w = this.world;
     if (!B || B.dead) return;
     for (const m of B.marks) {
@@ -1114,6 +1115,23 @@ export class CigPlus {
       Gl.emit(TP.lane, m.x, gy + 0.22, -m.d, 0, m.r * 1.6 * k, 1, m.r * 1.6 * k, 0, 0, 0.1, 0.05, 0.1, 0.5 * k);
       const h = (1 - k) * (1 - k) * 34 + m.s, sc = m.boulder ? m.s * 1.4 : m.s;
       if (!m.ghost) S.emit(m.boulder ? TP.ice : TP.shot, m.x, gy + h, -m.d, t * 4, sc, sc, sc, 0, 0, 1, 1, 1, 1);
+    }
+    for (const T of B.traps || []) {
+      const gy = w.groundY(T.x, T.d), rdy = T.cd <= 0, pu = 0.5 + 0.5 * Math.sin(t * 6 + T.x), al = rdy ? 0.55 + 0.35 * pu : 0.15;
+      const col = T.k === 'ice' ? [0.5, 0.9, 1] : T.k === 'mirror' ? [1, 0.95, 0.5] : [1, 0.6, 0.4];
+      if (T.k === 'ice') {
+        Gl.emit(TP.ring, T.x, gy + 0.3, -T.d, 0, T.r, T.r, T.r, Math.PI / 2, 0, col[0], col[1], col[2], al);
+        Gl.emit(TP.ring, T.x, gy + 0.3, -T.d, 0, T.r * 0.6, T.r * 0.6, T.r * 0.6, Math.PI / 2, t, 0.8, 1, 1, al);
+        Gl.emit(TP.lane, T.x, gy + 0.26, -T.d, 0, T.r * 1.5, 1, T.r * 1.5, 0, 0, 0.55, 0.9, 1, al * 0.6);
+      } else {
+        Gl.emit(TP.ice, T.x, gy + 2.2, -T.d, 0, 1.1, 2.6, 1.1, 0, 0, col[0], col[1], col[2], rdy ? 0.9 : 0.3);
+        Gl.emit(TP.ring, T.x, gy + 0.3, -T.d, 0, 3, 3, 3, Math.PI / 2, 0, col[0], col[1], col[2], al);
+      }
+      if (rdy) S.emit(TP.shot, T.x, gy + 6.2 + pu * 0.6, -T.d, t * 3, 0.7, 0.7, 0.7, 0, 0, col[0], col[1], col[2], 1);   // floating icon
+      if (T.drop != null) {
+        const k = clamp(T.drop / 0.9, 0, 1);
+        for (let i = -4; i <= 4; i++) { const ix = i * (hwOf(w, T.zd) / 4.5); Gl.emit(TP.ice, ix, w.groundY(ix, T.zd) + (1 - k) * (1 - k) * 22 + 1.2, -T.zd, 0, 0.7, 2.4, 0.7, Math.PI, 0, 0.7, 0.95, 1, 0.95); Gl.emit(TP.ring, ix, w.groundY(ix, T.zd) + 0.3, -T.zd, 0, 1.5 * k, 1.5 * k, 1.5 * k, Math.PI / 2, 0, 1, 0.3, 0.2, 0.5 * k); }
+      }
     }
     const L = B.laser;
     if (L) {
@@ -1933,6 +1951,24 @@ export class CigGame {
     this._msg(2, txt);
     this._h('sfx', 'milestone', 1);
   }
+  // TUZAK: environmental trap hit on the boss: big % damage + long stun window
+  _trapHit(p, B, frac, secs, txt) {
+    const e = p.enemy;
+    e.hp -= e.max * frac; e.flash = 0.3; e.woke = true;
+    this._h('burst', p.x, p.y + p.h * 0.5, p.d, 22, 0xbfeaff, 10, 0.5, 6);
+    this._h('sfx', 'crash', 0.9); this._h('haptic', 'heavy'); this.G.shake += 1.2;
+    this._text(txt, p, 'big', true);
+    if (e.hp <= 0) { this._killEnemy(p); return; }
+    this._bossStun(p, B, secs, 'TUZAK! ÇARP, AÇIK!');
+  }
+  _bossTraps(B, A, hw) {
+    const mk = (k, x, d, r) => ({ k, x, d, r, cd: 0, drop: null, zd: 0 });
+    const sx = hw * 0.5;
+    if (B.id === 'yeti') B.traps = [mk('ice', -sx, A.d1 - 34, 5.5), mk('ice', sx, A.d1 - 46, 5.5)];
+    else if (B.id === 'robot') B.traps = [mk('mirror', -sx, A.d0 + 38, 2), mk('mirror', sx, A.d0 + 66, 2)];
+    else B.traps = [mk('icicle', -sx, A.d0 + 30, 2.5), mk('icicle', sx, A.d0 + 55, 2.5)];
+    this._msg(2, B.id === 'yeti' ? "TUZAK: Yeti'yi buza çek!" : B.id === 'robot' ? 'TUZAK: Lazeri aynaya yönlendir!' : 'TUZAK: Sütuna çarp, buz sarkıtları düşsün!');
+  }
   _bossChunks(x, d, n, spread) {
     const r = clamp(this.ball.r * 0.3, 0.5, 3.2);
     for (let i = 0; i < n; i++) this.world.spawnChunk(x + (i - (n - 1) / 2) * spread, d + (i % 2 ? 1.5 : -1.5), r);
@@ -1944,7 +1980,7 @@ export class CigGame {
 
   _arenaAI(p, b, dt, hw, dd) {
     const e = p.enemy, A = e.arena, G = this.G, w = this.world;
-    const B = e.B || (e.B = { id: e.id, marks: [], rings: [], laser: null, lane: null, slam: null, rage: false, stun: 0, dash: 0, dt: 0, t1: 3.2, t2: 5.5, dead: false, base: (e.tint || [1, 1, 1]).slice() });
+    const B = e.B || (e.B = { id: e.id, marks: [], traps: [], rings: [], laser: null, lane: null, slam: null, rage: false, stun: 0, dash: 0, dt: 0, t1: 3.2, t2: 5.5, dead: false, base: (e.tint || [1, 1, 1]).slice() });
     this.plus.bossFx = B;
     if (e.kbD > 0.2 || Math.abs(e.kbX) > 0.2) {
       p.d += e.kbD * dt; p.x = clamp(p.x + e.kbX * dt, -hw, hw);
@@ -1964,6 +2000,7 @@ export class CigGame {
       this._msg(2, B.id === 'yeti' ? 'Kartopu gölgelerinden kaç, hücumda yana kay!' : B.id === 'robot' ? 'Lazerin boşluğundan geç ya da zıpla · dronları ye!' : 'Şok halkasının boşluğuna kay · buz kayalarını ez!');
       this._h('sfx', 'rumble');
       this._h('haptic', 'warning');
+      this._bossTraps(B, A, hw);
     }
     if (!e.woke) return;
     // phase 2: enrage
@@ -2017,8 +2054,11 @@ export class CigGame {
         B.dt += dt;
         p.d -= (B.rage ? 54 : 44) * dt; p.rot = 0;
         B.lane = { x0: p.x, d0: p.d, x1: p.x, d1: p.d - 40, w: 2 * (b.r + p.r * 0.8), solid: true };
+        for (const T of B.traps) if (T.k === 'ice' && T.cd <= 0 && Math.abs(p.d - T.d) < 3 && Math.abs(p.x - T.x) < T.r + p.r * 0.4) {
+          T.cd = 16; B.dash = 0; B.lane = null; B.t2 = 6 * K; this._trapHit(p, B, 0.25, 3.5, 'BUZA DÜŞTÜ!'); break;
+        }
         const gap = p.d - b.d;
-        if (Math.abs(gap) < b.r + p.r * 0.9 && Math.abs(p.x - b.x) < b.r + p.r * 0.8 && !b.airborne) {
+        if (B.dash === 2 && Math.abs(gap) < b.r + p.r * 0.9 && Math.abs(p.x - b.x) < b.r + p.r * 0.8 && !b.airborne) {
           this._bossHurt(0.07, 'HÜCUM!');
           b.vx = (b.x >= p.x ? 1 : -1) * 14;
           B.dash = 0; B.lane = null; B.t2 = 6 * K; e.kbD = 22;
@@ -2029,7 +2069,8 @@ export class CigGame {
       }
     } else if (B.id === 'robot') {
       if (ready && B.t1 <= 0) {
-        const ld = Math.min(b.d + b.speed * 1.0 + 8, p.d - p.r - 2);
+        let ld = Math.min(b.d + b.speed * 1.0 + 8, p.d - p.r - 2);
+        for (const T of B.traps) if (T.cd <= 0 && T.d - b.d > 12 && T.d - b.d < 46 && T.d < p.d - p.r - 2) { ld = T.d; break; }
         if (ld - b.d < 10) B.t1 = 0.4;
         else {
           B.t1 = 5.4 * K;
@@ -2044,12 +2085,18 @@ export class CigGame {
         Z.t += dt;
         const gc = Z.amp * Math.sin(Z.fr * Z.t + Z.ph);
         Z.g0 = gc - Z.gw / 2; Z.g1 = gc + Z.gw / 2;
-        if (!Z.on && Z.t >= 1.0) { Z.on = true; this._h('sfx', 'rumble'); }
+        if (!Z.on && Z.t >= 1.0) {
+          Z.on = true; this._h('sfx', 'rumble');
+          const T = B.traps.find(q => q.cd <= 0 && Math.abs(q.d - Z.d) < 1);
+          if (T) { T.cd = 14; Z.hit = true; B.laser = null; B.t2 = Math.min(B.t2, 1.5); this._h('burst', T.x, w.groundY(T.x, T.d) + 3, T.d, 16, 0xfff2a0, 10, 0.4, 5); this._trapHit(p, B, 0.25, 3.5, 'LAZER YANSIDI!'); }
+        }
+        if (B.laser) {
         if (Z.on && !Z.hit && Math.abs(b.d - Z.d) < b.r * 0.7 + 0.8 && !b.airborne && (b.x < Z.g0 + b.r * 0.3 || b.x > Z.g1 - b.r * 0.3)) {
           Z.hit = true;
           this._bossHurt(0.06, 'LAZER!', b.r > p.r * 0.9 ? 0.25 : 1);
         }
         if (Z.t >= Z.end || b.d > Z.d + 6) { B.laser = null; B.t2 = Math.min(B.t2, 1.5); this._bossStun(p, B, 1.7, 'ROBOT AŞIRI ISINDI! ÇARP!'); }
+        }
       }
       if (ready && B.t2 <= 0 && dd > 16) {
         B.t2 = 7.2 * K;
@@ -2078,6 +2125,19 @@ export class CigGame {
         const n = B.rage ? 3 : 2, dur = 1.3, td = b.d + b.speed * dur + b.r;
         for (let k = 0; k < n; k++) this._bossMark(B, clamp(b.x + b.vx * 0.4 + (k - (n - 1) / 2) * (4 + b.r * 1.6), -hw + 1, hw - 1), td + k * 2, dur, 2.6 + b.r * 0.6, 0.9 + b.r * 0.2, true);
         this._h('sfx', 'whoosh');
+      }
+    }
+    for (const T of B.traps) {
+      if (T.cd > 0) T.cd -= dt;
+      if (T.k !== 'icicle') continue;
+      if (T.drop != null) {
+        T.drop += dt;
+        if (T.drop >= 0.9) {
+          T.drop = null; this._h('sfx', 'crash', 0.8); G.shake += 0.8;
+          if (Math.abs(p.d - T.zd) < 11 && !p.enemy.dead) { this._trapHit(p, B, 0.25, 3.5, 'SARKITLAR!'); B.slam = null; }
+        }
+      } else if (T.cd <= 0 && Math.abs(b.d - T.d) < T.r + b.r * 0.6 && Math.abs(b.x - T.x) < T.r + b.r * 0.6 && !b.airborne) {
+        T.cd = 16; T.drop = 0; T.zd = clamp(p.d, A.d0 + 5, A.d1); this._h('sfx', 'whoosh'); this._h('burst', T.x, w.groundY(T.x, T.d) + 2, T.d, 10, 0xbfeaff, 8, 0.3, 5);
       }
     }
     for (let i = B.rings.length - 1; i >= 0; i--) {

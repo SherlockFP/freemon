@@ -567,11 +567,19 @@ const CSS = `
 .fm-main[data-att="reward"] .fm-globe .fm-bdg, .fm-main[data-att="first"] .fm-globe .fm-bdg { display: none; }
 .fm-main[data-att="reward"] .fm-globe.ready, .fm-main[data-att="first"] .fm-globe.ready { animation: none; }
 .fm-main:not([data-att="reward"]) .fm-dl .fm-bdg, .fm-main:not([data-att="reward"]) .fm-rwc { display: none; }
+.fm-diarybtn { flex: none; margin: 0 auto 4px; height: 28px; padding: 0 12px; border-radius: 14px; border: 2.5px solid var(--ink); background: #fff3d6; color: var(--ink); font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.fm-book { margin: 4px auto 10px; max-width: 340px; padding: 18px 18px 14px; border-radius: 14px; border: 3px solid var(--ink); background: #fff8e4; color: var(--ink); text-align: center; box-shadow: 0 4px 0 var(--ink2); text-shadow: none; }
+.fm-book .art { font-size: 44px; line-height: 1.2; margin-bottom: 6px; }
+.fm-book .pt { font-size: 16px; font-weight: 800; margin-bottom: 8px; }
+.fm-book .tx { font-size: 14px; line-height: 1.45; font-weight: 600; }
+.fm-book .pg { margin-top: 10px; font-size: 12px; opacity: 0.7; }
+.fm-book.lk .art { filter: grayscale(1); opacity: 0.5; }
+.fm-dnav { display: flex; justify-content: center; align-items: center; gap: 14px; margin-bottom: 8px; }
 .fm-today::-webkit-scrollbar { display: none; }
 .fm-today .tl { flex: none; font-size: 10px; letter-spacing: 0.06em; color: #cfe2ff; text-shadow: var(--ol-sm); }
-.fm-tchip { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 24px; padding: 0 8px; border-radius: 12px; border: 2px solid var(--ink); background: linear-gradient(180deg, #3a6fc4, #1f4488); color: #fff; font-size: 11px; white-space: nowrap; cursor: pointer; text-shadow: none; }
-.fm-tchip.hot { background: linear-gradient(180deg, #ffe27a, #ff9d1a); color: var(--ink); }
-@media (max-height: 700px) { .fm-todaywrap { margin: -8px auto 8px; } .fm-tchip { height: 21px; font-size: 10.5px; } }
+.fm-tchip { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 11px; border-radius: 15px; border: 2.5px solid var(--ink); background: #fff; color: var(--ink); font-size: 12.5px; font-weight: 800; line-height: 1; letter-spacing: 0; white-space: nowrap; cursor: pointer; text-shadow: none; transform: none; filter: none; -webkit-font-smoothing: antialiased; }
+.fm-tchip.hot { background: #ffd84a; color: var(--ink); }
+@media (max-height: 700px) { .fm-todaywrap { margin: -8px auto 8px; } .fm-tchip { height: 28px; } }
 @media (max-height: 600px) { .fm-todaywrap { display: none; } }
 .fm-bonushd.full { background: linear-gradient(180deg, #ffe27a, #ffae00); color: var(--ink); text-shadow: none; }
 .fm-node.boss { width: 82px; height: 82px; font-size: 38px; --nc1: #ff8a7a; --nc2: #e0392b; --nsh: #8a1a12; }
@@ -929,6 +937,26 @@ function setCss(e, k, v) {
 const nameOf = (list, id) => (list.find((x) => x.id === id) || { name: id }).name;
 
 // reward spec / given-reward -> ['❄️ 100', '💎 1', ...]
+
+const DIARY = [
+  { a: '⛰️⛄', t: 'Dağın Eteği', x: 'Yeti ilk kez minik bir kar topunun dağdan yuvarlandığını gördü. "Bu da kim?" diye homurdandı. Kar topu cevap yerine neşeyle zıpladı. Yarış başlamıştı bile!', u: 'a1' },
+  { a: '🌲❄️', t: 'Çam Ormanı', x: 'Kar topu büyüdükçe ağaçların arasından kıkırdayarak geçti. Yeti peşinden koştu ama kocaman ayakları çamlara takıldı. "Bir dakika bekle!" diye seslendi.', u: 'a2' },
+  { a: '🧊🐧', t: 'Buz Gölü', x: 'Penguenler gölde kayanları izledi. Kar topu kaydı, Yeti de kaydı. İkisi aynı anda poposunun üstüne düştü. Birlikte güldüler, ilk kez!', u: 'a3' },
+  { a: '🔥🏕️', t: 'Kamp Ateşi', x: 'Gece Yeti küçük bir ateş yaktı. Kar topu uzaktan baktı, erimekten korktu. Yeti ona sıcak kakao yerine bir kar bardağı uzattı. Dostluk böyle başladı.', u: 'a5' },
+  { a: '🌨️🎿', t: 'Fırtına Gecesi', x: 'Dev bir fırtına dağı sardı. Kar topu rüzgarda savrulurken Yeti onu iki eliyle yakaladı. "Seni kaybetmem," dedi. Sabaha kadar sarılıp beklediler.', u: 'a7' },
+  { a: '🏔️👑', t: 'Zirvenin Sırrı', x: 'Zirveye varınca Yeti anladı: her şey yarış değildi. Kar topu en büyük kış armağanıydı. Birlikte gün doğumunu izlediler, ikisi de çok mutluydu.', u: 'a10' },
+  { a: '🗻😤', t: 'Dev Çığ', x: 'Dağın tepesinden kocaman bir çığ koptu! Kar topu telaşla yuvarlandı. Yeti: "Hızlı ol, benim sırtıma atla!" Çığ onları bir an bile yakalayamadı.', u: 'c8' },
+  { a: '🪨💨', t: 'Kaya Tarlası', x: 'Kayaların arasında zıplayan kar topu tek başına kaldı. Yeti yolu temizlemek için koca bir kayayı itti. "Hep birlikte," dedi gülümseyerek.', u: 'c16' },
+  { a: '🌌✨', t: 'Yıldızlı Yamaç', x: 'Gökyüzü yıldızlarla doldu. Kar topu bir dilek tuttu: "Hiç küçülmeyeyim." Yeti de gizlice dilekte bulundu: "Hep yanımda olsun."', u: 'c24' },
+  { a: '🎉⛄', t: 'Kış Şenliği', x: 'Son dağ da aşıldı! Tüm dağ halkı şenlik yaptı. Yeti ve kar topu el ele, yani el ve top, dans etti. Artık rakip değil, en iyi arkadaştılar. SON', u: 'c30' },
+];
+function diaryOpen(i) {
+  try {
+    const u = DIARY[i].u, n = +u.slice(1);
+    if (u[0] === 'a') return !!meta.campaign().actDone(n);
+    return (save.cigCleared() | 0) >= n;
+  } catch { return false; }
+}
 function rewardChips(r) {
   const out = [];
   if (!r) return out;
@@ -2131,6 +2159,31 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   function fmtLeft3(ms) { const m = Math.max(0, Math.floor(ms / 60000)), d = Math.floor(m / 1440); return d > 0 ? `${d}g ${Math.floor((m % 1440) / 60)}s` : `${Math.floor(m / 60)}s ${String(m % 60).padStart(2, '0')}dk`; }
   function fmtLeftHM(ms) { const m = Math.max(0, Math.floor(ms / 60000)); return `${Math.floor(m / 60)}s ${String(m % 60).padStart(2, '0')}dk`; }
 
+  function openDiary() {
+    sfx('click');
+    const p = openPanel({ id: 'diary', title: 'YETİ GÜNLÜĞÜ' });
+    let cur = 0;
+    for (let i = 0; i < DIARY.length; i++) if (diaryOpen(i)) cur = i;
+    const book = el('div', 'fm-book');
+    const prev = button('fm-arrow', '‹', () => { sfx('click'); show(cur - 1); }, 'Önceki sayfa');
+    const next = button('fm-arrow', '›', () => { sfx('click'); show(cur + 1); }, 'Sonraki sayfa');
+    const pgl = el('span', '', '');
+    const nav = el('div', 'fm-dnav'); add(nav, prev, pgl, next);
+    function show(n) {
+      cur = Math.max(0, Math.min(DIARY.length - 1, n));
+      const d = DIARY[cur], ok = diaryOpen(cur);
+      book.className = 'fm-book' + (ok ? '' : ' lk');
+      clear(book);
+      add(book, el('div', 'art', ok ? d.a : '🔒'), el('div', 'pt', ok ? d.t : '???'), el('div', 'tx', ok ? d.x : (d.u[0] === 'a' ? `MACERA ${d.u.slice(1)}. Dağı'nı bitirince açılır.` : `ÇIĞ DAĞ ${d.u.slice(1)}'i geçince açılır.`)), el('div', 'pg', `Sayfa ${cur + 1}/${DIARY.length}`));
+      pgl.textContent = `${cur + 1}/${DIARY.length}`;
+      prev.classList.toggle('off', cur <= 0); next.classList.toggle('off', cur >= DIARY.length - 1);
+    }
+    let got = 0; for (let i = 0; i < DIARY.length; i++) if (diaryOpen(i)) got++;
+    p.setSub(`${got}/${DIARY.length} SAYFA`);
+    add(p.list, book, nav);
+    show(cur);
+  }
+
   function openMap(focusId) {
     sfx('click');
     const camp0 = campInfo();
@@ -2157,7 +2210,8 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     vp.appendChild(track);
     const bhd = el('div', 'fm-bonushd');
     const shd = el('div', 'fm-stormhd');
-    add(body, shd, bhd, nav, vp);
+    const dbtn = button('fm-diarybtn', '📖 GÜNLÜK', () => openDiary(), 'Yeti Günlüğü');
+    add(body, dbtn, shd, bhd, nav, vp);
 
     function updStorm() {
       const sm = stormOf();
@@ -2817,15 +2871,15 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       clear(r.today);
       const chips = [];
       let gr = false; try { gr = meta.globeReady(); } catch { /* ignore */ }
-      if (gr) chips.push(['🔮', 'Kar Küresi hazır', true, () => shakeGlobe()]);
+      if (gr) chips.push(['🔮', 'Küre hazır', true, () => shakeGlobe()]);
       const sm = stormOf();
       const sl = sm.ids.filter((i) => !sm.got[i]).length;
-      if (sl) chips.push(['⭐', `Yıldız Fırtınası ×2 · ${fmtLeftHM(sm.msLeft)}`, true, () => { try { meta.setMode('camp'); } catch { /* ignore */ } openMap(sm.ids.find((i) => !sm.got[i])); }]);
+      if (sl) chips.push(['⭐', 'Fırtına x2', true, () => { try { meta.setMode('camp'); } catch { /* ignore */ } openMap(sm.ids.find((i) => !sm.got[i])); }]);
       let wl = 0; try { const w = new Date(); wl = Math.max(0, new Date(w.getFullYear(), w.getMonth(), w.getDate() - ((w.getDay() + 6) % 7) + 7) - w); } catch { /* ignore */ }
       const wd = Math.floor(wl / 86400000);
-      chips.push(['🛒', wd < 1 ? 'Yeti Pazarı yarın yenilenir' : `Yeti Pazarı ${wd}g`, wd < 1, () => { try { localStorage.setItem('patpat.shopTab', 'pazar'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]);
-      if (cb.onDaily && save.cigDailyOpen && save.cigDailyOpen()) chips.push(['🏔️', `Günün Dağı #${info.dailyNum}`, !(info.dailyBest > 0), () => { try { meta.setMode('daily'); } catch { /* ignore */ } cb.onDaily(); }]);
-      try { const vt = vitrinInfo(save); if (vt && !vt.owned) chips.push(['👕', `Vitrin: ${vt.name} -%15 · ${fmtLeft3(vt.msLeft)}`, false, () => { try { localStorage.setItem('patpat.shopTab', 'skin'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]); } catch { /* ignore */ }
+      chips.push(['🛒', wd < 1 ? 'Pazar yarın' : `Pazar ${wd}g`, wd < 1, () => { try { localStorage.setItem('patpat.shopTab', 'pazar'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]);
+      if (cb.onDaily && save.cigDailyOpen && save.cigDailyOpen()) chips.push(['🏔', 'Günün Dağı', !(info.dailyBest > 0), () => { try { meta.setMode('daily'); } catch { /* ignore */ } cb.onDaily(); }]);
+      try { const vt = vitrinInfo(save); if (vt && !vt.owned) chips.push(['⭐', 'Vitrin', false, () => { try { localStorage.setItem('patpat.shopTab', 'skin'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]); } catch { /* ignore */ }
       r.today.appendChild(el('span', 'tl', 'BUGÜN'));
       clear(r.tdots);
       for (const [ic, tx, hot, fn] of chips) { r.today.appendChild(button(`fm-tchip${hot ? ' hot' : ''}`, `${ic} ${tx}`, () => { sfx('click'); fn(); })); r.tdots.appendChild(el('i')); }

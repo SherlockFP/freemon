@@ -296,6 +296,7 @@ export class Runner {
     this.speedTier = 0;
     this.flow = 0;
     this.flowLvl = 0;
+    this.rcp = []; this.rcpN = 0; this.rcpS = 0; this._rcpKill?.(); this._lblKey = null; this._stormShown = false; this._flowL = -1; this._flowF = -1;
     this.flowT = 0; this.cmbN = 0; this.cmbAt = 0; this.cmbT = 0; this.stormKm = undefined; this.stormOn = false; this.stormHit = false;
     this.gustK = 0; this.gustDir = 1; this.gustWarn = false; this.gustSndT = 0;
     this.bestDist = save.runnerBestDist?.() ?? 0;
@@ -1169,10 +1170,12 @@ export class Runner {
       }
       this.flowLvl = lvl;
     }
-    ui.runnerFlow?.(this.flowLvl, this.flow / 100);
+    const ff = Math.round(this.flow);
+    if (this.flowLvl !== this._flowL || ff !== this._flowF) { this._flowL = this.flowLvl; this._flowF = ff; ui.runnerFlow?.(this.flowLvl, this.flow / 100); }
     // Records.
     if (!this.passedDist && b.s > this.bestDist) {
       this.passedDist = true;
+      this.rcpAdd('rec');
       this.queueBanner('YENİ REKOR!', 5, 1.6, true);
       ui.flash?.('gold');
       audio.win();
@@ -1442,6 +1445,7 @@ export class Runner {
       const now = this.time || 0;
       if (!this.cmbAt || now - this.cmbAt >= 0.7) {
         this.cmbN = (this.cmbN || 0) + 1; this.cmbAt = now;
+        if (this.cmbN > this.rcpN) { this.rcpN = this.cmbN; this.rcpS = this.b.s; }
         this.ctx.ui?.combo?.(this.cmbN);
       }
       this.cmbT = 2;
@@ -1478,7 +1482,8 @@ export class Runner {
 
   stormFx(on) {
     let el = this.stormEl;
-    if (!on) { if (el) el.style.opacity = '0'; return; }
+    if (!on) { if (el && this._stormShown) { el.style.opacity = '0'; this._stormShown = false; } return; }
+    if (this._stormShown && el && el.isConnected) return;
     if (!el || !el.isConnected) {
       el = this.stormEl = document.createElement('div');
       el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:5;opacity:0;transition:opacity .6s;animation:stormMv .35s linear infinite;' +
@@ -1493,6 +1498,7 @@ export class Runner {
       void el.offsetWidth;
     }
     el.style.opacity = '1';
+    this._stormShown = true;
   }
 
   makeRecordFlag() {
@@ -1712,7 +1718,9 @@ export class Runner {
     this.updateGoal();
     const bi = biomeAt(this.b.s, _bi);
     const prog = this.level ? clamp(this.b.s / this.level.length, 0, 1) : bi.t;
-    const label = this.level ? `${this.level.act}-${this.level.idx} · ${this.level.name}` : bi.biome.name;
+    const key = this.level ? this.level : bi.biome;
+    if (this._lblKey !== key) { this._lblKey = key; this._lbl = this.level ? `${this.level.act}-${this.level.idx} · ${this.level.name}` : bi.biome.name; }
+    const label = this._lbl;
     ui.runnerStats(this.score, this.coins, this.mult, prog, Math.round(this.b.s), label);
     if ((this._progT = (this._progT || 0) + 1) % 30 === 0) this.ctx.meta?.track?.('run_progress', { distance: Math.round(this.b.s), coins: this.coins });
     const v = this._vit, y = this._yeti;
@@ -2084,6 +2092,7 @@ export class Runner {
     this.gap = Math.min(RCFG.yetiMax, 14);
     const bonus = Math.round(1000 * this.mult), coins = 120;
     this.score += bonus; this.coins += coins;
+    this.rcpAdd('boss');
     this.queueBanner("YETİ'Yİ ATLATTIN!", 5, 1.8, true);
     this.after(0.4, () => { this.float('+' + bonus.toLocaleString('tr-TR') + ' · +' + coins + ' ❄️', 'big'); });
     this.ctx.audio.win?.(); this.ctx.platform.haptic('success');
@@ -2831,7 +2840,41 @@ export class Runner {
     }
     this.reviveCost = meta?.reviveCost?.(this.revives) ?? 0;
     const canRevive = meta ? (meta.crystals ?? 0) >= this.reviveCost : !this.revived;
-    this.showResult(canRevive);
+    this.showRecap(() => this.showResult(canRevive));
+  }
+
+  // BÖLÜM ÖZETİ: <=12 events collected during the run; a tiny strip plays <=1.2 s (tap skips) before the result screen.
+  rcpAdd(k) { if (this.rcp.length < 10) this.rcp.push({ s: this.b.s, k }); }
+
+  _rcpKill() { if (this._rcpEl) { this._rcpEl.remove(); this._rcpEl = null; } clearTimeout(this._rcpTm); this._rcpTm = 0; }
+
+  showRecap(done) {
+    const dist = Math.max(1, Math.round(this.b.s));
+    if (dist < 50 || typeof document === 'undefined') { done(); return; }
+    const ev = this.rcp.slice();
+    if (this.rcpN >= 4) ev.push({ s: this.rcpS, k: 'combo', n: this.rcpN });
+    ev.push({ s: this.b.s, k: 'death' });
+    const IC = { rec: '🏆', boss: '🧌', combo: '🔥', wall: '🧱', fall: '🕳️', melt: '💧', yeti: '👹', smash: '💥', explode: '💣' };
+    const el = this._rcpEl = document.createElement('div');
+    el.style.cssText = 'position:fixed;left:7%;right:7%;top:36%;z-index:60;padding:8px 10px 6px;border-radius:14px;background:rgba(15,30,55,.78);color:#fff;font:700 12px system-ui,sans-serif;text-align:center;touch-action:manipulation;opacity:0;transition:opacity .15s';
+    let h = '<div style="letter-spacing:.12em;opacity:.8">BÖLÜM ÖZETİ · ' + dist.toLocaleString('tr-TR') + ' m</div><div style="position:relative;height:34px;margin:6px 6px 0"><div style="position:absolute;left:0;right:0;top:22px;height:5px;border-radius:3px;background:rgba(255,255,255,.2)"></div><div class="rf" style="position:absolute;left:0;top:22px;height:5px;width:0;border-radius:3px;background:#7fd0ff;transition:width .8s linear"></div>';
+    for (const e of ev) {
+      const f = Math.min(1, Math.max(0, e.s / dist));
+      const ic = e.k === 'death' ? (IC[this.cause] || '💀') : IC[e.k];
+      h += '<div class="ri" style="position:absolute;left:' + (f * 100).toFixed(1) + '%;top:0;transform:translateX(-50%) scale(0);font-size:17px;line-height:20px;transition:transform .18s cubic-bezier(.3,1.8,.5,1);transition-delay:' + (f * 0.8).toFixed(2) + 's">' + ic + (e.n ? '<span style="font-size:10px">' + e.n + '</span>' : '') + '</div>';
+    }
+    el.innerHTML = h + '</div>';
+    document.body.appendChild(el);
+    let fin = false;
+    const end = () => { if (fin) return; fin = true; this._rcpKill(); done(); };
+    el.addEventListener('pointerdown', (e) => { e.stopPropagation(); end(); });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (fin) return;
+      el.style.opacity = '1';
+      el.querySelector('.rf').style.width = '100%';
+      el.querySelectorAll('.ri').forEach((n) => { n.style.transform = 'translateX(-50%) scale(1)'; });
+    }));
+    this._rcpTm = setTimeout(end, 1150);
   }
 
   // The result screen. While a revive is possible the run is NOT recorded yet (a revive continues the same run).
@@ -3378,6 +3421,7 @@ export class Runner {
   }
 
   dispose() {
+    this._rcpKill();
     this.stormEl?.remove(); this.stormEl = null;
     this.closeOut();
     this.rhythm?.dispose(); this.rhythm = null;
