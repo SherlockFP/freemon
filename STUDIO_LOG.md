@@ -649,3 +649,29 @@ Hiçbir modda hata yok. Arena botu 60 saniyede kütle 34'ten 91'e çıktı ve s�
 
 **Tur 12 için not**
 - Ters Çığ'da büyük beyaz çığ şekilleri kameranın önünde, sol altta görünüyor. Çığ topun önünde olmalı.
+
+## Tur 12 — Yapılanlar
+
+**Rush.** 1,2 km'den sonra 3 yeni engel geliyor:
+- **Kartopu Topçusu**: yolun kenarındaki kardan adam, çizgili şeride kartopu atıyor.
+- **Buz Kapısı**: buz çubuğu ritme göre inip kalkıyor.
+- **Penguen Kızağı**: penguenler şeritler arasında kayıyor.
+
+Her biri için ilk karşılaşmada ipucu gösteriliyor.
+
+**ÇIĞ**
+- Ters Çığ'da duvar artık hep topun önünde kalıyor.
+- Yeni: **Boss Ganimeti**. Boss yenilince parlak bir küre düşüyor; onu yakalarsan boss'a özel iz ya da kostüm kazanıyorsun:
+  - Yeti: Şimşek izi.
+  - Robot: Robot kostümü.
+  - Golem: Ateş izi.
+
+**Arena**
+- Yeni: **Beyaz Fırtına**. 25 sn boyunca görüş daralıyor, oyuncular birbirini pusuya düşürebiliyor.
+- Tüm olaylar tek bir yönetici tarafından sırayla açılıyor, iki olay arasında en az 40 sn sakinlik oluyor.
+
+**Menü**
+- Yeni: **Yeti Postası**. Her gün komik bir kartpostal ve ❄️ kuponu geliyor.
+- Yeni: **Rozet Rafı**. Pasaportta mod başına kupa rafları ve açılmaya en yakın 3 başarım var.
+
+**Kontrol:** Rush 2,6 km hatasız; boss dağları 5 ve 14 ile Ters Çığ (7) bot tarafından kazanıldı; tüm modlar hatasız.
