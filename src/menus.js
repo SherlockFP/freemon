@@ -695,6 +695,18 @@ const CSS = `
   position: absolute; inset: 0; z-index: 85; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: calc(var(--sat, env(safe-area-inset-top, 0px)) + 16px) 16px calc(var(--sab, env(safe-area-inset-bottom, 0px)) + 16px);
   background: radial-gradient(ellipse at 50% 38%, rgba(30, 70, 140, 0.8), rgba(8, 18, 40, 0.94)); animation: fmFade 0.25s; overflow-y: auto; touch-action: pan-y;
 }
+.fm-resov { background: radial-gradient(ellipse at 50% 38%, rgba(20, 50, 105, 0.9), rgba(5, 12, 28, 0.97)); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.fm-goal { width: min(320px, 100%); display: flex; flex-direction: column; gap: 5px; padding: 8px 12px 9px; border-radius: 12px; border: 2px solid rgba(255, 207, 58, 0.6); background: rgba(23, 52, 92, 0.6); color: #fff; font-weight: 800; }
+.fm-goal .gh { font-size: 11px; letter-spacing: 0.14em; color: var(--gold); }
+.fm-goal .gt { font-size: 15px; text-shadow: 0 2px 0 var(--ink); } .fm-goal .gt b { color: var(--gold); }
+.fm-goal .gb { height: 9px; border-radius: 5px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
+.fm-goal .gb i { display: block; height: 100%; background: linear-gradient(90deg, #ffe066, #ff9a3a); transition: width 1.1s cubic-bezier(.2, .8, .2, 1); }
+.fm-goal .gs { display: flex; justify-content: space-between; font-size: 11.5px; color: #cfe6ff; } .fm-goal .gs em { font-style: normal; color: #7dff9a; }
+.fm-stamps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 4px 2px 12px; }
+.fm-stamp { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 3px; padding: 10px 6px; border-radius: 14px; border: 3px dashed rgba(23, 52, 92, 0.45); background: rgba(255, 255, 255, 0.35); color: var(--ink); opacity: 0.65; }
+.fm-stamp .si { font-size: 34px; line-height: 1; filter: grayscale(1); } .fm-stamp .sn { font-size: 14px; line-height: 1.15; } .fm-stamp .sd { font-size: 11px; font-weight: 700; opacity: 0.8; line-height: 1.2; }
+.fm-stamp.got { opacity: 1; border-style: solid; border-color: var(--orange-dark); background: linear-gradient(180deg, #fff3a8, #ffcf3a); transform: rotate(-1.5deg); }
+.fm-stamp.got .si { filter: none; }
 .fm-resov.fail { background: radial-gradient(ellipse at 50% 38%, rgba(120, 30, 40, 0.82), rgba(24, 8, 16, 0.95)); }
 .fm-banner {
   position: relative; padding: 10px 28px 12px; border: 3px solid var(--ink); border-radius: 14px; font-size: clamp(26px, 8.5vw, 36px); line-height: 1; text-align: center; transform: rotate(-2deg);
@@ -1248,6 +1260,17 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
   // ---------------------------------------------------------------------------------------------- achievements
 
+  function openPassport() {
+    sfx('click');
+    const p = openPanel({ id: 'pass', title: 'KIŞ PASAPORTU', pills: ['coins'] });
+    const list = meta.stamps();
+    p.setSub(`${list.filter((x) => x.got).length}/${list.length} DAMGA`);
+    const grid = el('div', 'fm-stamps');
+    for (const x of list) grid.appendChild(add(el('div', `fm-stamp${x.got ? ' got' : ''}`), el('div', 'si', x.got ? x.icon : '❔'), el('div', 'sn', x.name), el('div', 'sd', x.desc)));
+    p.list.appendChild(grid);
+    return p;
+  }
+
   function openAchievements() {
     sfx('click');
     const p = openPanel({ id: 'ach', title: 'BAŞARIMLAR', tabs: ['TÜMÜ', 'AÇIK', 'GİZLİ'], onTab: () => render(), pills: ['coins', 'crystals'] });
@@ -1510,6 +1533,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
         p.list.appendChild(rr);
       };
       link('🏆', 'Başarımlar', `${meta.doneCount()}/${ACHIEVEMENTS.length} açık${unclaimed ? ` · ${unclaimed} ödül seni bekliyor` : ''}`, unclaimed ? 'AL' : 'AÇ', unclaimed > 0, () => openAchievements());
+      { const ss = meta.stamps(); link('🛂', 'Kış Pasaportu', `${ss.filter((x) => x.got).length}/${ss.length} damga`, 'AÇ', false, () => openPassport()); }
       const hh = meta.letterHunt();
       link('🔤', 'Günün kelimesi', hh.complete ? 'Bugün tamam!' : `${hh.count}/${WORD.length} harf · koşarken harfleri topla`, 'AÇ', false, () => openHunt());
       link('⚡', 'Güçlendirmeler', 'Kar tanesiyle güçlen: dolaptan al', 'DOLAP', false, () => { if (cb.onShop) cb.onShop(); });
@@ -2157,6 +2181,29 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
   // data: { level (object or id), stars, goalsMet:[bool,bool,bool], rewards (meta.completeLevel result), hasNext }
   // handlers: { onNext, onRetry, onMap }. Rewards are assumed already granted by meta.completeLevel().
+  // SONRAKİ ÖDÜL: next shop goal (+ level XP) as a compact progress block
+  function goalBlockEl(gained) {
+    gained = Math.max(0, Number(gained) || 0);
+    let g = null, li = null;
+    try { g = nextGoal(save); } catch { g = null; }
+    try { li = meta.levelInfo(); } catch { li = null; }
+    if (!g && !li) return null;
+    const box = el('div', 'fm-goal');
+    box.appendChild(el('div', 'gh', 'SONRAKİ ÖDÜL'));
+    const bar = (from, to) => { const b = el('div', 'gb'); const i = el('i'); i.style.width = Math.round(Math.max(0, Math.min(1, from)) * 100) + '%'; b.appendChild(i); setTimeout(() => { i.style.width = Math.round(Math.max(0, Math.min(1, to)) * 100) + '%'; }, 900); return b; };
+    if (g) {
+      const left = Math.max(0, g.price - g.have);
+      box.appendChild(el('div', 'gt', left > 0 ? `${g.icon} ${String(g.name).replace(/s*Svd+$/, '')}: ${fmt(left)} ❄️ kaldı` : `${g.icon} ${g.name}: HAZIR!`));
+      box.appendChild(bar(g.price > 0 ? Math.max(0, g.have - gained) / g.price : 0, g.frac));
+      box.appendChild(add(el('div', 'gs'), el('span', '', `${fmt(g.have)} / ${fmt(g.price)} ❄️`), gained ? el('em', '', `+${fmt(gained)}`) : el('span')));
+    }
+    if (li) {
+      box.appendChild(add(el('div', 'gs'), el('span', '', `SEVİYE ${li.level + 1}`), el('span', '', `${fmt(Math.max(0, li.need - li.cur))} XP`)));
+      box.appendChild(bar(li.frac, li.frac));
+    }
+    return box;
+  }
+
   function showLevelComplete(data, handlers) {
     const d = data || {};
     const h = handlers || {};
@@ -2218,6 +2265,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     if (rw.justUnlockedEndless) ov.appendChild(el('div', 'fm-rspecial', '∞ YETİ RUSH AÇILDI!'));
     if (d.special) ov.appendChild(el('div', 'fm-rspecial', d.special));
 
+    { const gb = goalBlockEl(rw.coins || d.coins); if (gb) ov.appendChild(gb); }
     const done = (fn) => () => { sfx('confirm'); closeResult(); if (fn) { try { fn(); } catch { /* ignore */ } } };
     const btns = el('div', 'fm-rbtns');
     if (d.hasNext) btns.appendChild(button('fm-btn big green', LB.next || 'SONRAKİ BÖLÜM ▶', done(h.onNext)));
@@ -2259,6 +2307,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       add(ov, bar, el('div', 'fm-ftip', `%${pct} tamamlandı · bitişe ${fmt(Math.max(0, lv.length - dist))} m kaldı!`));
       if (pct < 30 || d.title) add(ov, el('div', 'fm-ftip', (dt.tip || TIPS[Math.floor(Math.random() * TIPS.length)])));
     } else add(ov, el('div', 'fm-ftip', (dt.tip || TIPS[Math.floor(Math.random() * TIPS.length)])));
+    { const gb = goalBlockEl(0); if (gb) ov.appendChild(gb); }
     const done = (fn) => () => { sfx('confirm'); closeResult(); if (fn) { try { fn(); } catch { /* ignore */ } } };
     const btns = el('div', 'fm-rbtns');
     btns.appendChild(button('fm-btn big green', LB.retry || '↻ TEKRAR DENE', done(h.onRetry)));
@@ -2836,6 +2885,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   // Nothing is toasted during a run: meta.js queues mission / achievement / letter notices and the result screen shows them.
   // Only while the lobby is on screen (secrets found in the menu, items bought in the shop) a small toast is fine.
   offs.push(meta.onUnlock((a, extra) => { if (mainOpen && !activePanel) toastAchievement(a, extra); else if (mainOpen) updateMain(); }));
+  offs.push(meta.on('stamp', (d) => { if (mainOpen) { toast({ icon: d.icon, title: 'YENİ DAMGA!', sub: d.name, kind: 'gold', ms: 2200 }); updateMain(); } }));
   offs.push(meta.on('levelup', () => { if (mainOpen) updateMain(); }));
   offs.push(meta.on('mission', () => { if (mainOpen) updateMain(); }));
   offs.push(meta.on('missionset', (s) => {
@@ -2916,6 +2966,6 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     // Mystery boxes never pop up by themselves any more: a bare openBoxes(n) call (the old post-run auto-open) is ignored, boxes stay
     // banked and open from the lobby (💎 pill). Pass { user: true } as the 3rd argument for an explicit open.
     openBoxes: (n, onDone, opts) => { if (opts && opts.user) return openBoxes(n, onDone); if (onDone) { try { onDone(); } catch { /* ignore */ } } return null; },
-    openDaily, openAchievements, openMissions, openUpgrades, openHunt, openSettings, closePanel, destroy,
+    openDaily, openAchievements, openPassport, openMissions, openUpgrades, openHunt, openSettings, closePanel, destroy,
   };
 }

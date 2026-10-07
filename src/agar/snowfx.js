@@ -150,7 +150,7 @@ export class Snowfall {
     const N = this.cap, cnt = Math.min(N, (N * Math.min(1, this.inten)) | 0);
     const hsx = Math.max(H * (0.9 * asp + 0.25), 40) , hsz = H * 0.95, top = H * 0.85;
     const ix = 1 / (2 * hsx), iz = 1 / (2 * hsz), fall = (3.5 + H * 0.1) * (1 + heavy * 0.7) / top;
-    const windX = (0.05 + heavy * 0.25) * H * 0.06, u = this.u, v = this.v, w = this.w, ph = this.ph, sp = this.sp, pos = this.pos;
+    const windX = (0.2 + heavy * 0.25) * H * 0.06, u = this.u, v = this.v, w = this.w, ph = this.ph, sp = this.sp, pos = this.pos;
     const cxn = camX * ix, czn = (camZ - H * 0.1) * iz;
     for (let i = 0; i < cnt; i++) {
       let wi = w[i] - fall * sp[i] * dt; if (wi < 0) wi += 1; w[i] = wi;

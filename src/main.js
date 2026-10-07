@@ -286,6 +286,7 @@ const cigHost = {
       ui.el.hud.classList.add('cig-lvl');
       ui.setProgress(info.lv.prog);
       updateLevelHud(info.lv);
+      showSizeReadout(info);
     }
   },
   hunger(frac, warn) { ui.hunger?.(frac, warn); },
@@ -582,6 +583,25 @@ function ensureLevelHud(plan) {
     }
   }
 }
+// level mode: the ball DIAMETER is the headline number, the (exploding) tons shrink to a compact secondary line
+function tonsCompact(t) {
+  const f = (v, u) => (v < 10 ? v.toFixed(1) : String(Math.round(v))).replace('.', ',') + u;
+  if (t < 1000) return f(t, ' t');
+  if (t < 1e6) return f(t / 1e3, 'k t');
+  return f(t / 1e6, 'M t');
+}
+function showSizeReadout(info) {
+  const el = ui.el.tons;
+  if (!el) return;
+  const main = 'Ø ' + fmtD(info.lv.have) + ' m', sub = tonsCompact(info.tons || 0);
+  const c = el.firstChild;
+  if (c && c.nodeType === 3 && c.nodeValue === main && el.childElementCount === 1 && el.lastChild.textContent === sub) return;
+  el.textContent = main;
+  const sm = document.createElement('small');
+  sm.style.cssText = 'display:block;font-size:.45em;opacity:.7;line-height:1.1;font-weight:600';
+  sm.textContent = sub;
+  el.appendChild(sm);
+}
 function updateLevelHud(V) {
   const h = lvHud;
   if (!h) return;
@@ -604,6 +624,7 @@ function updateLevelHud(V) {
 }
 function hideLevelHud() {
   if (lvHud) lvHud.root.style.display = 'none';
+  try { if (ui.el.tons) { ui.el.tons.textContent = ''; ui.lastTonsText = ''; if (ui._cg) ui._cg.kg = -1; } } catch { /* optional */ }
   const hud = ui.el?.hud;
   if (hud) {
     hud.classList.remove('cig-lvl', 'chase-near');

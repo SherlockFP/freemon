@@ -153,7 +153,7 @@ export class World {
   foodMulAt(d, gr) {
     if (!this.lvl) return 1;
     const L = CFG.lvl;
-    const k = (L.feed * 3 * planSlope(this.lvl, d)) / Math.max(1e-4, foodRelAt(gr));
+    const k = ((L.feed * 3 * planSlope(this.lvl, d)) / Math.max(1e-4, foodRelAt(gr))) * (this.lvl.n >= 6 ? 0.8 : 1);
     return k < L.feedMin ? L.feedMin : k > L.feedMax ? L.feedMax : k;
   }
 
@@ -260,7 +260,8 @@ export class World {
     }
     const byR = (a, b) => a.r - b.r;
     food.sort(byR); obst.sort(byR); town.sort(byR); walkers.sort(byR); decorAll.sort(byR); trees.sort(byR);
-    houses.sort(byR); this.houses = houses; this.food = food; this.obst = obst; this.town = town; this.walkers = walkers; this.decorPool = decorAll;
+    houses.sort(byR); this.landmarks = ['snowman', 'fence', 'kiosk', 'boulder', 'bench', 'sled'].filter((n) => lib[n] && lib[n].geometry).map((n) => ({ type: n, r: lib[n].radius }));
+    this.houses = houses; this.food = food; this.obst = obst; this.town = town; this.walkers = walkers; this.decorPool = decorAll;
     // late-game themed models: tier 6 city, tier 7 mountain, tier 8 planet (cumulative)
     const TH = [['skyscraper', 'stadium', 'radio_tower', 'ferris_wheel'], ['castle', 'ship', 'airplane', 'wind_turbine'], ['rocket_pad', 'rock_big', 'hotel']];
     this.themed = [];
@@ -395,6 +396,8 @@ export class World {
 
   food1(q, gr, x, d, hw, opts = {}) {
     x = this.offCenter(x, d, gr, hw);
+    // early mountains: chunkier food (still edible) so the slope reads as full of things, not tiny dots
+    if (this.lvl && this.lvl.n <= 5 && !opts.list) q = Math.min(0.86, q * (this.lvl.n <= 2 ? 1.9 : 1.6));
     const tr = Math.max(0.12, q * gr);
     const list = opts.list || this.food;
     const e = this.pick(list, tr, opts.sLo ?? 0.62, opts.sHi ?? 1.6);
@@ -464,11 +467,76 @@ export class World {
     return used;
   }
 
+  // a landmark prop (snowman / fence / kiosk / rock) near the edge: too big now, edible a bit later
+  placeLandmark(d, gr, hw) {
+    const R = this.rng, L = this.landmarks;
+    if (!L || !L.length) return;
+    const e = L[R.int(0, L.length - 1)];
+    const q = R.range(0.8, 1.7);
+    const s = clamp(q * gr / e.r, 0.3, 14);
+    const rad = e.r * s;
+    const x = R.sign() * R.range(hw * 0.5, Math.max(hw * 0.52, hw - rad * 0.8 - 0.8));
+    const p = this.place(e.type, x, d, hw, { s, pad: 0.6 });
+    if (p && q > 1.05) p.obstacle = true;
+  }
+
+  _forkSign(p, text, col) {
+    if (!p) return;
+    const l = this.makeLabel(text, col);
+    if (!l) return;
+    p.tag = l;
+    l.scale.set(8, 2.4, 1);
+    l.position.set(p.x, p.y + p.h + 2.6, -p.d);
+    this.group.add(l);
+    this.labels.push(p);
+  }
+
+  // FORK (DAG 2+): a rock divider splits the slope. SAFE lane: lots of small food, no extras. RISKY lane: obstacles,
+  // a hot spot (DAG 4+), gold crates and fat food, and a speed strip. Signs hang over both entrances.
+  placeFork(it, gr, T, hw) {
+    const R = this.rng, P = this.lvl;
+    const d0 = it.start, d1 = it.start + it.len;
+    const hwL = this.halfWidth(d0 + it.len * 0.5);
+    const risk = it.side || 1, safe = -risk;
+    const tr = clamp(gr * 1.4, 1, hwL * 0.26);
+    const e = this.pick(this.obst, tr, 0.6, 1.7);
+    if (e) {
+      const sc = clamp(tr / e.r, 0.3, 22);
+      for (let d = d0 + 14; d <= d1 - 6; d += tr * 1.7) { const p = this.place(e.type, R.range(-0.3, 0.3), d, hwL, { s: sc * R.range(0.95, 1.08), pad: 0.2 }); if (p) p.obstacle = true; }
+    }
+    const sg = this.pick(this.decorPool, 3.4, 0.6, 1.7);
+    if (sg) {
+      const ss = clamp(3.4 / sg.r, 0.3, 8);
+      this._forkSign(this.add(sg.type, safe * hwL * 0.5, d0 + 6, { s: ss, decor: true }), 'GÜVENLİ', '#2fd36b');
+      this._forkSign(this.add(sg.type, risk * hwL * 0.5, d0 + 6, { s: ss, decor: true }), 'RİSKLİ ✦', '#ff7a1a');
+    }
+    for (let i = 0; i < 20; i++) {
+      this.food1(R.range(0.22, 0.5), gr, safe * hwL * R.range(0.3, 0.8), d0 + 16 + i * ((it.len - 24) / 20), hwL, { spacing: 0.1 });
+    }
+    const pr = planAt(P, d0 + 40), ct = crateRadius(pr);
+    const lim = Math.max(1, hwL - ct - 1.5);
+    for (let i = 0; i < 2; i++) {
+      const q = gr * R.range(1.4, 2);
+      const oe = this.pick(this.obst, q, 0.6, 1.7);
+      if (!oe) break;
+      const p = this.place(oe.type, risk * hwL * (i ? 0.72 : 0.38), d0 + 30 + i * 28, hwL, { s: clamp(q / oe.r, 0.3, 22), pad: 0.8 });
+      if (p) p.obstacle = true;
+    }
+    this.specialQueue.push({ kind: 'strip', at: d0 + 20, xf: risk * 0.5 });
+    if (P.n >= 4) this.placeHeat(d0 + 28, gr, T, hwL, risk);
+    else for (let i = 0; i < 4; i++) this.food1(R.range(0.6, 0.8), gr, risk * hwL * R.range(0.35, 0.75), d0 + 28 + i * 14, hwL, { spacing: 0.1 });
+    this.crateAt(clamp(risk * hwL * 0.55, -lim, lim), d0 + 36, ct * 1.15, 'gold', pr);
+    this.crateAt(clamp(risk * hwL * 0.7, -lim, lim), d0 + 62, ct * 1.15, 'gold', pr);
+    this.crateAt(clamp(risk * hwL * 0.45, -lim, lim), d0 + 78, ct, 'plain', pr);
+    this.zones.push({ d0: d0 - 4, d1: d1 + 6, kind: 'crates' });
+    return it.len;
+  }
+
   // SICAK NOKTA (DAG 6+): a glowing hot patch with gold crates and fat food inside. Melts you while you are in it.
-  placeHeat(d, gr, T, hw) {
+  placeHeat(d, gr, T, hw, sideFix = 0) {
     const R = this.rng, P = this.lvl;
     const rx = Math.min(hw * 0.36, 4.2 + gr * 1.3), rd = 12 + gr * 1.6;
-    const side = R.sign();
+    const side = sideFix || R.sign();
     const x = clamp(side * hw * R.range(0.38, 0.55), -hw + rx + 0.5, hw - rx - 0.5);
     const pd = d + rd + 6;
     const heat = { x, d: pd, rx, rd, mesh: null, tex: R.range(0, 6.28) };
@@ -583,6 +651,7 @@ export class World {
       case 'golden': return this.placeGolden(d, gr, T, hw);
       case 'rival': return this.placeRival(d, gr, T, hw, 1.1);
       case 'arena': return this.placeArena(it, gr, T, hw);
+      case 'fork': return this.placeFork(it, gr, T, hw);
       case 'finish': this.addFinish(it.at); return 4;
       case 'army': case 'mush': case 'strip': case 'cannon': case 'bridge': case 'pickup':
         // CigPlus builds these (it owns the meshes); it receives a plain copy of the plan item
@@ -668,6 +737,7 @@ export class World {
       this.laneSide = -(this.laneSide || 1);
       this.patLane(d, seg, gr, hw, this.laneSide, R.range(0.35, 0.6));
     }
+    if (this.lvl && this.lvl.n <= 8 && d > 60 && R.next() < 0.5) this.placeLandmark(d + R.range(0, seg), gr, hw);
     // obstacles: bigger than the ball, never walls (a free corridor is guaranteed)
     if (d > 130) {
       const rate = CFG.obstacleRate[T] * seg / 100;
@@ -1341,13 +1411,14 @@ export class World {
     const d = this.decorD;
     const T = this.tierAtD(d);
     const ts = this.scaleAtD(d);
-    const step = (2.6 + this.ballR * 0.5) * ts;
+    const dense = this.lvl && this.lvl.n <= 8;
+    const step = (2.6 + this.ballR * 0.5) * ts * (dense ? 0.55 : 1);
     this.decorD = d + step * R.range(0.8, 1.25);
     if (!this.decorPool.length) return;
     const hw = this.halfWidth(d);
     for (const side of [-1, 1]) {
-      if (R.chance(0.14)) continue;
-      const off = R.range(1.2, 30) * ts;
+      if (R.chance(dense ? 0.04 : 0.14)) continue;
+      const off = R.range(1.2, dense ? 22 : 30) * ts;
       const near = off < 7 * ts;
       const tr = ts * (near ? R.range(1.2, 2.6) : off < 18 * ts ? R.range(2.2, 4.8) : R.range(4.5, 9));
       const e = this.pick(this.decorPool, tr, 0.6, 1.7);

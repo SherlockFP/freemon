@@ -705,19 +705,23 @@ html, body {
   100% { opacity: 0; transform: translate(-50%, -14px) scale(1); }
 }
 /* combo counter (left of the centre column, under the score) */
-.cmb { position: absolute; left: 12px; top: calc(var(--sat) + 150px); z-index: 4; pointer-events: none; opacity: 0; transform-origin: left center; }
-#hud.rush .cmb { top: calc(var(--sat) + 100px); }
-#hud.cig-endless .cmb { top: calc(var(--sat) + 76px); }
+.cmb { position: absolute; left: 0; right: 0; top: calc(var(--sat) + 150px); z-index: 4; pointer-events: none; opacity: 0; transform-origin: center; text-align: center; }
+#hud.rush .cmb { top: calc(var(--sat) + 96px); }
+#hud.cig-endless .cmb { left: 12px; right: auto; text-align: left; transform-origin: left center; top: calc(var(--sat) + 76px); }
+#hud.rush .hud-goal { top: calc(var(--sat) + 146px); }
+#hud.rush .hud-flow, #hud.rush.has-goal .hud-flow { top: calc(var(--sat) + 150px); }
+#hud.rush.has-goal ~ #danger { top: calc(var(--sat) + 176px); }
+#hud.rush .hud-coins { white-space: pre-line; text-align: right; line-height: 1.1; font-size: 14px; right: 10px; top: calc(var(--sat) + 54px); }
 .cmb.on { opacity: 1; }
-.cmb-n { display: block; font-weight: 900; font-size: 22px; color: #fff; text-shadow: 0 2px 0 var(--ink), 0 0 10px rgba(255, 255, 255, 0.5); white-space: nowrap; }
-.cmb-bar { display: block; width: 96px; height: 7px; margin-top: 3px; border-radius: 4px; border: 2px solid var(--ink); background: rgba(0, 0, 0, 0.35); overflow: hidden; }
+.cmb-n { display: block; font-weight: 900; font-size: min(26px, 7.2vw); color: #fff; text-shadow: 0 2px 0 var(--ink), 0 0 10px rgba(255, 255, 255, 0.5); white-space: nowrap; }
+.cmb-bar { display: block; margin-left: auto; margin-right: auto; width: 96px; height: 7px; margin-top: 3px; border-radius: 4px; border: 2px solid var(--ink); background: rgba(0, 0, 0, 0.35); overflow: hidden; }
 .cmb-bar b { display: block; width: 100%; height: 100%; background: linear-gradient(90deg, #ffd23a, #ff7a2e); transform-origin: left center; }
 .cmb.hit { animation: cmbHit 0.28s cubic-bezier(.2, 1.8, .4, 1); }
 .cmb.tierup { animation: cmbTier 0.6s cubic-bezier(.2, 1.8, .4, 1); }
-.cmb.t1 .cmb-n { color: #ffe066; font-size: 25px; }
-.cmb.t2 .cmb-n { color: #ff9d2e; font-size: 29px; text-shadow: 0 2px 0 var(--ink), 0 0 14px rgba(255, 140, 0, 0.9); }
-.cmb.t3 .cmb-n { color: #ff4a5a; font-size: 33px; text-shadow: 0 2px 0 var(--ink), 0 0 16px #ff4a5a; }
-.cmb.t4 .cmb-n { color: #d28bff; font-size: 38px; text-shadow: 0 2px 0 var(--ink), 0 0 18px #b46bff, 0 0 32px #ff4a5a; }
+.cmb.t1 .cmb-n { color: #ffe066; font-size: min(27px, 7.4vw); }
+.cmb.t2 .cmb-n { color: #ff9d2e; font-size: min(28px, 7.6vw); text-shadow: 0 2px 0 var(--ink), 0 0 14px rgba(255, 140, 0, 0.9); }
+.cmb.t3 .cmb-n { color: #ff4a5a; font-size: min(29px, 7.8vw); text-shadow: 0 2px 0 var(--ink), 0 0 16px #ff4a5a; }
+.cmb.t4 .cmb-n { color: #d28bff; font-size: min(30px, 8vw); text-shadow: 0 2px 0 var(--ink), 0 0 18px #b46bff, 0 0 32px #ff4a5a; }
 .cmb.t3 .cmb-bar b { background: linear-gradient(90deg, #ff4a5a, #ff9d2e); }
 .cmb.t4 .cmb-bar b { background: linear-gradient(90deg, #b46bff, #ff4a5a); }
 .cmb.t1 .cmb-bar, .cmb.t2 .cmb-bar, .cmb.t3 .cmb-bar, .cmb.t4 .cmb-bar { width: 118px; }
@@ -725,6 +729,7 @@ html, body {
 .cmb.t3 .cmb-n { animation: cmbShake 0.22s linear infinite; }
 .cmb.t4 .cmb-n { animation: cmbShake 0.14s linear infinite; }
 .cmb.broke { animation: cmbBroke 1.1s ease-out forwards; }
+.cmb.nobar .cmb-bar { display: none; }
 .cmb.broke .cmb-n { color: #ff6a6a; font-size: 18px; animation: none; }
 .cmb.broke .cmb-bar { display: none; }
 @keyframes cmbHit { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
@@ -754,7 +759,7 @@ html, body {
 .coin-fly { position: fixed; z-index: 21; pointer-events: none; font-size: 22px; will-change: transform, opacity; }
 #result .btn.retry { animation: retryPulse 1s ease-in-out 1.6s infinite alternate; }
 @keyframes retryPulse { to { transform: scale(1.04); } }
-@media (max-height: 560px) { .hud-tons.gold1, .hud-tons.gold2, .hud-tons.gold3 { animation-duration: 0.9s; } .cmb-n { font-size: 17px !important; } .cmb { top: calc(var(--sat) + 90px); } }
+@media (max-height: 560px) { .hud-tons.gold1, .hud-tons.gold2, .hud-tons.gold3 { animation-duration: 0.9s; } .cmb-n { font-size: 17px !important; } .cmb { top: calc(var(--sat) + 90px); } #hud.rush .cmb { top: calc(var(--sat) + 92px); } }
 
 
 /* ---------- ÇIĞ DAĞLAR: level HUD (appended; nothing above is changed) ---------- */

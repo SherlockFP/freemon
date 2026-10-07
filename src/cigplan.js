@@ -51,7 +51,7 @@ export const INTRO = {
 const STAR3 = { 1: 'nobounce', 2: 'crates', 3: 'nobounce', 4: 'time', 5: 'nohit', 6: 'chain', 7: 'rival', 8: 'nohit', 9: 'gold', 10: 'time', 11: 'crates', 12: 'chain' };
 
 // metres of track a part needs (everything the part places stays inside [start, start + len])
-const RES = { crateLine: 44, crateWall: 64, iceWall: 48, ramp: 95, mush: 90, army: 60, town: 90, golden: 50, patch: 100, rival: 70, cannon: 90, bridge: 130, pickup: 14, strip: 14, gate: 84, arena: 170 };
+const RES = { crateLine: 44, crateWall: 64, iceWall: 48, ramp: 95, mush: 90, army: 60, town: 90, golden: 50, patch: 100, rival: 70, cannon: 90, bridge: 130, fork: 92, pickup: 14, strip: 14, gate: 84, arena: 170 };
 const GAP = 25;
 
 // hand-made stage lists for the first ten mountains (CL crate line, CW crate wall, IW ice wall, RMP ramp, MSH mushrooms,
@@ -141,7 +141,7 @@ function build(n, daily, assist, opts) {
   const rCap = L.capK * rEnd;
   const length = round10(L.lenK * tNom * speedK * (18 + 6 * Math.sqrt(Math.sqrt(r0 * rEnd))));
   const dF = length - L.finalPad;
-  const gateK = (n === 1 ? 0.72 : 0.78 + 0.0028 * (n - 2)) - (assist ? 0.04 : 0);
+  const gateK = (n === 1 ? 0.72 : n < 6 ? 0.78 + 0.0028 * (n - 2) : Math.min(1.1, 0.9 + 0.004 * (n - 6))) - (assist ? 0.04 : 0);
   const star2K = 1 + 0.005 * (n - 1);
   const hw0 = hwFor(r0);
 
@@ -260,6 +260,8 @@ function build(n, daily, assist, opts) {
     }
     if (!arenaStage) {
       // a power-up after the first part, an extra strip in the middle of later stages
+      // DECISIONS: a fork in stage 1 (DAG 2+), and another in stage 2 from DAG 8
+      if (n >= 2 && (i === 0 || (i === 1 && n >= 8))) parts.splice(Math.min(1, parts.length), 0, { kind: 'fork', len: RES.fork });
       if (n >= 2 && parts.length) parts.splice(Math.min(1, parts.length), 0, { kind: 'pickup', len: RES.pickup, power: power() });
       if (n >= 9 && parts.length > 2) parts.splice(Math.ceil(parts.length / 2), 0, { kind: 'strip', len: RES.strip, extra: 1 });
       // pack them one after the other inside [a, b]; what does not fit is dropped (power-up / strip first, then from the end)
@@ -267,6 +269,7 @@ function build(n, daily, assist, opts) {
       while (parts.length > 1 && total() > b - a) {
         let idx = -1;
         for (let q = parts.length - 1; q >= 0; q--) if (parts[q].kind === 'pickup' || parts[q].kind === 'strip') { idx = q; break; }
+        if (idx < 0) for (let q = parts.length - 1; q >= 0; q--) if (parts[q].kind !== 'fork') { idx = q; break; }
         if (idx < 0) idx = parts.length - 1;
         parts.splice(idx, 1);
       }
@@ -305,6 +308,10 @@ function build(n, daily, assist, opts) {
       p.iron = n >= 11 ? 3 : 0;
       P.crates.total += p.rows * p.cols;
       P.crates.gold += Math.min(p.gold, p.rows * p.cols);
+    } else if (p.kind === 'fork') {
+      p.side = rng.sign();
+      P.crates.total += 3;
+      P.crates.gold += 2;
     } else if (p.kind === 'iceWall') {
       p.cover = rng.range(0.6, 0.75);
       p.side = rng.sign();

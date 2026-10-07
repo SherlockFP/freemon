@@ -289,7 +289,7 @@ for (const t of MISSION_TPL) for (const ev of Object.keys(t.on)) MISSION_EVENTS.
 const STAT_KEYS = [
   'runs', 'endlessRuns', 'cigRuns', 'bestDist', 'totalDist', 'bestScore', 'swallowed', 'police', 'destroyed', 'smashed', 'crashes', 'explosions',
   'closeCalls', 'perfects', 'portals', 'powerups', 'tierUps', 'maxTier', 'maxMilestone', 'totalTons', 'shares', 'sessions', 'jumps', 'nightRuns',
-  'dailyRuns', 'flattened', 'boxesOpened', 'lettersFound', 'huntsDone', 'sledsUsed', 'upgrades', 'crystalsEarned',
+  'dailyRuns', 'flattened', 'boxesOpened', 'lettersFound', 'huntsDone', 'sledsUsed', 'upgrades', 'crystalsEarned', 'stomps',
 ];
 const SET_KEYS = ['biomes', 'visual', 'skins', 'powers', 'trails'];
 
@@ -300,7 +300,7 @@ function fresh() {
   for (const k of SET_KEYS) sets[k] = [];
   return {
     v: 1, born: 0, xp: 0, cr: 0, boxes: 0, sleds: 0,
-    st, sets, a: {}, eggs: {}, hol: {},
+    st, sets, a: {}, eggs: {}, hol: {}, sp: {},
     d: { last: '', streak: 0, pos: 0, total: 0 },
     u: { magnet: 0, x2: 0, jump: 0, rocket: 0 },
     m: { n: 0, mult: 1, cur: [], awarded: false, skipDay: '' },
@@ -327,6 +327,7 @@ function sanitize(p) {
       if (isObj(e)) s.a[id] = { v: Math.min(nz(e.v), DEF_BY_ID[id].goal), d: nz(e.d), c: e.c ? 1 : 0 };
     }
   }
+  if (isObj(p.sp)) for (const k of Object.keys(p.sp)) if (k.length < 24 && p.sp[k]) s.sp[k] = nz(p.sp[k]) || 1;
   if (isObj(p.eggs)) for (const e of EGGS) if (p.eggs[e.id]) s.eggs[e.id] = num(p.eggs[e.id], 1) || 1;
   if (isObj(p.hol)) for (const k of Object.keys(p.hol)) if (p.hol[k] && /^\d{4}-[a-z0-9]+$/.test(k)) s.hol[k] = 1;
   if (isObj(p.d)) {
@@ -381,7 +382,7 @@ let dirty = false;
 let timer = null;
 let quiet = false;
 let listenersAdded = false;
-const cbs = { unlock: [], levelup: [], mission: [], missionset: [], letter: [], hunt: [] };
+const cbs = { unlock: [], levelup: [], mission: [], missionset: [], letter: [], hunt: [], stamp: [] };
 
 function lsGet() {
   try { return globalThis.localStorage ? globalThis.localStorage.getItem(KEY) : null; } catch { return null; }
@@ -781,7 +782,7 @@ function handle(ev, d, newly) {
       const t = now();
       if (t - RT.lastStomp < 120) return;
       RT.lastStomp = t;
-      RT.stomps++;
+      RT.stomps++; st.stomps++;
       break;
     }
     case 'buff': RT.buffs++; break;
@@ -811,6 +812,60 @@ function handle(ev, d, newly) {
   if (END_EVENTS.has(ev)) { rollMissions(); persistNow(); } else markDirty();
 }
 
+
+// =================================================================================================== KIŞ PASAPORTU (stamps)
+export const STAMPS = [
+  { id: 'km1', icon: '📏', name: 'İlk 1 km', desc: 'Yeti Rush: tek koşuda 1000 m koş.' },
+  { id: 'yeti', icon: '🦣', name: "Yeti'yi atlattın", desc: 'Yeti Rush: tek koşuda 2500 m koş.' },
+  { id: 'stomp10', icon: '🦶', name: '10 yaratık ezdin', desc: 'Toplam 10 yaratığı ez.' },
+  { id: 'combo5', icon: '🔥', name: 'Kombo ustası', desc: 'Art arda 5 yaratık ez (KOMBO x5).' },
+  { id: 'close10', icon: '😮', name: 'Kıl payı', desc: 'Toplam 10 kez kıl payı kurtul.' },
+  { id: 'eat100', icon: '🍡', name: 'Aç Top', desc: 'ÇIĞ: toplam 100 şey yut.' },
+  { id: 'dag5', icon: '🏔️', name: 'Dağ 5 bitti', desc: 'ÇIĞ DAĞLAR: 5. dağı bitir.' },
+  { id: 'dagstar', icon: '⭐', name: 'Yıldız avcısı', desc: 'ÇIĞ DAĞLAR: toplam 30 yıldız topla.' },
+  { id: 'night', icon: '🌙', name: 'Gece Kuşu', desc: 'Gece temalı bir dağı bitir.' },
+  { id: 'daily', icon: '📅', name: 'Günün Dağı', desc: "Günün Dağı'nı bitir." },
+  { id: 'tons', icon: '⚖️', name: 'Kar Devi', desc: 'ÇIĞ: toplam 10.000 ton kar topla.' },
+  { id: 'camp1', icon: '🗺️', name: 'Maceraya Merhaba', desc: 'MACERA: ilk bölümü bitir.' },
+  { id: 'camp10', icon: '🧭', name: 'Macera 10', desc: 'MACERA: 10 bölüm bitir.' },
+  { id: 'arena100', icon: '⚔️', name: 'Arena çaylağı', desc: 'ARENA: 100 kütleye ulaş.' },
+  { id: 'arena500', icon: '👑', name: 'Arena ilk 10', desc: 'ARENA: 500 kütleye ulaş.' },
+  { id: 'avalanche', icon: '🌨️', name: 'Çığ olayından kurtuldun', desc: 'ARENA: Çığ Olayı sırasında hayatta kal.' },
+];
+const STAMP_BY_ID = Object.fromEntries(STAMPS.map((x) => [x.id, x]));
+
+function stampEarn(id) {
+  const def = STAMP_BY_ID[id];
+  if (!def || S.sp[id]) return false;
+  S.sp[id] = now() || 1;
+  markDirty();
+  if (!quiet) { pushNotice({ kind: 'stamp', id, name: def.name, icon: def.icon }); fire('stamp', def); }
+  return true;
+}
+function stampCheck(ev, d) {
+  const st = S.st;
+  const lsn = (k) => { try { const v = globalThis.localStorage && globalThis.localStorage.getItem(k); return v ? parseFloat(v) || 0 : 0; } catch { return 0; } };
+  if (st.bestDist >= 1000) stampEarn('km1');
+  if (st.bestDist >= 2500) stampEarn('yeti');
+  if (st.stomps >= 10) stampEarn('stomp10');
+  if (ev === 'stomp' && num(d.combo) >= 5) stampEarn('combo5');
+  if (st.closeCalls >= 10) stampEarn('close10');
+  if (st.swallowed >= 100) stampEarn('eat100');
+  if (st.nightRuns >= 1) stampEarn('night');
+  if (st.dailyRuns >= 1) stampEarn('daily');
+  if (st.totalTons >= 10000) stampEarn('tons');
+  let cl = 0, ts = 0;
+  try { cl = sv && sv.cigNext ? sv.cigNext() - 1 : 0; ts = sv && sv.cigLvTotalStars ? sv.cigLvTotalStars() : 0; } catch { /* ignore */ }
+  if (cl >= 5) stampEarn('dag5');
+  if (ts >= 30) stampEarn('dagstar');
+  const cc = campCleared(S);
+  if (cc >= 1) stampEarn('camp1');
+  if (cc >= 10) stampEarn('camp10');
+  const am = lsn('patpat.agar.best');
+  if (am >= 100) stampEarn('arena100');
+  if (am >= 500) stampEarn('arena500');
+}
+
 // =================================================================================================== public API
 
 export const meta = {
@@ -826,6 +881,7 @@ export const meta = {
       rollHunt();
       rollMissions();
       derive(null);
+      stampCheck('init', EMPTY);
     } finally { quiet = false; }
     persistNow();
     try {
@@ -843,7 +899,7 @@ export const meta = {
   flush() { if (dirty) persistNow(); },
   // Re-derive things that depend on save.js (coins, owned skins, levels) and re-arm daily things. Call when the menu opens.
   refresh() {
-    try { rollHunt(); rollMissions(); derive([]); markDirty(); } catch { /* ignore */ }
+    try { rollHunt(); rollMissions(); derive([]); stampCheck('refresh', EMPTY); markDirty(); } catch { /* ignore */ }
   },
 
   // ---- events ----
@@ -851,6 +907,7 @@ export const meta = {
     const d = data && typeof data === 'object' ? data : EMPTY;
     const newly = [];
     try { handle(event, d, newly); } catch { /* telemetry must never break gameplay */ }
+    try { stampCheck(event, d); } catch { /* ignore */ }
     try { dtOn(event, d); } catch { /* ignore */ }
     return newly.length ? newly : NONE;
   },
@@ -861,6 +918,10 @@ export const meta = {
     return () => { const i = list.indexOf(cb); if (i >= 0) list.splice(i, 1); };
   },
   onUnlock(cb) { return meta.on('unlock', cb); },
+  onStamp(cb) { return meta.on('stamp', cb); },
+  // KIŞ PASAPORTU: [{id, icon, name, desc, got}]; stamp(id) lets other modules award one directly (e.g. 'avalanche' after surviving the Çığ Olayı)
+  stamps() { try { stampCheck('refresh', EMPTY); } catch { /* ignore */ } return STAMPS.map((x) => ({ ...x, got: !!S.sp[x.id] })); },
+  stamp(id) { try { return stampEarn(id); } catch { return false; } },
   onLevelUp(cb) { return meta.on('levelup', cb); },
 
   // ---- achievements ----

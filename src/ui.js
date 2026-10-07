@@ -87,6 +87,7 @@ export class UI {
       toastSoft: $('toast-soft'), tutor: $('tutor'), revive: $('revive-panel'), rvTitle: $('rv-title'), rvDist: $('rv-dist'), btnRevive: $('btn-revive'), btnReviveEnd: $('btn-revive-end'),
     };
     this.floatCount = 0;
+    try { meta.onStamp((d) => this.toastSoft(`🛂 YENİ DAMGA! ${d.name}`, { icon: d.icon })); } catch { /* ignore */ }
     this.lastTonsText = '';
     this.pulseT = 0;
     this.timers = [];
@@ -183,17 +184,11 @@ export class UI {
     // numbers are compared first: no string building / Intl formatting on frames where nothing visible changed
     const sc = Math.round(score);
     if (sc !== this._sc) this.scoreTo(sc);
-    if (coins !== this._co || dist !== this._di) { this._co = coins; this._di = dist; this.el.coins.textContent = `❄️ ${coins} · ${dist} m`; }
+    if (coins !== this._co || dist !== this._di) { this._co = coins; this._di = dist; this.el.coins.textContent = `❄️ ${coins}
+${dist} m`; }
     if (biomeName && biomeName !== this.lastBiome) { this.el.level.textContent = String(biomeName).toLocaleUpperCase('tr-TR'); this.lastBiome = biomeName; }
-    if (mult !== this._mu) {
-      this._mu = mult;
-      if (mult > 1) {
-        const c = this.el.combo, lv = mult >= 6 ? 4 : mult >= 4 ? 3 : mult >= 3 ? 2 : 1;
-        c.textContent = `${lv >= 2 ? '\u{1F525} ' : ''}x${mult} SKOR${lv >= 4 ? ' \u2728' : ''}`;
-        c.className = `hud-combo on m${lv}`;
-        void c.offsetWidth; c.classList.add('rise');
-      } else if (/SKOR/.test(this.el.combo.textContent)) this.el.combo.className = 'hud-combo';
-    }
+    const mm = mult > 1 ? mult : 0;
+    if (mm !== (this._mu || 0)) { this._mu = mm; this._cmRender(); }
     this.setProgress(biomeT);
   }
 
@@ -686,7 +681,7 @@ export class UI {
 
   comboReset() {
     clearTimeout(this._dT);
-    this._dN = 0; this._cmN = 0; this._bestCombo = 0; this._extCombo = false; this._cmT = 0;
+    this._dN = 0; this._cmN = 0; this._mu = 0; this._bestCombo = 0; this._extCombo = false; this._cmT = 0;
     if (this._cmb) this._cmb.className = 'cmb';
   }
 
@@ -699,6 +694,19 @@ export class UI {
     return c;
   }
 
+  // one tidy row under the score: 'KOMBO x34 · x5 SKOR' (+ drain bar beneath while a combo runs)
+  _cmRender() {
+    const c = this._cmb || this._mkCmb();
+    if (c.classList.contains('broke')) return;
+    const n = this._cmN >= 3 ? this._cmN : 0, mu = this._mu || 0;
+    if (!n && !mu) { if (c.classList.contains('on')) c.className = 'cmb'; return; }
+    const parts = [];
+    if (n) parts.push(`${this._cmT >= 3 ? '\u{1F525} ' : ''}KOMBO x${n}`);
+    if (mu > 1) parts.push(`x${mu} SKOR`);
+    this._cmn.textContent = parts.join(' · ');
+    if (!n) { const lv = mu >= 6 ? 3 : mu >= 4 ? 2 : mu >= 3 ? 1 : 0; c.className = `cmb on t${lv} nobar`; }
+  }
+
   _comboSet(n, drainMs) {
     const c = this._cmb || this._mkCmb();
     if (n >= 3) {
@@ -709,8 +717,8 @@ export class UI {
       const t = n >= 50 ? 4 : n >= 20 ? 3 : n >= 10 ? 2 : n >= 5 ? 1 : 0;
       const tierUp = t > (this._cmT || 0);
       this._cmT = t;
-      this._cmn.textContent = `${t >= 3 ? '\u{1F525} ' : ''}KOMBO x${n}`;
       c.className = `cmb on t${t}`;
+      this._cmRender();
       void c.offsetWidth;
       c.classList.add(tierUp ? 'tierup' : 'hit');
       if (tierUp) snd('chime');
@@ -724,6 +732,8 @@ export class UI {
       this._cmN = 0; this._cmT = 0;
       this._cmn.textContent = 'KOMBO KIRILDI';
       c.className = 'cmb broke';
+      clearTimeout(this._cmBk);
+      this._cmBk = setTimeout(() => { if (c.classList.contains('broke')) { c.className = 'cmb'; this._cmRender(); } }, 1150);
     }
   }
 

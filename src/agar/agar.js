@@ -222,26 +222,46 @@ export class AgarMode {
     sc.add(dl);
     // ground: a tiling snow texture (subtle variation, faint blue shadows, soft grid)
     this.groundTex = canvasTex(512, 512, (g, W, H) => {
-      g.fillStyle = '#eef6ff'; g.fillRect(0, 0, W, H);
-      for (let i = 0; i < 260; i++) {
-        const x = Math.random() * W, y = Math.random() * H, r = 10 + Math.random() * 38;
+      g.fillStyle = '#e6f0fb'; g.fillRect(0, 0, W, H);
+      const T = W / 4; // 4x4 snow tiles, checkered tint
+      for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) { g.fillStyle = (a + b) & 1 ? 'rgba(255,255,255,0.75)' : 'rgba(170,200,235,0.30)'; g.fillRect(a * T, b * T, T, T); }
+      for (let i = 0; i < 160; i++) {
+        const x = Math.random() * W, y = Math.random() * H, r = 10 + Math.random() * 34;
         const gr = g.createRadialGradient(x, y, 0, x, y, r);
-        gr.addColorStop(0, Math.random() < 0.55 ? 'rgba(190,215,245,0.20)' : 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+        gr.addColorStop(0, Math.random() < 0.55 ? 'rgba(150,185,230,0.22)' : 'rgba(255,255,255,0.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
         g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
       }
-      for (let i = 0; i < 900; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(200,225,250,0.32)' : 'rgba(255,255,255,0.7)'; g.fillRect(Math.random() * W, Math.random() * H, 2 + Math.random() * 4, 2 + Math.random() * 4); }
-      g.strokeStyle = 'rgba(150,190,230,0.30)'; g.lineWidth = 1.5;
-      for (let i = 0; i <= 4; i++) { const q = (i * W) / 4; g.beginPath(); g.moveTo(q, 0); g.lineTo(q, H); g.stroke(); g.beginPath(); g.moveTo(0, q); g.lineTo(W, q); g.stroke(); }
+      for (let i = 0; i < 500; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(160,195,235,0.35)' : 'rgba(255,255,255,0.8)'; g.fillRect(Math.random() * W, Math.random() * H, 2 + Math.random() * 3, 2 + Math.random() * 3); }
+      g.strokeStyle = 'rgba(95,140,195,0.55)'; g.lineWidth = 3;
+      for (let i = 0; i <= 4; i++) { const q = i === 4 ? W - 1.5 : i * T + 1.5; g.beginPath(); g.moveTo(q, 0); g.lineTo(q, H); g.stroke(); g.beginPath(); g.moveTo(0, q); g.lineTo(W, q); g.stroke(); }
     }, 40);
     const gm = new THREE.Mesh(new THREE.CircleGeometry(R, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: this.groundTex }));
     sc.add(gm);
     const sea = new THREE.Mesh(new THREE.CircleGeometry(6000, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x4f90c9 }));
     sea.position.y = -0.6;
     sc.add(sea);
-    const wall = new THREE.Mesh(new THREE.CylinderGeometry(R + 1.5, R + 1.5, 6, 96, 1, true), new THREE.MeshBasicMaterial({ color: 0xbfe3ff, side: THREE.DoubleSide, transparent: true, opacity: 0.85 }));
-    wall.position.y = 3;
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(R + 1.5, R + 1.5, 14, 96, 1, true), new THREE.MeshBasicMaterial({ color: 0x2f8be0, side: THREE.DoubleSide, transparent: true, opacity: 0.8 }));
+    wall.position.y = 7;
     sc.add(wall);
-    const rim = new THREE.Mesh(new THREE.RingGeometry(R - 3, R + 6, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x8cc8f5 }));
+    // zone patches (ice blue / deep snow / pale violet) + crystal landmarks, visible from afar
+    {
+      const pr = (() => { let a = 20241; return () => ((a = (a * 16807) % 2147483647) / 2147483647); })();
+      const cols = [0x9fd4ff, 0x7fc0f5, 0xd6e6ff, 0xc9b8f5, 0xffffff];
+      for (let i = 0; i < 46; i++) {
+        const a = pr() * 6.2832, d = Math.sqrt(pr()) * (R - 120), r = 40 + pr() * 90, col = cols[i % cols.length];
+        const m = new THREE.Mesh(new THREE.CircleGeometry(r, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: col === 0xffffff ? 0.55 : 0.4, depthWrite: false }));
+        m.position.set(Math.cos(a) * d, 0.04, Math.sin(a) * d); sc.add(m);
+      }
+      const NC = 70, cm = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 5), new THREE.MeshBasicMaterial({ color: 0xffffff }), NC);
+      const mt = new THREE.Matrix4(), q = new THREE.Quaternion(), pv = new THREE.Vector3(), sv = new THREE.Vector3(), cc = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
+      for (let i = 0; i < NC; i++) {
+        const a = pr() * 6.2832, d = Math.sqrt(pr()) * (R - 60), h = 8 + pr() * 22, w = 2 + pr() * 3;
+        pv.set(Math.cos(a) * d, h / 2, Math.sin(a) * d); sv.set(w, h, w); q.setFromAxisAngle(up, pr() * 6);
+        cm.setMatrixAt(i, mt.compose(pv, q, sv)); cm.setColorAt(i, cc.setHSL(0.52 + pr() * 0.15, 0.7, 0.62 + pr() * 0.15));
+      }
+      cm.frustumCulled = false; sc.add(cm);
+    }
+    const rim = new THREE.Mesh(new THREE.RingGeometry(R - 14, R + 6, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x4a9be8 }));
     rim.position.y = 0.1;
     sc.add(rim);
 
@@ -391,6 +411,61 @@ export class AgarMode {
     const a = Math.random() * 6.2832, d = Math.sqrt(Math.random()) * (R - pad);
     out.x = Math.cos(a) * d; out.z = Math.sin(a) * d;
   }
+  /** pellet respawn position: ~65% in a ring around a random active human (keeps the player's view ~3x denser) */
+  foodPos(out) {
+    if (Math.random() < 0.65) {
+      const o = this.hum();
+      if (o) { const a = Math.random() * 6.2832, d = 6 + Math.sqrt(Math.random()) * 110, x = o.lx + Math.cos(a) * d, z = o.lz + Math.sin(a) * d; if (x * x + z * z < (R - 4) * (R - 4)) { out.x = x; out.z = z; return; } }
+    }
+    this.randPos(out, 2);
+  }
+  hum() {
+    const ow = this.owners; let n = 0, pick = null;
+    for (let k = 0; k < NOWN; k++) { const o = ow[k]; if (o.alive && (k === this.me || (o.human && !o.bot))) { n++; if (Math.random() * n < 1) pick = o; } }
+    return pick;
+  }
+  /** teleport a small single-cell bot next to (x,z) with mass m */
+  placeBot(o, x, z, m) {
+    for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.o === o.id) { c.x = c.tx = c.px0 = c.lsx = x; c.z = c.tz = c.pz0 = c.lsz = z; c.vx = c.vz = 0; c.m = m; c.r = KR * Math.sqrt(m); } }
+    o.cx = o.lx = o.tx = x; o.cz = o.lz = o.tz = z; o.mass = m; o.wanderT = 4;
+  }
+  /** lively start: dense pellets + 3 bots (2 prey, 1 slight threat) close to a freshly spawned player */
+  seedAround(x, z, m) {
+    if (this.mp === 'client') return;
+    for (let k = 0, n = 0; k < 4000 && n < 320; k++) {
+      const i = (Math.random() * FOOD) | 0; if (i % 60 === 0 || this.fv[i] === 0) continue;
+      const a = Math.random() * 6.2832, d = 5 + Math.sqrt(Math.random()) * 70, px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
+      if (px * px + pz * pz > (R - 4) * (R - 4)) continue;
+      this.foodMove(i, px, pz); n++;
+    }
+    const sp = [0.55, 0.7, 1.4]; let j = 0;
+    for (let k = 1; k < NOWN && j < 3; k++) {
+      const o = this.owners[k];
+      if (!o.alive || !o.bot || o.human || o.cellN !== 1) continue;
+      const a = Math.random() * 6.2832, d = 28 + j * 12 + Math.random() * 10;
+      this.placeBot(o, x + Math.cos(a) * d, z + Math.sin(a) * d, m * sp[j]); j++;
+    }
+    this.nearT = 3;
+  }
+  /** keep a few bots roaming near the human player */
+  nearTick(dt) {
+    if (this.mp === 'client' || this.state !== 'play') return;
+    this.nearT = (this.nearT || 0) - dt;
+    if (this.nearT > 0) return;
+    this.nearT = 2.5;
+    const me = this.owners[this.me];
+    if (!me.alive) return;
+    let near = 0, far = null;
+    for (let k = 1; k < NOWN; k++) {
+      const o = this.owners[k];
+      if (!o.alive || !o.bot || o.human) continue;
+      const d = Math.hypot(o.lx - me.lx, o.lz - me.lz);
+      if (d < 90) near++; else if (d > 160 && o.cellN === 1 && (!far || Math.random() < 0.3)) far = o;
+    }
+    if (near >= 3 || !far) return;
+    const a = Math.random() * 6.2832, d = 55 + Math.random() * 30, m = me.mass * (near === 0 ? 0.6 : 0.5 + Math.random() * 0.8);
+    this.placeBot(far, me.lx + Math.cos(a) * d, me.lz + Math.sin(a) * d, Math.max(12, m));
+  }
   spawnPellet(x, z, v, hex) {
     for (let k = 0; k < SPARE; k++) {
       let i = this.spareHint + k; if (i >= FT) i -= SPARE;
@@ -491,10 +566,12 @@ export class AgarMode {
     this.props.clearStuck(o.id);
     if (o.id === this.me) this.titleIdx = 0;
     o.away = false; o.alive = true; o.wasAlive = true; o.cellN = 1; o.mass = m; o.cx = p.x; o.cz = p.z; o.lx = p.x; o.lz = p.z;
-    o.boostT = o.boostCd = o.splitCd = o.magnet = o.speed = 0; o.shield = o.bot ? 0 : 3;
+    o.boostT = o.boostCd = o.splitCd = o.magnet = o.speed = 0; o.shield = o.bot ? 0 : (o.id === this.me ? 30 : 6);
     o.kills = 0; o.xpRun = 0; o.t0 = this.time; o.bestRank = 99; o.maxMass = m; o.killer = -1;
     o.tx = p.x; o.tz = p.z; o.wanderT = 0; o.mag = 0;
     o.dx = Math.cos(Math.random() * 6.28); o.dz = Math.sin(Math.random() * 6.28);
+    if (!o.bot && this.state !== 'title') this.seedAround(p.x, p.z, m);
+    if (o.id === this.me) { this.firstEat = false; this.lastRankToast = 0; this.rankBest = 99; }
   }
 
   startMass() { return 24; } // everybody starts equal (XP / level is cosmetic only)
@@ -714,6 +791,7 @@ export class AgarMode {
     const owners = this.owners, cells = this.cells;
     this.stormTick(dt);
     this.props.tick(dt);
+    this.nearTick(dt);
     this.botChatTick(dt);
     if (this.mp !== 'client' && this.state === 'play') this.popTick(dt);
     // local player input
@@ -829,8 +907,8 @@ export class AgarMode {
             if (d2 < r2) {
               const v = this.fv[i];
               c.m = Math.min(MAXM, c.m + v); o.xpRun += v;
-              if (c.o === this.me) this.snd('pellet');
-              if (i < FOOD) { const p = this.tmpP || (this.tmpP = { x: 0, z: 0 }); this.randPos(p, 2); this.foodPlace(i, p.x, p.z, this.baseVal(i)); } else this.foodPlace(i, 0, 0, 0);
+              if (c.o === this.me) { this.snd('pellet'); if (!this.firstEat && this.state === 'play') { this.firstEat = true; this.toast('İLK YEMEK! 🎉'); this.audio?.milestone?.(1); } }
+              if (i < FOOD) { const p = this.tmpP || (this.tmpP = { x: 0, z: 0 }); this.foodPos(p); this.foodPlace(i, p.x, p.z, this.baseVal(i)); } else this.foodPlace(i, 0, 0, 0);
             } else if (pull && d2 < p2) {
               const dd = Math.sqrt(d2), st = Math.min(dd - c.r * 0.5, 30 * dt);
               if (st > 0) this.foodMove(i, this.fx[i] - (dx / dd) * st, this.fz[i] - (dz / dd) * st);
@@ -906,7 +984,7 @@ export class AgarMode {
 
   // ------------------------------------------------------------------ avalanche event (CIG OLAYI)
   avStart(a, off, broadcast) {
-    const v = this.av; v.st = 1; v.t = 5; v.a = a; v.off = off; v.id++; v.rum = 0;
+    const v = this.av; v.st = 1; v.t = 5; v.a = a; v.off = off; v.id++; v.rum = 0; v.meHit = false;
     this.pushFeed('🏔 ÇIĞ GELİYOR! Kristal arkasına ya da derin kara saklan');
     this.audio?.arena?.('storm', 0.9);
     if (broadcast && this.mp === 'host' && this.net) this.net.broadcast({ t: 'av', a, o: off });
@@ -944,10 +1022,13 @@ export class AgarMode {
         const lost = c.m * 0.35; c.m -= lost;
         const o = this.owners[c.o], k = Math.min(10, Math.ceil(lost / 5));
         for (let q = 0; q < k; q++) this.spawnPellet(c.x + rnd(-c.r, c.r) * 1.5, c.z + rnd(-c.r, c.r) * 1.5, lost / k, o ? o.col : 0xffffff);
-        if (c.o === this.me) { this.snd('crash'); this.toast('ÇIĞ vurdu! -%35'); } else if (o && !o.bot) this.sfxTo(c.o, 'crash', 1);
+        if (c.o === this.me) { v.meHit = true; this.snd('crash'); this.toast('ÇIĞ vurdu! -%35'); } else if (o && !o.bot) this.sfxTo(c.o, 'crash', 1);
       }
     }
-    if (v.t <= 0) { v.st = 0; v.next = 180 + Math.random() * 60; }
+    if (v.t <= 0) {
+      v.st = 0; v.next = 180 + Math.random() * 60;
+      if (!v.meHit && this.owners[this.me]?.alive) meta.stamp?.('avalanche'); // Kış Pasaportu: survived the avalanche
+    }
   }
 
   // ------------------------------------------------------------------ chat
@@ -2056,6 +2137,10 @@ export class AgarMode {
       h.rank.textContent = myRank >= 0 ? '#' + (myRank + 1) + ' / ' + n : '-';
       h.online.textContent = String(this.mp === 'client' && this.presentN ? this.presentN : this.presentCount());
       if (myRank >= 0 && this.state === 'play' && myRank + 1 < me.bestRank) me.bestRank = myRank + 1;
+      if (myRank >= 0 && this.state === 'play' && me.alive) {
+        const rk = myRank + 1, rb = this.rankBest === undefined ? 99 : this.rankBest;
+        if (rk < rb) { if (rb < 99 && this.time - (this.lastRankToast || 0) > 3) { this.toast('SIRA ' + rb + ' → ' + rk + '!'); this.lastRankToast = this.time; this.audio?.milestone?.(2); } this.rankBest = rk; }
+      }
     }
     if (this.hudT <= 0) {
       this.hudT = 0.1;

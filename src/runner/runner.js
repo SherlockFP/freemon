@@ -351,7 +351,7 @@ export class Runner {
     this.zone = null;      // staged rule change { kind, from, until, name, announced }
     this.inZone = null;
     this.warned = null;
-    this.floatT = -9;
+    this.floatT = -9; this.floatSeen = new Map(); this.floatPend = null; this._bnSeen = new Map();
     this.floatPri = 0;
     this.threatT = 0;
 
@@ -400,6 +400,8 @@ export class Runner {
     this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.()?.nextLetter ?? null);
     this.yetiN = 0; this.dblT = 0; this.turboN = 0; this.turboT = 0;
     this.obstacles.setYetiLetter?.('Y');
+    this.bossIntro = 0; this.ghostPassed = false; this.ghostRec = null; this.ghostLen = 0;
+    this.initGhost();
     this.boss = null; this.nextBossS = 1800; this.glowT = 0; this.camHelixK = 0; this.camInK = 0; this.track.bossHold = false;
 
     const ball = this.ctx.ball;
@@ -1136,6 +1138,8 @@ export class Runner {
     }
     ui.runnerRecord?.(this.bestDist, b.s);
     this.placeRecordFlag();
+    this.ghostTick();
+    this.bossIntroTick();
     this.patchScene();
   }
 
@@ -1227,11 +1231,16 @@ export class Runner {
 
   // ui.banner is a single slot: queue banners so they show one after another instead of stomping.
   queueBanner(text, level, hold = 1.05, urgent = false) {
+    const ls = this._bnSeen.get(text);
+    if (ls !== undefined && this.time - ls < 4) return;
+    this._bnSeen.set(text, this.time);
+    if (!urgent && level <= 3 && this.ctx.ui.toastSoft) { this.ctx.ui.toastSoft(text); return; }   // info/milestones: top edge, never the road
     if (urgent || (this.bannerT <= 0 && !this.bannerQ.length)) { this.ctx.ui.banner(text, level); this.bannerT = hold; }
     else this.bannerQ.push(text, level, hold);
   }
 
   tickBanner(rdt) {
+    this.tickFloatQ();
     if (this.bannerT > 0) this.bannerT -= rdt;
     const q = this.bannerQ;
     if (this.bannerT <= 0 && q.length && !this.jnOpen) {
@@ -1386,6 +1395,101 @@ export class Runner {
     this.recLine.position.set(hw + 0.6, 0.06, 0);
   }
 
+
+  // ---------- campaign boss levels: entrance in the last 150 m, celebration at the line ----------
+  bossIntroTick() {
+    const L = this.level;
+    if (!L || !L.boss || this.bossIntro !== 0 || this.b.s < L.length - 150) return;
+    this.bossIntro = 1;
+    this.queueBanner('BOSS!', 5, 1.6, true);
+    this.kick += 4; this.trauma = Math.min(1, this.trauma + 0.5); this.punch = Math.min(1.5, (this.punch || 0) + 1);
+    this.roar?.(false);
+    this.ctx.audio.milestone?.(5); this.ctx.platform.haptic('heavy');
+  }
+
+  bossWin() {
+    this.bossIntro = 2;
+    const bonus = Math.round(1500 * Math.max(1, this.mult || 1)), coins = 100;
+    this.score += bonus; this.coins += coins;
+    this.ctx.ui.runnerGoal?.(null);
+    this.mistBurst(30, 0xffd060, 6, 1.4);
+    this.ctx.menus?.confetti?.(140);
+    this.ctx.audio.milestone?.(5);
+    this.ctx.ui.banner('BOSS YENİLDİ!', 5);
+    this.ctx.ui.float('+' + bonus.toLocaleString('tr-TR') + ' · +' + coins + ' ❄️', window.innerWidth * 0.5, window.innerHeight * 0.7, 'big');
+  }
+
+  // ---------- KAR YANKISI: ghost of your best Rush run (lane/height every 5 m, up to 5 km) ----------
+  initGhost() {
+    if (this.level) { this.ghost = this.ghost || null; if (this.ghostMesh) this.ghostMesh.visible = false; this.gPlay = null; return; }
+    let g = null;
+    try { const j = JSON.parse(localStorage.getItem('patpat.rush.ghost') || 'null'); if (j && j.t && j.t.length > 4 && j.t.length === j.u.length) g = j; } catch (e) { /* ignore */ }
+    this.gPlay = g;                                   // { d: metres, t:[0.1 s], u:[0.1 u], h:[0.1 h] } index = 5 m step
+    this.ghostRec = { t: new Int32Array(1000), u: new Int16Array(1000), h: new Int16Array(1000), n: 0 };
+    if (this.ghostMesh) this.ghostMesh.visible = false;
+  }
+
+  ghostMeshMake() {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), new THREE.MeshBasicMaterial({ color: 0x9ae8ff, transparent: true, opacity: 0.32, depthWrite: false }));
+    if (typeof document !== 'undefined') {
+      const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
+      const c = cv.getContext('2d');
+      c.font = '900 44px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.lineWidth = 7; c.strokeStyle = '#17345c'; c.strokeText('REKOR', 128, 34); c.fillStyle = '#bff0ff'; c.fillText('REKOR', 128, 34);
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false, depthTest: false }));
+      sp.scale.set(2.4, 0.6, 1); sp.position.y = 1.9;
+      m.add(sp);
+    }
+    this.ctx.scene.add(m);
+    this.ghostMesh = m;
+  }
+
+  ghostTick() {
+    if (this.level || this.state !== 'play') return;
+    const b = this.b, R = this.ghostRec;
+    if (R) {
+      const i = (b.s / 5) | 0;
+      if (i >= R.n && i < 1000 && b.s > 0) { R.t[i] = Math.round(this.time * 10); R.u[i] = Math.round(b.u * 10); R.h[i] = Math.round(b.h * 10); R.n = i + 1; }
+    }
+    const G = this.gPlay;
+    if (!G) return;
+    const N = G.t.length, T10 = this.time * 10;
+    // ghost position: the sample whose recorded time brackets now (ghost stays at its final spot after its run ended)
+    let i = this.ghostIdx | 0;
+    if (i >= N || (i > 0 && G.t[i] > T10)) i = 0;
+    while (i < N - 1 && G.t[i + 1] <= T10) i++;
+    this.ghostIdx = i;
+    let gs, gu, gh;
+    if (i >= N - 1) { gs = (N - 1) * 5; gu = G.u[N - 1] / 10; gh = G.h[N - 1] / 10; }
+    else { const k = clamp((T10 - G.t[i]) / Math.max(1, G.t[i + 1] - G.t[i]), 0, 1); gs = (i + k) * 5; gu = (G.u[i] + (G.u[i + 1] - G.u[i]) * k) / 10; gh = (G.h[i] + (G.h[i + 1] - G.h[i]) * k) / 10; }
+    const ds = gs - b.s;
+    if (!this.ghostPassed && ds < -2 && b.s > 30) {
+      this.ghostPassed = true;
+      this.queueBanner('REKORU GEÇTİN!', 4, 1.4, true);
+      const bonus = 300; this.score += bonus; this.coins += 25;
+      this.after(0.35, () => this.float('+' + bonus + ' · +25 ❄️', 'big'));
+      this.ctx.audio.win?.(); this.ctx.platform.haptic('success');
+    }
+    if (!this.ghostMesh) this.ghostMeshMake();
+    const gm = this.ghostMesh;
+    gm.visible = ds > -60 && ds < 160;
+    if (!gm.visible) return;
+    this.track.toWorld(gs, gu, gh + b.r, _v);
+    gm.position.copy(_v);
+    gm.scale.setScalar(b.r);
+    if (gm.children[0]) gm.children[0].position.y = 1.9 + 0.6 / Math.max(0.3, b.r);
+  }
+
+  saveGhost() {
+    const R = this.ghostRec;
+    if (this.level || !R || R.n < 5) return;
+    const G = this.gPlay;
+    if (G && G.t.length >= R.n) return;               // keep the better (longer) run
+    try {
+      localStorage.setItem('patpat.rush.ghost', JSON.stringify({ d: R.n * 5, t: Array.from(R.t.subarray(0, R.n)), u: Array.from(R.u.subarray(0, R.n)), h: Array.from(R.h.subarray(0, R.n)) }));
+    } catch (e) { /* ignore */ }
+  }
+
   // ---------- power-up helpers ----------
   setGhost(on) {
     const m = this.ctx.ball.snow.material;
@@ -1478,7 +1582,8 @@ export class Runner {
 
   // Goal strip: the next checkpoint (every layer), "REKORA n m" when your record is near, the Yeti's barrage while it lasts.
   updateGoal() {
-    if (this.level || this.furyT > 0 || this.fury > 0) return;
+    if (this.level) { if (this.bossIntro === 1) this.ctx.ui.runnerGoal?.('boss', 0, clamp((this.level.length - this.b.s) / 150, 0, 1)); return; }
+    if (this.furyT > 0 || this.fury > 0) return;
     const ui = this.ctx.ui, s = this.b.s, r = this.rage;
     if (this.boss && this.boss.ph !== 'out') { ui.runnerGoal?.('boss', 0, this.boss.ph === 'in' ? 1 : Math.max(0, 1 - this.boss.t / this.boss.dur)); return; }
     if (r) { ui.runnerGoal?.('rage', 0, (s - r.s0) / Math.max(1, r.B - r.s0)); return; }
@@ -1787,6 +1892,7 @@ export class Runner {
       this.yetiHoldT = 0; this.stumbleT = 0;
       this.roar(false);
       this.queueBanner('YETİ ÖNÜNDE!', 5, 1.8, true);
+      this.kick += 3; this.trauma = Math.min(1, this.trauma + 0.35); this.punch = Math.min(1.5, (this.punch || 0) + 0.8);
       this.ctx.audio.milestone?.(5);
       return;
     }
@@ -1837,6 +1943,7 @@ export class Runner {
     this.after(0.4, () => { this.float('+' + bonus.toLocaleString('tr-TR') + ' · +' + coins + ' ❄️', 'big'); });
     this.ctx.audio.win?.(); this.ctx.platform.haptic('success');
     this.mistBurst(18, 0xffd060, 5, 1.2);
+    this.ctx.menus?.confetti?.(70); this.kick += 2;
     this.grantBuff();
     this.ctx.meta?.track?.('yeti_boss', { n: B.n, crashes: this.crashes - B.crashes0 });
   }
@@ -2444,6 +2551,7 @@ export class Runner {
     this.ctx.audio.win();
     this.ctx.platform.haptic('success');
     this.ctx.menus?.confetti?.(80);
+    if (this.level?.boss) this.bossWin();
     this.ctx.audio.setRoll(0, 0);
     music.duck(true);
     this.onFinish?.(this.levelStats());
@@ -2465,6 +2573,7 @@ export class Runner {
   // ---------- death / result / revive ----------
   die(cause) {
     if (this.state !== 'play') return;
+    this.saveGhost();
     this.endBoss(false);
     const { ui, audio, platform } = this.ctx;
     this.zip = null;
@@ -2835,16 +2944,36 @@ export class Runner {
   // ball over the trail — never on the strip of track the player is reading.
   float(text, cls) {
     const pri = FLOAT_PRI[cls] ?? 1;
+    const lastSame = this.floatSeen.get(text);
+    if (lastSame !== undefined && this.time - lastSame < (pri >= 3 ? 1.5 : 4)) return;   // repeat throttle
     const since = this.time - this.floatT;
-    if (since < 1.0 && !(pri > this.floatPri && since > 0.35)) return;
+    if (since < 0.9 && !(pri > this.floatPri && since > 0.3)) {
+      if (pri === 1) return;                       // info never queues
+      const p = this.floatPend;
+      if (!p || pri >= p.pri) this.floatPend = { text, cls, pri, t: this.time };   // reward/danger wait (<=1.2 s) for the slot
+      return;
+    }
+    this._floatNow(text, cls, pri);
+  }
+
+  _floatNow(text, cls, pri) {
     const p = this.ctx.ball.group.position;
     _v2.copy(p).project(this.ctx.camera);
     if (_v2.z > 1) return;
     this.floatT = this.time;
     this.floatPri = pri;
+    this.floatSeen.set(text, this.time);
+    if (this.floatSeen.size > 40) this.floatSeen.clear();
     const H = window.innerHeight;
     const y = clamp((-_v2.y * 0.5 + 0.5 + 0.1) * H, H * 0.62, H * 0.82);
     this.ctx.ui.float(text, (_v2.x * 0.5 + 0.5) * window.innerWidth, y, cls);
+  }
+
+  tickFloatQ() {
+    const p = this.floatPend;
+    if (!p) return;
+    if (this.time - p.t > 1.2) { this.floatPend = null; return; }   // stale: drop
+    if (this.time - this.floatT >= 0.9) { this.floatPend = null; this._floatNow(p.text, p.cls, p.pri); }
   }
 
   roar(quiet = false) {
@@ -3060,6 +3189,7 @@ export class Runner {
     if (this.ghostWas) this.setGhost(false);
     if (this.trail) { this.ctx.scene.remove(this.trail); this.trail.geometry.dispose(); this.trail = null; }
     if (this.shadow) { this.ctx.scene.remove(this.shadow); this.shadow.geometry.dispose(); this.shadow.material.map?.dispose(); this.shadow.material.dispose(); this.shadow = null; }
+    if (this.ghostMesh) { this.ctx.scene.remove(this.ghostMesh); this.ghostMesh.geometry.dispose(); this.ghostMesh.material.dispose(); this.ghostMesh.children[0]?.material.map?.dispose(); this.ghostMesh = null; }
     if (this.recFlag) {
       this.ctx.scene.remove(this.recFlag);
       this.recFlag.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.map?.dispose(); o.material.dispose(); } });
