@@ -936,3 +936,34 @@ Rush artık Subway Surfers ve Temple Run 2 ile kıyaslanıyor. Bu yüzden puan d
 - ÇIĞ: Buz Kıracak (hızla kalkan kırma).
 - Arena: Gölge Av (hayalet olarak toparlanma).
 - Menü: Atkı dolulukla sezon göstergesi.
+
+## Tur 18 — Yapılanlar
+
+**Rush**
+- HUD Subway tarzı sadeleşti: skor, jeton ve mesafe görünüyor.
+  - Kombo çipi yalnızca kombo aktifken çıkıyor.
+  - Boyut ve Yeti çubukları ekranın üst kenarında ince şeritlere dönüştü.
+  - Güç simgeleri sağdaki küçük bir sütunda toplandı.
+- Karakter kimliği:
+  - Koşu başında karakter kartı açılıyor ve sonra köşedeki rozete dönüşüyor.
+  - Toplara aksesuar eklendi: simit halkası, nazar, penguen gagası, şapka, atkı.
+- Kalkan, kızak veya kask aktifse boşluğa düşen top kurtarılıyor ("KURTARILDIN!").
+
+**ÇIĞ**
+- Boss ekranında tek bir üst blok kaldı.
+- Fırtınada topun etrafına koyu bir kontur ekleniyor.
+- Yeni: **Buz Kıracak** (Dağ 20 ve sonrası). Boss buz kalkanı açıyor.
+  - Kalkan, hız şeridinden geçip %85 hızla çarparak kırılıyor.
+  - Bunun için ekranda bir hız göstergesi var.
+
+**Arena**
+- Orta oyundaki gerileme giderildi.
+  - Botların büyümesi yavaşlatıldı, pelet sayısı kütleye göre artıyor.
+  - Kütle kaybı 400'ün üstünde başlıyor.
+- Test sonucu: 120 sn'de #5, #7 ve #15. Hiçbir denemede dalış yaşanmadı.
+- Yeni: **Gölge Av**. Yenince 10 sn hayalet olarak yem topluyor, sonra geri dönüyorsun. Sonuç ekranı 3. ölümde ya da MENÜ'de geliyor.
+
+**Menü**
+- BUGÜN şeridindeki boş kare düzeltildi.
+- Sezon çipi en başa taşındı ve ilerleme halkası eklendi.
+- Dolap'ta tüm kartlarda ★ ABİLİTE rozeti görünüyor.
