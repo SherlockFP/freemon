@@ -967,3 +967,11 @@ Rush artık Subway Surfers ve Temple Run 2 ile kıyaslanıyor. Bu yüzden puan d
 - BUGÜN şeridindeki boş kare düzeltildi.
 - Sezon çipi en başa taşındı ve ilerleme halkası eklendi.
 - Dolap'ta tüm kartlarda ★ ABİLİTE rozeti görünüyor.
+
+## Döngü 19 — değerlendirme
+Genel 6.9 · Rush 6.5 · ÇIĞ 7.5 · Arena 6.5 · Menü 7.0
+- İyi: Rush HUD sade (skor/❄/m, kombo çipi), ÇIĞ boss buz kalkanı, arena ortası büyüme.
+- Gelişmeli: Rush'ta aynı anda birden fazla yazı + takılı kalan buff-bitti yazıları; karakter kartı geri sayımın arkasında; menüde kilit rozeti BUGÜN/Pasaport etiketini örtüyor; Sezon çipi sıkışık; arena 40–90 sn plato (bazı seed'lerde).
+- Not: "Rush topu görünmüyor" raporu test düzeneği kaynaklı (invulnT/zorla u) — 6 sn simde top görünür.
+- Orijinal fikir: GÜNÜN RUSH'I — herkes için aynı seed, paylaşılabilir sonuç.
+- Şimdi: yazı kuyruğu temizliği + karakter kartı slotu + günlük Rush; menü rozet/çip düzeni; arena plato.
