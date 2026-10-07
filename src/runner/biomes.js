@@ -10,6 +10,10 @@
 //   biomeAt(s) -> { biome, index, t, next }     trackPalette(s) -> { tileA, tileB, edge, rail, glow, under }
 //   musicStyleAt(s) -> id   biomeMods(s) -> { gravity, grip, fog, wind }   setBiomeOverride(idOrNull)
 //   new Environment(scene, track, opts?) ; update(dt, camera, ball, beat) ; dispose()
+//   junctionOkAt(s) -> bool (false in the ice cave: no Temple Run corner there)
+//   env.fogPress (0..1) and env.ballVs (m/s) are written by the runner every frame; update() writes scene.fog (colour from the biome look, near / far =
+//   biome x blizzard modifier x fogPress, far >= max(70, 2 * ballVs)). Per-biome roadside extras: stump / logs, seal / stalag, fence / bench / lampost,
+//   skullrock, fire, jellycube, robot.
 //
 // Track API used: frame(s, out) [+ optional halfWidth(s) and edgeAt(s): 0 = cliff / gap, > 0 = curb with a snow bank].
 // Only called for s in [max(0, ball.s - 55), ball.s + 315], so it is safe with ensure(ball.s + 320) / trim(ball.s - 60).
@@ -64,7 +68,7 @@ const WMAXCH = 10;        // wall / ceiling capacity in chunks
 const MS = 6;             // floats of per-instance meta: x, z, footprint, bottom, top, offset above the terrain
 const OVL_R = 48;         // a path stretch passing within this plan distance of another (non-adjacent) one overlaps it
 const OVL_J = 80;         // ... searched this many samples either way (400 m)
-const MAXT = 64;          // max distinct decor types
+const MAXT = 80;          // max distinct decor types (lazily created, one InstancedMesh each; only the ones with live instances draw)
 const GN = 36;            // ground grid cells per side
 const CELL = 20;          // ground cell size (m)  -> +-360 m
 const GRID_P = 10;        // neon grid line spacing (m)
@@ -108,18 +112,18 @@ const biomeIdx = (s) => (OVR >= 0 ? OVR : s > 0 ? Math.floor(s / BIOME_LENGTH) :
 // ---------------------------------------------------------------------------------------------
 export const BIOMES = [
   {
-    id: 'snow', name: 'Karlı Zirve', music: 'snow', depth: 56, flank: { U: 120, e: 1.6, top: 0xffffff, mid: 0xd3e4f4, rock: 0x7f8898, rockAmt: 0.9 },
+    id: 'snow', name: 'Karlı Zirve', music: 'snow', depth: 56, flank: { U: 120, e: 1.6, top: 0xffffff, mid: 0xbcd4ec, rock: 0x7f8898, rockAmt: 0.9 },
     sky: { top: 0x3b8de6, mid: 0x86c6f4, horizon: 0xdcefff },
     fog: { color: 0xdcefff, near: 70, far: 330 },
     hemi: { sky: 0xe3f2ff, ground: 0xaec3e3, intensity: 1.5 },
     sun: { color: 0xfff1dc, intensity: 1.9, az: 2.5, el: 0.95 },
     disc: { color: 0xfff6dc, size: 0.055, az: 0.32, el: 0.62, kind: 'sun' },
     ground: [0xdbe8f5, 0xbed5ec, 0xeaf3fb],
-    track: { tileA: 0xffffff, tileB: 0x9fd2f0, edge: 0x4f9ccc, rail: 0x7cc0e8, glow: 0x8fe1ff, under: 0x5d8fb5 },
+    track: { tileA: 0xf4f9ff, tileB: 0x84c0ec, edge: 0x4f9ccc, rail: 0x7cc0e8, glow: 0x8fe1ff, under: 0x5d8fb5 },
     clouds: 0xffffff, stars: 0, grid: 0,
     pulse: { sky: 0.035, glow: 0, grid: 0, spark: 0.25, lava: 0 }, glowBase: 1,
     particles: {
-      n: 420, size: 0.55, alpha: 0.9, add: false, twinkle: false,
+      n: 280, size: 0.3, alpha: 0.6, add: false, twinkle: false,
       groups: [{ f: 1, pal: [0xffffff, 0xeaf4ff], v: [0.8, -3.0, 0.4], j: [1.4, 0.9, 1.4] }],
     },
   },
@@ -143,7 +147,7 @@ export const BIOMES = [
     id: 'greenhill', name: 'Yeşil Tepe', music: 'town', depth: 54,
     flank: { U: 62, e: 1.6, top: 0x4fd12e, mid: 0xb5702e, rock: 0x8a5428, rockAmt: 0.35, kind: 'checker', checkerA: 0x8a5428, checkerB: 0xe0983f },
     sky: { top: 0x0f9df5, mid: 0x55cfff, horizon: 0xcdf3ff },
-    fog: { color: 0xcdf3ff, near: 75, far: 345 },
+    fog: { color: 0xcdf3ff, near: 75, far: 330 },
     hemi: { sky: 0xffffff, ground: 0xbfe39a, intensity: 1.5 },
     sun: { color: 0xfffbe6, intensity: 2.0, az: 2.5, el: 0.95 },
     disc: { color: 0xfffbd0, size: 0.055, az: 0.3, el: 0.62, kind: 'sun' },
@@ -161,7 +165,7 @@ export const BIOMES = [
     id: 'kapadokya', name: 'Kapadokya', music: 'desert', depth: 56,
     flank: { U: 72, e: 1.7, top: 0xe8b27a, mid: 0xd99468, rock: 0xb77a58, rockAmt: 0.5 },
     sky: { top: 0x5b86d8, mid: 0xff9fa8, horizon: 0xffd9a8 },
-    fog: { color: 0xffcfa4, near: 70, far: 340 },
+    fog: { color: 0xffcfa4, near: 70, far: 330 },
     hemi: { sky: 0xffe6c8, ground: 0xd9a07a, intensity: 1.4 },
     sun: { color: 0xffc890, intensity: 2.0, az: 2.3, el: 0.5 },
     disc: { color: 0xffe4a8, size: 0.1, az: 0.25, el: 0.28, kind: 'sun' },
@@ -207,7 +211,7 @@ export const BIOMES = [
     },
   },
   {
-    id: 'icecave', name: 'Buz Mağarası', music: 'volcano', depth: 50,
+    id: 'icecave', name: 'Buz Mağarası', music: 'volcano', depth: 50, junctionOk: false,
     flank: { U: 55, e: 1.6, top: 0xbfeaff, mid: 0x4a9ad8, rock: 0x2a5ea0, rockAmt: 0.6, kind: 'ice' },
     sky: { top: 0x061a3a, mid: 0x0d3a70, horizon: 0x1b5a9a },
     fog: { color: 0x0a2a55, near: 20, far: 190 },
@@ -260,7 +264,7 @@ export const BIOMES = [
     id: 'istanbul', name: 'İstanbul Boğazı', music: 'desert', depth: 58,
     flank: { U: 64, e: 1.7, top: 0xe0c8a0, mid: 0x9c8a6a, rock: 0x6a6a72, rockAmt: 0.5 },
     sky: { top: 0x3a3a8a, mid: 0xe0608a, horizon: 0xffa860 },
-    fog: { color: 0xf09a78, near: 70, far: 340 },
+    fog: { color: 0xf09a78, near: 70, far: 330 },
     hemi: { sky: 0xffc8a8, ground: 0x6a7aa8, intensity: 1.3 },
     sun: { color: 0xff9a5a, intensity: 1.8, az: 2.4, el: 0.45 },
     disc: { color: 0xffc070, size: 0.12, az: 0.2, el: 0.18, kind: 'sun' },
@@ -293,7 +297,7 @@ export const BIOMES = [
     id: 'moon', name: 'Ay Yüzeyi', music: 'neon', depth: 56,
     flank: { U: 80, e: 1.6, top: 0xb8b8c0, mid: 0x8a8a94, rock: 0x5a5a64, rockAmt: 0.8 },
     sky: { top: 0x000003, mid: 0x01010a, horizon: 0x06061a },
-    fog: { color: 0x05050c, near: 120, far: 380 },
+    fog: { color: 0x05050c, near: 100, far: 320 },
     hemi: { sky: 0x9aa4c8, ground: 0x34343c, intensity: 0.9 },
     sun: { color: 0xffffff, intensity: 2.3, az: 2.2, el: 0.5 },
     disc: { color: 0xffffff, size: 0.12, az: 0.45, el: 0.42, kind: 'earth' },
@@ -310,7 +314,7 @@ export const BIOMES = [
     id: 'pirate', name: 'Korsan Koyu', music: 'forest', depth: 54,
     flank: { U: 70, e: 1.7, top: 0xf2dca0, mid: 0xc8a870, rock: 0x7a6a50, rockAmt: 0.5 },
     sky: { top: 0x1aa0e8, mid: 0x70d8f4, horizon: 0xe8fbff },
-    fog: { color: 0xcdf2f8, near: 80, far: 350 },
+    fog: { color: 0xcdf2f8, near: 80, far: 330 },
     hemi: { sky: 0xffffff, ground: 0x8ae0e0, intensity: 1.5 },
     sun: { color: 0xfff4d0, intensity: 2.0, az: 2.5, el: 1.0 },
     disc: { color: 0xfff0b0, size: 0.06, az: 0.3, el: 0.7, kind: 'sun' },
@@ -326,7 +330,7 @@ export const BIOMES = [
   {
     id: 'volcano', name: 'Volkan', music: 'volcano', depth: 58, flank: { U: 110, e: 1.7, top: 0x3a2a26, mid: 0x1d1615, rock: 0x4a3a33, rockAmt: 0.7, kind: 'lava' },
     sky: { top: 0x2c0a09, mid: 0xc23a14, horizon: 0xe05a1c },
-    fog: { color: 0xb8401a, near: 70, far: 360 },
+    fog: { color: 0xb8401a, near: 70, far: 330 },
     hemi: { sky: 0xff9a6a, ground: 0x3a1410, intensity: 1.15 },
     sun: { color: 0xff8a4a, intensity: 1.6, az: 2.6, el: 0.8 },
     disc: { color: 0xff7a3a, size: 0.13, az: 0.2, el: 0.24, kind: 'sun' },
@@ -391,6 +395,8 @@ export function biomeMods(s) {
   return b.modsHard && index >= n ? b.modsHard : b.mods;
 }
 export function trackPalette(s) { return BIOMES[biomeIdx(s) % BIOMES.length].track; }
+/** May the track put a Temple Run junction (sharp corner) here? false in the ice cave (its arch is built from straight cross-sections). */
+export function junctionOkAt(s) { return BIOMES[biomeIdx(s) % BIOMES.length].junctionOk !== false; }
 export function musicStyleAt(s) { return BIOMES[biomeIdx(s) % BIOMES.length].music; }
 
 // ---------------------------------------------------------------------------------------------
@@ -1087,6 +1093,111 @@ BUILD.cloud = () => {
   return m.build();
 };
 
+// ---- per-biome roadside extras (Yeti Rush): forest stumps + log piles, ice-cave seals + stalagmites, town fences / benches / lamp posts,
+// desert skull rocks, volcano camp fires, candy jelly cubes, neon robots. Unit-ish models, origin on the ground, front = +Z.
+BUILD.stump = () => {
+  const m = new Mesher();
+  m.add(CYL(0.55, 0.75, 0.9, 7), (nx, ny) => (ny > 0.8 ? 0xd9b77a : 0x7a5532), { y: 0.45 });
+  m.add(CYL(0.62, 0.9, 0.2, 7), 0x5a3d22, { y: 0.1 });
+  m.add(CYL(0.28, 0.28, 0.04, 6), 0xb08850, { y: 0.92 });
+  m.add(CYL(0.4, 0.4, 0.03, 6), 0xc49a60, { y: 0.915 });
+  return m.build();
+};
+
+BUILD.logs = () => {
+  const m = new Mesher(), cut = 0xd9b77a;
+  const log = (x, y, z, ry, c) => m.add(CYL(0.32, 0.32, 2.2, 7), (nx) => (Math.abs(nx) > 0.85 ? cut : c), { x, y, z, rz: Math.PI / 2, ry });
+  log(0, 0.32, -0.36, 0.06, 0x7a5532); log(0.05, 0.32, 0.36, -0.05, 0x8f6a40); log(0, 0.92, 0, 0.02, 0x6f4a2a);
+  return m.build();
+};
+
+BUILD.seal = () => {
+  const m = new Mesher(), b = 0x6f7f9e, belly = 0xb4c0d6, dark = 0x14161c;
+  m.add(jit(ICO(1, 1), 0.05, 61), (nx, ny) => (ny < -0.15 ? belly : b), { y: 0.42, sx: 0.55, sy: 0.42, sz: 1.05 });
+  m.add(ICO(0.28, 1), b, { y: 0.68, z: 0.95 });
+  for (const sx of [-1, 1]) {
+    m.add(ICO(0.05, 0), dark, { x: sx * 0.11, y: 0.76, z: 1.2 });
+    m.add(BOX(0.4, 0.07, 0.5), 0x5a6a88, { x: sx * 0.3, y: 0.1, z: -1.05 });
+  }
+  m.add(ICO(0.07, 0), dark, { y: 0.67, z: 1.22 });
+  return m.build();
+};
+
+BUILD.stalag = () => { // ice spikes growing from the ground (lit)
+  const m = new Mesher();
+  for (const [x, z, h, r] of [[0, 0, 2.6, 0.5], [0.6, 0.3, 1.6, 0.32], [-0.5, 0.4, 1.9, 0.38], [0.2, -0.55, 1.1, 0.26]]) {
+    m.add(new THREE.ConeGeometry(r, h, 6).translate(0, h / 2, 0), (nx, ny, nz, cx, cy) => [0.62 + 0.38 * clamp(cy / h, 0, 1), 0.82 + 0.18 * clamp(cy / h, 0, 1), 1.0], { x, z });
+  }
+  return m.build();
+};
+
+BUILD.fence = () => { // 5 m picket fence section along X
+  const m = new Mesher();
+  for (let i = -2; i <= 2; i++) m.add(BOX(0.16, 1.0, 0.16), 0xf4f4f4, { x: i * 1.2, y: 0.5 });
+  m.add(BOX(5.2, 0.12, 0.06), 0xe2e2e2, { y: 0.34 });
+  m.add(BOX(5.2, 0.12, 0.06), 0xe2e2e2, { y: 0.78 });
+  return m.build();
+};
+
+BUILD.bench = () => {
+  const m = new Mesher();
+  m.add(BOX(1.8, 0.1, 0.55), 0xb07a42, { y: 0.5 });
+  m.add(BOX(1.8, 0.45, 0.08), 0x8f5f32, { y: 0.85, z: -0.24, rx: 0.12 });
+  for (const sx of [-1, 1]) m.add(BOX(0.1, 0.5, 0.5), 0x4a5060, { x: sx * 0.78, y: 0.25 });
+  return m.build();
+};
+
+BUILD.lampost = () => {
+  const m = new Mesher();
+  m.add(CYL(0.08, 0.12, 3.6, 5), 0x3a3f4c, { y: 1.8 });
+  m.add(BOX(0.8, 0.07, 0.07), 0x3a3f4c, { x: 0.38, y: 3.6 });
+  m.add(ICO(0.24, 0), [2.6, 2.2, 1.3], { x: 0.78, y: 3.5 });
+  return m.build();
+};
+
+BUILD.skullrock = () => { // sun-bleached cattle skull on a rock
+  const m = new Mesher();
+  m.add(jit(ICO(1, 1), 0.2, 71), (nx, ny) => gray(0.5 + 0.3 * clamp(ny, 0, 1)), { y: 0.2, sx: 0.85, sy: 0.45, sz: 0.85 });
+  m.add(ICO(0.34, 1), 0xefe6cf, { y: 0.8, z: 0.06, sy: 0.92 });
+  m.add(BOX(0.2, 0.34, 0.2), 0xe6dcc4, { y: 0.6, z: 0.32 });
+  for (const sx of [-1, 1]) {
+    m.add(BOX(0.16, 0.18, 0.06), 0x2a1f1a, { x: sx * 0.14, y: 0.86, z: 0.31 });
+    m.add(CYL(0.04, 0.09, 0.55, 5), 0xe8dcc0, { x: sx * 0.42, y: 1.0, z: 0.02, rz: -sx * 0.95 });
+  }
+  return m.build();
+};
+
+BUILD.fire = () => { // camp fire in a stone ring (unlit type: colours are over-bright)
+  const m = new Mesher();
+  for (let i = 0; i < 7; i++) { const a = (i * Math.PI * 2) / 7; m.add(ICO(0.2, 0), [0.62, 0.52, 0.46], { x: Math.cos(a) * 0.6, y: 0.16, z: Math.sin(a) * 0.6 }); }
+  m.add(new THREE.ConeGeometry(0.42, 1.4, 6).translate(0, 0.7, 0), (nx, ny, nz, cx, cy) => [2.6, 0.7 + 1.1 * clamp(cy / 1.4, 0, 1), 0.12], { y: 0.1 });
+  m.add(new THREE.ConeGeometry(0.26, 1.0, 5).translate(0, 0.5, 0), [3.0, 2.0, 0.5], { x: 0.18, y: 0.1, z: 0.1 });
+  m.add(new THREE.ConeGeometry(0.2, 0.8, 5).translate(0, 0.4, 0), [2.8, 1.3, 0.2], { x: -0.22, y: 0.1, z: -0.1 });
+  return m.build();
+};
+
+BUILD.jellycube = () => { // wobbly jelly block with a white plate (tinted per instance)
+  const m = new Mesher();
+  m.add(BOX(1, 0.86, 1), (nx, ny) => (ny > 0.8 ? gray(1.25) : gray(0.9)), { y: 0.5 });
+  m.add(BOX(1.08, 0.12, 1.08), 0xffffff, { y: 0.06 });
+  m.add(ICO(0.12, 0), 0xffffff, { x: -0.22, y: 0.98, z: 0.2 });
+  return m.build();
+};
+
+BUILD.robot = () => { // little patrol robot (unlit, tinted per instance)
+  const m = new Mesher();
+  m.add(BOX(0.8, 0.9, 0.55), gray(1.5), { y: 1.0 });
+  m.add(BOX(0.6, 0.45, 0.5), gray(1.9), { y: 1.7 });
+  m.add(BOX(0.5, 0.1, 0.06), [3.0, 3.0, 3.0], { y: 1.72, z: 0.27 });
+  m.add(CYL(0.04, 0.04, 0.4, 4), gray(1.2), { y: 2.1 });
+  m.add(ICO(0.1, 0), [3.0, 1.0, 1.0], { y: 2.34 });
+  for (const sx of [-1, 1]) {
+    m.add(BOX(0.2, 0.7, 0.2), gray(1.1), { x: sx * 0.52, y: 1.0 });
+    m.add(BOX(0.25, 0.55, 0.3), gray(0.8), { x: sx * 0.2, y: 0.27 });
+  }
+  return m.build();
+};
+
 // ---------------------------------------------------------------------------------------------
 // prop-library recolours (the lib is built for a snowy mountain: white snow caps on everything)
 // ---------------------------------------------------------------------------------------------
@@ -1164,6 +1275,17 @@ const TDEF = {
   spire: { make: BUILD.spire, cap: 50 },
   road: { make: BUILD.road, cap: 320 },
   hut: { make: BUILD.hut, cap: 200 },
+  stump: { make: BUILD.stump, cap: 120 },
+  logs: { make: BUILD.logs, cap: 60 },
+  seal: { make: BUILD.seal, cap: 40 },
+  stalag: { make: BUILD.stalag, cap: 90, sink: 0.1 },
+  fence: { make: BUILD.fence, cap: 100 },
+  bench: { make: BUILD.bench, cap: 40 },
+  lampost: { make: BUILD.lampost, cap: 80 },
+  skullrock: { make: BUILD.skullrock, cap: 50 },
+  fire: { make: BUILD.fire, cap: 40, glow: true },
+  jellycube: { make: BUILD.jellycube, cap: 100 },
+  robot: { make: BUILD.robot, cap: 50, glow: true },
   // library props, snowy originals
   pine: { lib: 'pine', cap: 220, sink: 0.4 },
   pine_big: { lib: 'pine_big', cap: 90, sink: 0.4 },
@@ -1185,19 +1307,19 @@ const TDEF = {
 // Types each biome uses: created one per frame in the biome before, so no frame ever builds a dozen geometries at once.
 const BIOME_TYPES = {
   snow: ['pine', 'pine_big', 'cabin', 'snowman', 'boulder', 'pond', 'hill', 'peak'],
-  forest: ['pineG', 'pineBigG', 'roundtree', 'rock', 'pond', 'hill'],
-  town: ['road', 'hut', 'house', 'house_tall', 'shop', 'apartment', 'car', 'car_blue', 'roundtree', 'pineG', 'clocktower'],
+  forest: ['pineG', 'pineBigG', 'roundtree', 'rock', 'pond', 'hill', 'stump', 'logs'],
+  town: ['road', 'hut', 'house', 'house_tall', 'shop', 'apartment', 'car', 'car_blue', 'roundtree', 'pineG', 'clocktower', 'fence', 'bench', 'lampost'],
   greenhill: ['hill', 'roundtree', 'palm', 'sunflower', 'islet', 'waterfall', 'pond'],
-  desert: ['hill', 'mesa', 'cactus', 'camel', 'rock', 'palm', 'pond'],
+  desert: ['hill', 'mesa', 'cactus', 'camel', 'rock', 'palm', 'pond', 'skullrock'],
   kapadokya: ['hill', 'chimney', 'rock', 'balloon'],
-  icecave: ['hill', 'crystal', 'rock', 'pond'],
+  icecave: ['hill', 'crystal', 'rock', 'pond', 'seal', 'stalag'],
   sakura: ['hill', 'sakuratree', 'pavilion', 'rbridge', 'pond', 'rock'],
   istanbul: ['hut', 'stall', 'roundtree', 'galata', 'ferry', 'kiz', 'susp', 'gull', 'rock'],
   moon: ['crater', 'hill', 'rock', 'dome', 'flag', 'rover'],
   pirate: ['hill', 'palm', 'ship', 'lighthouse', 'chest', 'rock'],
-  candy: ['hill', 'cane', 'lollipop', 'donut', 'icecream', 'pond'],
-  neon: ['pillar', 'tower', 'pyramid', 'ring', 'peak'],
-  volcano: ['volcano', 'hill', 'lava', 'rock', 'spire'],
+  candy: ['hill', 'cane', 'lollipop', 'donut', 'icecream', 'pond', 'jellycube'],
+  neon: ['pillar', 'tower', 'pyramid', 'ring', 'peak', 'robot'],
+  volcano: ['volcano', 'hill', 'lava', 'rock', 'spire', 'fire'],
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -1354,6 +1476,8 @@ const GEN = {
     E._sc('pineG', 12, 17, U - 4, 1.1, 1.8, { pal: P.pineTint, clump: 0.3 });
     E._sc('roundtree', 7, 17, U - 4, 1.0, 1.7, { pal: P.treeTint, clump: 0.3 });
     E._sc('rock', 2, 16, U, 0.9, 2.2, { pal: P.rockGrey });
+    E._sc('stump', 4, 16, U - 4, 1.5, 2.4, {});                 // stumps + log piles along the slope
+    E._sc('logs', 1.6, 16, U - 4, 1.5, 2.1, {});
     // valley forest
     E._sc('pineBigG', 4, 6, 85, 1.2, 1.9, { pal: P.pineTint, clump: 0.3, rel: true });
     E._sc('pineG', 9, 6, 85, 1.4, 2.2, { pal: P.pineTint, clump: 0.3, rel: true });
@@ -1402,7 +1526,10 @@ const GEN = {
         E._put(R.next() < 0.7 ? 'roundtree' : 'pineG', s0 + 6 + R.next() * 38, uc + (R.next() - 0.5) * 6, sc, sc, sc, undefined, P.treeTint[(R.next() * P.treeTint.length) | 0]);
       }
     }
-    // grassy mountain slope above the village
+    // grassy mountain slope above the village: fences, benches, street lamps
+    E._sc('fence', 3.5, 16, U - 6, 1.6, 2.2, {});
+    E._sc('bench', 1.6, 16, U - 6, 1.8, 2.4, {});
+    E._sc('lampost', 3, 16, U - 6, 1.6, 2.2, {});
     E._sc('pineG', 6, 17, U - 6, 1.1, 1.7, { pal: P.pineTint, clump: 0.3 });
     E._sc('roundtree', 4, 17, U - 6, 1.1, 1.7, { pal: P.treeTint, clump: 0.3 });
     if (R.next() < 0.2) E._sc('clocktower', 1, 15, 80, 1.3, 1.6, { rel: true, yaw: 'face' });
@@ -1455,6 +1582,8 @@ const GEN = {
     E._sc('hill', 2, 40, 110, 22, 40, { rel: true, my: 0.3, pal: P.iceHill, ov: 0.6, lift: -0.4 });
     if (R.next() < 0.4) E._sc('pond', 1, 15, 80, 12, 26, { rel: true, floor: true, pal: P.ice, mz: 0.8, lift: 0.5, ov: 0.9 });
     E._sc('crystal', 9, 15, U - 2, 1.4, 3.2, { pal: P.iceGlow });
+    E._sc('stalag', 6, 15, U - 2, 1.6, 3.0, { pal: P.iceRock });
+    E._sc('seal', 2.2, 16, U - 4, 2.2, 3.2, {});
     E._sc('crystal', 8, 6, 90, 2.2, 5, { rel: true, pal: P.iceGlow, ov: 0.8 });
     E._sc('rock', 5, 15, U, 1.0, 2.6, { pal: P.iceRock });
     E._sc('rock', 4, 6, 100, 1.4, 3.6, { rel: true, pal: P.iceRock });
@@ -1544,6 +1673,7 @@ const GEN = {
       E._sc('mesa', 0.55, 20, 100, 18, 36, { rel: true, my: 2.4, pal: P.mesaTint, ov: 0.8 });
     }
     E._sc('cactus', 4, 17, U - 6, 1.3, 2.1, { pal: P.treeTint });
+    E._sc('skullrock', 2.2, 16, U - 4, 2.0, 3.2, {});
     E._sc('rock', 6, 15, U - 4, 1.0, 2.8, { pal: P.sandRock });
     E._sc('cactus', 8, 6, 100, 1.6, 2.7, { rel: true, pal: P.treeTint });
     E._sc('rock', 4, 6, 100, 1.2, 3.4, { rel: true, pal: P.sandRock });
@@ -1570,6 +1700,7 @@ const GEN = {
     E._sc('hill', 5, 17, U, 3.5, 8.5, { my: 0.9, pal: P.candyHill, lift: -0.4 }); // gumdrops on the slope
     E._sc('cane', 8, 17, U - 4, 1.6, 2.8, { pal: P.candyAny, tilt: 0.16 });
     E._sc('lollipop', 5, 17, U - 4, 1.0, 2.0, { pal: P.candyHill });
+    E._sc('jellycube', 6, 16, U - 4, 1.8, 3.2, { pal: P.candyHill });
     E._sc('cane', 7, 6, 90, 1.8, 3.2, { rel: true, pal: P.candyAny, tilt: 0.16 });
     E._sc('lollipop', 7, 6, 90, 1.1, 2.3, { rel: true, pal: P.candyHill });
     E._sc('lollipop', 0.5, 20, 90, 6, 9, { rel: true, pal: P.candyHill, ov: 0.8 });
@@ -1589,6 +1720,7 @@ const GEN = {
       }
     }
     E._sc('ring', 1.4, 26, 70, 7, 13, { yaw: 'path', pal: P.neonHot, ov: 0.9 }); // gates beside the run
+    E._sc('robot', 2.4, 17, 60, 3.0, 4.6, { yaw: 'face', pal: P.neon, ov: 0.9 });    // patrol robots on the slope
     E._sc('pillar', 3, 6, 90, 2.4, 3.6, { rel: true, my: 9, pal: P.neon, ov: 0.9 });
     E._sc('tower', 6, 5, 90, 4, 9, { rel: true, my: 5, pal: P.neon, ov: 0.9 });
     E._sc('pyramid', 1.8, 15, 100, 18, 48, { rel: true, pal: P.neonHot, ov: 0.9 });
@@ -1609,6 +1741,7 @@ const GEN = {
     }
     if (R.next() < 0.5) E._sc('lava', 1, 15, 80, 12, 26, { rel: true, floor: true, pal: P.lava, mz: 0.8, lift: 0.5, ov: 0.9 });
     E._sc('rock', 6, 15, U - 4, 1.0, 3.0, { pal: P.volcRock });
+    E._sc('fire', 3, 16, U - 4, 1.8, 3.0, {});
     E._sc('spire', 3, 20, U - 4, 2.0, 4.5, { my: 2.2, pal: P.volcRock });
     E._sc('rock', 6, 6, 100, 1.2, 4.2, { rel: true, pal: P.volcRock });
     E._sc('spire', 3, 8, 100, 2.4, 6, { rel: true, my: 2.2, pal: P.volcRock });
@@ -1714,6 +1847,8 @@ export class Environment {
     this._iBase = Infinity; this._iHi = 0; this._sNow = 0;
     this._nI = 0; this._nT = 0; this._nD = 0;
     this._fy = 0; this._ff = 0; this._fdu = 0; this._fs = 0; this._fpy = 0; this._cU = 100;
+    this.fogPress = 0;    // 0..1 extra fog (blizzard / zones), written by the runner every frame; the runner never writes scene.fog
+    this.ballVs = 0;      // ball speed (m/s), written by the runner every frame: the fog never closes in nearer than 2 s of running
     this._bDepth = BIOMES.map((b) => b.depth);
     this._bU = BIOMES.map((b) => b.flank.U);
     this._bE = BIOMES.map((b) => b.flank.e);
@@ -1953,7 +2088,8 @@ export class Environment {
     geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
     geo.setAttribute('color', this._fcolAttr);
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
-    this.flank = new THREE.Mesh(geo, this.matLit);
+    this.matFlank = this.matLit.clone();
+    this.flank = new THREE.Mesh(geo, this.matFlank);
     this.flank.frustumCulled = false;
     this.flank.name = 'flanks';
     this.group.add(this.flank);
@@ -2831,8 +2967,6 @@ export class Environment {
   _applyLook() {
     const c = this.cCur;
     this.fog.color.copy(c[3]);
-    this.fog.near = this.nCur[0];
-    this.fog.far = this.nCur[1];
     this.bg.copy(c[2]);
     this.hemi.color.copy(c[4]);
     this.hemi.groundColor.copy(c[5]);
@@ -3180,13 +3314,14 @@ export class Environment {
     if (this._blendT < 1) { this._blendT = Math.min(1, this._blendT + dt / BLEND); this._mixLook(); }
     if (this._lookDirty) this._applyLook();
 
-    // fog gameplay modifier (blizzard): pulls the fog in, eased
+    // fog = the biome's look (blended across portals) x the blizzard modifier (eased) x the runner's pressure; written every frame
+    // (so a portal never snaps it back) and never closer than ~2 s of running: far >= max(70, 2 * ballVs)
     this._fm += (this._fmT - this._fm) * Math.min(1, dt * 1.5);
-    if (this._fm > 0.001 || this._fmWas) {
-      this.fog.near = this.nCur[0] * (1 - 0.6 * this._fm);
-      this.fog.far = this.nCur[1] * (1 - 0.45 * this._fm);
-      this._fmWas = this._fm > 0.001;
-    }
+    this._fmWas = this._fm > 0.001;
+    const fp = this.fogPress > 0 ? (this.fogPress < 1 ? this.fogPress : 1) : 0, fmk = 1 - 0.6 * this._fm, fmf = 1 - 0.45 * this._fm;
+    this.fog.near = this.nCur[0] * fmk * (1 - 0.85 * fp);
+    this.fog.far = Math.max(70, 2 * (this.ballVs > 0 ? this.ballVs : 0), this.nCur[1] * fmf * (1 - 0.8 * fp));
+    if (this.fog.near > this.fog.far - 20) this.fog.near = this.fog.far - 20;
     // follow the camera
     this.sky.position.copy(cp);
     this.sky.scale.setScalar(this._domeR);
@@ -3210,6 +3345,7 @@ export class Environment {
     this.gridMat.color.setScalar(0.55 + nn[12] * d);
     this.partMat.size = this._pSize * (1 + nn[13] * p * 0.7);
     this.matLit.emissive.setRGB(nn[15] * d, nn[15] * d * 0.25, 0);
+    this.matFlank.emissive.copy(this.matLit.emissive);
     if (this._wfTex) this._wfTex.offset.y = (this._wfTex.offset.y + dt * 0.8) % 1; // waterfalls pour
 
     // For the first frames show every optional program (neon grid, stars, glow decor) as invisible-but-drawn, so the
@@ -3269,7 +3405,7 @@ export class Environment {
       geos.delete(T.geo);
     }
     for (const g of geos) g.dispose();
-    for (const m of [this.matLit, this.matGlow, this.cloudMat, this.skyMat, this.discMat, this.starMat, this.groundMat, this.gridMat, this.partMat, this.matWall, this.matWater, this.matIce]) m.dispose();
+    for (const m of [this.matLit, this.matFlank, this.matGlow, this.cloudMat, this.skyMat, this.discMat, this.starMat, this.groundMat, this.gridMat, this.partMat, this.matWall, this.matWater, this.matIce]) m.dispose();
     for (const t of [this._sunTexA, this._sunTexB, this._sunTexC, this._dotTex, this._gridTex, this._wfTex]) if (t) t.dispose();
     if (this._ownLib && this.lib) for (const k in this.lib) this.lib[k].geometry.dispose();
     this.hemi.dispose && this.hemi.dispose();

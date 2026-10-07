@@ -1,55 +1,152 @@
-// All gameplay tuning lives here so balancing never means hunting through systems.
+// All ÇIĞ (snowball) tuning lives here so balancing never means hunting through systems.
+// ÇIĞ SONSUZ is an endless slope: the ball eats its way through five size tiers, the slope widens with every tier,
+// the ball melts continuously (hunger) and gets faster the heavier it is.
 export const CFG = {
-  trackW: 28,          // playable width at the top of the slope (m)
-  trackWEnd: 50,       // ...and at the bottom, just before town
-  townW: 70,           // playable width in the finale town
+  // ---- slope / world ----
   grade: 0.3,          // vertical drop per meter downhill
-  flattenLen: 45,      // slope → town transition length
+  trackW: 28,          // playable width at tier 1 (m) — see tierWidth for the rest
+  viewAhead: 260,      // render window ahead of the ball (m); main.js scales it with fog / ball size
+  viewBehind: 40,
 
+  // ---- the ball ----
   startR: 0.55,        // starting snowball radius (m)
-  minR: 0.4,
-  eatRatio: 0.9,       // prop.radius <= r * eatRatio → swallowed
+  minR: 0.4,           // melting below this = ERİDİN!
+  eatRatio: 0.9,       // prop.radius <= r * eatRatio → edible
   growK: 0.85,         // volume gained per swallowed prop (fraction of its bounding volume)
-  // Expected radius at slope progress 0, .25, .5, .75, 1 — matches the food tier schedule in world.js.
-  expectedR: [0.6, 2.4, 4.4, 7, 9.5],
-  bandUp: 3,           // brake when bigger than expected: growth × (expected/r)^bandUp
-  bandDown: 1.2,       // catch-up when smaller: growth × (expected/r)^bandDown
-  bandMin: 0.3,
-  bandMax: 2.0,
-  passiveGrow: 0.003,  // radius gained per meter rolled on fresh snow (scaled by 1/r)
   contactK: 0.7,       // props are smaller than their bounding sphere; scale contact distance
-
-  baseSpeed: 12,       // m/s
-  sizeSpeed: 3.4,      // + sizeSpeed * sqrt(r)
-  maxSpeed: 26,
-  accel: 5,
-  steerSens: 1.1,      // full-screen swipe = steerSens * current track width
-  steerStiff: 46,      // lateral spring; divided by mass factor
-  steerMass: 0.32,     // how much bigger balls resist steering
-
-  smashRatio: 2.0,     // prop.radius <= r * smashRatio → it shatters on impact instead of blocking
-  smashLoss: 0.14,     // fraction of volume lost smashing through something
-  momentumTime: 0.25,  // after a smash, further smashes are free for this long
-  bumpLoss: 0.18,      // fraction of volume lost bouncing off something huge
-  patchMelt: 0.15,     // fraction of radius per second lost on bare ground (scaled)
-  gravity: 24,
-
-  // Size thresholds → "ÇIĞ" milestones. Each one widens destruction in the town.
-  milestones: [1.4, 2.6, 4.2, 6.5, 9.5],
-  milestoneNames: ['BÜYÜYOR!', 'ÇIĞ!', 'MEGA ÇIĞ!', 'FELAKET!', 'KIYAMET!'],
-
   snowDensity: 0.45,   // t/m³ — turns radius into the big tonnage number
   comboWindow: 0.9,    // s between swallows to keep a combo alive
 
-  townReachK: 1.15,    // town reach = r * K + C (+ half the building's radius)
-  townReachC: 2,
-  destroyRatio: 1.25,  // a building falls when its radius <= r * destroyRatio
-  starThresholds: [0.3, 0.6, 0.85], // fraction of town destroyed
-  viewAhead: 260,      // render window ahead of the ball (m)
-  viewBehind: 40,
+  // ---- size tiers (ball radius → zone) ----
+  tierEdges: [1.5, 3, 6, 10],                         // r at which tier 2, 3, 4, 5 begin
+  tierNames: ['KARTOPU', 'ÇIĞ', 'MEGA ÇIĞ', 'FELAKET', 'KIYAMET'],
+  tierWidth: [28, 40, 56, 80, 110],                   // slope width (m) per tier
+  tierSpan: [1.5, 3, 6, 10, 20],                      // upper r used for the "progress to next tier" bar
+  widthBlend: 60,      // the slope widens smoothly over this many meters
+  widthLead: 95,       // the widening starts this far ahead of the ball (m): beyond what is already on screen
+
+  // ---- speed: heavier = faster ----
+  baseSpeed: 12,       // m/s
+  sizeSpeed: 3.4,      // + sizeSpeed * sqrt(r)
+  maxSpeed: 40,
+  startSpeed: 12,      // run start speed (food within half a second)
+  accel: 7,            // m/s²
+  decel: 21,
+  recoverBoost: 2.2,   // acceleration multiplier right after a hit
+
+  // ---- steering: first-order follower, direct finger control ----
+  steerLam: 16,        // follow rate (1/s), divided by (1 + r * steerMassK)
+  steerMassK: 0.07,
+  steerFilter: 28,     // velocity filter rate (1/s)
+  swipeVis: 1.6,       // a full-screen swipe moves the target this many visible widths ...
+  swipeTrack: 0.7,     // ... or this fraction of the track width, whichever is larger
+
+  // ---- suction (visible pull-in) ----
+  suctionK: 1.6,       // suction radius = r * suctionK + suctionC (x2 with the magnet)
+  suctionC: 1,
+  pullMin: 0.15,       // flight time of a pulled prop (s)
+  pullMax: 0.35,
+  maxPulls: 90,        // props in flight at the same time
+  pullsPerStep: 8,
+
+  // ---- hunger (continuous melt, volume fraction per second) ----
+  melt: [0.025, 0.029, 0.033, 0.037, 0.04],
+  meltGrace: [4, 16],  // seconds: no melt before the first, full melt after the second
+  patchMelt: 0.09,     // extra melt while rolling on bare ground
+  dieK: 0.42,          // ERİDİN! when r < max(minR, dieK * peak radius)
+  hungerWarn: 0.3,
+
+  // ---- hits ----
+  bumpLoss: [0.06, 0.24],  // volume lost bumping into something too big (a hair over the limit → huge obstacle)
+  bumpSpeed: 0.5,          // speed factor after a bump
+  bumpCd: 0.5,
+  chunkGain: 1.0,          // snow scattered by a bump is worth this much when picked up again
+  chunkRecover: 0.55,      // fraction of the lost volume that comes back as chunks
+  gravity: 24,
+
+  // ---- events (every ~400 m): town jackpot, size gate, golden snowball ----
+  firstEvent: 330,
+  eventGap: [340, 460],
+  gateLoss: 0.3,           // volume lost smashing into a gate that is too big
+  goldenTons: 0.35,        // golden snowball: + this fraction of the current snow tons ...
+  goldenMinTons: 30,       // ... at least this many tons
+  goldenGrow: 0.06,        // ... and this fraction of volume
+
+  // ---- avalanche wave (only when you stall) ----
+  waveSlow: 0.55,          // speed below this fraction of the target counts as stalling
+  waveT: 3,                // ... for this many seconds → the wave comes
+  waveGap: 70,             // it spawns this far behind the ball
+
+  // ---- content: relative food volume per meter (across the whole slope width) and how big the pieces are ----
+  // anchors (ball radius, food volume per metre of slope relative to the ball's volume); log-log interpolation, and a
+  // decay beyond the last anchor so growth keeps slowing down instead of running away.
+  foodAnchors: [[0.5, 0.03], [1.5, 0.0135], [3, 0.0079], [6, 0.0051], [10, 0.0038], [20, 0.0025]],
+  foodScale: 1,        // balance knob: multiplies every food budget
+  foodTail: -1.2,      // exponent of the decay past the last anchor
+  obstacleRate: [2.4, 2.8, 3.2, 3.4, 3.6],            // big obstacles per 100 m after the first 130 m
+  viewAheadMax: 420,
+
+  // ---- pacing: the radius the slope is tuned for at distance d (metres → radius). Growth is throttled when you are
+  // far ahead of it and boosted when you lag, so skill shows without breaking the tier timeline (and nobody
+  // snowballs to 100 m wide in five minutes). Not applied to snow you scattered and pick up again.
+  expectD: [[0, 0.55], [350, 1.5], [1000, 3], [2200, 6], [4000, 10], [7000, 15], [12000, 22], [20000, 32], [40000, 48]],
+  bandUp: 2.4,         // gain * (expected / r)^bandUp when r > expected
+  bandDown: 0.35,      // gain * (expected / r)^bandDown when r < expected
+  bandMin: 0.1,
+  bandMax: 1.35,
+
+  // ---- legacy keys (kept so old tooling that reads CFG keeps working) ----
+  smashRatio: 2.0,
+  milestones: [1.4, 2.6, 4.2, 6.5, 9.5],
+  milestoneNames: ['BÜYÜYOR!', 'ÇIĞ!', 'MEGA ÇIĞ!', 'FELAKET!', 'KIYAMET!'],
+  expectedR: [0.6, 2.4, 4.4, 7, 9.5],
 };
 
-// Tons per prop (the number-goes-up candy). Unlisted props fall back to tier.
+export const TIER_COUNT = CFG.tierWidth.length;
+
+// Food budget (relative volume per metre) for a ball of radius r.
+export function foodRelAt(r) {
+  const A = CFG.foodAnchors;
+  if (r <= A[0][0]) return A[0][1] * CFG.foodScale;
+  for (let i = 1; i < A.length; i++) {
+    if (r <= A[i][0]) {
+      const t = Math.log(r / A[i - 1][0]) / Math.log(A[i][0] / A[i - 1][0]);
+      return Math.exp(Math.log(A[i - 1][1]) + t * (Math.log(A[i][1]) - Math.log(A[i - 1][1]))) * CFG.foodScale;
+    }
+  }
+  const last = A[A.length - 1];
+  return last[1] * Math.pow(r / last[0], CFG.foodTail) * CFG.foodScale;
+}
+
+// Radius the slope expects at distance d (piecewise linear in log radius).
+export function expectedRAt(d) {
+  const A = CFG.expectD;
+  if (d <= 0) return A[0][1];
+  for (let i = 1; i < A.length; i++) {
+    if (d <= A[i][0]) {
+      const t = (d - A[i - 1][0]) / (A[i][0] - A[i - 1][0]);
+      return Math.exp(Math.log(A[i - 1][1]) + t * (Math.log(A[i][1]) - Math.log(A[i - 1][1])));
+    }
+  }
+  const a = A[A.length - 1];
+  return a[1] * Math.pow(d / a[0], 0.5);
+}
+
+// Growth multiplier for a (non-chunk) bite.
+export function bandAt(r, d) {
+  const k = expectedRAt(d) / Math.max(0.2, r);
+  return Math.min(CFG.bandMax, Math.max(CFG.bandMin, Math.pow(k, k < 1 ? CFG.bandUp : CFG.bandDown)));
+}
+
+// 0-based tier of a ball radius.
+export function tierOf(r) {
+  const e = CFG.tierEdges;
+  let t = 0;
+  while (t < e.length && r >= e[t]) t++;
+  return t;
+}
+
+// Tons per prop (the number-goes-up candy). Unlisted props fall back to a volume estimate (see fallbackMass).
 export const MASS = {
   pebble: 0.02, bush_small: 0.01, penguin: 0.03, rabbit: 0.004, gift: 0.005, traffic_cone: 0.004,
   person: 0.08, skier: 0.09, snowman: 0.3, sled: 0.02, bench: 0.06, fence: 0.05, pine_small: 0.15,
@@ -60,8 +157,15 @@ export const MASS = {
   chunk: 0.05,
   k_sedan: 1.3, k_sports: 1.2, k_suv: 2, k_taxi: 1.3, k_police: 1.5, k_van: 2.2, k_ambulance: 3, k_pickup: 1.9, k_tractor: 3.5,
   k_truck: 9, k_delivery: 7, k_garbage_truck: 12, k_firetruck: 14, k_snowman: 0.3, k_snowman_hat: 0.35, k_tent: 0.1, k_canoe: 0.05,
+  k_tent_small: 0.06, k_sled: 0.02, k_bench: 0.06, k_campfire: 0.02, k_gingerbread: 0.02, k_planter: 0.2, k_fence: 0.05,
+  k_present_a: 0.005, k_present_b: 0.005, k_present_c: 0.005, k_candy_cane: 0.004, k_candy_cane_green: 0.004, k_lantern: 0.01, k_cone: 0.004,
+  k_rock_small: 0.3, k_rock_a: 4, k_rock_b: 8, k_rock_c: 3, k_rock_d: 12, k_rock_snow: 6, k_pine_small: 0.15, k_pine_a: 1.2, k_pine_b: 1.2, k_pine_c: 1.2,
+  k_tree_small: 0.8, k_tree_large: 3, k_pine_a_big: 6, k_pine_b_big: 6, k_pine_c_big: 6,
 };
-export const TIER_MASS = [0.02, 0.1, 1.5, 20, 1000];
+// Fallback when a prop type is not in MASS: roughly "a fifth of its bounding sphere is solid".
+export function fallbackMass(radius) {
+  return (4 / 3) * Math.PI * radius ** 3 * 0.2 * 0.45;
+}
 
 // Turkish callouts for swallowing notable things.
 export const LABEL = {
@@ -69,9 +173,14 @@ export const LABEL = {
   car: 'ARABA', car_blue: 'ARABA', snowmobile: 'KAR MOTORU', kiosk: 'KULÜBE', yeti: 'YETİ',
   boulder: 'KAYA', cabin: 'DAĞ EVİ', bus: 'OTOBÜS', lift_pylon: 'TELEFERİK DİREĞİ',
   truck: 'KAR KÜREME', pine_big: 'DEV ÇAM', pine: 'ÇAM', hotel: 'OTEL', gondola_station: 'TELEFERİK',
-  water_tower: 'SU KULESİ', rock_big: 'KAYALIK',
+  water_tower: 'SU KULESİ', rock_big: 'KAYALIK', house: 'EV', house_tall: 'EV', shop: 'DÜKKÂN', apartment: 'APARTMAN',
+  clocktower: 'SAAT KULESİ', barn: 'AMBAR',
   k_sedan: 'ARABA', k_sports: 'SPOR ARABA', k_suv: 'CİP', k_taxi: 'TAKSİ', k_police: 'POLİS ARABASI', k_van: 'MİNİBÜS',
   k_ambulance: 'AMBULANS', k_pickup: 'KAMYONET', k_tractor: 'TRAKTÖR', k_truck: 'KAMYON', k_delivery: 'KARGO KAMYONU',
   k_garbage_truck: 'ÇÖP KAMYONU', k_firetruck: 'İTFAİYE', k_snowman: 'KARDAN ADAM', k_snowman_hat: 'KARDAN ADAM',
-  cp_snowman: 'KARDAN ADAM ORDUSU', k_tent: 'ÇADIR', k_canoe: 'KANO', k_sled: 'KIZAK', k_gingerbread: 'ZENCEFİLLİ ADAM', k_pine_a_big: 'DEV ÇAM', k_pine_b_big: 'DEV ÇAM',
+  cp_snowman: 'KARDAN ADAM ORDUSU', k_tent: 'ÇADIR', k_canoe: 'KANO', k_sled: 'KIZAK', k_gingerbread: 'ZENCEFİLLİ ADAM',
+  k_pine_a_big: 'DEV ÇAM', k_pine_b_big: 'DEV ÇAM', k_pine_c_big: 'DEV ÇAM',
+  k_house_a: 'EV', k_house_b: 'EV', k_house_c: 'EV', k_house_d: 'EV', k_house_e: 'EV', k_house_f: 'EV', k_house_g: 'EV',
+  k_house_h: 'EV', k_house_i: 'EV', k_house_j: 'EV', k_house_k: 'EV', k_house_l: 'EV',
 };
+export const TIER_MASS = [0.02, 0.1, 1.5, 20, 1000];

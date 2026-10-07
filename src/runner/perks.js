@@ -1,40 +1,106 @@
-// Roguelite run perks (pick 1 of 3 every layer) and permanent between-run upgrades.
+// YETİ RUSH: temporary BUFF CARDS (granted automatically, 90 s each, never pause the game) and the permanent
+// between-run upgrades. No DOM / THREE in here, so it can be smoke-tested in node.
 
-export const PERKS = [
-  { id: 'cam', icon: '🃏', name: 'Cam Top', desc: 'Çarpınca patlarsın ama çarpan +3', rare: true },
-  { id: 'miknatis', icon: '🧲', name: 'Mıknatıs Ruhu', desc: 'Kar taneleri kendiliğinden gelir' },
-  { id: 'asiri', icon: '⚡', name: 'Aşırı Hız', desc: 'Hız +%20, çarpan +1' },
-  { id: 'kilpayi', icon: '🎯', name: 'Kıl Payı Avcısı', desc: 'Kıl payı bonusu ×3' },
-  { id: 'risk', icon: '🎲', name: 'Risk Bağımlısı', desc: 'Her kıl payı çarpanı +0,2 artırır (en çok +4)' },
-  { id: 'kabuk', icon: '🛡️', name: 'Kalın Kabuk', desc: 'Her katmanda 1 bedava çarpma' },
-  { id: 'yetikov', icon: '🦶', name: 'Yeti Kovucu', desc: 'Yeti çarpınca %40 daha az yaklaşır' },
-  { id: 'kar', icon: '⛄', name: 'Kar Ejderi', desc: 'Kar yığınları 2 kat büyütür' },
-  { id: 'altin', icon: '💰', name: 'Altın Dokunuş', desc: 'Kar taneleri ×2 değerli' },
-  { id: 'yay', icon: '🦘', name: 'Yaylı Top', desc: 'Zıplama +%35' },
-  { id: 'akis', icon: '🌊', name: 'Akış Ustası', desc: 'Akış kombosu yavaş söner, +1 seviye' },
-  { id: 'tehlike', icon: '🔥', name: 'Tehlike Çılgını', desc: 'Yeti yakınken tehlike bonusu ikiye katlanır' },
-  { id: 'ikiz', icon: '👯', name: 'İkiz Ruh', desc: '20 sn İkiz Top: çarpan +2' },
+export const BUFF_LEN = 90;      // seconds a card lasts (1:30)
+export const BUFF_MAX = 3;       // at most this many cards active at once
+
+// Positive effects only. `once` cards are consumed by the effect itself (kabuk = one forgiven crash).
+export const BUFFS = [
+  { id: 'miknatis', icon: '🧲', name: 'Mıknatıs', desc: 'Kar taneleri sana akar' },
+  { id: 'kar', icon: '⛄', name: 'Çift Kar', desc: 'Kar yığınları 2 kat büyütür' },
+  { id: 'kabuk', icon: '🛡️', name: 'Kabuk', desc: 'Bir çarpışmayı affeder', once: true },
+  { id: 'akis', icon: '🌊', name: 'Akış', desc: 'Akış kombosu yavaş söner' },
+  { id: 'altin', icon: '💰', name: 'Altın Yağmuru', desc: 'Kar taneleri 2 kat değerli' },
+  { id: 'yay', icon: '🦘', name: 'Süper Yay', desc: 'Zıplama +%35' },
+  { id: 'donma', icon: '🧊', name: 'Donma', desc: 'Erime durur' },
+  { id: 'yetikov', icon: '🦶', name: 'Yeti Kovucu', desc: 'Yeti uzak durur' },
+  { id: 'dev', icon: '🗿', name: 'Dev Top', desc: '+1 boy, küçük engelleri ezer' },
 ];
+export const BUFF_BY_ID = Object.fromEntries(BUFFS.map((b) => [b.id, b]));
 
-export function rollPerks(taken, rng = Math.random) {
-  const pool = PERKS.filter((p) => !taken.has(p.id) || p.id === 'ikiz');
-  const out = [];
-  while (out.length < 3 && pool.length) {
-    const i = Math.floor(rng() * pool.length);
-    const p = pool.splice(i, 1)[0];
-    if (p.rare && rng() < 0.5 && pool.length > 2) continue; // rare cards show up less
-    out.push(p);
+/**
+ * The active-buff map. `list` holds { id, icon, name, left, total } entries and is handed to ui.buffTick as is
+ * (entries are reused, so nothing is allocated per tick). has(id) is the single question the game asks.
+ */
+export class BuffSet {
+  constructor() { this.list = []; }
+
+  reset() { this.list.length = 0; }
+
+  has(id) {
+    const l = this.list;
+    for (let i = 0; i < l.length; i++) if (l[i].id === id) return true;
+    return false;
   }
-  return out;
+
+  left(id) {
+    const l = this.list;
+    for (let i = 0; i < l.length; i++) if (l[i].id === id) return l[i].left;
+    return 0;
+  }
+
+  get size() { return this.list.length; }
+
+  /**
+   * Activate a card. Same id: its time is refreshed. Pool full: the card with the least time left is replaced.
+   * Returns { refreshed, replaced } (replaced = the evicted entry or null).
+   */
+  add(id, secs = BUFF_LEN) {
+    const def = BUFF_BY_ID[id];
+    if (!def) return null;
+    const l = this.list;
+    for (let i = 0; i < l.length; i++) {
+      if (l[i].id === id) { l[i].left = l[i].total = secs; return { refreshed: true, replaced: null }; }
+    }
+    let replaced = null;
+    if (l.length >= BUFF_MAX) {
+      let k = 0;
+      for (let i = 1; i < l.length; i++) if (l[i].left < l[k].left) k = i;
+      replaced = l.splice(k, 1)[0];
+    }
+    l.push({ id, icon: def.icon, name: def.name, left: secs, total: secs });
+    return { refreshed: false, replaced };
+  }
+
+  remove(id) {
+    const l = this.list;
+    for (let i = 0; i < l.length; i++) if (l[i].id === id) { return l.splice(i, 1)[0]; }
+    return null;
+  }
+
+  /** Tick every card; expired ones are removed and reported through onExpire(entry). */
+  update(dt, onExpire) {
+    const l = this.list;
+    for (let i = l.length - 1; i >= 0; i--) {
+      const b = l[i];
+      b.left -= dt;
+      if (b.left <= 0) { l.splice(i, 1); if (onExpire) onExpire(b); }
+    }
+  }
 }
 
-// Permanent upgrades chosen after each run (each pick = +1 level, max 10).
+/** Pick the next card: strongly prefers ones that are not active yet (variety), never the one just granted twice in a row. */
+export function rollBuff(active, rng = Math.random, last = '') {
+  let tot = 0;
+  const w = [];
+  for (let i = 0; i < BUFFS.length; i++) {
+    const id = BUFFS[i].id;
+    let k = active.has(id) ? 0.25 : 1;
+    if (id === last) k *= 0.3;
+    w.push(k); tot += k;
+  }
+  let r = rng() * tot;
+  for (let i = 0; i < BUFFS.length; i++) { r -= w[i]; if (r <= 0) return BUFFS[i]; }
+  return BUFFS[BUFFS.length - 1];
+}
+
+// Permanent upgrades, bought between runs (each level +1, max 5).
 export const UPGRADES = [
-  { id: 'size', icon: '🧊', name: 'Kartopu', desc: '+%4 başlangıç boyutu ve kar büyümesi' },
-  { id: 'speed', icon: '🦬', name: 'Yeti Kaçağı', desc: '+%3 hız, çarpan +0,1' },
-  { id: 'smash', icon: '🏔️', name: 'Çığ', desc: '+%10 yıkım puanı ve tonu' },
-  { id: 'coin', icon: '💰', name: 'Altın', desc: '+%8 kar tanesi değeri' },
-  { id: 'yeti', icon: '🧤', name: 'Kalın Eldiven', desc: 'Yeti %4 daha yavaş yaklaşır' },
+  { id: 'size', icon: '🧊', name: 'Kartopu', desc: 'Kar yığınları %6 daha çok büyütür' },
+  { id: 'speed', icon: '🦬', name: 'Yeti Kaçağı', desc: 'Çarpan +0,15' },
+  { id: 'smash', icon: '🏔️', name: 'Çığ', desc: 'Yıkım puanı ve tonu +%10' },
+  { id: 'coin', icon: '💰', name: 'Altın', desc: 'Kar taneleri %8 daha değerli' },
+  { id: 'yeti', icon: '🧤', name: 'Kalın Eldiven', desc: 'Tökezleme süresi %4 kısalır' },
   { id: 'flow', icon: '🌊', name: 'Akış', desc: 'Akış kombosu %6 daha yavaş söner' },
 ];
 

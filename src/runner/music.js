@@ -24,10 +24,12 @@ const TICK_MS = 25;
 const LOOKAHEAD = 0.12; // s
 const LOOKAHEAD_MAX = 0.3; // s, only after the main thread was seen stalling
 const START_LEAD = 0.08; // s between start() and beat 0
-const BUS_LEVEL = 0.55;
+const BUS_LEVEL = 0.34; // v1 was 0.55: music sits under the sound effects
+const NOTE_TRIM = 0.7; // pickup motif notes (heard hundreds of times a run) are trimmed
+const NOTE_GAP = 0.06; // s: pickup notes are never closer than this (a magnet pulling ten flakes is not a buzz)
 const DUCK_FREQ = 650;
 const DUCK_VOL = 0.55;
-const OPEN_FREQ = 18000;
+const OPEN_FREQ = 7600; // v1 left the top end wide open (18 kHz): the open bus now rolls off above ~7.6 kHz, less fatiguing
 const MIN_BPM = 60;
 const MAX_BPM = 200;
 const DEFAULT_BPM = 96;
@@ -716,8 +718,8 @@ function ka(t, vel) {
 function crash(t, vel) {
   const v = voice(PR_CORE, t, 1.3, 1, null);
   if (!v) return;
-  nzHit(v, t, 'highpass', 5200, 0, 0.7, 0, 0.5 * vel, 0.002, 1.0);
-  nzHit(v, t, 'bandpass', 8200, 0, 3, 0, 0.35 * vel, 0.002, 0.5);
+  nzHit(v, t, 'highpass', 4200, 0, 0.7, 0, 0.4 * vel, 0.004, 0.9);
+  nzHit(v, t, 'bandpass', 6200, 0, 2, 0, 0.25 * vel, 0.004, 0.5);
 }
 
 /** Noise + tonal riser used in the bar before a style switch. */
@@ -727,7 +729,7 @@ function riser(t, dur) {
   if (!v) return;
   const s = noiseSrc(v, t, dur + 0.1);
   const f = filtN('bandpass', 400, 1.2);
-  sweep(f.frequency, t, 400, 7000, dur);
+  sweep(f.frequency, t, 400, 5200, dur);
   const g = gainN();
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(0.9, t + dur);
@@ -755,9 +757,9 @@ const snareSnap = (t, v) => snare(t, v, SN_SNAP);
 const snareChip = (t, v) => snare(t, v, SN_CHIP);
 const snareGate = (t, v) => snare(t, v, SN_GATE);
 const snareHeavy = (t, v) => snare(t, v, SN_HEAVY);
-const hatClosed = (t, v) => hat(t, v, false, 7500, 0.45);
-const hatChip = (t, v) => hat(t, v, false, 5200, 0.42);
-const hatOpen = (t, v) => hat(t, v, true, 7000, 0.4);
+const hatClosed = (t, v) => hat(t, v, false, 5200, 0.36);
+const hatChip = (t, v) => hat(t, v, false, 4200, 0.34);
+const hatOpen = (t, v) => hat(t, v, true, 4800, 0.32);
 const woodHi = (t, v) => wood(t, v, 1250, 0.05, 0.5);
 const woodLo = (t, v) => wood(t, v, 420, 0.09, 0.7);
 const tomHigh = (t, v) => tom(t, v, 175);
@@ -1070,7 +1072,7 @@ function playStep(n, P, t) {
         const midi = S.arpMode === 'scale'
           ? S.arp0 + degSemi(S, k)
           : S.av[ci][k % 3] + 12 * ((k / 3) | 0);
-        S.arpF(t, midi, 0.85 * jitter(), S.arpDur * stepSec);
+        S.arpF(t, midi, 0.66 * jitter(), S.arpDur * stepSec);
       }
     }
   }
@@ -1082,7 +1084,7 @@ function playStep(n, P, t) {
     if (k >= 0) {
       let len = 1;
       while (s + len < 16 && lp[s + len] === '-') len++;
-      S.leadF(t, S.lead0 + degSemi(S, k), 0.9 * jitter(), len * stepSec * 0.95);
+      S.leadF(t, S.lead0 + degSemi(S, k), 0.72 * jitter(), len * stepSec * 0.95);
     }
   }
 }
@@ -1173,6 +1175,20 @@ function init() {
   if (!paused && ctx.state !== 'running') resumeCtx(true);
 }
 
+/** Clears the duck state AND the duck gain / lowpass (they used to stay at 650 Hz / 55 % after the first death). */
+function resetDuck() {
+  ducked = false;
+  held = false;
+  if (!ctx || !lpF || !duckG) return;
+  const t = ctx.currentTime;
+  try {
+    duckG.gain.cancelScheduledValues(t);
+    duckG.gain.setValueAtTime(1, t);
+    lpF.frequency.cancelScheduledValues(t);
+    lpF.frequency.setValueAtTime(Math.min(OPEN_FREQ, ctx.sampleRate * 0.45), t);
+  } catch (e) { /* ignore */ }
+}
+
 /** Undo any death/revive/duck-less state of the bus (lowpass + sting fade). */
 function restoreBus(fadeIn) {
   if (!ctx || !stingG) return;
@@ -1219,6 +1235,7 @@ function start(id, bpm) {
   const b = clamp(num(bpm, baseBpm), MIN_BPM, MAX_BPM);
   baseBpm = b;
   if (voices.length) killVoices();
+  resetDuck(); // a new run never starts muffled
   restoreBus(0);
   const ps = perfSec();
   tStart = ps + START_LEAD;
@@ -1322,14 +1339,14 @@ function note() {
   if (ps - lastNoteAt > PHRASE_GAP) phraseIdx = 0; // a fresh line of flakes restarts the motif
   lastNoteAt = ps;
   const S = style;
-  const semis = S.motif[phraseIdx % S.motif.length];
-  phraseIdx++;
   if (!ready()) return;
   const t0 = ctx.currentTime;
-  if (t0 - lastNoteT < 0.018) return;
+  if (t0 - lastNoteT < NOTE_GAP) return;
+  const semis = S.motif[phraseIdx % S.motif.length];
+  phraseIdx++;
   lastNoteT = t0;
   const midi = fitToChord(S, S.note0 + semis, S.pcs[chordIdxNow()]);
-  S.noteF(t0 + 0.004, midi, 1, 0.3);
+  S.noteF(t0 + 0.004, midi, NOTE_TRIM, 0.3);
 }
 
 function perfect() {
@@ -1343,8 +1360,8 @@ function perfect() {
   const base = S.note0 - 12;
   const m = base + ((rp - (base % 12) + 12) % 12); // chord root, in the pickup register
   const t = t0 + 0.004;
-  bell(t, mtof(m), 1.15, BELL.chime);
-  bell(t + 0.012, mtof(m + 12), 0.9, BELL.chime);
+  bell(t, mtof(m), 0.8, BELL.chime);
+  bell(t + 0.012, mtof(m + 12), 0.55, BELL.chime);
   const v = voice(PR_SFX, t, 0.3, 0.6, null);
   if (v) { // sparkle + tiny whoosh
     const s = noiseSrc(v, t, 0.28);
@@ -1355,7 +1372,7 @@ function perfect() {
     g.gain.linearRampToValueAtTime(0.55, t + 0.06);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
     link(s, f, g, v.out);
-    nzHit(v, t + 0.01, 'highpass', 8500, 0, 0.7, 0, 0.3, 0.002, 0.12);
+    nzHit(v, t + 0.01, 'highpass', 5200, 0, 0.7, 0, 0.18, 0.004, 0.1);
   }
 }
 
@@ -1509,7 +1526,7 @@ function resume() {
 
 // Every method goes through guard(): whatever happens inside, callers never see a throw.
 const guard = (fn, fallback) => function () {
-  try { return fn.apply(null, arguments); } catch (e) { return fallback; }
+  try { return fn.apply(null, arguments); } catch (e) { if (globalThis.__cigAudioDebug) console.error('[audio]', fn.name, e && e.message); return fallback; }
 };
 
 function readBeatSafe(out) {
@@ -1546,6 +1563,8 @@ export const music = {
   stinger: guard(stinger),
   /** true: lowpass + volume down (pause/death screen); false: back. */
   duck: guard(duck),
+  /** Forget any duck / death muffling right now (start() already does this). */
+  resetDuck: guard(resetDuck),
   setMuted: guard(setMuted),
   isMuted: guard(() => muted, false),
   suspend: guard(suspend),
@@ -1556,4 +1575,6 @@ export const music = {
   get style() { return styleId; },
   get running() { return running; },
   get voiceCount() { return voices.length; },
+  /** Diagnostics: the duck state of the bus (tests check that a new run starts fully open). */
+  get bus() { return { ducked, held, duckGain: duckG ? duckG.gain.value : null, lpFreq: lpF ? lpF.frequency.value : null }; },
 };

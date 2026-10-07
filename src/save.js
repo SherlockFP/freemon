@@ -1,7 +1,7 @@
 const KEY = 'cig.save.v1';
 export const PERM_COSTS = [200, 450, 900, 1600, 2600];
 const RUNNER_DEF = () => ({ best: 0, bestDist: 0, runs: 0, tut: false, turnHints: 0, lipHints: 0, seen: { boulder: false, slidewall: false, train: false } });
-const CIG_DEF = () => ({ ch: {}, tut: 0, dailyCh: {} });
+const CIG_DEF = () => ({ ch: {}, tut: 0, dailyCh: {}, endless: { tons: 0, dist: 0, runs: 0 } });
 
 const fresh = () => ({
   level: 1, stars: {}, best: {}, daily: {},
@@ -24,6 +24,14 @@ try {
     if (!Number.isFinite(data.level) || data.level < 1) data.level = 1;
     if (!Number.isFinite(data.coins) || data.coins < 0) data.coins = 0;
     for (const k of ['stars', 'best', 'daily']) if (!data[k] || typeof data[k] !== 'object') data[k] = {};
+    for (const k of ['skin', 'trail']) {
+      if (!Array.isArray(data.owned[k])) data.owned[k] = base.owned[k].slice();
+      data.owned[k] = data.owned[k].filter((x) => typeof x === 'string');
+      if (!data.owned[k].includes('classic')) data.owned[k].push('classic');
+      if (typeof data.selected[k] !== 'string') data.selected[k] = 'classic';
+    }
+    if (!Number.isFinite(data.totalTons) || data.totalTons < 0) data.totalTons = 0;
+    if (!Number.isFinite(data.runs) || data.runs < 0) data.runs = 0;
     if (!data.runner || typeof data.runner !== 'object') data.runner = base.runner;
     {
       const d = RUNNER_DEF(), r = data.runner;
@@ -31,14 +39,25 @@ try {
       r.tut = r.tut ?? d.tut; r.turnHints = r.turnHints ?? d.turnHints; r.lipHints = r.lipHints ?? d.lipHints;
       if (!r.seen || typeof r.seen !== 'object') r.seen = d.seen;
       for (const k in d.seen) r.seen[k] = r.seen[k] ?? false;
-      if (Array.isArray(r.top)) r.top.sort((a, b) => b.dist - a.dist);
+      if (Array.isArray(r.top)) { r.top = r.top.filter((e) => e && Number.isFinite(e.dist)).slice(0, 10); r.top.sort((a, b) => b.dist - a.dist); } else if (r.top !== undefined) delete r.top;
     }
     if (!data.cig || typeof data.cig !== 'object') data.cig = CIG_DEF();
     for (const k of ['ch', 'dailyCh']) if (!data.cig[k] || typeof data.cig[k] !== 'object') data.cig[k] = {};
     if (!Number.isFinite(data.cig.tut)) data.cig.tut = 0;
+    {
+      const e = data.cig.endless, d = CIG_DEF().endless;
+      if (!e || typeof e !== 'object') data.cig.endless = d;
+      else for (const k in d) e[k] = Number.isFinite(e[k]) && e[k] > 0 ? e[k] : 0;
+    }
+    if (!Number.isFinite(data.crystals) || data.crystals < 0) data.crystals = 0;
     if (data.perm && typeof data.perm !== 'object') data.perm = {};
   }
 } catch { /* private mode / blocked storage: play without saving */ }
+
+// Crystals 💎 live in meta.js (one source of truth); meta.init() binds them here. Until then a local counter is used.
+let crystalStore = null;
+// Optional listeners (meta.js registers them) so recording a result can feed missions without save.js importing meta.
+const hooks = { cigEnd: null };
 
 function persist() {
   try { localStorage.setItem(KEY, JSON.stringify(data)); } catch { /* ignore */ }
@@ -76,6 +95,8 @@ export const save = {
   runnerBestDist: () => data.runner?.bestDist || 0,
   // Returns this run's rank among the player's top-10 runs (1-based), or 0 if it didn't make the list.
   recordRunner(score, dist) {
+    score = Number.isFinite(score) ? Math.max(0, score) : 0;
+    dist = Number.isFinite(dist) ? Math.max(0, dist) : 0;
     if (!data.runner) data.runner = RUNNER_DEF();
     const r = data.runner;
     r.best = Math.max(r.best, score);
@@ -157,11 +178,55 @@ export const save = {
   },
   runnerTop: () => (Array.isArray(data.runner?.top) ? data.runner.top.slice() : []),
 
+  // ---- ÇIĞ SONSUZ (endless avalanche) ----
+  // recordCigEndless({tons, dist, tier?, tierName?}) -> true when this run set a new best (tons is the ranking key).
+  // Never throws, ignores garbage.
+  cigEndlessBest() {
+    const e = data.cig.endless || {};
+    return { tons: e.tons || 0, dist: e.dist || 0 };
+  },
+  cigEndlessRuns: () => (data.cig.endless && data.cig.endless.runs) || 0,
+  recordCigEndless(r) {
+    const tons = Number.isFinite(r && r.tons) ? Math.max(0, r.tons) : 0;
+    const dist = Number.isFinite(r && r.dist) ? Math.max(0, r.dist) : (Number.isFinite(r && r.distance) ? Math.max(0, r.distance) : 0);
+    if (!data.cig.endless || typeof data.cig.endless !== 'object') data.cig.endless = CIG_DEF().endless;
+    const e = data.cig.endless;
+    const isBest = tons > e.tons || (e.tons === 0 && tons === 0 && dist > e.dist);
+    e.runs = (e.runs || 0) + 1;
+    if (tons > e.tons) e.tons = tons;
+    if (dist > e.dist) e.dist = dist;
+    persist();
+    try { if (hooks.cigEnd) hooks.cigEnd({ ...r, tons, dist, isBest }); } catch { /* telemetry must never break the result */ }
+    return isBest;
+  },
+
+  // ---- crystals 💎 (revive currency) ----
+  crystals: () => (crystalStore ? crystalStore.get() : data.crystals || 0),
+  addCrystals(n) {
+    n = Math.floor(Number.isFinite(n) ? n : 0);
+    if (n <= 0) return save.crystals();
+    if (crystalStore) crystalStore.add(n); else { data.crystals = (data.crystals || 0) + n; persist(); }
+    return save.crystals();
+  },
+  spendCrystals(n) {
+    n = Math.floor(Number.isFinite(n) ? n : 0);
+    if (n < 0 || save.crystals() < n) return false;
+    if (n === 0) return true;
+    if (crystalStore) return !!crystalStore.spend(n);
+    data.crystals -= n;
+    persist();
+    return true;
+  },
+  // meta.js calls these in init(): { get, add, spend } and a cig-endless listener.
+  bindCrystals(store) { crystalStore = store && typeof store.get === 'function' ? store : null; },
+  onCigEndless(fn) { hooks.cigEnd = typeof fn === 'function' ? fn : null; },
+
   // ---- economy / customization ----
   get coins() { return data.coins; },
-  addCoins(n) { data.coins += Math.max(0, Math.floor(n)); persist(); },
+  // (garbage in -> nothing happens: a NaN must never reach the wallet, the loader would reset the whole balance to 0)
+  addCoins(n) { n = Math.floor(Number.isFinite(n) ? n : 0); if (n <= 0) return; data.coins += n; persist(); },
   spend(n) {
-    if (data.coins < n) return false;
+    if (!Number.isFinite(n) || n < 0 || data.coins < n) return false;
     data.coins -= n;
     persist();
     return true;

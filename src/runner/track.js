@@ -13,6 +13,9 @@
 //   piece fields: helix{R,dir,turns,bank} wave{k,A,base}+valleyAt(s) slowmo{s0,s1,scale} ice{state,...} pipe{} tube{}
 //   zip{s0,s1,u,h} (needsZip) loop{s0,s1,R,minSpeed,plannedSpeed,shift} corkscrew{s0,s1,dir}
 //   palette(s).checker = true -> Green Hill checkerboard (tileA/tileB top, earthA/earthB flanks).
+// Temple Run junctions (kind 'junction'): piece.junction = { id, s0 (turn window start), s (corner), dir (-1 left / +1 right), sEnd, Lc, R, win }; track.junctionAt(s)
+//   returns the junction whose [s0 - 60, s + 6] contains s (else null); opts.junctionOk(s) (false in the ice cave) and allows('junction') (campaign: level 11+) gate them.
+// Ground queries: surfaceAt(s, u) (-Infinity = hole), solidAt(s, u), supportAt(s, u, r) (highest ground under a ball of radius r); every piece is [s0, s1) so a seam never reads as a hole.
 // Zones: track.setZone('lasers'|'missiles'|'narrow'|'movers'|'coinRain'|'boss'|'storm'|null, { from, until }) stages a rule-change stretch.
 // Every piece owns ONE merged vertex-coloured mesh (world-space vertices, shared material).
 // Path samples are stored at 1 m spacing and interpolated.
@@ -59,7 +62,7 @@ const scl = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
 const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 // kinds a campaign level can allow / forbid (everything else is always allowed)
-const LEVEL_CTRL = Object.fromEntries(['waves', 'helix', 'skiJump', 'chasm', 'iceBridge', 'halfpipe', 'tube', 'rail', 'zipline', 'loop', 'corkscrew', 'oncoming', 'duck', 'boulder', 'slideWall', 'wind', 'fog', 'lasers', 'missiles'].map((k) => [k, 1]));
+const LEVEL_CTRL = Object.fromEntries(['waves', 'helix', 'skiJump', 'chasm', 'iceBridge', 'halfpipe', 'tube', 'rail', 'zipline', 'loop', 'corkscrew', 'oncoming', 'duck', 'boulder', 'slideWall', 'wind', 'fog', 'lasers', 'missiles', 'junction', 'critters'].map((k) => [k, 1]));
 const CH = ['X', 'Y', 'Z', 'YW', 'PT', 'TX', 'TY', 'TZ', 'UX', 'UY', 'UZ', 'RL'];
 const DEFAULT_PAL = { tileA: 0xe8f1fb, tileB: 0xc9d9ee, edge: 0x7fb4e8, rail: 0x4a6a92, glow: 0xffd24a, under: 0x3a4f70 };
 
@@ -169,6 +172,10 @@ export class Track {
     this.bpmAt = bpmAt || ((s) => Math.min(150, 96 + s * 0.012));
     this.biomeIndexAt = biomeIndexAt || ((s) => Math.floor(s / 600));
     this.gravityAt = opts.gravityAt || (() => T.G);      // optional: biome gravity mods (moon = low gravity -> longer flights)
+    this.vGen = opts.vGen || ((s) => 1.1 * this.speedAt(s));   // design speed (top speed the ball can have at s): every TIME -> metres conversion of the generator
+    this.junctionOk = opts.junctionOk || (() => true);   // junctionOk(s) false (ice cave ...) = no junction there
+    this.tutorial = !!opts.tutorial;
+    this.juncWinAt = opts.juncWinAt || null;              // (kept for the runner; the window is stored on each junction: junction.s0)
     this.hardness = opts.hardness ?? 1;                   // 0.7 Kolay, 1 Normal, 1.3 Zor, 1.7 Kabus
     this.level = null;                                    // campaign level: { length, boss, features, hardness, seed } or null (endless)
     this.levelFeatures = null;
@@ -201,8 +208,14 @@ export class Track {
     this._ids = 0;
     this._since = 99;          // pieces since the last hazardous piece
     this._yawOff = 0;          // multiple of 2 pi consumed by helix pieces (mean-reversion uses yaw - _yawOff)
-    this._nextSet = 300;       // earliest s of the next set piece (helix, loop, halfpipe ...)
+    this._nextSet = this.level ? 300 : 340;   // earliest s of the next set piece (helix, loop, halfpipe ...); endless keeps the first 300 m for teaching rows
     this._lastSet = '';
+    // Temple Run junctions: earliest corner of the next one (endless: ~350 m, tutorial: 300 m), live junction list (junctionAt), blocked ranges
+    this._juncs = []; this._jid = 0;
+    this._nextCorner = this.tutorial ? 300 : 350;
+    this._lastCorner = -1e9;
+    this.juncBlock = [];
+    this._tt = [0];            // design-time table (seconds to run s = 0..k at speedAt): timeAt()
     this._lastBiome = this.biomeIndexAt(0);
     this._pi = 0;
     this._frS = NaN; this._frV = -1; this._ver = (this._ver || 0) + 1;     // frame cache (station, sample version)
@@ -235,6 +248,13 @@ export class Track {
   /** may the generator / obstacles use this set piece or mechanic? (campaign allowlist + features switches) */
   allows(name) {
     if (this.features[name] === false) return false;
+    if (name === 'junction' && this.levelFeatures) {
+      // campaign: junctions from level 11 on (level.features carries 'junction', or setLevel got the level id; the cumulative feature list
+      // of level 12+ contains 'chasm' = a safe stand-in when neither is there)
+      const F = this.levelFeatures;
+      return F.has('junction') || (this.level.id != null ? this.level.id >= 11 : F.has('chasm'));
+    }
+    if (name === 'critters' && this.levelFeatures) return this.levelFeatures.has('critters') || this.levelFeatures.has('waves');   // campaign: critters from level 3 (the runner adds 'critters'; 'waves' = level 4+ as a stand-in)
     if (this.levelFeatures && LEVEL_CTRL[name]) return this.levelFeatures.has(name);
     return true;
   }
@@ -247,7 +267,7 @@ export class Track {
   setLevel(cfg) {
     for (const p of this.pieces) if (p.mesh) { this.group.remove(p.mesh); p.mesh.geometry.dispose(); this.disposedGeometries++; p.mesh = null; }
     this.pieces.length = 0;
-    this.level = cfg ? { length: Math.max(120, Math.round(cfg.length || 1000)), boss: !!cfg.boss } : null;
+    this.level = cfg ? { length: Math.max(120, Math.round(cfg.length || 1000)), boss: !!cfg.boss, id: cfg.id ?? cfg.levelId ?? null } : null;
     this.levelFeatures = cfg && cfg.features ? new Set(cfg.features) : null;
     if (cfg && cfg.hardness != null) this.setHardness(cfg.hardness);
     else if (!cfg) this.setHardness(1);
@@ -269,6 +289,8 @@ export class Track {
       removed++;
     }
     if (removed) this._pi = Math.max(0, this._pi - removed);
+    const J = this._juncs;
+    while (J.length && J[0].sEnd + 12 < sBehind) J.shift();
     const k = Math.floor(sBehind - 200) - this.sBase;
     if (k > 600) {
       for (const n of CH) this[n].splice(0, k);
@@ -381,6 +403,59 @@ export class Track {
     return p && p.rampSlope !== undefined && s >= p.rampS0 && s < p.rampS1 ? p.rampSlope : 0;
   }
 
+  /**
+   * Temple Run junction at s: the junction whose [s0 - 60, s + 6] contains s (s0 = start of the turn window, s = corner, dir -1 left / +1 right), else null.
+   * The returned object is the live one stored on piece.junction: { id, s0, s, dir, sEnd (end of the turn arc), Lc, R, win }.
+   */
+  junctionAt(s) {
+    const J = this._juncs;
+    for (let i = 0; i < J.length; i++) { const j = J[i]; if (s >= j.s0 - 60 && s <= j.s + 6) return j; }
+    return null;
+  }
+
+  /** No junction piece may overlap [a, b] (tutorial scripts, level specials). */
+  blockJunctions(a, b) { this.juncBlock.push([a, b]); }
+
+  /** Seconds the ball needs (at the design speed) to run from 0 to s: the generator's time axis (tension cycle, row clock). */
+  timeAt(s) {
+    if (s <= 0) return 0;
+    const tt = this._tt, k = Math.floor(s);
+    while (tt.length <= k) { const i = tt.length - 1; tt.push(tt[i] + 1 / Math.max(1, this.speedAt(i + 0.5))); }
+    return tt[k] + (s - k) / Math.max(1, this.speedAt(k + 0.5));
+  }
+
+  /** The one smooth, monotone difficulty budget d(s) in 0..1 (spacing, pattern complexity, lethal share, junction gap all read it). */
+  budget(s) { return this._diff(s); }
+
+  /** Gap in front of the ball: { edge: take-off lip s, far: landing lip s } of the first gap piece whose near lip lies in (s, s + maxD], else null. */
+  gapAhead(s, maxD) {
+    for (const p of this.pieces) {
+      if (p.gapS0 === undefined) continue;
+      if (p.gapS0 > s && p.gapS0 <= s + maxD) return { edge: p.gapS0, far: p.gapS1 };
+    }
+    return null;
+  }
+
+  /** Is there ground under (s, u)? Exactly the test the runner uses for 'solid' (surfaceAt > -Infinity), so gap edges / seams / holes agree everywhere. */
+  solidAt(s, u) { return this.surfaceAt(s, u) > -Infinity; }
+
+  /**
+   * Highest ground under a ball of radius r at (s, u): the centre plus 4 points on a 0.7 r ring (s +- k, u +- k). -Infinity only when ALL of them are holes,
+   * so a ball that is half over a gap edge / hex-hole / seam still counts as supported (the runner can snap to this instead of letting it drop).
+   * Pieces are half-open [s0, s1) and every piece reports the same surface at the seam, so there is no 1-sample hole between pieces.
+   */
+  supportAt(s, u, r = 0) {
+    let best = this.surfaceAt(s, u);
+    if (r > 0) {
+      const k = 0.7 * r;
+      let v = this.surfaceAt(s + k, u); if (v > best) best = v;
+      v = this.surfaceAt(s - k, u); if (v > best) best = v;
+      v = this.surfaceAt(s, u + k); if (v > best) best = v;
+      v = this.surfaceAt(s, u - k); if (v > best) best = v;
+    }
+    return best;
+  }
+
   /** True if (s,u) is on a present hex cell of a grid piece (split / hexHoles / stairs). */
   _cell(p, s, u) {
     const g = p.grid;
@@ -440,7 +515,7 @@ export class Track {
 const SET = { waves: 250, helix: 350, skiJump: 450, iceBridge: 400, halfpipe: 500, chasm: 650, tube: 700, zipline: 800, corkscrew: 900, loop: 1000 };
 const SET_W = { waves: 1.2, helix: 1.0, skiJump: 1.0, iceBridge: 0.9, halfpipe: 1.0, chasm: 0.8, tube: 0.8, zipline: 0.7, corkscrew: 0.7, loop: 0.8 };
 const SET_LEN = { waves: 90, helix: 200, skiJump: 60, iceBridge: 60, halfpipe: 60, chasm: 55, tube: 60, zipline: 70, corkscrew: 50, loop: 70 };
-const HAZARD = { narrow: 1, gapRamp: 1, gapJump: 1, hexHoles: 1, split: 1, stairs: 1, waves: 1, helix: 1, skiJump: 1, iceBridge: 1, halfpipe: 1, chasm: 1, tube: 1, zipline: 1, corkscrew: 1, loop: 1 };
+const HAZARD = { narrow: 1, gapRamp: 1, gapJump: 1, hexHoles: 1, split: 1, stairs: 1, waves: 1, helix: 1, skiJump: 1, iceBridge: 1, halfpipe: 1, chasm: 1, tube: 1, zipline: 1, corkscrew: 1, loop: 1, junction: 1 };
 const NEEDS_FLAT = { gapRamp: 1, gapJump: 1, slalom: 1, skiJump: 1, chasm: 1, loop: 1 };
 // downhill run: mean pitch ~ -9 deg, from -4 (flats before jumps / clusters) to -16 (plunges)
 const PITCH_MIX = [[9, 0.1], [11, 0.2], [13, 0.25], [15, 0.2], [16, 0.25]];
@@ -459,7 +534,7 @@ Object.assign(Track.prototype, {
       for (const k in w) { r -= w[k]; if (r <= 0) { kind = k; break; } }
       return kind;
     }
-    if (s0 < 150) return rng.chance(0.55) ? 'straight' : 'curve';
+    if (s0 < (this.level ? 150 : 300)) return rng.chance(0.55) ? 'straight' : 'curve';     // endless: the first 300 m are plain pieces (teaching rows)
     const sk = s0 * this.hardness;     // hardness unlocks the hard pieces earlier (Kabus) / later (Kolay)
     const w = { straight: 5 - 3 * diff, curve: 4, slalom: 1.6 + 1.4 * diff, narrow: 0, gapRamp: 1.5 + diff, gapJump: 0, hexHoles: 0, split: 0, stairs: 0 };
     if (sk >= 220) w.narrow = 1 + 1.6 * diff;
@@ -751,6 +826,7 @@ Object.assign(Track.prototype, {
       while (this._q.length < 3) this._q.push(this._qPick(s0 + 40 * (this._q.length + 1)));
       let kind = this._q.shift();
       if (s0 === 0) kind = 'straight';
+      else if (this._juncDue(s0)) { this._q.unshift(kind); kind = 'junction'; }       // Temple Run junction: scheduled by the corner clock, not by the 3-deep queue
       const pNow = this.PT[this.PT.length - 1];
       const flatNow = Math.abs(pNow - flatOf(kind)) < 2.5 * DEG;
       let flatten = false;
@@ -774,6 +850,7 @@ Object.assign(Track.prototype, {
     }
     this._integrate(p);
     this._finalize(p);
+    if (p.junction) this._commitJunction(p);
     p.mesh = this._buildMesh(p);
     this.group.add(p.mesh);
     this.pieces.push(p);
@@ -1389,6 +1466,158 @@ Object.assign(Track.prototype, {
       mb.quad(P(s, -u0 * 0.6, T.BOT, 0), P(s, u0 * 0.6, T.BOT, 1), P(s + 1, u0 * 0.6, T.BOT, 2), P(s + 1, -u0 * 0.6, T.BOT, 3), -ux, -uy, -uz, scl(C.under, 0.7));
     }
   },
+});
+
+// ---------------------------------------------------------------------------
+// Temple Run JUNCTIONS: a long straight approach (>= 3.5 s at the design speed), then ONE sharp single-direction corner
+// (55-64 deg over 8-9 m, min radius ~7 m, inside the YAW_MAX clamp so the biome terrain never folds), then a short exit.
+// piece.junction = { id, s0 (start of the turn window), s (corner = start of the turn arc), dir (-1 left / +1 right), sEnd, Lc, R, win }.
+// Telegraph (mesh): big yellow chevrons painted on the snow pointing into the turn (from ~2.7 s before the corner), a red / white striped
+// barrier wall along the OUTSIDE of the corner (that is where a ball that does not turn leaves the road). The generator keeps the last
+// 1.2 s before the corner and 1.0 s after it free of obstacle rows (obstacles.js _spawn_junction).
+// ---------------------------------------------------------------------------
+const J_BARRIER_RED = 0xd9482f, J_BARRIER_WHITE = 0xf4f1ea, J_CHEV = 0xffd24a, J_UNDER = 0x1d2433;
+
+Object.assign(Track.prototype, {
+  /** Lengths of a junction piece starting at s0 (deterministic: used by _juncDue before the piece exists and by the spec). */
+  _juncDims(s0) {
+    const vD = this.vGen(s0 + 80);
+    return { vD, La: clamp(Math.round(3.7 * vD), 64, 215), Le: clamp(Math.round(1.6 * vD) + 16, 44, 110) };
+  },
+
+  /** Gap (s) between two corners: ~30 s at 350 m shrinking to ~15 s from 3 km on, +-17% jitter. */
+  _juncGap(sC) {
+    const k = smooth((sC - 350) / 2650), sec = (30 - 15 * k) * this.rng.range(0.85, 1.17);
+    return sec * this.speedAt(sC);
+  },
+
+  /** Is a junction piece due to start at s0? (schedule, campaign / zone gates, biome, blocked ranges, fits inside the biome) */
+  _juncDue(s0) {
+    if (s0 < 40 || !this.allows('junction') || this._bossStarted || this._finished) return false;
+    const zk = this.zoneAt(s0);
+    if (zk === 'narrow') return false;
+    const d = this._juncDims(s0), len = d.La + 9 + d.Le, sC = s0 + d.La;
+    if (sC < this._nextCorner) return false;
+    const L = this.level;
+    if (L && s0 + len > L.length - 220) return false;
+    // the whole piece has to live in one biome that allows junctions (a piece is cut at a portal, so wait for the next biome)
+    const b = this.biomeIndexAt(s0);
+    if (this.biomeIndexAt(s0 + len) !== b || !this.junctionOk(s0 + 10) || !this.junctionOk(sC) || !this.junctionOk(s0 + len)) return false;
+    for (const r of this.juncBlock) if (s0 < r[1] && s0 + len > r[0]) return false;
+    return true;
+  },
+
+  _spec_junction(p, s0, diff, yaw0) {
+    const rng = this.rng, { La, Le } = this._juncDims(s0);
+    const room = (d) => T.YAW_MAX - d * yaw0;
+    let dir = rng.sign();
+    if (room(dir) < 56 * DEG) dir = -dir;                       // heading already leans into this side: turn the other way
+    const mag = Math.min(rng.range(55, 64) * DEG, room(dir));
+    p.dYaw = dir * mag;
+    const Lc = mag > 60 * DEG ? 9 : 8, a = 0.1;
+    p.len = La + Lc + Le;
+    p.hw = T.HW; p.curb = true; p.edge = 'wall';
+    p.pitch1 = this._endPitch(p);
+    this._plateau(p, -rng.range(6, 8) * DEG, 0.12);
+    p.yawFn = (t) => {
+      const x = t * p.len - La;
+      if (x <= 0) return p.yaw0;
+      if (x >= Lc) return p.yaw0 + p.dYaw;
+      return p.yaw0 + p.dYaw * trapInt(x / Lc, a);
+    };
+    const B = rng.range(8, 12) * DEG;
+    p.rollAt = (t) => dir * B * trapW(clamp((t * p.len - (La - 3)) / (Lc + 6), 0, 1), 0.35);
+    const sC = s0 + La, win = Math.max(0.9 * this.speedAt(sC), 1.1 * this.vGen(sC));
+    p.junction = { id: 0, s0: sC - win, s: sC, dir, sEnd: sC + Lc, Lc, R: (Lc * (1 - a)) / mag, win, La, Le };
+  },
+
+  _commitJunction(p) {
+    const J = p.junction;
+    J.id = ++this._jid;
+    this._juncs.push(J);
+    this._lastCorner = J.s;
+    this._nextCorner = J.s + this._juncGap(J.s);
+  },
+
+  /** One painted chevron (tip towards dir) with a dark underlay so it reads on white snow as well as on dark tracks. */
+  _chevron(mb, s, dir, C, w, d, th) {
+    const f = this._f, VPq = VP;
+    this._fr(s);
+    const ux = f[5], uy = f[6], uz = f[7];
+    const arm = (sc, hh, col2, k) => {
+      for (const sg of SG) {
+        // arm from (s + sg*d, -dir*w) to the tip (s, +dir*w)
+        const sa = s + sg * (d + k), ub = -dir * (w + k), st = s, ut = dir * (w + k), t2 = th * 0.5 + k;
+        this._P(sa - t2, ub, hh, VPq[0]); this._P(sa + t2, ub, hh, VPq[1]); this._P(st + t2, ut, hh, VPq[2]); this._P(st - t2, ut, hh, VPq[3]);
+        mb.quad(VPq[0], VPq[1], VPq[2], VPq[3], ux, uy, uz, col2);
+      }
+    };
+    arm(1, 0.03, C.jDark, 0.1);       // (6 cm / 3 cm above the snow: no z-fighting even 150 m away)
+    arm(1, 0.06, C.jYel, 0);
+  },
+
+  /**
+   * Chevron alignment sign (two black chevrons on a yellow board with a dark frame) facing the approaching ball, standing on the outside barrier.
+   * uc = lateral centre, half = half width, h0..h1 = height span; the chevrons point the way of the turn (dir).
+   */
+  _signBoard(mb, s, uc, half, h0, h1, dir, C) {
+    const f = this._f, VPq = VP, cap = col(J_UNDER);
+    this._fr(s);
+    const tx = -f[8], ty = -f[9], tz = -f[10];                               // normal: back towards the ball
+    const rect = (ss, ua, ub, ha, hb, colr) => {
+      this._P(ss, ua, ha, VPq[0]); this._P(ss, ub, ha, VPq[1]); this._P(ss, ub, hb, VPq[2]); this._P(ss, ua, hb, VPq[3]);
+      mb.quad(VPq[0], VPq[1], VPq[2], VPq[3], tx, ty, tz, colr);
+    };
+    rect(s + 0.07, uc - half - 0.14, uc + half + 0.14, h0 - 0.14, h1 + 0.14, cap);          // frame (furthest from the viewer)
+    rect(s, uc - half, uc + half, h0, h1, C.jYel);                                          // board
+    const hc = (h0 + h1) * 0.5, a = half * 0.3, b = (h1 - h0) * 0.36, t = 0.3, ss = s - 0.07;
+    for (const k of [-1, 1]) {
+      const cu = uc + k * half * 0.46, tip = cu + dir * a, end = cu - dir * a;
+      for (const sg of SG) {                                                                // upper and lower arm of one chevron
+        const he = hc + sg * b;
+        this._P(ss, end, he + t * 0.5, VPq[0]); this._P(ss, tip, hc + t * 0.5, VPq[1]); this._P(ss, tip, hc - t * 0.5, VPq[2]); this._P(ss, end, he - t * 0.5, VPq[3]);
+        mb.quad(VPq[0], VPq[1], VPq[2], VPq[3], tx, ty, tz, cap);
+      }
+    }
+  },
+
+  _build_junction(p, mb, C, rng, hwf) {
+    const J = p.junction, dir = J.dir, hw = p.hw, f = this._f;
+    C.jYel = col(J_CHEV); C.jDark = col(J_UNDER);
+    this._slab(mb, { a: p.s0, b: p.s1, hwf: hwf(p.s0, p.s1), hTop: () => 0, curb: true, C, rng, top: 'snow' });
+    // painted chevrons: from ~2.7 s before the corner down to 2 m before it, one every 3.7 m
+    const vD = this.vGen(J.s), sFrom = Math.max(p.s0 + 5, J.s - 2.7 * vD);
+    for (let s = J.s - 2; s >= sFrom; s -= 3.7) this._chevron(mb, s, dir, C, 2.7, 1.45, 0.62);
+    // the corner line: a yellow / dark hazard band across the whole road (the last place a turn can still start)
+    {
+      const nb = Math.max(2, Math.round((2 * (hw - 0.5)) / 0.6)), bw = (2 * (hw - 0.5)) / nb;
+      this._fr(J.s);
+      const ux = f[5], uy = f[6], uz = f[7];
+      for (let i = 0; i < nb; i++) {
+        const u0 = -(hw - 0.5) + i * bw;
+        this._P(J.s - 0.6, u0, 0.05, VP[0]); this._P(J.s - 0.6, u0 + bw, 0.05, VP[1]); this._P(J.s + 0.2, u0 + bw, 0.05, VP[2]); this._P(J.s + 0.2, u0, 0.05, VP[3]);
+        mb.quad(VP[0], VP[1], VP[2], VP[3], ux, uy, uz, i & 1 ? C.jDark : C.jYel);
+      }
+    }
+    // barrier along the outside of the corner: red / white blocks every 1.2 m, dark cap, a little taller than the ball; it starts 28 m early
+    // (a wall along the outer edge that you see coming) and runs round the whole arc
+    const ou = -dir, u0 = ou * (hw - 0.45), u1 = ou * (hw + 0.15), cap = col(J_UNDER), red = col(J_BARRIER_RED), white = col(J_BARRIER_WHITE);
+    const sa = Math.max(p.s0 + 2, J.s - 28), sb = J.sEnd + 9;
+    for (let s = sa, k = 0; s < sb - 1e-6; s += 1.2, k++) {
+      const e = Math.min(sb, s + 1.2), cc = k & 1 ? white : red;
+      this._boxS(mb, s, e, Math.min(u0, u1), Math.max(u0, u1), -0.25, 2.5, cc, cc);
+      this._boxS(mb, s, e, Math.min(u0, u1) - 0.04, Math.max(u0, u1) + 0.04, 2.5, 2.68, cap, cap);
+    }
+    // three chevron signs on the barrier (24 m, 12 m and 0 m before the corner): "this way!"
+    for (const d of [24, 12, 0]) {
+      const s = J.s - d;
+      if (s < sa + 1) continue;
+      const uc = ou * (hw - 0.75), uw = ou * (hw - 0.15);
+      this._boxS(mb, s - 0.12, s + 0.12, uw - 0.1, uw + 0.1, 2.6, 3.0, cap, cap);          // post
+      this._signBoard(mb, s, uc, 1.5, 2.95, 4.65, dir, C);
+    }
+  },
+
 });
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,18 @@
+// ui.js — HUD, result screens and the soft (non-blocking) feedback layer.
+//
+// Contracts other packages call (always with ?. on their side):
+//   buffAdd(id, icon, name, secs) · buffTick([{id,left,total}]) · buffRemove(id)
+//   turnCue(dir:-1|0|1, urgency 0..1) · hunger(frac 0..1, warn) · stompCombo(n)
+//   cigHud({tons, dist, tierName, frac, best}) · cigTier(name) · toastSoft(text)
+// Everything lives at the top / bottom edge of the screen: the middle strip (the reaction zone) stays empty.
+import { meta } from './meta.js';
+import { save } from './save.js';
+import { nextGoal } from './shop.js';
+
 const $ = (id) => document.getElementById(id);
 
 const NF = new Intl.NumberFormat('tr-TR');
+export const fmtN = (n) => NF.format(Math.max(0, Math.round(Number.isFinite(n) ? n : 0)));
 export function fmtTons(t) {
   const kg = Math.round(t * 1000);
   if (kg < 1000) return `${kg} kg`;
@@ -8,6 +20,54 @@ export function fmtTons(t) {
   if (t1 < 10) return `${t1.toFixed(1).replace('.', ',')} ton`;
   return `${NF.format(Math.round(t))} ton`;
 }
+const clamp01 = (x) => (x > 0 ? (x < 1 ? x : 1) : 0);
+// Tiny sound hooks (main.js exposes the audio engine as window.__cigSfx); every one is optional and rate-limited inside audio.js.
+function snd(name, a) {
+  try { const s = typeof window !== 'undefined' ? window.__cigSfx : null; if (s && s[name]) s[name](a); } catch { /* audio is optional */ }
+}
+
+// The boot splash (index.html) goes away as soon as any real screen shows.
+export function hideBoot() {
+  const b = typeof document !== 'undefined' ? document.getElementById('boot') : null;
+  if (!b) return;
+  b.classList.add('out');
+  setTimeout(() => b.remove(), 300);
+}
+
+// What killed you -> headline + one short tip. Used by the result screen (and exported for the runner / menus).
+const DEATH = {
+  wall: { icon: '🚧', title: 'DÖNEMEDİN!', tip: 'Kavşakta okun gösterdiği yöne kaydır.' },
+  turn: { icon: '🚧', title: 'DÖNEMEDİN!', tip: 'Kavşakta okun gösterdiği yöne kaydır.' },
+  turnFall: { icon: '🕳️', title: 'DÜŞTÜN!', tip: 'Kavşağı geç kaçırdın. Okları erken takip et.' },
+  melt: { icon: '💧', title: 'ERİDİN!', tip: 'Kar yığınlarını ve kar izlerini topla, boyunu koru.' },
+  yeti: { icon: '👹', title: 'YETİ YAKALADI!', tip: 'Üst üste çarpma. Yeti ensende bekliyor.' },
+  explode: { icon: '💥', title: 'PATLADIN!', tip: 'Cam top tek çarpmaya dayanmaz.' },
+  fall: { icon: '🕳️', title: 'DÜŞTÜN!', tip: 'Boşlukları zıplayarak geç.' },
+  smash: { icon: '💢', title: 'ÇARPTIN!', tip: 'Büyük engellerin yanından dolan.' },
+  finish: { icon: '🏁', title: 'BİTİŞ!', tip: '' },
+};
+const KILL_TIP = {
+  rock: 'Küçük kayaya zıpla, büyük kayanın yanından dolan.',
+  boulder: 'Gölgeye dikkat: yuvarlanan kaya şeridi kapatır.',
+  overhead: 'Üstten geçen barın altından eğilerek geç.',
+  laser: 'Lazerin altından eğilerek geç.',
+  slidewall: 'Kayan duvarın açıklığına gir.',
+  oncoming: 'Karşıdan gelen araca çarpma, şerit değiştir.',
+};
+export function runnerDeathText(cause, killKind) {
+  const d = DEATH[cause] || { icon: '❄️', title: 'OLMADI!', tip: '' };
+  return { icon: d.icon, title: d.title, tip: (killKind && KILL_TIP[killKind]) || d.tip };
+}
+
+// buff colours (ring); unknown ids get a stable hue
+const BUFF_COL = { miknatis: '#ff7a7a', kar: '#9be7ff', kabuk: '#ffd23a', akis: '#7dff9a', altin: '#ffc21a', yay: '#c79bff', donma: '#bfe9ff', yetikov: '#ffa05a', dev: '#ff8ad0' };
+function buffColor(id) {
+  if (BUFF_COL[id]) return BUFF_COL[id];
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
+  return `hsl(${h} 85% 62%)`;
+}
+const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 export class UI {
   constructor() {
@@ -15,17 +75,34 @@ export class UI {
       hud: $('hud'), level: $('hud-level'), prog: $('hud-prog'), dot: $('hud-dot'), tons: $('hud-tons'), combo: $('hud-combo'),
       floats: $('floats'), banner: $('banner'), hint: $('hint'),
       menu: $('menu'), menuLevel: $('menu-level'), menuStars: $('menu-stars'), daily: $('btn-daily'),
-      result: $('result'), resTitle: $('res-title'), resStars: $('res-stars'), resPct: $('res-pct'), resTons: $('res-tons'), resSub: $('res-sub'),
-      next: $('btn-next'), toast: $('toast'), pause: $('pause'), debug: $('debug'),
+      result: $('result'), resTitle: $('res-title'), resStars: $('res-stars'), resPct: $('res-pct'), resTons: $('res-tons'), resSub: $('res-sub'), resBadge: $('res-badge'),
+      next: $('btn-next'), retry: $('btn-retry'), menuBtn: $('btn-menu'), toast: $('toast'), pause: $('pause'), debug: $('debug'),
       sound: $('btn-sound'), haptic: $('btn-haptic'),
       coins: $('hud-coins'), vitals: $('hud-vitals'), pips: $('hud-pips'), grow: $('hud-grow'), powers: $('hud-powers'),
-      yeti: $('hud-yeti'), yetiFill: $('hud-yetifill'), goal: $('hud-goal'), goalFill: $('hud-goal-fill'), goalLbl: $('hud-goal-lbl'),
+      yeti: $('hud-yeti'), yetiFill: $('hud-yetifill'), yetiLbl: $('hud-yeti-lbl'), goal: $('hud-goal'), goalFill: $('hud-goal-fill'), goalLbl: $('hud-goal-lbl'),
       flow: $('hud-flow'), flowFill: $('hud-flow-fill'), flowLbl: $('hud-flow-lbl'), record: $('hud-record'), resExtra: $('res-extra'), resCoins: $('res-coins'), menuBest: $('menu-best'), resLabel: document.querySelector('.res-label'),
+      // v2
+      buffs: $('buffs'), buffFly: $('buff-fly'), hunger: $('hunger'), hgFill: $('hg-fill'), hgIco: $('hg-ico'), turn: $('turn-cue'), stomp: $('stomp'),
+      cigHud: $('cig-hud'), cgTn: $('cg-tn'), cgFill: $('cg-fill'), cgDist: $('cg-dist'), cgBest: $('cg-best'), cigBanner: $('cig-banner'), cbN: $('cb-n'),
+      toastSoft: $('toast-soft'), tutor: $('tutor'), revive: $('revive-panel'), rvTitle: $('rv-title'), rvDist: $('rv-dist'), btnRevive: $('btn-revive'), btnReviveEnd: $('btn-revive-end'),
     };
     this.floatCount = 0;
     this.lastTonsText = '';
     this.pulseT = 0;
     this.timers = [];
+    this.buffMap = new Map();
+    this.reviveFn = null;
+    this._lastFloat = 0;
+    this._banAt = 0; this._banLv = 0;
+    this._tcDir = 0; this._tcU = -1; this._hgOn = false; this._hgQ = -1; this._hgHue = -1; this._hgWarn = false;
+    this._stompAt = 0; this._cg = { kg: -1, tnRaw: null, fill: -1, dm: -1, bk: -1 };
+    this._tsLast = ''; this._tsAt = 0;
+    this._tutorTap = null;
+    // A revive button wired through the result payload (onRevive) must win over any generic btn-next handler.
+    this.el.next?.addEventListener('click', (e) => {
+      if (this.reviveFn) { e.stopImmediatePropagation(); e.stopPropagation(); const fn = this.reviveFn; snd('ui', 'confirm'); try { fn(); } catch { /* the runner decides; never break the button */ } }
+    });
+    this.el.tutor?.addEventListener('click', (e) => { e.stopPropagation(); const fn = this._tutorTap; this.runnerTutor(null); if (fn) fn(); });
   }
 
   on(id, fn) {
@@ -33,26 +110,52 @@ export class UI {
   }
 
   showMenu({ level, stars, dailyNum, dailyBest, theme }) {
+    hideBoot();
     this.clearTimers();
     this.el.menu.classList.remove('hidden');
     this.el.result.classList.add('hidden');
     this.el.pause.classList.add('hidden');
     this.el.hud.classList.add('hidden');
+    this.resetHud();
     this.el.menuLevel.textContent = theme ? `DAĞ ${level} · ${theme.toLocaleUpperCase('tr-TR')}` : `DAĞ ${level}`;
     this.el.menuStars.innerHTML = [0, 1, 2].map((i) => `<span class="${i < stars ? '' : 'off'}">★</span>`).join('');
     this.el.daily.textContent = dailyBest ? `🏔️ GÜNÜN DAĞI #${dailyNum} · ${fmtTons(dailyBest)}` : `🏔️ GÜNÜN DAĞI #${dailyNum}`;
   }
 
-  // ---------- endless mode ----------
+  // Clears every v2 HUD widget (buffs, hunger, turn arrow, stomp text, ÇIĞ block, banners, tutor, revive).
+  resetHud() {
+    this._sc = this._co = this._di = this._mu = null; // HUD number caches: the next frame rewrites everything
+    this._prog = -1;
+    this.lastVitals = '';
+    this.buffClear();
+    this.turnCue(0);
+    this.hungerHide();
+    this.cigReset();
+    this.el.stomp.classList.add('hidden');
+    this.el.cigBanner.classList.remove('on'); this.el.cigBanner.classList.add('hidden');
+    this.el.buffFly.innerHTML = '';
+    this.el.toastSoft.innerHTML = '';
+    this.el.toastSoft.classList.remove('res');
+    this.runnerTutor(null);
+    this.hideRunnerRevive();
+    this.el.banner.innerHTML = '';
+    this.el.banner.classList.remove('runner');
+    this.reviveFn = null;
+  }
+
+  // ---------- endless mode (YETİ RUSH) ----------
   runnerHud(on, biomeName) {
+    hideBoot();
     this.el.menu.classList.add('hidden');
     this.el.result.classList.add('hidden');
     this.el.result.classList.toggle('runner', on);
     this.el.hud.classList.toggle('hidden', !on);
+    this.el.hud.classList.remove('cig-endless');
     this.el.coins.classList.toggle('hidden', !on);
     this.el.vitals.classList.toggle('hidden', !on);
     this.el.yeti.classList.toggle('hidden', !on);
     this.el.flow.classList.toggle('hidden', !on);
+    this.resetHud();
     if (!on) this.runnerDanger(0, 0, 0);
     this.runnerGoal(null); // the runner switches it on once it knows the next goal (endless only)
     this.runnerSurge(false);
@@ -60,31 +163,44 @@ export class UI {
     this.lastFlow = this.lastRec = null;
     this.lastVitals = '';
     if (!on) return;
-    this.el.level.textContent = biomeName.toUpperCase();
+    this.el.banner.classList.add('runner');
+    this.el.level.textContent = String(biomeName || '').toLocaleUpperCase('tr-TR');
     this.el.floats.innerHTML = '';
-    this.el.banner.innerHTML = '';
     this.floatCount = 0;
     this.setCombo(0);
-    this.hint(true, 'kaydır · yukarı: zıpla');
+    // the swipe hint only teaches brand-new players
+    let runs = 0;
+    try { runs = meta.stats().runs || 0; } catch { runs = 0; }
+    this.hint(runs < 3, 'kaydır · yukarı: zıpla');
     this.lastBiome = biomeName;
   }
 
   runnerStats(score, coins, mult, biomeT, dist, biomeName) {
-    const s = Math.round(score).toLocaleString('tr-TR');
-    if (s !== this.lastTonsText) { this.el.tons.textContent = s; this.lastTonsText = s; }
-    const c = `❄️ ${coins} · ${dist} m`;
-    if (c !== this.lastCoins) { this.el.coins.textContent = c; this.lastCoins = c; }
-    if (biomeName && biomeName !== this.lastBiome) { this.el.level.textContent = biomeName.toUpperCase(); this.lastBiome = biomeName; }
-    if (mult > 1) { this.el.combo.textContent = `x${mult} SKOR`; this.el.combo.classList.add('on'); }
-    else if (this.el.combo.textContent.endsWith('SKOR')) this.el.combo.classList.remove('on');
+    // numbers are compared first: no string building / Intl formatting on frames where nothing visible changed
+    const sc = Math.round(score);
+    if (sc !== this._sc) { this._sc = sc; const s = fmtN(sc); this.el.tons.textContent = s; this.lastTonsText = s; }
+    if (coins !== this._co || dist !== this._di) { this._co = coins; this._di = dist; this.el.coins.textContent = `❄️ ${coins} · ${dist} m`; }
+    if (biomeName && biomeName !== this.lastBiome) { this.el.level.textContent = String(biomeName).toLocaleUpperCase('tr-TR'); this.lastBiome = biomeName; }
+    if (mult !== this._mu) {
+      this._mu = mult;
+      if (mult > 1) { this.el.combo.textContent = `x${mult} SKOR`; this.el.combo.classList.add('on'); }
+      else if (this.el.combo.textContent.endsWith('SKOR')) this.el.combo.classList.remove('on');
+    }
     this.setProgress(biomeT);
   }
 
-  // Size = health pips, growth to next size, Yeti closeness, active power-ups.
-  runnerVitals({ tier, tiers, grow, gap, yetiMax, helmet, magnet, rocket, x2, superjump, sled }) {
-    const key = `${tier}|${Math.round(grow * 20)}|${Math.round(gap)}|${helmet}|${magnet}|${rocket}|${x2}|${superjump}|${sled}`;
-    if (key === this.lastVitals) return;
-    this.lastVitals = key;
+  // Size = health pips + growth, Yeti closeness, active power-ups. Understands both the old ({gap, yetiMax}) and the new
+  // ({yeti: {mode: 'stumble'|'hold'|null, frac}}) shape.
+  runnerVitals(v) {
+    const { tier, tiers, grow, gap, yetiMax, helmet, helmetT, magnet, rocket, x2, superjump, sled, sledCd, yeti } = v;
+    const ym = yeti ? yeti.mode || '' : '';
+    const yf = yeti ? Math.round(clamp01(yeti.frac) * 50) : (yetiMax ? Math.round(clamp01(1 - gap / yetiMax) * 50) : 0);
+    const L = this._vit || (this._vit = { tier: -2, g: -1, yf: -1, ym: '', h: 0, m: 0, r: 0, x: 0, s: 0, sl: 0, sc: 0 });
+    const gq = Math.round(grow * 20);
+    if (this.lastVitals !== '' && L.tier === tier && L.g === gq && L.yf === yf && L.ym === ym && L.h === (helmet ? 1 : 0) && L.m === (magnet ? 1 : 0) && L.r === (rocket ? 1 : 0)
+      && L.x === (x2 ? 1 : 0) && L.s === (superjump ? 1 : 0) && L.sl === (sled ? 1 : 0) && L.sc === (sledCd ? 1 : 0)) return;
+    L.tier = tier; L.g = gq; L.yf = yf; L.ym = ym; L.h = helmet ? 1 : 0; L.m = magnet ? 1 : 0; L.r = rocket ? 1 : 0; L.x = x2 ? 1 : 0; L.s = superjump ? 1 : 0; L.sl = sled ? 1 : 0; L.sc = sledCd ? 1 : 0;
+    this.lastVitals = 'x';
     if (this.lastTier !== tier || !this.el.pips.children.length) {
       this.lastTier = tier;
       let html = '';
@@ -95,58 +211,156 @@ export class UI {
       }
       this.el.pips.innerHTML = html;
     }
-    this.el.grow.style.width = `${Math.round(Math.max(0, Math.min(1, grow)) * 100)}%`;
-    const close = 1 - Math.max(0, Math.min(1, gap / yetiMax));
-    this.el.yetiFill.style.width = `${Math.round(close * 100)}%`;
-    this.el.yeti.classList.toggle('close', gap < 14);
+    this.el.grow.style.width = `${Math.round(clamp01(grow) * 100)}%`;
+    if (yeti || yetiMax) {
+      const close = yeti ? clamp01(yeti.frac) : clamp01(1 - gap / yetiMax);
+      this.el.yetiFill.style.width = `${Math.round(close * 100)}%`;
+      this.el.yeti.classList.toggle('close', yeti ? ym === 'stumble' : gap < 14);
+      this.el.yetiLbl.textContent = ym === 'stumble' ? 'YETİ ARKANDA!' : ym === 'hold' ? 'YETİ ENSENDE' : '';
+    }
     this.el.powers.textContent = `${sled ? '🛷' : ''}${helmet ? '⛑️' : ''}${magnet ? '🧲' : ''}${rocket ? '🚀' : ''}${x2 ? '✖️+3' : ''}${superjump ? '👟' : ''}`;
   }
 
-  showRunnerResult({ title, distance, score, coins, best, isBest, canRevive, reviveCost = 0, boxes = 0, rank = 0, toRecord = 0, missions = [], layer = 1, dailyBest = false, destruction = '', tons = 0 }) {
+  // red tick on the size bar when smashing costs snow
+  runnerSizeTick() {
+    const gb = $('hud-growbar');
+    if (!gb) return;
+    gb.classList.remove('tick');
+    void gb.offsetWidth;
+    gb.classList.add('tick');
+    setTimeout(() => gb.classList.remove('tick'), 520);
+  }
+
+  // ---------- result screen (YETİ RUSH) ----------
+  // p: { title?, cause?, killKind?, tip?, distance, score, coins, best, bestDist, isBest, isBestDist, canRevive, reviveCost, crystals,
+  //      rank, toRecord, missions?, onRevive? }. No box overlay, no upgrade card, no chained popups.
+  showRunnerResult(p) {
+    const { distance = 0, score = 0, coins = 0, best = 0, canRevive = false, rank = 0, toRecord = 0, onRevive = null } = p || {};
     this.runnerDanger(0, 0, 0);
     this.runnerGoal(null);
     this.runnerSurge(false);
     this.clearTimers();
+    // (the buff icons stay in the hidden #hud on purpose: a revive continues the same run with the same cards)
+    this.turnCue(0);
+    this.hideRunnerRevive();
+    this.runnerTutor(null);
     this.el.hud.classList.add('hidden');
     this.el.coins.classList.add('hidden');
     this.el.flow.classList.add('hidden');
     this.el.record.classList.add('hidden');
-    // "One more run" hooks: how close the record was, the run's rank, mission progress.
-    const ex = this.el.resExtra;
-    let html = '';
-    if (isBest) html += '<div class="rx-line">🏆 EN İYİ KOŞUN!</div>';
-    else if (toRecord > 0 && toRecord < Math.max(400, distance * 0.6)) html += `<div class="rx-line">Rekora ${toRecord.toLocaleString('tr-TR')} m kaldı!</div>`;
-    else if (rank > 0 && rank <= 10) html += `<div class="rx-line">#${rank}. en iyi koşun</div>`;
-    if (dailyBest && !isBest) html += '<div class="rx-line">☀️ BUGÜNÜN REKORU!</div>';
-    html += `<div class="rx-line" style="font-size:14px;color:#cfe6ff">KATMAN ${layer}${tons ? ` · YIKIM: ${destruction} (${tons.toLocaleString('tr-TR')} ton)` : ''}</div>`;
-    for (const m of missions.slice(0, 3)) {
-      const f = Math.max(0, Math.min(1, (m.value || 0) / (m.goal || 1)));
-      html += `<div class="rx-m ${m.done ? 'done' : ''}"><span>${m.icon || '📜'}</span><span class="rx-t">${m.text}</span><span class="rx-b"><i style="width:${Math.round(f * 100)}%"></i></span></div>`;
-    }
-    ex.innerHTML = html;
-    ex.classList.toggle('hidden', !html);
     this.el.vitals.classList.add('hidden');
     this.el.yeti.classList.add('hidden');
+    this.el.toastSoft.classList.add('res');
+    this.hint(false);
+
+    const dt = runnerDeathText(p && p.cause, p && p.killKind);
+    const title = (p && p.cause && DEATH[p.cause] ? dt.title : p && p.title) || dt.title;
+    let bestDist = p && p.bestDist;
+    if (!(bestDist > 0)) { try { bestDist = save.runnerBestDist(); } catch { bestDist = 0; } }
+    const isRec = !!(p && (p.isBestDist ?? p.isBest));
+
+    // what the soft toasts / mission rows should say (queued mid-run notices are drained here, never shown during play)
+    const mrep = this.missionBlock(p && p.missions);
+
+    const ex = this.el.resExtra;
+    let html = '';
+    if (isRec) html += '';
+    else if (toRecord > 0 && toRecord < Math.max(400, distance * 0.6)) html += `<div class="rx-line">Rekora ${fmtN(toRecord)} m kaldı!</div>`;
+    else if (rank > 0 && rank <= 3) html += `<div class="rx-line">#${rank}. en iyi koşun</div>`;
+    else if ((p && p.tip) || dt.tip) html += `<div class="rx-dim">${(p && p.tip) || dt.tip}</div>`;
+    html += mrep.html;
+    html += this.goalBlock();
+    ex.innerHTML = html;
+    ex.classList.toggle('hidden', !html);
+
     this.el.result.classList.remove('hidden');
     this.el.result.classList.add('runner');
     this.el.resTitle.textContent = title;
+    this.el.resBadge.classList.toggle('hidden', !isRec);
     this.el.resLabel.textContent = 'metre';
-    this.el.resSub.textContent = isBest ? 'YENİ REKOR!' : `REKOR ${best.toLocaleString('tr-TR')}`;
-    this.el.resCoins.classList.remove('hidden');
-    this.el.resCoins.textContent = `❄️ +${coins}${boxes ? `  ·  🎁 x${boxes}` : ''}`;
-    this.el.next.textContent = canRevive ? (reviveCost ? `DEVAM ET 💎${reviveCost}` : 'DEVAM ET ▶') : 'ANA MENÜ';
-    const t0 = performance.now(), dur = 900;
+    this.el.resSub.textContent = isRec ? '' : `REKOR ${fmtN(bestDist)} m`;
+    this.el.resCoins.classList.toggle('hidden', !coins);
+    let wallet = 0;
+    try { wallet = save.coins; } catch { wallet = 0; }
+    this.el.resCoins.innerHTML = coins ? `❄️ +${fmtN(coins)}<small>toplam ${fmtN(wallet)}</small>` : '';
+
+    // buttons: TEKRAR is the big thumb-zone button, MENÜ small, BENİ KURTAR only when you can really pay for it
+    let cost = p && p.reviveCost ? p.reviveCost : 0;
+    let cr = p && Number.isFinite(p.crystals) ? p.crystals : null;
+    try { if (cr === null) cr = save.crystals(); } catch { cr = 0; }
+    const show = !!canRevive && cost > 0 ? cr >= cost : !!canRevive && cost === 0 && cr > 0;
+    this.reviveFn = show && typeof onRevive === 'function' ? onRevive : null;
+    this.el.next.classList.toggle('hidden', !show);
+    this.el.next.classList.toggle('revive', show);
+    this.el.next.classList.remove('next');
+    this.el.next.textContent = show ? `BENİ KURTAR 💎${cost || 1}` : '';
+    this.el.retry.classList.remove('hidden');
+    this.el.retry.textContent = '↻ TEKRAR';
+    this.el.menuBtn.classList.remove('hidden');
+
+    this.countUp(distance, (v, e) => {
+      this.el.resPct.textContent = `${fmtN(v)} m`;
+      this.el.resTons.textContent = `SKOR ${fmtN(score * e)}`;
+    });
+    this.flushNotices(mrep.notices);
+  }
+
+  // Missions block (3 rows + multiplier) for the result screens. Drains the queued notices.
+  missionBlock(fallback) {
+    let rep = null;
+    try { rep = meta.missionsReport(); } catch { rep = null; }
+    let notices = [];
+    try { notices = meta.takeNotices(); } catch { notices = []; }
+    const rows = rep && rep.rows ? rep.rows : Array.isArray(fallback) ? fallback.slice(0, 3) : [];
+    if (!rows.length) return { html: '', notices };
+    const mult = rep ? rep.mult : 1;
+    const up = !!(rep && rep.setDone);
+    let html = `<div class="rx-head"><span>GÖREVLER</span><span class="rx-mult${up ? ' up' : ''}">ÇARPAN x${mult}${up ? ' ▲' : ''}</span></div>`;
+    for (const m of rows.slice(0, 3)) {
+      const f = clamp01((m.value || 0) / (m.goal || 1));
+      html += `<div class="rx-m${m.done ? ' done' : ''}${m.justDone ? ' just' : ''}"><span>${m.icon || '📜'}</span><span class="rx-t">${m.text}</span><span class="rx-b"><i style="width:${Math.round(f * 100)}%"></i></span><span class="rx-c">${m.done ? '✓' : ''}</span></div>`;
+    }
+    return { html, notices };
+  }
+
+  // The next thing coins can buy (a skin, a trail or an upgrade) as a progress bar.
+  goalBlock() {
+    let g = null;
+    try { g = nextGoal(save); } catch { g = null; }
+    if (!g) return '';
+    return `<div class="rx-goal"><div class="rg-t"><span>${g.icon} ${g.name}</span><b>${fmtN(g.have)} / ${fmtN(g.price)} ❄️</b></div><div class="rg-b"><i style="width:${Math.round(g.frac * 100)}%"></i></div></div>`;
+  }
+
+  // One soft toast per completed mission (max 3), a multiplier toast when the set is done. Achievements are credited silently.
+  flushNotices(list) {
+    if (!list || !list.length) return;
+    let n = 0;
+    for (const x of list) {
+      if (x.kind === 'mission' && n < 3) { const t = x; this.timers.push(setTimeout(() => this.toastSoft(`${t.icon || '🎯'} GÖREV TAMAM: ${t.text}`), 700 + n * 900)); n++; }
+      else if (x.kind === 'missionset') {
+        const t = x, r = x.reward || {};
+        const gift = `${r.coins ? ` · +❄️${fmtN(r.coins)}` : ''}${r.crystals ? ` +💎${r.crystals}` : ''}${r.boxes ? ' +🎁' : ''}`;
+        this.timers.push(setTimeout(() => this.toastSoft(`✖️ ÇARPAN x${t.multiplier}!${gift || ' Görev seti tamam'}`), 700 + n * 900));
+        n++;
+      }
+    }
+  }
+
+  countUp(target, fn, dur = 800) {
+    const t0 = performance.now();
     const tick = () => {
       const k = Math.min(1, (performance.now() - t0) / dur);
       const e = 1 - Math.pow(1 - k, 3);
-      this.el.resPct.textContent = `${Math.round(distance * e).toLocaleString('tr-TR')} m`;
-      this.el.resTons.textContent = `SKOR ${Math.round(score * e).toLocaleString('tr-TR')}`;
+      fn(target * e, e);
       if (k < 1) this.raf = requestAnimationFrame(tick);
     };
     tick();
   }
 
   hideResult() {
+    this.clearTimers(); // pending "GÖREV TAMAM" toasts / count-ups belong to the result screen, not to the continued run
+    this.el.toastSoft.classList.remove('res');
+    this.el.toastSoft.innerHTML = '';
     this.el.result.classList.add('hidden');
     this.el.flow.classList.remove('hidden');
     this.el.record.classList.remove('hidden');
@@ -154,40 +368,55 @@ export class UI {
     this.el.coins.classList.remove('hidden');
     this.el.vitals.classList.remove('hidden');
     this.el.yeti.classList.remove('hidden');
+    this.reviveFn = null;
     this.lastVitals = '';
   }
 
+  // Compat revive panel (thumb zone): the runner may still open it instead of putting BENİ KURTAR on the result screen.
+  showRunnerRevive({ title, distance, cost, crystals }) {
+    this.el.rvTitle.textContent = title || 'PATLADIN!';
+    this.el.rvDist.textContent = `${fmtN(distance || 0)} m`;
+    this.el.btnRevive.textContent = `BENİ KURTAR 💎${cost}`;
+    this.el.btnRevive.classList.toggle('poor', Number.isFinite(crystals) && crystals < cost);
+    this.el.btnReviveEnd.textContent = 'BİTİR';
+    this.el.revive.classList.remove('hidden');
+  }
+
+  hideRunnerRevive() { this.el.revive.classList.add('hidden'); }
+
   // A red "!" over the lane something is coming down/at you (boulder shadow, oncoming snowcat).
-  laneWarn(lane, kind) {
+  laneWarn(lane, kind, x, y) {
+    const now = performance.now();
+    if (now - (this._laneAt || 0) < 500) return;
+    this._laneAt = now;
     const d = document.createElement('div');
     d.className = 'lane-warn';
     d.textContent = kind === 'boulder' ? '⚠' : '❗';
-    d.style.left = `${50 + (lane - 1) * 26}%`;
+    if (Number.isFinite(x)) {
+      // the runner projected the threat onto the screen: put the sign right there (kept off the very top / bottom edge)
+      const H = window.innerHeight || 800;
+      d.style.left = `${Math.round(Math.max(24, Math.min((window.innerWidth || 390) - 24, x)))}px`;
+      if (Number.isFinite(y)) d.style.top = `${Math.round(Math.max(H * 0.2, Math.min(H * 0.62, y - 36)))}px`;
+    } else d.style.left = `${50 + (lane - 1) * 26}%`;
     this.el.floats.appendChild(d);
     setTimeout(() => d.remove(), 1100);
   }
 
+  // Compat for the old pick-1-of-3 cards: nothing blocks any more. Mid-run cards are resolved immediately (random pick) and shown
+  // as a soft toast; the post-run permanent-upgrade card is never shown (upgrades are bought with ❄️ in the shop).
   showPerks(cards, title, onPick) {
-    const wrap = document.getElementById('perks');
-    document.getElementById('perk-title').textContent = title;
-    const box = document.getElementById('perk-cards');
-    box.innerHTML = '';
-    for (const c of cards) {
-      const el = document.createElement('button');
-      el.className = `perk-card ${c.rare ? 'rare' : ''}`;
-      el.innerHTML = `<span class="pi">${c.icon}</span><span><div class="pn">${c.name}</div><div class="pd">${c.desc}</div></span>`;
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        wrap.classList.add('hidden');
-        onPick(c);
-      }, { once: true });
-      box.appendChild(el);
-    }
-    wrap.classList.remove('hidden');
+    if (!cards || !cards.length) return;
+    if (/KALICI/i.test(String(title))) return;
+    const c = cards[Math.floor(Math.random() * cards.length)];
+    this.toastSoft(`${c.icon} ${c.name}`);
+    try { onPick && onPick(c); } catch { /* ignore */ }
   }
 
   // Score bonuses are additive now (they add to the x-multiplier): danger / chain / risk are the +N each contributes.
   runnerDanger(danger, chain, risk) {
+    // called every frame: nothing is built (no array / string) unless one of the three numbers changed
+    if (danger === this._dgD && chain === this._dgC && risk === this._dgR) return;
+    this._dgD = danger; this._dgC = chain; this._dgR = risk;
     const el = this.dangerEl || (this.dangerEl = document.getElementById('danger'));
     const parts = [];
     if (risk) parts.push(`RİSK +${risk}`);
@@ -243,14 +472,25 @@ export class UI {
     if (key === this.lastFlow) return;
     this.lastFlow = key;
     this.el.flowFill.style.width = `${Math.round(frac * 100)}%`;
-    this.el.flowLbl.textContent = lvl ? `AKIŞ x${lvl + 1}` : 'AKIŞ';
+    this.el.flowLbl.textContent = lvl ? `AKIŞ +${lvl}` : 'AKIŞ';
     this.el.flow.className = `hud-flow l${lvl}`;
   }
 
-  runnerRecord(best) {
-    if (best === this.lastRec) return;
-    this.lastRec = best;
-    this.el.record.textContent = best ? `REKOR ${Math.round(best).toLocaleString('tr-TR')}` : '';
+  // runnerRecord(bestDist, dist): distance record flag. Old callers pass only a score and get a plain label.
+  runnerRecord(best, dist) {
+    if (dist === undefined) {
+      if (best === this.lastRec) return;
+      this.lastRec = best;
+      this.el.record.textContent = best ? `REKOR ${Math.round(best).toLocaleString('tr-TR')}` : '';
+      return;
+    }
+    const over = dist > best;
+    const km = over ? Math.floor(dist / 1000) : -1;
+    const bq = Math.round(best);
+    if (bq === this._rb && km === this._rk && this.lastRec === 'd') return;
+    this._rb = bq; this._rk = km; this.lastRec = 'd';
+    if (!best) { this.el.record.textContent = ''; return; }
+    this.el.record.textContent = over ? `HEDEF ${km + 1} km` : `REKOR ${fmtN(best)} m`;
   }
 
   speedLines(k) {
@@ -260,8 +500,12 @@ export class UI {
     if (q !== this.lastSpeed) { this.lastSpeed = q; el.style.opacity = String(q * 0.85); }
   }
 
+  // No full-screen white flash: every kind is a soft edge vignette ('hit' red, 'gold' gold, the rest barely-there white).
   flash(kind = 'hit') {
     const el = this.flashEl || (this.flashEl = document.getElementById('flash'));
+    const now = performance.now();
+    if (now - (this._flashAt || 0) < 250) return;
+    this._flashAt = now;
     el.className = '';
     void el.offsetWidth; // restart the animation
     el.className = kind;
@@ -270,7 +514,9 @@ export class UI {
   setMenuBest(text) { this.el.menuBest.textContent = text; }
 
   startRun(label) {
+    hideBoot();
     this.clearTimers();
+    this.resetHud();
     this.el.resExtra?.classList.add('hidden');
     this.el.flow?.classList.add('hidden');
     this.el.record?.classList.add('hidden');
@@ -281,12 +527,12 @@ export class UI {
     this.el.resLabel.textContent = 'kasaba yıkıldı';
     this.el.coins.classList.add('hidden');
     this.runnerGoal(null);
+    this.el.hud.classList.remove('cig-endless');
     this.el.menu.classList.add('hidden');
     this.el.result.classList.add('hidden');
     this.el.hud.classList.remove('hidden');
     this.el.level.textContent = label;
     this.el.floats.innerHTML = '';
-    this.el.banner.innerHTML = '';
     this.floatCount = 0;
     this.setCombo(0);
   }
@@ -311,7 +557,10 @@ export class UI {
   }
 
   setProgress(p) {
-    const v = `${Math.max(0, Math.min(1, p)) * 100}%`;
+    const q = Math.round(Math.max(0, Math.min(1, p)) * 200) / 2; // 0.5 % steps: no DOM write when nothing visibly changed
+    if (q === this._prog) return;
+    this._prog = q;
+    const v = `${q}%`;
     this.el.prog.style.width = v;
     this.el.dot.style.left = v;
   }
@@ -323,8 +572,12 @@ export class UI {
     } else this.el.combo.classList.remove('on');
   }
 
+  // Floating text is rationed (plain ones at most one a second, the rarer big/bad ones every 0.65 s) and never piles up.
   float(text, x, y, cls = '') {
-    if (this.floatCount > 8) return;
+    const now = performance.now();
+    const prio = cls === 'big' || cls === 'bad';
+    if (now - this._lastFloat < (prio ? 650 : 1000) || this.floatCount > 2) return;
+    this._lastFloat = now;
     const d = document.createElement('div');
     d.className = `float ${cls}`;
     d.textContent = text;
@@ -336,6 +589,10 @@ export class UI {
   }
 
   banner(text, level = 1) {
+    const now = performance.now();
+    // a small banner never stomps a bigger one that is still on screen
+    if (now - this._banAt < 900 && level < this._banLv) return;
+    this._banAt = now; this._banLv = level;
     this.el.banner.innerHTML = '';
     const b = document.createElement('div');
     b.className = `b l${level}`;
@@ -343,30 +600,289 @@ export class UI {
     this.el.banner.appendChild(b);
   }
 
-  showResult({ title, pct, stars, tons, sub, coins, hasNext }, sfx) {
-    this.el.resCoins.classList.toggle('hidden', !coins);
-    if (coins) this.el.resCoins.textContent = `❄️ +${coins}`;
+  // ---------- v2 HUD API ----------
+
+  // ---- buff cards: icon + radial countdown top-right, a 1 s fly-in card at the top edge on add ----
+  buffAdd(id, icon, name, secs) {
+    id = String(id);
+    let b = this.buffMap.get(id);
+    if (!b) {
+      const el = document.createElement('div');
+      el.className = 'buff';
+      el.style.setProperty('--bc', buffColor(id));
+      el.style.setProperty('--p', '1');
+      el.innerHTML = '<span class="bi"></span>';
+      el.firstChild.textContent = icon || '✨';
+      el.setAttribute('aria-label', name || id);
+      this.el.buffs.appendChild(el);
+      b = { el, q: 72, total: secs, low: false };
+      this.buffMap.set(id, b);
+    } else {
+      b.total = secs; b.q = 72; b.low = false;
+      b.el.classList.remove('low', 'out');
+      b.el.style.setProperty('--p', '1');
+    }
+    try { meta.track('buff', { id }); } catch { /* ignore */ }
+    snd('chime');
+    // fly-in card
+    if (this.el.buffFly.children.length < 3) {
+      const card = document.createElement('div');
+      card.className = 'buff-card';
+      const ic = document.createElement('div'); ic.className = 'bc-i'; ic.textContent = icon || '✨';
+      const tx = document.createElement('div');
+      const nm = document.createElement('div'); nm.className = 'bc-n'; nm.textContent = name || '';
+      const sb = document.createElement('div'); sb.className = 'bc-s'; sb.textContent = `${fmtClock(secs)} SÜRESİNCE`;
+      tx.appendChild(nm); tx.appendChild(sb);
+      card.appendChild(ic); card.appendChild(tx);
+      const r = b.el.getBoundingClientRect();
+      const W = window.innerWidth || 390;
+      card.style.setProperty('--dx', `${Math.round(r.left + r.width / 2 - W / 2)}px`);
+      card.style.setProperty('--dy', `${Math.round(r.top + r.height / 2 - 70)}px`);
+      card.addEventListener('animationend', () => card.remove());
+      this.el.buffFly.appendChild(card);
+    }
+  }
+
+  // list = [{id, left, total}] every ~0.25 s
+  buffTick(list) {
+    if (!list) return;
+    for (let i = 0; i < list.length; i++) {
+      const it = list[i];
+      const b = this.buffMap.get(String(it.id));
+      if (!b) continue;
+      const total = it.total > 0 ? it.total : b.total || 1;
+      const q = Math.round(clamp01(it.left / total) * 72);
+      if (q !== b.q) { b.q = q; b.el.style.setProperty('--p', String(q / 72)); }
+      const low = it.left > 0 && it.left <= Math.min(8, total * 0.3); // 90 s cards blink for their last 8 s, a 5 s power-up only at the very end
+      if (low !== b.low) { b.low = low; b.el.classList.toggle('low', low); }
+    }
+  }
+
+  buffRemove(id) {
+    id = String(id);
+    const b = this.buffMap.get(id);
+    if (!b) return;
+    this.buffMap.delete(id);
+    b.el.classList.remove('low');
+    b.el.classList.add('out');
+    setTimeout(() => b.el.remove(), 320);
+  }
+
+  buffClear() {
+    for (const b of this.buffMap.values()) b.el.remove();
+    this.buffMap.clear();
+    if (this.el.buffs) this.el.buffs.innerHTML = '';
+  }
+
+  // ---- turn cue: a big chevron on the turn side in the bottom corner; pulses faster as the corner nears ----
+  turnCue(dir, urgency = 0) {
+    const el = this.el.turn;
+    if (!dir) {
+      if (this._tcDir) { this._tcDir = 0; this._tcU = -1; el.classList.add('hidden'); }
+      return;
+    }
+    const d = dir < 0 ? -1 : 1;
+    const u = Math.round(clamp01(urgency) * 10) / 10;
+    if (d !== this._tcDir) {
+      this._tcDir = d;
+      el.className = d < 0 ? 'tc-l' : 'tc-r';
+      this._tcU = -1;
+    }
+    if (u !== this._tcU) {
+      this._tcU = u;
+      el.style.setProperty('--tcp', `${(0.8 - 0.58 * u).toFixed(2)}s`);
+    }
+  }
+  runnerTurn(dir) { this.turnCue(dir || 0, this._tcU > 0 ? this._tcU : 0.3); }
+  runnerTurnOk(dir) {
+    const el = this.el.turn;
+    if (!dir) return;
+    snd('turn');
+    this.turnCue(dir, 1);
+    el.classList.add('ok');
+    clearTimeout(this._tcOkT);
+    this._tcOkT = setTimeout(() => { el.classList.remove('ok'); this.turnCue(0); }, 450);
+  }
+
+  // ---- hunger / size meter: blue -> red, pulses when warn ----
+  hunger(frac, warn = false) {
+    if (!this._hgOn) {
+      this._hgOn = true;
+      this._hgQ = -1; this._hgHue = -1; this._hgWarn = false;
+      this.el.hunger.classList.remove('hidden');
+      this.el.hud.classList.add('has-hunger');
+    }
+    const f = clamp01(frac);
+    const q = Math.round(f * 100);
+    if (q !== this._hgQ) {
+      this._hgQ = q;
+      this.el.hgFill.style.setProperty('--f', String(q / 100));
+      const hue = Math.round(205 * clamp01((f - 0.1) / 0.55) / 4) * 4;
+      if (hue !== this._hgHue) { this._hgHue = hue; this.el.hgFill.style.setProperty('--hc', `hsl(${hue} 88% 56%)`); }
+    }
+    const w = !!warn;
+    if (w !== this._hgWarn) { this._hgWarn = w; this.el.hunger.classList.toggle('warn', w); }
+  }
+  hungerHide() {
+    if (!this._hgOn) return;
+    this._hgOn = false;
+    this._hgWarn = false;
+    this.el.hunger.classList.add('hidden');
+    this.el.hunger.classList.remove('warn');
+    this.el.hud.classList.remove('has-hunger');
+  }
+
+  // ---- stomp combo: small 'EZ x3!' above the ball ----
+  stompCombo(n) {
+    const el = this.el.stomp;
+    if (!(n > 0)) { el.classList.add('hidden'); el.classList.remove('pop'); return; }
+    const now = performance.now();
+    if (now - this._stompAt < 60) return;
+    this._stompAt = now;
+    try { meta.track('stomp', { combo: n }); } catch { /* ignore */ }
+    snd('stomp', n - 1);
+    el.textContent = n > 1 ? `EZ x${n}!` : 'EZ!';
+    el.classList.remove('hidden', 'pop');
+    void el.offsetWidth;
+    el.classList.add('pop');
+    clearTimeout(this._stompT);
+    this._stompT = setTimeout(() => { el.classList.add('hidden'); el.classList.remove('pop'); }, 950);
+  }
+
+  // ---- ÇIĞ SONSUZ HUD ----
+  // d = {tons, dist, tierName, frac (progress to the next tier), best}
+  cigHud(d) {
+    if (!d) return;
+    const c = this._cg;
+    if (this.el.cigHud.classList.contains('hidden')) {
+      this.el.cigHud.classList.remove('hidden');
+      this.el.hud.classList.add('cig-endless');
+      this.el.level.textContent = 'ÇIĞ SONSUZ';
+    }
+    // numbers are compared first (no Intl formatting / string building on frames where nothing visible changed)
+    const kg = Math.round((d.tons || 0) * 1000);
+    if (kg !== c.kg) { c.kg = kg; const ts = fmtTons(kg / 1000); this.el.tons.textContent = ts; this.lastTonsText = ts; }
+    const tnRaw = d.tierName || '';
+    if (tnRaw !== c.tnRaw) { c.tnRaw = tnRaw; this.el.cgTn.textContent = String(tnRaw).toLocaleUpperCase('tr-TR'); }
+    const q = Math.round(clamp01(d.frac) * 100);
+    if (q !== c.fill) { c.fill = q; this.el.cgFill.style.setProperty('--f', String(q / 100)); }
+    const dm = Math.round(d.dist || 0);
+    if (dm !== c.dm) { c.dm = dm; this.el.cgDist.textContent = `${fmtN(dm)} m`; }
+    const bv = d.best && typeof d.best === 'object' ? d.best.tons : d.best;
+    const bk = bv > 0 ? Math.round(bv * 1000) : 0;
+    if (bk !== c.bk) { c.bk = bk; this.el.cgBest.textContent = bk ? `REKOR ${fmtTons(bk / 1000)}` : ''; }
+  }
+
+  cigReset() {
+    this.el.cigHud.classList.add('hidden');
+    this.el.hud.classList.remove('cig-endless');
+    this._cg = { kg: -1, tnRaw: null, fill: -1, dm: -1, bk: -1 };
+  }
+
+  cigTier(name) {
+    const el = this.el.cigBanner;
+    this.el.cbN.textContent = String(name || '').toLocaleUpperCase('tr-TR');
+    el.classList.remove('hidden', 'on');
+    void el.offsetWidth;
+    el.classList.add('on');
+    clearTimeout(this._cbT);
+    this._cbT = setTimeout(() => { el.classList.remove('on'); el.classList.add('hidden'); }, 1250);
+    this.flash('gold');
+    try { meta.track('cig_tier', { name: String(name || '') }); } catch { /* ignore */ }
+  }
+
+  // ---- small non-blocking toast (top edge, never in the middle) ----
+  toastSoft(text, opts) {
+    if (!text) return;
+    const now = performance.now();
+    if (text === this._tsLast && now - this._tsAt < 2500) return;
+    this._tsLast = text; this._tsAt = now;
+    const box = this.el.toastSoft;
+    while (box.children.length >= 2) box.firstChild.remove();
+    const d = document.createElement('div');
+    d.className = 'ts';
+    const ico = opts && opts.icon;
+    if (ico) { const i = document.createElement('span'); i.className = 'ti'; i.textContent = ico; d.appendChild(i); }
+    const t = document.createElement('span');
+    t.textContent = text;
+    d.appendChild(t);
+    d.addEventListener('animationend', () => d.remove());
+    box.appendChild(d);
+  }
+
+  // ---- first-run tutor card (top edge). card = {icon, title, text} or null ----
+  runnerTutor(card, onTap) {
+    const el = this.el.tutor;
+    if (!el) return;
+    if (!card) { el.classList.add('hidden'); this._tutorTap = null; return; }
+    el.querySelector('.tt-icon').textContent = card.icon || '';
+    el.querySelector('.tt-title').textContent = card.title || '';
+    el.querySelector('.tt-text').textContent = card.text || '';
+    this._tutorTap = onTap || null;
+    el.classList.remove('hidden');
+  }
+
+  // ---------- legacy ÇIĞ levels ----------
+  showResult({ title, pct, stars, tons, sub, coins, hasNext, endless, dist, distance, best, isBest, newBest, cause, tip, tierName, onRevive }, sfx) {
+    this.clearTimers();
+    this.buffClear();
+    this.hungerHide();
+    this.cigReset();
+    this.hideRunnerRevive();
+    this.hint(false);
+    const isEndless = !!(endless || dist != null || distance != null || tierName);
+    this.el.toastSoft.classList.add('res');
     this.el.hud.classList.add('hidden');
     this.el.result.classList.remove('hidden');
+    this.el.result.classList.toggle('runner', isEndless); // hides the star row
+    this.el.next.classList.remove('revive');
+    this.el.next.classList.add('next');
+    this.el.retry.classList.remove('hidden');
+    this.el.menuBtn.classList.remove('hidden');
+    this.reviveFn = null;
+    this.el.resCoins.classList.toggle('hidden', !coins);
+    this.el.resCoins.innerHTML = coins ? `❄️ +${fmtN(coins)}` : '';
+    const dt = runnerDeathText(cause);
+    const rec = !!(isBest || newBest);
+    const mrep = this.missionBlock(null);
+
+    if (isEndless) {
+      const dd = dist != null ? dist : distance || 0;
+      const bt = best && typeof best === 'object' ? best.tons : best;
+      const bd = best && typeof best === 'object' ? best.dist : 0;
+      this.el.resTitle.textContent = cause && DEATH[cause] ? dt.title : title || dt.title;
+      this.el.resBadge.classList.toggle('hidden', !rec);
+      this.el.resLabel.textContent = tierName ? String(tierName).toLocaleUpperCase('tr-TR') : 'çığ boyutu';
+      this.el.resSub.textContent = rec ? '' : bt > 0 ? `REKOR ${fmtTons(bt)}${bd > 0 ? ` · ${fmtN(bd)} m` : ''}` : sub || '';
+      this.el.next.classList.add('hidden');
+      let html = (!rec && (tip || dt.tip)) ? `<div class="rx-dim">${tip || dt.tip}</div>` : '';
+      html += mrep.html + this.goalBlock();
+      this.el.resExtra.innerHTML = html;
+      this.el.resExtra.classList.toggle('hidden', !html);
+      this.countUp(tons, (v) => { this.el.resPct.textContent = fmtTons(v); this.el.resTons.textContent = `${fmtN(dd * (v / Math.max(tons, 0.0001)))} m`; });
+      this.flushNotices(mrep.notices);
+      return;
+    }
+
+    this.el.resBadge.classList.add('hidden');
     this.el.resTitle.textContent = title;
     this.el.resSub.textContent = sub || '';
-    this.el.next.textContent = hasNext ? 'SONRAKİ DAĞ' : 'ANA MENÜ';
+    this.el.resLabel.textContent = 'kasaba yıkıldı';
+    this.el.next.textContent = 'SONRAKİ DAĞ ▶';
+    this.el.next.classList.toggle('hidden', !hasNext);
+    this.el.resExtra.innerHTML = mrep.html;
+    this.el.resExtra.classList.toggle('hidden', !mrep.html);
     const spans = this.el.resStars.children;
     for (const s of spans) s.classList.remove('on');
-    this.clearTimers();
-    // Count the numbers up — the payoff should feel like a slot machine.
-    const t0 = performance.now(), dur = 1100;
-    const tick = () => {
-      const k = Math.min(1, (performance.now() - t0) / dur);
-      const e = 1 - Math.pow(1 - k, 3);
+    // Count the numbers up: the payoff should feel like a slot machine.
+    this.countUp(1, (_, e) => {
       this.el.resPct.textContent = `%${Math.round(pct * 100 * e)}`;
       this.el.resTons.textContent = fmtTons(tons * e);
-      if (k < 1) this.raf = requestAnimationFrame(tick);
-    };
-    tick();
+    }, 1100);
     for (let i = 0; i < stars; i++) {
       this.timers.push(setTimeout(() => { spans[i].classList.add('on'); sfx?.star(i); }, 500 + i * 380));
     }
+    this.flushNotices(mrep.notices);
   }
 
   clearTimers() {
@@ -391,3 +907,5 @@ export class UI {
     this.el.debug.textContent = text;
   }
 }
+
+UI.prototype.runnerDeathText = runnerDeathText;

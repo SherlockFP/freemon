@@ -1,17 +1,19 @@
 import * as THREE from 'three';
-import { Track, LANES, flightDist } from './track.js';
+import { Track, flightDist } from './track.js';
 import { Obstacles } from './obstacles.js';
 import { Environment, biomeAt, trackPalette, musicStyleAt } from './biomes.js';
 import * as Biomes from './biomes.js';
-import { PERKS, rollPerks, UPGRADES, DESTRUCTION, destructionTier } from './perks.js';
+import { BuffSet, rollBuff, BUFF_LEN, DESTRUCTION, destructionTier } from './perks.js';
 import { music } from './music.js';
 import { patchMaterial } from '../shaders.js';
-import { scoreMult, chainBonus, dangerBonus, checkpointReward, rageScale, goalFor } from './goals.js';
+import { scoreMult, chainBonus, dangerBonus, checkpointReward, rageScale, goalFor, meltRate } from './goals.js';
 
-// SONSUZ İNİŞ — endless Temple-Run-style downhill run (RUNNER.md).
-// Core loop: the ball's SIZE is its health. Snow piles grow it; crashing knocks a layer off and starts a STUMBLE
-// window (the Yeti is right behind you): crash again inside it and the Yeti catches you. Crashing at the smallest
-// size bursts the ball; head-on hits with big solid things are lethal; junctions need a swipe toward the turn.
+// YETİ RUSH — endless Temple-Run-style downhill run (RUNNER.md).
+// Core loop: the ball's SIZE is its health AND its hunger. It melts all the time; snow piles refill it, so you steer for
+// snow trails as much as away from obstacles. Crashing knocks a layer off and opens a STUMBLE window (the Yeti is right
+// behind you): crash again inside it and the Yeti catches you. Head-on hits with the big solid things (rock, cabin, cars, wall)
+// end the run at once (a shield forgives one). Sharp junctions need a swipe toward the turn (miss = the barrier). Little
+// critters can be stomped (Mario). Temporary buff cards arrive on their own — nothing ever pauses the game.
 // Physics live in track-local coordinates: s along the path, u sideways (+right), h above the surface.
 export const RCFG = {
   startSpeed: 14,
@@ -20,8 +22,9 @@ export const RCFG = {
   speedPerM: 0.0065,     // linear ramp up to speedKnee
   speedKnee: 2000,
   speedTau: 3230,        // (maxSpeed - v(knee)) / speedPerM: slope continuous at the knee
-  layerLen: 600,         // a new difficulty layer every 600 m
+  layerLen: 600,         // a new difficulty layer every 600 m (also a buff-card checkpoint)
   sizeSpeed: 0.025,      // top speed +2.5% per size tier
+  hardRamp: 0.1,         // hardness grows by this much per layer (smoothly, every ~60 m)
   bpm0: 100,
   bpmMax: 150,
   bpmPerM: 0.012,
@@ -30,30 +33,52 @@ export const RCFG = {
   jumpV: 8.5,
   jumpPadV: 11,
   coyote: 0.12,
-  jumpBuf: 0.15,
-  landTol: 0.45,
+  jumpBuf: 0.15,         // a jump pressed this long before landing still fires at touchdown
+  landTol: 0.45,         // m: a falling ball this close above the surface lands on it
   laneW: 2.4,            // 3 lanes at u = -2.4, 0, +2.4 (Subway Surfers style)
   laneStiff: 400,        // lane-change spring: ~0.2 s per lane at every speed
-  diveV: -20,            // swipe down while airborne: slam back onto the snow
+  diveV: -20,            // swipe down while airborne: slam back onto the snow (and duck on landing)
   // Size tiers = health. Index 0 is "about to burst". Max fits a lane (diameter 2.1 < 2.4).
   tierR: [0.45, 0.6, 0.75, 0.9, 1.05],
   pilesPerTier: [4, 6, 8, 11],   // snow piles needed to grow one tier (by current tier)
   smashMargin: 2,        // you must be this many sizes above an obstacle's toughness to plough through it
-  smashCost: 0.08,       // growth lost per toughness point when smashing (not with the rocket)
+  smashCost: 0.08,       // growth lost per toughness point when smashing (not with the rocket / giant)
   crashSlow: 0.65,       // speed kept after a crash
   invulnAfterCrash: 1.0,
   // The Yeti: right behind you at the start and for a stumble window, otherwise it falls back off screen.
   yetiStart: 5,
   yetiHold: 2.5,         // seconds it stays right behind you at the start / after a revive
   yetiStumbleGap: 5,
-  stumbleWin: 6.0,       // + 0.25 per layer (max 4)
+  stumbleWin: 6.0,       // + 0.25 per layer (max 7)
   yetiMax: 16,
   yetiRecover: 2.0,      // m/s you pull away at full speed
-  yetiSlowClose: 0.5,
   yetiStumbleSpeed: 0.8, // below this fraction of target speed you are not pulling away
-  fallDeath: -24,
+  yetiH: 3.3,            // Yeti height in m
+  wallMaxT: 1.3,         // s: a missed turn ends at the barrier at the latest after this long
+  fallDeath: -14,        // m below the track plane over a real hole: the fall is final
+  fallDeep: 2.0,         // a ball this far below a SOLID surface is pulled up onto it (never a fall death), unless it really fell off a ledge
   helmetT: 20,
   sledCd: 45,
+  // Hunger (melting). tiers per second = (meltBase + meltPerTier * tier) * (1 + meltGrow * min(1, s / meltRamp)).
+  // Start = tier 2 + half a tier: a player who eats nothing melts away in about 30-33 s (measured on the numbers: 5.1 + 11.8 + 13.9 s + 3 s grace).
+  // The snow supply (obstacles._trails) offers ~0.3 tiers/s early, so collecting a third of it sustains you.
+  meltBase: 0.072,
+  meltPerTier: 0.013,
+  meltGrow: 0.6,
+  meltRamp: 4000,
+  meltGrace: 3,          // s: no melting at the start of a run
+  // Buff cards.
+  buffFirst: [24, 32],   // first card of a run
+  buffEvery: [45, 60],   // then one every ... seconds of play (and at every checkpoint)
+  // Junctions.
+  juncMinSecs: 0.9,      // the turn window is never shorter than this (seconds at the current speed)
+  // Head-on hits with the BIG solid things (rock, cabin, snow car, oncoming car, sliding wall, missile) end the run — a shield
+  // forgives one. Only a centred hit counts (a side clip is a stumble). The obstacle generator paces them (lethalK, never two
+  // in a row early on). Set false to turn every collision back into a stumble.
+  lethal: true,
+  // Critters.
+  stompV: 9,
+  critterSlow: 0.8,      // speed kept after bumping a critter (a crash keeps crashSlow)
   // Power-up durations (seconds) when the meta module isn't there to supply upgraded values.
   dur: { magnet: 8, x2: 10, superjump: 9, rocket: 6, sled: 20 },
   superJumpK: 1.55,
@@ -65,16 +90,9 @@ export const RCFG = {
   rageLen: 130,          // "YETİ ÖFKESİ": the Yeti throws boulders over the last N m of a layer (from layer 2 on) ...
   rageSecs: 7,           // ... or the last N seconds of running, whichever is longer (so fast runs still get 2+ boulders)
   rageEvery: [2.8, 3.6], // seconds between boulders (× 0.93 per layer, floor 0.7)
+  rageBack: 4,           // the Yeti drops back this far when you survive a barrage
   multCap: 6,            // + layer, at most 12
-  // Legacy keys still read by the older stumble/rage/surge code paths.
-  yetiCrash: 11,
   closeCall: 4,
-  rageBack: 4,
-  surgeEvery: [25, 35],
-  surgeTele: 0.8,
-  surgeLunge: 1.5,
-  surgePull: 6,
-  surgeFloor: 4,
 };
 
 export const speedAt = (s) => {
@@ -87,55 +105,57 @@ export const bpmAt = (s) => Math.min(RCFG.bpmMax, RCFG.bpm0 + Math.max(0, s) * R
 /** Turn window (seconds before the corner) the junction accepts a swipe in; shrinks with distance. */
 export const juncWinAt = (s) => 0.8 + 0.3 * Math.min(1, Math.max(0, 1 - (s - 350) / 4650));
 
-const WIDE = new Set(['fence', 'fallenLog', 'longLog', 'overhead', 'laser', 'slidewall']);
-const LETHAL_BASE = new Set(['rock', 'cabin']);
-const LETHAL_CAR = new Set(['snowcat', 'oncoming']);
-const LETHAL_ROLL = new Set(['boulder']);
-const LETHAL_WALL = new Set(['slidewall']);
 const DEATH_TEXT = {
-  explode: 'PATLADIN!', yeti: 'YETİ SENİ YAKALADI!', fall: 'UÇURUMA DÜŞTÜN!', turn: 'DUVARA ÇARPTIN!', turnFall: 'VİRAJDAN UÇTUN!',
-  rock: 'KAYAYA ÇARPTIN!', boulder: 'YUVARLANAN KAYAYA ÇARPTIN!', cabin: 'KULÜBEYE ÇARPTIN!', snowcat: 'KAR ARACINA ÇARPTIN!',
-  oncoming: 'TRENE ÇARPTIN!', slidewall: 'KAYAN DUVARA ÇARPTIN!',
+  explode: 'PATLADIN!', yeti: 'YETİ SENİ YAKALADI!', fall: 'UÇURUMA DÜŞTÜN!', wall: 'DUVARA ÇARPTIN!', melt: 'ERİDİN!', smash: 'ÇARPTIN!',
 };
 const FLOAT_PRI = { '': 1, big: 2, bad: 3 };
-const CARDS = {
-  lane: { icon: '👆', title: '← KAYDIR →', text: 'Sandığa çarpmamak için sola ya da sağa kaydır' },
-  jump: { icon: '⬆️', title: 'ZIPLA', text: 'Kütüğün üstünden atlamak için yukarı kaydır' },
-  duck: { icon: '⬇️', title: 'EĞİL', text: 'Bariyerin altından geçmek için aşağı kaydır' },
-  boulder: { icon: '🪨', title: 'YETİ KAYA ATIYOR!', text: 'Kırmızı gölgeyi görünce şerit değiştir' },
-  slidewall: { icon: '🧱', title: 'KAYAN DUVAR', text: 'Boşluk yeşile dönünce yeri kesinleşir: oraya geç' },
-  train: { icon: '🚂', title: 'TREN GELİYOR!', text: 'Farları gördüğün şeritten çık' },
-  lip: { icon: '⬆️', title: 'ZIPLA!', text: 'Sarı-siyah rampanın ucunda yukarı kaydır' },
-};
-const TUT_ROWS = [{ s: 80, key: 'lane' }, { s: 160, key: 'jump' }, { s: 240, key: 'duck' }];
 
 const TIERS = RCFG.tierR.length;
 const _f = { pos: new THREE.Vector3(), tan: new THREE.Vector3(), right: new THREE.Vector3(), up: new THREE.Vector3() };
+const _f2 = { pos: new THREE.Vector3(), tan: new THREE.Vector3(), right: new THREE.Vector3(), up: new THREE.Vector3() };
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 const _x = new THREE.Vector3();
+const _ax = new THREE.Vector3();
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 const _tp = new THREE.Vector3();
 const _goal = { mode: 'cp', val: 0, frac: 0 };
+const _bi = { biome: null, index: 0, t: 0, next: null };   // biomeAt() scratch: read it right away, never keep it
 const RAGE_SKIP = new Set(['zipline', 'rail', 'loop', 'corkscrew']); // sections where the Yeti keeps its boulders
+const FLIP_KINDS = new Set(['loop', 'corkscrew']);                   // the track really turns upside down here
+const ROUND_KINDS = new Set(['helix', 'halfpipe', 'tube', 'loop', 'corkscrew']);
+const DEG = Math.PI / 180;
+const LETHAL_BASE = new Set(['rock', 'cabin']);                  // campaign: from level 16
+const LETHAL_CAR = new Set(['snowcat', 'oncoming', 'missile']);  // campaign: from level 30
+const LETHAL_WALL = new Set(['slidewall']);                      // campaign: from level 60
 
 export class Runner {
   constructor(ctx) {
-    this.ctx = ctx; // { scene, camera, lib, ball, fx, ui, audio, platform, save, input }
+    this.ctx = ctx; // { scene, camera, lib, ball, fx, ui, audio, platform, save, input, meta, menus }
     this.events = [];
     this.camPos = new THREE.Vector3();
     this.camLook = new THREE.Vector3();
     this.camUp = new THREE.Vector3(0, 1, 0);
     this.state = 'idle';
+    this.closed = true;
+    this.buffs = new BuffSet();
+    this._yeti = { mode: null, frac: 0 };
+    this._vit = { tier: 0, tiers: TIERS, grow: 0, gap: 0, yetiMax: RCFG.yetiMax, helmet: false, helmetT: 0, magnet: false, rocket: false, x2: false, superjump: false, sled: false, sledCd: 0, yeti: this._yeti };
+    this._groups = [];
+    this.trailPool = null;
+    this.camNear0 = null;
+    // (created once: the buff expiry callback must not allocate every frame)
+    this._onBuffEnd = (e) => { this.ctx.ui.buffRemove?.(e.id); this.ctx.audio.chime?.('end'); };
   }
 
   start(seed = (Math.random() * 1e9) | 0, level = null, opts = {}) {
     const { scene } = this.ctx;
-    this.closeOut?.();
+    this.closeOut();           // bank / record the previous run BEFORE anything is wiped
     this.dispose();
     const save = this.ctx.save;
     this.level = level;
@@ -148,16 +168,23 @@ export class Runner {
       palette: trackPalette,
       speedAt,
       bpmAt,
-      biomeIndexAt: (s) => biomeAt(s).index,
+      biomeIndexAt: (s) => biomeAt(s, _bi).index,
       vGen: (s) => 1.1 * speedAt(s),
       juncWinAt,
       junctionOk: (s) => Biomes.junctionOkAt?.(s) ?? true,
       tutorial: this.tut,
     });
     this.obstacles = new Obstacles(scene, this.track, { seed: seed ^ 0x9e3779b9, jumpPadV: RCFG.jumpPadV, vGen: (s) => 1.1 * speedAt(s), tutorial: this.tut, endless: !level });
-    this.track.onPiece = (piece) => this.obstacles.spawn(piece, piece.diff ?? Math.min(1, piece.s0 / 5000), piece.biome ?? biomeAt(piece.s0).index, biomeAt(piece.s0).biome.id);
+    this.track.onPiece = (piece) => {
+      const bi = biomeAt(piece.s0, _bi);
+      this.obstacles.spawn(piece, piece.diff ?? Math.min(1, piece.s0 / 5000), piece.biome ?? bi.index, bi.biome.id);
+    };
     if (level) {
-      this.track.setLevel?.({ length: level.length, features: level.features, hardness: level.hardness, seed, boss: level.boss });
+      // Campaign gating helpers (harmless when the track ignores them): junction turns from level 11, critters from level 3.
+      const feats = (level.features || []).slice();
+      if (level.id >= 11 && !feats.includes('junction')) feats.push('junction');
+      if (level.id >= 3 && !feats.includes('critters')) feats.push('critters');
+      this.track.setLevel?.({ id: level.id, length: level.length, features: feats, hardness: level.hardness, seed, boss: level.boss });
       this.obstacles.reset?.();
       this.obstacles.setHardness?.(level.hardness);
     }
@@ -166,32 +193,73 @@ export class Runner {
     this.yeti = makeYeti(scene, this.ctx.lib);
     this.avalanche = makeAvalanche(scene);
 
+    // ---- size / hunger ----
     this.tier = level ? Math.max(0, Math.min(4, level.startTier ?? 1)) : 2;
     this.grow = level ? 0 : 0.5;            // progress to the next tier (0..1)
     const b = (this.b = { s: 16, u: 0, h: 0, r: RCFG.tierR[this.tier], vs: RCFG.startSpeed * 0.6, vu: 0, ve: 0, vh: 0, size: 2 });
-    if (!level) b.r = RCFG.tierR[this.tier] + (RCFG.tierR[this.tier + 1] - RCFG.tierR[this.tier]) * this.grow * 0.6;
+    this.buffs.reset();
+    b.r = this.radiusNow();
+    b.size = this.sizeNow();
     this.rShown = b.r;
+    this.meltK = level ? (level.id < 6 ? 0 : 0.35 + 0.25 * Math.min(1, (level.id - 6) / 40)) : 1;   // campaign: none before level 6, then gentle
+    this.meltGraceT = 0;
+    this.meltWarnT = 0;
+    this.hungerWarn = false;
+    this.maxTier = this.tier;
+
+    // ---- movement ----
     this.grounded = true;
     this.coyoteT = 0;
     this.lane = 0;
     this.targetU = 0;
     this.lastSurf = 0;
     this.lastSlope = 0;
+    this.holeRun = 0;        // metres travelled over a hole while still held up by its edge
+    this.holeAir = false;    // this flight has been over a real hole (a fall that is allowed to kill)
+    this.wallRun = null;     // a missed turn: the ball keeps going straight into the barrier
+    this.fallLock = false;   // dropped off the track: no more steering
+    this.groundT = 0;        // time since landing (stomp combo reset)
+    this.jumpBufT = 0;
+    this.duckOnLand = false;
+    this.edgeS = -1;         // jump held until the take-off edge of a gap (assist)
+    this.diveT = 0;
+    this.duckT = 0;
+    this.duckK = 0;
+    this.zip = null;
+    this.grind = null;
+    this.rampAirT = 0;
+    this.iceT = 0;
+    this.lastSafe = { s: 16, u: 0 };
+    this.safeT = 0;
+    this.timeScale = 1;
+    this.slowUntil = -1;
+    this.slowScale = 1;
+    this.warpT = 0;
+
+    // ---- the Yeti ----
     this.gap = RCFG.yetiStart;
-    this.avLevel = 1;
     this.yetiHoldT = RCFG.yetiHold;
     this.stumbleT = 0;
     this.stumbleMax = RCFG.stumbleWin;
     this.stumbles = 0;
     this.minGap = Infinity;
-    this.minGapArmed = false;
+    this.closeArmed = false;
+    this.roarT = 4;
+
+    // ---- score / bookkeeping ----
     this.score = 0;
     this.coins = 0;
     this.coinsBanked = 0;
+    this.coinsF = 0;
+    this.closed = false;
+    this.recorded = false;
+    this.recInfo = null;
     this.finalized = false;
     this.time = 0;
     this.deadT = 0;
     this.revived = false;
+    this.revives = 0;
+    this.reviveCost = 0;
     this.invulnT = 1.2;
     this.helmet = false;
     this.helmetT = 0;
@@ -203,37 +271,22 @@ export class Runner {
     this.sledCdT = 0;
     this.boxes = 0;
     this.crystals = 0;
-    this.revives = 0;
     this.jumps = 0;
     this.smashes = 0;
     this.turns = 0;
-    this.maxTier = this.tier;
-    this.timeScale = 1;
-    this.slowUntil = -1;
-    this.slowScale = 1;
-    this.zip = null;
-    this.grind = null;
-    this.diveT = 0;
-    this.duckT = 0;
-    this.fogK = 0;
-    this.fogTarget = 0;
-    this.gateChain = 0;
-    this.ctx.meta?.track?.('run_start', { mode: 'endless' });
-    this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.().nextLetter ?? null);
-    this.iceT = 0;
-    this.lastSafe = { s: 16, u: 0 };
-    this.safeT = 0;
-    this.shake = 0;
-    this.trauma = 0;
-    this.kick = 0;
-    this.rollS = 0;
-    this.rollU = 0;
-    this.roarT = 0;
+    this.crashes = 0;
+    this.layersLost = 0;
+    this.perfects = 0;
+    this.powerups = 0;
+    this.destTons = 0;
+    this.destTier = 0;
     this.cause = '';
     this.killKind = null;
-    this.crashes = 0;
+    const lid = level ? level.id || 0 : 1e9;
+    this.lethalOn = { base: RCFG.lethal && lid >= 16, car: RCFG.lethal && lid >= 30, wall: RCFG.lethal && lid >= 60 };
     this.state = 'play';
-    this.countT = opts.retry ? 1.5 : 3;
+    this.countT = opts.retry ? 1 : 2;
+    this.countQuiet = !!opts.retry;
     this.layer = 0;
     this.speedTier = 0;
     this.flow = 0;
@@ -244,163 +297,214 @@ export class Runner {
     this.passedDist = this.bestDist < 50;
     this.passedScore = this.bestScore < 100;
     this.baseHard = level ? level.hardness : 1;
-    this.perfects = 0;
-    this.powerups = 0;
-    this.layersLost = 0;
-    // Addictive layer: perks, power-ups, risk, chains, destruction.
-    this.perks = new Set();
+    this.hardS = -1e9;
     this.perm = save.perm?.() ?? {};
-    this.nextPerkS = Infinity;   // set when a layer boundary makes a perk card due (see layerUp)
-    this.perkLayer = level ? Infinity : 1; // boundary number at which the next card is due (every 2nd layer)
-    this.perkDue = false;
-    this.perkPause = false;
-    this.resumeRamp = 0;
-    this.bannerQ = [];        // queued banners [text, level, hold, ...]: the 600 m cluster must not stomp itself
+    this.gateChain = 0;
+    this.newRecT = 0;
+    this.nearChain = 0;
+    this.nearT = 0;
+    this.punch = 0;
+    this._progT = 0;
+    this.lastSmashStop = -9;
+    this.fogK = 0;
+    this.fogTarget = 0;
+
+    // ---- buff cards ----
+    this.buffT = level ? Infinity : rand(RCFG.buffFirst[0], RCFG.buffFirst[1]);   // campaign levels have no auto cards
+    this.lastBuff = '';
+    this.buffTickT = 0;
+
+    // ---- critters ----
+    this.stompN = 0;
+    this.stompTotal = 0;
+    this.snowChain = 0;
+    this.snowT = -9;
+
+    // ---- junctions ----
+    this.jnId = null;
+    this.jnDone = false;
+    this.jnOpen = false;
+    this.jnNear = false;
+    this.jnJ = null;
+    this.jnSA = 0;
+    this.jnCueT = 0;
+    this.jnLean = 0;
+    this.jnLeanT = 0;
+    this.juncSlow = false;
+    this.jnTutMiss = 0;
+    this.cornerK = 0;
+    this.camLookBias = 0;
+    this.camLookBiasT = 0;
+
+    // ---- queues ----
+    this.bannerQ = [];        // queued banners [text, level, hold, ...]
     this.bannerT = 0;
     this.later = [];          // delayed callbacks that follow game time (and die with the run)
     this.rage = null;         // "YETİ ÖFKESİ" mini-boss { s0, B, t, n, crashes0 }
     this.rageCount = 0;
-    this.newRecT = 0;
-    this.nearChain = 0;
-    this.nearT = 0;
-    this.riskStack = 0;
-    this.kabuk = 0;
-    this.kabukUsed = false;
-    this.warpT = 0;
+    this.zone = null;      // staged rule change { kind, from, until, name, announced }
+    this.inZone = null;
+    this.warned = null;
+    this.floatT = -9;
+    this.floatPri = 0;
+    this.threatT = 0;
+
+    // ---- power-up leftovers ----
     this.ghostT = 0;
     this.riskT = 0;
     this.cloneT = 0;
     this.clone = null;
-    this.coinsF = 0;
-    this.destTons = 0;
-    this.destTier = 0;
-    this.punch = 0;
-    this.magnetPerm = false;
-    this.zone = null;      // staged rule change { kind, from, until, name, announced }
-    this.inZone = null;
-    this.warned = null;
+
+    // ---- camera / juice ----
+    this.shake = 0;
+    this.trauma = 0;
+    this.shakeClock = 0;
+    this.kick = 0;
+    this.rollS = 0;
+    this.rollU = 0;
     this.closeK = 1;
-    this.cornerK = 0;
-    this.camYawOff = 0;
-    this.camYawJ = null;
+    this.camBackS = 9;
+    this.camUpH = 5.6;
+    this.camLa = 12;
+    this.camU = 0;
+    this.camLookU = 0;
+    this.camRoundK = 0;
     this.flipK = 0;
+    this.camLoopK = 0;
     this.tilt = 0;
-    this._progT = 0;
-    this.camBack = 9;
-    this.off = null;
-    this.turnJ = null;
-    this.deadSlowT = 0;
-    this.lethalOn = !level ? { base: true, car: true, roll: true, wall: true } : {
-      base: !!this.track.allows?.('lethal'), car: !!this.track.allows?.('lethalCar'), roll: !!this.track.allows?.('lethal'), wall: !!this.track.allows?.('lethalWall'),
-    };
-    this.jumpBufT = 0;
-    this.duckOnLand = false;
-    this.lipBoost = false;
-    this.lipBoosted = false;
-    this.rampAirT = 0;
-    this.edgeHold = false;
     this.leanT = 0;
-    this.leanDir = 0;
-    this.floatT = 0;
-    this.floatPri = 0;
-    this.boulderNonLethal = 2;
-    this.card = null;
-    this.cardT = 0;
-    this.tutDone = {};
-    this.tutJ = null;
-    this.tutSlow = 0.35;
-    this.lipShown = -1;
-    this.threatT = 0;
-    this.juncCue = null;
-    this.juncSeen = null;
-    this.lastSmashStop = -9;
+    this.hitStop = 0;
+    this.squash = 0;
+    this.sqV = 0;
+    this.trailN = 0;
+    this.patchedCount = -1;
+    this.deadSlowT = 0;
+    this.off = null;
+    const cam = this.ctx.camera;
+    if (this.camNear0 === null) this.camNear0 = cam.near;
+    if (cam.near > 0.1) { cam.near = 0.1; cam.updateProjectionMatrix?.(); }
+
     this.obstacles.setHardness?.(this.baseHard);
     this.track.setHardness?.(this.baseHard);
     this.makeRecordFlag();
     this.makeShadow();
-    this.patchedCount = -1;
-    this.hitStop = 0;
-    this.squash = 0;
-    this.trailN = 0;
-    this.obstacles.markSmashable?.(this.tier);
+    this.obstacles.markSmashable?.(this.sizeNow() - 1);
+    this.markedSize = this.sizeNow();
+    this.ctx.meta?.track?.('run_start', { mode: 'endless' });
+    this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.()?.nextLetter ?? null);
 
     const ball = this.ctx.ball;
     ball.reset(b.r);
+    ball.group.visible = true;
     this.ctx.fx.reset();
-    this.ctx.input.consumeDx();
-    this.ctx.input.consumeJump();
-    this.ctx.input.consumeDive?.();
-    this.ctx.input.consumeLane();
-    this.ctx.input.consumeDoubleTap?.();
+    const input = this.ctx.input;
+    input.clear ? input.clear() : (input.consumeDx(), input.consumeJump(), input.consumeDive?.(), input.consumeLane(), input.consumeDoubleTap?.());
 
     music.init();
     music.start(musicStyleAt(0), bpmAt(0));
-    music.duck(false);
+    music.duck?.(false);
     music.setIntensity(0.55);
     const ui = this.ctx.ui;
     ui.runnerHud(true, biomeAt(0).biome.name);
     ui.runnerTurn?.(null);
     ui.runnerTutor?.(null);
     ui.hideRunnerRevive?.();
+    ui.turnCue?.(0, 0);
+    ui.stompCombo?.(0);
+    ui.hunger?.(this.hungerFrac(), false);
     if (level) ui.runnerGoal?.(null); // campaign has its own finish-line progress bar
-    ui.banner(String(Math.ceil(this.countT)), 3);
+    if (!this.countQuiet) ui.banner(String(Math.ceil(this.countT)), 3);
+    if (this.tut) {
+      // the very first run: one quiet line until the first swipe (or 8 s), never a popup
+      ui.hint?.(true, '↔ kaydır · ↑ zıpla · ↓ eğil');
+      this.after(8, () => { if (!this.jnOpen) ui.hint?.(false); });
+    }
     this.updateHud();
     this.placeBall(true);
   }
 
-  // Score multiplier: size, flow, near-miss chain, Yeti closeness and risky power-ups/perks all ADD to 1 (capped at
+  // Score multiplier: size, flow, near-miss chain, Yeti closeness and the x2 / twin power-ups all ADD to 1 (capped at
   // RCFG.multCap); permanent progression (mission sets, upgrades) sits on top of the cap. No more compounding.
   get mult() {
-    if (!this.perks) return 1;
+    if (!this.buffs) return 1;
     return scoreMult(this.tier, this.flowLvl, this.chainBonus(), this.dangerBonus(), this.riskBonus(),
-      (this.ctx.meta?.multiplier?.() ?? 1) - 1 + 0.1 * (this.perm.speed || 0), RCFG.multCap);
+      (this.ctx.meta?.multiplier?.() ?? 1) - 1 + 0.15 * Math.min(5, this.perm.speed || 0), RCFG.multCap);
   }
 
-  dangerBonus() { return dangerBonus(this.gap, this.perks?.has('tehlike')); }
+  dangerBonus() { return dangerBonus(this.stumbleT > 0); }
 
   chainBonus() { return chainBonus(this.nearChain || 0); }
 
-  // Power-ups and risky perks: flat bonuses instead of multipliers.
+  // Power-ups: flat bonuses instead of multipliers.
   riskBonus() {
-    if (!this.perks) return 0;
-    let m = this.riskStack * 5;
+    let m = 0;
     if (this.x2T > 0) m += 3;
     if (this.riskT > 0) m += 4;
     if (this.clone) m += 2;
-    if (this.perks.has('cam')) m += 3;
-    if (this.perks.has('asiri')) m += 1;
     return m;
   }
 
   dur(kind) { return this.ctx.meta?.duration?.(kind) || RCFG.dur[kind]; }
 
+  // ---------- size ----------
+  /** b.size: 1 + tier (obstacle "smash" comparisons use it). */
+  sizeNow() { return this.tier + 1 + (this.buffs.has('dev') ? 1 : 0); }
+
+  /** Radius from tier + progress (+ the giant card). Computed from scratch every time: nothing ratchets. */
+  radiusNow() {
+    const dev = this.buffs.has('dev');
+    const t = Math.min(TIERS - 1, this.tier + (dev ? 1 : 0));
+    const g = this.tier >= TIERS - 1 ? (dev ? this.grow : 0) : this.grow;
+    const r0 = RCFG.tierR[t];
+    const r1 = t >= TIERS - 1 ? r0 + 0.15 : RCFG.tierR[t + 1];
+    return r0 + (r1 - r0) * g * 0.6;
+  }
+
+  syncRadius() {
+    this.b.r = this.radiusNow();
+    const sz = this.sizeNow();
+    this.b.size = sz;
+    if (sz !== this.markedSize) { this.markedSize = sz; this.obstacles.markSmashable?.(sz - 1); }
+  }
+
+  /** 0..1: the whole size meter (5 tiers) as one bar; 0 = about to melt away. */
+  hungerFrac() {
+    return clamp((this.tier + this.grow) / TIERS, 0, 1);
+  }
+
   // ---------- frame ----------
   update(rdt) {
     if (this.state === 'idle') return;
-    // Ski-jump slow-mo: ease into the slowed window, ease back out after.
-    const wantTs = this.state === 'play' && this.b.s < this.slowUntil && !this.grounded ? this.slowScale : 1;
-    this.timeScale += (wantTs - this.timeScale) * Math.min(1, rdt * 8);
-    // Hit-stop: a crash freezes the world for a heartbeat so it lands.
+    if (rdt > 0.1) rdt = 0.1;
+    const play = this.state === 'play';
+    // Ski-jump slow-mo and the first-junction tutorial: ease into the slowed window, ease back out after.
+    let want = 1;
+    if (play && this.b.s < this.slowUntil && !this.grounded) want = this.slowScale;
+    if (play && this.juncSlow) want = Math.min(want, 0.5);
+    this.timeScale += (want - this.timeScale) * Math.min(1, rdt * 8);
     let dt = rdt * this.timeScale;
+    // Hit-stop: a crash freezes the world for a heartbeat so it lands.
     if (this.hitStop > 0) { this.hitStop -= rdt; dt *= 0.06; }
-    if (this.perkPause) dt = 0;            // choosing a perk card
-    if (this.warpT > 0) { this.warpT -= rdt; dt *= 0.5; if (this.warpT <= 0) this.float('ZAMAN NORMAL', ''); }
-    // 3-2-1 countdown before the chase starts.
+    if (this.warpT > 0) { this.warpT -= rdt; dt *= 0.5; }
+    // The first moments of a death run in slow motion so the read-out lands.
+    if (this.state === 'dying' && this.deadT < 0.45) dt *= 0.25;
+    // Countdown before the chase starts (2 s the first time, 1 s on retries): the world is frozen.
     if (this.countT > 0) {
       const before = Math.ceil(this.countT);
       this.countT -= rdt;
       const after = Math.ceil(this.countT);
       if (after !== before) {
-        if (after > 0) { this.ctx.ui.banner(String(after), 3); this.ctx.audio.ui('select'); }
-        else { this.ctx.ui.banner('KAÇ!', 5); this.roar(); }
+        if (after > 0) { if (!this.countQuiet) { this.ctx.ui.banner(String(after), 3); this.ctx.audio.ui('select'); } }
+        else if (this.countQuiet) this.ctx.audio.whoosh();       // retry / revive: no banner, no roar — just go
+        else { this.ctx.ui.banner('KAÇ!', 5); this.roar(true); }
       }
       dt = 0;
     }
-    if (this.state === 'play' && this.countT <= 0) this.tickBanner(rdt);
+    if (play && this.countT <= 0) this.tickBanner(rdt);
     const beat = music.beat;
     this.time += dt;
-    if (this.state === 'play') this.updatePlay(dt, beat);
-    else if (this.state === 'dying') this.updateDying(dt);
+    if (play) this.updatePlay(dt, beat);
+    else if (this.state === 'dying') this.updateDying(dt, rdt);
     else if (this.state === 'finished') {
       this.finishT += dt;
       this.b.vs *= Math.exp(-1.2 * dt);
@@ -413,11 +517,13 @@ export class Runner {
     this.track.trim(this.b.s - 70);
     this.obstacles.trim(this.b.s - 70);
     this.obstacles.update(dt, beat, this.b);
+    this.env.fogPress = this.fogK;
+    this.env.ballVs = this.b.vs;
     this.env.update(dt, this.ctx.camera, this.b, beat);
     // Size changes animate quickly instead of popping (crash = visible shrink).
     this.rShown += (this.b.r - this.rShown) * Math.min(1, dt * 12);
     this.ctx.ball.setRadius(this.rShown);
-    this.placeBall(false);
+    this.placeBall(false, dt);
     this.updateYeti(dt);
     this.ctx.fx.update(dt, this.ctx.ball);
     this.updateCamera(rdt);
@@ -427,34 +533,40 @@ export class Runner {
     const { input, ui } = this.ctx;
     const b = this.b;
     const tr = this.track;
+    const counting = this.countT > 0;
+
+    // ---- junction runtime (inert when the track has no junctions) ----
+    const J = this.juncTick(b, tr);
+    if (this.state !== 'play') return;
 
     // ---- input ----
     const hw = Math.max(1, tr.halfWidth(b.s) || tr.pieceAt(b.s)?.halfWidth || 3.5);
     input.consumeDx(); // free drag isn't used here — lanes are
-    const lane = input.consumeLane();
-    if (lane) {
-      ui.hint(false);
-      this.lane = clamp(this.lane + (this.inZone === 'invert' ? -lane : lane), -1, 1);
-      this.ctx.platform.haptic('select');
-      this.mistBurst(4, 0xffffff, 2, 0.8);
+    if (counting) { input.consumeJump(); input.consumeDive(); input.consumeDoubleTap(); }   // the countdown eats those
+    let lane = input.consumeLane();
+    if (this.wallRun) {
+      // a missed turn is already a crash: nothing you do now counts
+      lane = 0;
+      input.consumeJump(); input.consumeDive(); input.consumeDoubleTap();
+    } else if (lane && J && this.jnOpen && Math.sign(lane) === J.dir) {
+      // A swipe toward the corner inside the turn window IS the turn (not a lane change): the touch is spent.
+      this.commitTurn(J, false);
+      input.endGesture?.();
+      lane = 0;
     }
+    if (lane) this.laneChange(lane);
     this.targetU = this.lane * RCFG.laneW;
-    if (input.consumeJump() && (this.grounded || this.coyoteT > 0)) { ui.hint(false); this.jump(RCFG.jumpV, false); }
-    if (input.consumeDive()) {
-      this.diveT = 0.7;
-      if (!this.grounded && !this.zip && b.vh > RCFG.diveV) b.vh = RCFG.diveV;
-      else if (this.grounded) {
-        this.duckT = 0.65;
-        this.ctx.audio.whoosh();
-        this.mistBurst(5, 0xffffff, 2, 0.8);
-      }
+    if (!counting && !this.wallRun) {
+      if (input.consumeJump()) { ui.hint(false); this.jumpBufT = RCFG.jumpBuf; }
+      if (input.consumeDive()) this.dive();
+      if (input.consumeDoubleTap()) this.trySled();
     }
+    this.tickJump(dt);
     this.diveT -= dt;
     this.duckT -= dt;
 
     // ---- speed: downhill pace + size bonus; rocket overrides ----
-    const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1)
-      * (this.perks.has('asiri') ? 1.2 : 1) * (this.riskT > 0 ? 1.45 : 1) * (1 + 0.03 * (this.perm.speed || 0));
+    const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1) * (this.riskT > 0 ? 1.45 : 1);
     if (b.vs < top) b.vs = Math.min(top, b.vs + RCFG.accel * dt);
     else b.vs = Math.max(top, b.vs - RCFG.accel * 0.6 * dt);
     this.invulnT -= dt;
@@ -463,11 +575,13 @@ export class Runner {
     if (this.magnetT > 0) this.magnetT -= dt;
     if (this.x2T > 0) this.x2T -= dt;
     if (this.superT > 0) this.superT -= dt;
-    if (this.sledT > 0) { this.sledT -= dt; if (this.sledT <= 0) this.float('KIZAK BİTTİ', ''); }
+    if (this.helmetT > 0) { this.helmetT -= dt; if (this.helmetT <= 0 && this.helmet) { this.helmet = false; this.float('KASK GİTTİ', ''); } }
+    if (this.sledCdT > 0) this.sledCdT -= dt;
+    if (this.sledT > 0) { this.sledT -= dt; if (this.sledT <= 0) { this.sledCdT = RCFG.sledCd; this.float('KIZAK BİTTİ', ''); } }
     if (this.rocketT > 0) {
       this.rocketT -= dt;
       if (Math.random() < dt * 40) this.burst(1, 0xffa040, 2);
-      if (this.rocketT <= 0) { this.invulnT = Math.max(this.invulnT, 1); this.float('İNİŞ!', ''); }
+      if (this.rocketT <= 0) { this.invulnT = Math.max(this.invulnT, 1); this.yetiHoldT = 0; }
     }
     if (this.ghostT > 0) { this.ghostT -= dt; if (this.ghostT <= 0) { this.setGhost(false); this.float('HAYALET BİTTİ', ''); } }
     if (this.riskT > 0) { this.riskT -= dt; if (this.riskT <= 0) this.float('RİSK BİTTİ', ''); }
@@ -475,62 +589,400 @@ export class Runner {
     if (this.nearT > 0) { this.nearT -= dt; if (this.nearT <= 0) this.nearChain = 0; }
     this.punch = Math.max(0, this.punch - dt * 4);
     this.tickLater(dt);
-    // Perk cards: every 2nd layer, never while banners are still showing or the Yeti is raging.
-    if (this.perkDue && b.s >= this.nextPerkS && this.grounded && !this.zip && !this.grind && !this.rage && this.bannerQuiet()) this.offerPerks();
-
-    // Double-tap: ride a sled (Subway's hoverboard) — one free crash for its duration.
-    if (input.consumeDoubleTap() && this.sledT <= 0 && this.ctx.meta?.useSled?.()) {
-      this.sledT = this.dur('sled');
-      this.ctx.audio.milestone(2);
-      this.float('KIZAK!', 'big');
-      this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'sled' });
+    if (!counting) {
+      this.buffTick(dt);
+      this.hungerTick(dt);
+      this.hardTick();
     }
+    if (this.state !== 'play') return;
 
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
     const h = dt / steps;
     for (let i = 0; i < steps && this.state === 'play'; i++) this.step(h, hw);
+    if (this.state !== 'play') return;
+    if (this.grounded) {
+      this.groundT += dt;
+      if (this.stompN && this.groundT > 0.25) { this.stompN = 0; ui.stompCombo?.(0); }
+    } else this.groundT = 0;
 
-    // ---- Yeti: pulls back while you're flying, closes in when you stumble ----
-    if (b.vs >= top * RCFG.yetiStumbleSpeed) this.gap = Math.min(RCFG.yetiMax, this.gap + RCFG.yetiRecover * Math.max(0.6, 1 - 0.05 * (this.avLevel - 1)) * dt);
-    else this.gap -= (top * RCFG.yetiStumbleSpeed - b.vs) * 0.35 * dt;
-    if (this.gap <= 0) this.die('yeti');
-    this.minGap = Math.min(this.minGap ?? Infinity, this.gap);
-    if (this.gap < RCFG.closeCall) this.closeArmed = true;
-    else if (this.closeArmed && this.gap > 15) {
-      this.closeArmed = false;
-      this.score += 250 * this.mult;
-      this.float('KIL PAYI!', 'big');
-      this.ctx.meta?.track?.('close_call', {});
-    }
-    this.roarT -= dt;
-    if (this.gap < 14 && this.roarT <= 0) {
-      this.roarT = 3;
-      this.roar();
-    }
+    // ---- Yeti: right behind you at the start and while you stumble, otherwise it falls back ----
+    this.yetiTick(dt, top);
 
-    this.surgeTick(dt);
     this.rageTick(dt);
     this.progression(dt);
     this.zoneTick();
     this.fogK += (this.fogTarget - this.fogK) * Math.min(1, dt * 2.5);
     this.fogTarget = 0;
-    const fog = this.ctx.scene.fog;
-    if (fog) { fog.near = 60 * (1 - 0.85 * this.fogK) + 4; fog.far = 330 * (1 - 0.8 * this.fogK) + 20; }
 
     // ---- scoring / music ----
     this.score += b.vs * dt * this.mult;
     music.setBpm(bpmAt(b.s));
-    music.setIntensity(clamp(0.3 + b.s / 2500 + (this.gap < 15 ? 0.3 : 0), 0.3, 1));
+    music.setIntensity(clamp(0.55 + b.s / 4000 + (this.stumbleT > 0 || this.rage ? 0.35 : 0), 0.55, 1));
     this.ctx.audio.setRoll(this.grounded ? clamp(b.vs / RCFG.maxSpeed, 0, 1) * 0.7 : 0, clamp(b.r / 1.5, 0, 1) * 0.5);
     this.updateHud();
 
-    // Remember a safe spot for "DEVAM ET".
+    // Remember a safe spot for "DEVAM ET" (never inside a junction approach: reviving there would be a trap).
     this.safeT -= dt;
-    if (this.safeT <= 0 && this.grounded && Math.abs(b.u) < hw - 0.8 && tr.surfaceAt(b.s, b.u) !== -Infinity) {
+    if (this.safeT <= 0 && this.grounded && !this.jnNear && Math.abs(b.u) < hw - 0.8 && tr.surfaceAt(b.s, b.u) !== -Infinity) {
       this.safeT = 0.4;
       this.lastSafe.s = b.s;
       this.lastSafe.u = b.u;
     }
+  }
+
+  // ---------- input actions ----------
+  laneChange(lane) {
+    const { ui, platform, audio } = this.ctx;
+    const b = this.b;
+    ui.hint(false);
+    if (this.grind) { this.grind = null; this.grounded = false; b.vh = 2.5; }   // hop off the rail sideways
+    const prev = this.lane;
+    this.lane = clamp(prev + lane, -1, 1);
+    if (this.lane === prev) {
+      // Already on the edge lane: a soft nudge into the snow bank instead of a fake lane change.
+      b.vu += Math.sign(lane) * 5;
+      audio.bump(0.15);
+      platform.haptic('light');
+      return;
+    }
+    platform.haptic('select');
+    this.mistBurst(4, 0xffffff, 2, 0.8);
+  }
+
+  dive() {
+    if (this.grind) return;     // swipes down are ignored on a rail
+    const b = this.b;
+    this.diveT = 0.7;
+    if (!this.grounded && !this.zip) {
+      // Slam: drop to the snow fast and duck on landing (the low-bar phrase right after a log needs it).
+      if (b.vh > RCFG.diveV) b.vh = RCFG.diveV;
+      this.duckOnLand = true;
+      this.ctx.audio.whoosh();
+    } else if (this.grounded) {
+      this.duckT = 0.65;
+      this.ctx.audio.whoosh();
+      this.mistBurst(5, 0xffffff, 2, 0.8);
+    }
+  }
+
+  // Jump buffer: a press shortly before landing (or while a gap edge is still ahead) still counts.
+  tickJump(dt) {
+    const b = this.b;
+    if (this.jumpBufT > 0) {
+      let fired = false;
+      if (this.grind) { this.grind = null; fired = true; this.jump(RCFG.jumpV, false); }       // hop off the rail
+      else if (!this.zip && this.edgeS < 0 && (this.grounded || this.coyoteT > 0)) {
+        fired = true;
+        if (!this.edgeAssist()) this.jump(RCFG.jumpV, false);
+      }
+      if (fired) this.jumpBufT = 0; else this.jumpBufT -= dt;
+    }
+    if (this.edgeS >= 0) {
+      if (!this.grounded || this.zip) this.edgeS = -1;
+      else if (b.s >= this.edgeS - b.vs * 0.03) { this.edgeS = -1; this.jump(RCFG.jumpV, false); }
+    }
+  }
+
+  // A jump pressed a little BEFORE the take-off edge of a plain gap would land in the hole: hold it until the edge
+  // (only when jumping right now would not clear the gap anyway). Returns true when the jump is being held.
+  edgeAssist() {
+    const b = this.b;
+    if (!this.grounded) return false;
+    const g = this.gapEdgeAhead(b.s, b.vs * 0.2);
+    if (!g) return false;
+    let v = RCFG.jumpV;
+    if (this.superT > 0) v *= RCFG.superJumpK;
+    if (this.buffs.has('yay')) v *= 1.35;
+    const fl = flightDist(b.vs, v, 0, RCFG.gravity * (this.inZone === 'lowgrav' ? 0.5 : 1));
+    if (b.s + fl >= g.far + 0.3) return false;      // jumping right now already clears it
+    this.edgeS = g.edge;
+    return true;
+  }
+
+  gapEdgeAhead(s, maxD) {
+    const tr = this.track;
+    let p = tr.pieceAt(s);
+    for (let k = 0; k < 2 && p; k++) {
+      if (p.kind === 'gapJump' && p.gapS0 !== undefined && p.gapS0 > s && p.gapS0 - s <= maxD) {
+        const r = this._gapRes || (this._gapRes = { edge: 0, far: 0 });
+        r.edge = p.gapS0; r.far = p.gapS1;
+        return r;
+      }
+      p = tr.pieceAt(p.s1 + 0.1);
+    }
+    return null;
+  }
+
+  // Double-tap: ride a sled (Subway's hoverboard) — one free crash for its duration, then a cooldown.
+  trySled() {
+    const { ui } = this.ctx;
+    const meta = this.ctx.meta;
+    if (this.sledT > 0) return;
+    if (this.sledCdT > 0 || this.helmetT > 0 || this.helmet) {
+      if ((meta?.sleds?.() ?? 0) > 0) ui.toastSoft?.(this.sledCdT > 0 ? `Kızak ${Math.ceil(this.sledCdT)} sn sonra hazır` : 'Zaten korunuyorsun');
+      return;
+    }
+    if (meta?.useSled?.()) {
+      this.sledT = this.dur('sled');
+      this.ctx.audio.milestone(2);
+      this.float('KIZAK!', 'big');
+      this.powerups = (this.powerups || 0) + 1; meta?.track?.('powerup', { kind: 'sled' });
+    }
+  }
+
+  // ---------- junctions (Temple Run turns) ----------
+  // Consumes track.junctionAt(s) -> { s0, s, dir, id } (the junction whose [s0 - 60, s + 6] contains s, else null).
+  // Inside the window [s0, s) a swipe toward `dir` is a TURN. Passing the corner without one is the barrier (lethal).
+  juncTick(b, tr) {
+    const { ui } = this.ctx;
+    const J = tr.junctionAt ? tr.junctionAt(b.s) : null;
+    this.jnJ = J;
+    if (!J) {
+      if (this.jnId !== null) { this.jnId = null; this.jnOpen = false; this.jnNear = false; this.juncSlow = false; this.cornerK = 0; }
+      return null;
+    }
+    const id = J.id !== undefined ? J.id : J.s;
+    if (id !== this.jnId) {
+      this.jnId = id;
+      this.jnDone = false;
+      this.jnOpen = false;
+      this.jnTut = (this.ctx.save.runnerTurnHints?.() ?? 9) < 1;
+    }
+    const vs = Math.max(b.vs, 1);
+    const win = Math.max(J.s - J.s0, RCFG.juncMinSecs * vs);     // never shorter than ~0.9 s at the current speed
+    const sA = this.jnSA = J.s - win;
+    const grace = this.jnGrace = Math.max(0.8, 0.06 * vs);
+    this.jnNear = b.s >= sA - vs;
+    const open = !this.jnDone && b.s >= sA && b.s <= J.s + grace;
+    if (open) {
+      if (!this.jnOpen) {
+        this.jnCueT = -1;
+        if (this.jnTut) {
+          this.juncSlow = true;
+          ui.hint?.(true, J.dir > 0 ? 'SAĞA KAYDIR ➜' : '⬅ SOLA KAYDIR');
+        }
+      }
+      if (this.time - this.jnCueT >= 0.08) {
+        this.jnCueT = this.time;
+        ui.turnCue?.(J.dir, clamp((b.s - sA) / Math.max(1, J.s - sA), 0, 1));
+      }
+    } else if (this.jnOpen) {
+      ui.turnCue?.(0, 0);
+      this.juncSlow = false;
+    }
+    this.jnOpen = open;
+    if (!this.jnDone && b.s > J.s + grace) this.missTurn(J);
+    return J;
+  }
+
+  commitTurn(J, auto) {
+    const { ui, audio, platform } = this.ctx;
+    this.jnDone = true;
+    this.jnOpen = false;
+    this.juncSlow = false;
+    ui.turnCue?.(0, 0);
+    ui.hint?.(false);
+    if (auto) return;
+    this.turns++;
+    this.score += 100 * this.mult;
+    this.addFlow(4);
+    if (audio.turn) audio.turn(); else audio.whoosh();
+    platform.haptic('select');
+    this.kick += 2.5;
+    this.jnLean = J.dir * 0.22;
+    this.jnLeanT = 0.45;
+    this.camLookBias = J.dir * 1.6;
+    this.camLookBiasT = 0.7;
+    this.mistBurst(6, 0xffffff, 3, 0.9);
+    ui.runnerTurnOk?.(J.dir);
+    this.ctx.meta?.track?.('turn', {});
+    const hints = this.ctx.save.runnerTurnHints?.();
+    if (hints !== undefined && hints < 3) { this.float('DÖN!', 'big'); this.ctx.save.addRunnerTurnHint?.(); }
+    if (this.tut) this.ctx.save.setRunnerTutDone?.();         // the first real turn ends the tutorial run for good
+  }
+
+  // Passed the corner without turning: shields / flying forgive it, the very first junctions ever teach, otherwise: the barrier.
+  missTurn(J) {
+    const { ui } = this.ctx;
+    this.jnDone = true;
+    this.jnOpen = false;
+    this.juncSlow = false;
+    ui.turnCue?.(0, 0);
+    ui.hint?.(false);
+    if (this.rocketT > 0 || this.zip) { this.jnDone = true; return; }
+    if (this.jnTut && this.jnTutMiss < 2) {
+      this.jnTutMiss++;
+      this.float('BİR DAHAKİNE KAYDIR!', 'bad');
+      return;
+    }
+    if (this.absorbShield(null)) {
+      // the shield / sled / kabuk takes it: the ball is turned for you, you stumble
+      this.openStumble();
+      this.float('KALKAN KURTARDI!', 'big');
+      this.kick += 2;
+      return;
+    }
+    // The barrier: the ball keeps going straight while the road bends away under it, drifts to the OUTSIDE of the corner
+    // and runs into the red-white wall (wallStep decides the moment of impact).
+    const turn = (J.Lc > 0 && J.R > 0) ? 0.9 * J.Lc / J.R : 1.0;      // heading change of the corner (rad)
+    this.wallRun = { dir: J.dir, sC: J.s, Lc: Math.max(4, J.Lc || 8), turn: Math.min(1.3, Math.max(0.6, turn)), t: 0 };
+    this.killKind = 'wall';
+    this.rage = null;
+    this.jumpBufT = 0;
+    this.edgeS = -1;
+    this.ctx.audio.bump(0.6);
+  }
+
+  // A missed turn in progress: the road bends by `turn` over Lc metres, the ball does not. Contact with the barrier = death.
+  wallStep(dt, hw) {
+    const w = this.wallRun, b = this.b;
+    w.t += dt;
+    const x = clamp((b.s - w.sC) / w.Lc, 0, 1);
+    const ang = w.turn * x * x * (3 - 2 * x);                        // road heading relative to the ball's straight line
+    b.u -= w.dir * b.vs * Math.sin(ang) * dt;                         // outside of the corner is -dir
+    const wall = hw - 0.45 - b.r * 0.85;                              // the barrier's inner face (track.js _build_junction)
+    if (b.s > w.sC + w.Lc * 1.5 || w.t > RCFG.wallMaxT || -w.dir * b.u >= wall) {
+      if (-w.dir * b.u > wall) b.u = -w.dir * wall;
+      this.hitWall();
+    }
+  }
+
+  hitWall() {
+    const b = this.b;
+    this.wallRun = null;
+    this.crashes++;
+    this.layersLost++;
+    this.ctx.meta?.track?.('crash', {});
+    b.vs = 0;
+    this.crashFx(40);
+    this.ctx.audio.crash(1);
+    this.ctx.audio.bump(1);
+    this.die('wall');
+  }
+
+  // ---------- hunger ----------
+  hungerTick(dt) {
+    const b = this.b, ui = this.ctx.ui;
+    if (this.meltGraceT > 0) this.meltGraceT -= dt;
+    const melting = this.meltK > 0 && this.time >= RCFG.meltGrace && this.meltGraceT <= 0
+      && !this.zip && this.rocketT <= 0 && !this.buffs.has('donma');
+    if (melting) {
+      this.grow -= meltRate(this.tier, b.s, RCFG, this.meltK) * dt;
+      if (this.grow < 0) {
+        if (this.tier > 0) { this.tier--; this.grow += 1; this.onMeltDrop(); }
+        else { this.grow = 0; this.state === 'play' && this.die('melt'); return; }
+      }
+    }
+    this.syncRadius();
+    const warn = this.meltK > 0 && this.tier === 0 && this.grow < 0.5;
+    if (warn && melting) {
+      this.meltWarnT -= dt;
+      if (this.meltWarnT <= 0) { this.meltWarnT = 5; this.float('ERİYORSUN!', 'bad'); this.ctx.platform.haptic('warning'); }
+    } else if (!warn) this.meltWarnT = 0;
+    this.hungerWarn = warn;
+    ui.hunger?.(this.hungerFrac(), warn);
+  }
+
+  // A tier lost to melting: no Yeti, no stumble — just a soft blue puff.
+  onMeltDrop() {
+    this.syncRadius();
+    this.mistBurst(8, 0xaed8ff, 2.5, 0.9);
+    this.squash = Math.max(this.squash, 0.25);
+    this.ctx.platform.haptic('light');
+    this.ctx.audio.pop(0.25, 0);
+  }
+
+  // Hardness grows smoothly with distance (never in one step at a layer boundary).
+  hardTick() {
+    if (this.level || this.b.s < this.hardS + 60) return;
+    this.hardS = this.b.s;
+    const k = Math.min(3, this.baseHard * (1 + RCFG.hardRamp * this.b.s / RCFG.layerLen));
+    this.obstacles.setHardness?.(k);
+    this.track.setHardness?.(k);
+  }
+
+  // ---------- buff cards ----------
+  buffTick(dt) {
+    const ui = this.ctx.ui;
+    this.buffs.update(dt, this._onBuffEnd);
+    if (this.buffs.size) {
+      this.buffTickT -= dt;
+      if (this.buffTickT <= 0) { this.buffTickT = 0.25; ui.buffTick?.(this.buffs.list); }
+    }
+    if (!this.level) {
+      this.buffT -= dt;
+      if (this.buffT <= 0) {
+        if (this.jnNear || this.zip || this.rocketT > 0) this.buffT = 1.5;     // not in the middle of a corner approach
+        else this.grantBuff();
+      }
+    }
+  }
+
+  // A random temporary card (90 s). Max 3 active: a new one replaces the one with the least time left; the same card
+  // just refreshes. The game never pauses — ui.buffAdd plays the card animation at the top edge.
+  grantBuff() {
+    const { ui, audio, platform } = this.ctx;
+    const def = rollBuff(this.buffs, Math.random, this.lastBuff);
+    this.lastBuff = def.id;
+    const res = this.buffs.add(def.id, BUFF_LEN);
+    if (!res) return;
+    if (res.replaced) ui.buffRemove?.(res.replaced.id);
+    this.buffT = rand(RCFG.buffEvery[0], RCFG.buffEvery[1]);
+    if (ui.buffAdd) ui.buffAdd(def.id, def.icon, def.name, BUFF_LEN);
+    else this.float(`${def.icon} ${def.name.toLocaleUpperCase('tr-TR')}`, 'big');
+    if (def.id === 'akis') this.flow = Math.min(100, this.flow + 25);
+    if (def.id === 'yetikov') this.stumbleT = 0;
+    this.syncRadius();
+    if (!ui.buffAdd) { if (audio.chime) audio.chime(); else audio.milestone(3); }     // (ui.buffAdd plays the chime itself)
+    platform.haptic('success');
+    this.ctx.meta?.track?.('perk', { id: def.id });
+  }
+
+  // The kabuk card is spent by absorbing one hit.
+  spendBuff(id) {
+    const e = this.buffs.remove(id);
+    if (e) this.ctx.ui.buffRemove?.(id);
+  }
+
+  // ---------- the Yeti ----------
+  yetiTick(dt, top) {
+    const b = this.b;
+    const far = this.buffs.has('yetikov');
+    if (far) {
+      // The repellent: no window, no hold — it drops back and stays far.
+      this.stumbleT = 0;
+      this.yetiHoldT = 0;
+      this.gap = Math.min(RCFG.yetiMax, this.gap + 6 * dt);
+    } else if (this.yetiHoldT > 0) {
+      this.yetiHoldT -= dt;
+      this.gap = Math.min(this.gap, RCFG.yetiStart);
+    } else if (this.stumbleT > 0) {
+      this.stumbleT -= dt;
+      this.gap += (RCFG.yetiStumbleGap - this.gap) * Math.min(1, dt * 4);
+      if (this.stumbleT <= 0) {
+        this.stumbleT = 0;
+        this.score += 50 * this.mult;
+        this.float('KURTULDUN!', 'big');
+      }
+    } else if (b.vs >= top * RCFG.yetiStumbleSpeed) {
+      this.gap = Math.min(RCFG.yetiMax, this.gap + RCFG.yetiRecover * dt);
+    } else {
+      this.gap = Math.max(RCFG.yetiStart, this.gap - (top * RCFG.yetiStumbleSpeed - b.vs) * 0.5 * dt);
+    }
+    if (this.stumbleT > 0) this.minGap = Math.min(this.minGap, this.gap);
+    this.roarT -= dt;
+    if (this.gap < 8 && this.roarT <= 0) { this.roarT = 4; this.roar(true); }
+  }
+
+  /** A stumble: the Yeti is right behind you for a while; a second crash inside the window catches you. */
+  openStumble() {
+    if (this.buffs.has('yetikov')) return;
+    const layerK = Math.min(4, this.layer);
+    this.stumbleMax = Math.min(7, RCFG.stumbleWin + 0.25 * layerK) * (1 - 0.04 * Math.min(5, this.perm.yeti || 0));
+    this.stumbleT = this.stumbleMax;
+    this.gap = Math.min(this.gap, RCFG.yetiStumbleGap + 4);
+    this.yetiHoldT = 0;
+    this.stumbles++;
   }
 
   // Difficulty layers, speed steps, the skill-combo ("AKIŞ") and record moments.
@@ -541,13 +993,13 @@ export class Runner {
     if (layer > this.layer) this.layerUp(layer);
     const tier = Math.floor((speedAt(b.s) - RCFG.startSpeed) / 3.2);
     if (tier > this.speedTier) {
-      this.speedTier = tier;
-      this.float(`HIZ ${tier + 1}!`, 'big');
-      this.ctx.ui.flash?.('white');
+      this.speedTier = tier;       // a speed step: a felt kick and a puff of wind, no flash and no text
+      this.kick += 3;
+      this.trauma = Math.min(1, this.trauma + 0.12);
     }
     // Flow decays when you stop doing skilful things.
     this.flowT -= dt;
-    if (this.flowT <= 0 && this.flow > 0) this.flow = Math.max(0, this.flow - 14 * (this.perks.has('akis') ? 0.5 : 1) * (1 - 0.06 * (this.perm.flow || 0)) * dt);
+    if (this.flowT <= 0 && this.flow > 0) this.flow = Math.max(0, this.flow - 14 * (this.buffs.has('akis') ? 0.5 : 1) * (1 - 0.06 * Math.min(5, this.perm.flow || 0)) * dt);
     const lvl = this.flow >= 90 ? 4 : this.flow >= 50 ? 3 : this.flow >= 25 ? 2 : this.flow >= 10 ? 1 : 0;
     if (lvl !== this.flowLvl) {
       if (lvl > this.flowLvl) {
@@ -562,7 +1014,7 @@ export class Runner {
     if (!this.passedDist && b.s > this.bestDist) {
       this.passedDist = true;
       this.queueBanner('YENİ REKOR!', 5, 1.6, true);
-      ui.flash?.('white');
+      ui.flash?.('gold');
       audio.win();
       platform.haptic('success');
       this.ctx.menus?.confetti?.(60);
@@ -577,7 +1029,7 @@ export class Runner {
       this.passedScore = true;
       this.float('REKOR SKOR!', 'big');
     }
-    ui.runnerRecord?.(this.passedScore ? 0 : this.bestScore);
+    ui.runnerRecord?.(this.bestDist, b.s);
     this.placeRecordFlag();
     this.patchScene();
   }
@@ -585,12 +1037,16 @@ export class Runner {
   // Hook the runner's meshes into the shared shader look (visual modes, snow sparkle). Cheap: only re-walks
   // the groups when their child count changes (new track pieces).
   patchScene() {
-    const groups = [this.track?.group, this.obstacles?.group, this.env?.group].filter(Boolean);
+    const gs = this._groups;
+    gs.length = 0;
+    if (this.track?.group) gs.push(this.track.group);
+    if (this.obstacles?.group) gs.push(this.obstacles.group);
+    if (this.env?.group) gs.push(this.env.group);
     let n = 0;
-    for (const g of groups) n += g.children.length;
+    for (let i = 0; i < gs.length; i++) n += gs[i].children.length;
     if (n === this.patchedCount) return;
     this.patchedCount = n;
-    for (const g of groups) {
+    for (const g of gs) {
       g.traverse((o) => {
         if (!o.isMesh || o.isPoints) return;
         const mats = Array.isArray(o.material) ? o.material : [o.material];
@@ -630,7 +1086,7 @@ export class Runner {
     if (!sh) return;
     const b = this.b;
     const surf = this.track.surfaceAt(b.s, b.u);
-    sh.visible = surf !== -Infinity && this.state !== 'idle' && !this.zip;
+    sh.visible = surf !== -Infinity && this.state !== 'idle' && !this.zip && !this.off;
     if (!sh.visible) return;
     this.track.frame(b.s, _f);
     this.track.toWorld(b.s, b.u, surf + 0.05, _v);
@@ -644,34 +1100,27 @@ export class Runner {
     sh.material.opacity = 0.8 * k;
   }
 
-  // A layer boundary is also a checkpoint. Everything it fires is staggered (banner queue + delayed floats) and the
-  // perk card waits until the banners are done and, from layer 2 on, until the Yeti's barrage was survived.
+  // A layer boundary is also a checkpoint: a few coins, a soft toast, a buff card and the next rule-change zone.
+  // Nothing here blocks the view (no banner cluster) and nothing pauses.
   layerUp(layer) {
     const { ui, audio, platform } = this.ctx;
     const rage = this.rageEnd(layer);   // 1 survived the barrage, -1 crashed in it, 0 no barrage
     this.layer = layer;
-    const k = Math.min(1.9, this.baseHard * (1 + 0.1 * layer));
-    this.obstacles.setHardness?.(k);
-    this.track.setHardness?.(k);
-    this.avLevel = layer + 1;
-    if (this.perks.has('kabuk')) this.kabuk = 1;
     this.stageZone(layer);
     // Checkpoint: a few coins through the normal run-coin path (banked with the run, like flakes).
     const pay = checkpointReward(layer, RCFG.cpCoins);
     this.coins += pay;
-    this.queueBanner(`✔ ${layer * RCFG.layerLen} m`, 3);
-    this.after(rage > 0 ? 0.7 : 0, () => this.float(`+${pay} ❄️`, 'big'));
+    const text = `✔ ${layer * RCFG.layerLen} m · +${pay} ❄️`;
+    if (ui.toastSoft) ui.toastSoft(text); else this.queueBanner(`✔ ${layer * RCFG.layerLen} m`, 3);
     if (rage <= 0) audio.star(2);
     platform.haptic('success');
     ui.runnerGoalPop?.();
-    this.queueBanner(`KATMAN ${layer + 1}`, 4);
     this.after(1.1, () => audio.milestone(Math.min(5, 2 + (layer >> 1))));
-    this.after(2.4, () => this.float(`ÇIĞ SEVİYESİ ${this.avLevel}`, 'bad'));
-    if (layer >= this.perkLayer && rage >= 0) { this.perkDue = true; this.nextPerkS = this.b.s + 30; }
+    if (!this.level) this.buffT = Math.min(this.buffT, 0.01);      // the checkpoint card (granted as soon as it is calm)
     this.ctx.meta?.track?.('layer', { layer: layer + 1 });
   }
 
-  // ui.banner is a single slot: queue the 600 m cluster so the banners show one after another instead of stomping.
+  // ui.banner is a single slot: queue banners so they show one after another instead of stomping.
   queueBanner(text, level, hold = 1.05, urgent = false) {
     if (urgent || (this.bannerT <= 0 && !this.bannerQ.length)) { this.ctx.ui.banner(text, level); this.bannerT = hold; }
     else this.bannerQ.push(text, level, hold);
@@ -680,13 +1129,11 @@ export class Runner {
   tickBanner(rdt) {
     if (this.bannerT > 0) this.bannerT -= rdt;
     const q = this.bannerQ;
-    if (this.bannerT <= 0 && q.length) {
+    if (this.bannerT <= 0 && q.length && !this.jnOpen) {
       this.ctx.ui.banner(q.shift(), q.shift());
       this.bannerT = q.shift();
     }
   }
-
-  bannerQuiet() { return this.bannerT <= 0 && !this.bannerQ.length; }
 
   // Delayed callbacks that follow game time (setTimeout would outlive a restart and ignore pauses).
   after(sec, fn) { this.later.push({ t: sec, fn }); }
@@ -703,40 +1150,33 @@ export class Runner {
   // "YETİ ÖFKESİ": over the last rageLen m of every layer (from layer 2 on) the Yeti throws boulders at your lane (the
   // same throwBoulder path the boss zone uses). Survive without a crash → it gives up: bonus, and it falls back.
   rageOk() {
-    if (this.inZone === 'boss' || this.zip || this.grind || this.rocketT > 0) return false; // boss zone / rope / rail already own the moment
+    if (this.inZone === 'boss' || this.zip || this.grind || this.rocketT > 0 || this.jnNear) return false; // boss zone / rope / rail / corner already own the moment
     return !RAGE_SKIP.has(this.track.pieceAt(this.b.s)?.kind);
   }
 
   rageTick(dt) {
-    if (this.level || this.layer < 1) return;       // campaign has no layers (its boss levels throw their own boulders)
+    if (this.level || this.layer < 2) return;       // campaign has no layers (its boss levels throw their own boulders)
     const b = this.b, L = RCFG.layerLen;
     const B = (Math.floor(b.s / L) + 1) * L;
     let r = this.rage;
     if (!r) {
-      if (b.s < B - Math.max(RCFG.rageLen, b.vs * RCFG.rageSecs) || b.s > B - 40 || !this.rageOk()) return;
-      r = this.rage = { s0: b.s, B, t: 0.7, n: 0, crashes0: this.crashes, failed: false };
+      if (b.s < B - Math.max(RCFG.rageLen, b.vs * RCFG.rageSecs) || b.s > B - 40 || !this.rageOk() || this.stumbleT > 0) return;
+      r = this.rage = { s0: b.s, B, t: 0.9, n: 0, crashes0: this.crashes };
       this.roar(true);
       this.queueBanner('YETİ ÖFKESİ!', 4, 1.1, true);
-      this.ctx.ui.flash?.('hit');
-      return;
-    }
-    if (r.failed) return;
-    if (this.crashes !== r.crashes0) {              // one crash ends it: no death spiral
-      r.failed = true;
-      this.float('ÖFKE SÜRÜYOR...', 'bad');
       return;
     }
     r.t -= dt;
     if (r.t > 0) return;
-    if (!this.rageOk()) { r.t = 0.5; return; }
+    if (!this.rageOk() || this.stumbleT > 0) { r.t = 0.6; return; }   // never pile a boulder onto a stumble / a corner
     const sLand = b.s + b.vs * 1.5 + 9;             // lands ~9 m ahead of where you will be
     if (sLand > B - 6) { r.t = 1; return; }          // the last boulder lands before the boundary
+    if (this.rageCount === 0 && r.n >= 2) { r.t = 2; return; }      // the first barrage of a run is just two boulders
     const pl = this.lane + 1;
-    const lane = Math.random() < 0.65 ? pl : (pl + 1 + ((Math.random() * 2) | 0)) % 3;
+    const lane = Math.random() < 0.5 ? pl : (pl + 1 + ((Math.random() * 2) | 0)) % 3;
     if (this.obstacles.throwBoulder(lane, sLand) < 0) { r.t = 0.8; return; }
     r.n++;
     r.t = rand(RCFG.rageEvery[0], RCFG.rageEvery[1]) * rageScale(this.layer);
-    this.float('⚠ KAYA!', 'bad');
     this.ctx.audio.bump(0.8);
     this.ctx.platform.haptic('warning');
   }
@@ -746,7 +1186,8 @@ export class Runner {
     const r = this.rage;
     if (!r) return 0;
     this.rage = null;
-    if (r.failed || this.crashes !== r.crashes0) return -1;
+    this.rageCount++;
+    if (this.crashes !== r.crashes0) return -1;
     if (!r.n) return 0;
     const bonus = Math.round(150 * layer * this.mult);
     this.score += bonus;
@@ -758,56 +1199,14 @@ export class Runner {
     return 1;
   }
 
-  // Yeti surge: every ~30 s it roars and lunges (gap -surgePull over surgeLunge s). A boost strip, a jump pad or two
-  // near-misses while it winds up / lunges shake it off. It never gets closer than surgeFloor this way.
-  surgeTick(dt) {
-    if (this.level) return;
-    const s = this.surge;
-    if (!s) {
-      this.surgeT -= dt;
-      if (this.surgeT > 0) return;
-      if (this.rage || this.rocketT > 0 || this.zip || this.grind || this.gap < 7) { this.surgeT = 3; return; } // not mid-something / already close
-      this.surge = { t: 0, applied: 0, near: 0 };
-      this.roar(true);
-      this.float('YETİ ATILIYOR!', 'bad');
-      this.ctx.ui.flash?.('surge');
-      this.ctx.ui.runnerSurge?.(true);
-      return;
-    }
-    s.t += dt;
-    if (s.near >= 2) { this.surgeSave(); return; }
-    if (s.t > RCFG.surgeTele) {
-      const d = Math.min(Math.max(0, this.gap - RCFG.surgeFloor), (RCFG.surgePull / RCFG.surgeLunge) * dt);
-      this.gap -= d;
-      s.applied += d;
-    }
-    if (s.t >= RCFG.surgeTele + RCFG.surgeLunge) this.surgeEnd();
-  }
-
-  surgeEnd() {
-    this.surge = null;
-    this.surgeT = rand(RCFG.surgeEvery[0], RCFG.surgeEvery[1]);
-    this.ctx.ui.runnerSurge?.(false);
-  }
-
-  surgeSave() {
-    this.score += Math.round(150 * this.mult);
-    this.addFlow(3);
-    this.float('YETİ ISKALADI!', 'big');
-    this.ctx.audio.star(1);
-    this.ctx.platform.haptic('success');
-    this.surgeEnd();
-  }
-
   // Every layer the rules change (Jetpack Joyride-style zones) — announced ahead so you wonder what's next.
   stageZone(layer) {
     const ZONES = [
       { kind: 'movers', name: 'HAREKETLİ ENGELLER' },
-      { kind: 'lasers', name: 'BUZ LAZERLERİ' },
-      { kind: 'narrow', name: 'DAR KÖPRÜLER' },
-      { kind: 'missiles', name: 'KAR FÜZELERİ' },
-      { kind: 'invert', name: 'TERS KONTROL', runner: true },
       { kind: 'coinRain', name: 'KAR TANESİ YAĞMURU' },
+      { kind: 'narrow', name: 'DAR KÖPRÜLER' },
+      { kind: 'lasers', name: 'BUZ LAZERLERİ' },
+      { kind: 'missiles', name: 'KAR FÜZELERİ' },
       { kind: 'storm', name: 'FIRTINA' },
       { kind: 'lowgrav', name: 'DÜŞÜK YERÇEKİMİ', runner: true },
       { kind: 'boss', name: 'YETİ ÖFKESİ' },
@@ -816,21 +1215,20 @@ export class Runner {
     const from = Math.max(this.b.s + 320, (this.zone && this.zone.until > this.b.s ? this.zone.until + 60 : 0)), until = from + 420;
     if (!z.runner) this.obstacles.setZone?.(z.kind, { from, until });
     this.zone = { ...z, from, until, announced: false };
-    this.after(3.4, () => this.float(`GELİYOR: ${z.name}`, 'big')); // after the checkpoint / layer / biome banners
   }
 
   zoneTick() {
     const z = this.zone;
     if (!z) return;
     const s = this.b.s;
-    if (!z.announced && s >= z.from) {
+    if (!z.announced && s >= z.from && !this.jnOpen) {
       z.announced = true;
-      this.ctx.ui.banner(z.name, 4);
-      this.ctx.audio.milestone(4);
+      if (this.ctx.ui.toastSoft) this.ctx.ui.toastSoft(z.name); else this.ctx.ui.banner(z.name, 4);     // top edge, never over the track
+      this.ctx.audio.milestone(3);
       this.ctx.platform.haptic('success');
     }
     this.inZone = s >= z.from && s < z.until ? z.kind : null;
-    if (s >= z.until) { this.zone = null; this.inZone = null; this.float('BÖLGE BİTTİ', ''); }
+    if (s >= z.until) { this.zone = null; this.inZone = null; }
   }
 
   addFlow(n) {
@@ -883,49 +1281,7 @@ export class Runner {
     this.recLine.position.set(hw + 0.6, 0.06, 0);
   }
 
-  // ---------- perks / power-ups ----------
-  offerPerks() {
-    this.perkDue = false;
-    this.nextPerkS = Infinity;
-    this.perkLayer = this.layer + 2;   // every 2nd layer
-    const cards = rollPerks(this.perks);
-    if (!cards.length || !this.ctx.ui.showPerks) return;
-    this.perkPause = true;
-    this.ctx.audio.milestone(4);
-    this.ctx.ui.showPerks(cards, 'BİR GÜÇ SEÇ', (p) => {
-      this.perkPause = false;
-      this.applyPerk(p.id);
-      this.ctx.audio.ui('confirm');
-      this.ctx.platform.haptic('success');
-      this.float(`${p.icon} ${p.name.toLocaleUpperCase('tr-TR')}!`, 'big');
-      this.ctx.input.consumeDx();
-      this.ctx.input.consumeLane();
-    });
-  }
-
-  applyPerk(id) {
-    this.perks.add(id);
-    if (id === 'miknatis') this.magnetPerm = true;
-    if (id === 'kabuk') this.kabuk = 1;
-    if (id === 'akis') this.flow = Math.min(100, this.flow + 25);
-    if (id === 'ikiz') this.startClone(20);
-    this.ctx.meta?.track?.('perk', { id });
-  }
-
-  offerUpgrade() {
-    if (this.state !== 'over' || !this.ctx.ui.showPerks) return;
-    const pool = UPGRADES.slice();
-    const cards = [];
-    while (cards.length < 3 && pool.length) cards.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
-    const perm = this.ctx.save.perm?.() ?? {};
-    const shown = cards.map((u) => ({ ...u, desc: `${u.desc} · Sv ${(perm[u.id] || 0) + 1}/10` }));
-    this.ctx.ui.showPerks(shown, 'KALICI GELİŞTİRME', (u) => {
-      const lv = this.ctx.save.addPerm?.(u.id);
-      this.ctx.audio.ui('confirm');
-      this.ctx.ui.toast?.(`${u.icon} ${u.name} Sv ${lv}`);
-    });
-  }
-
+  // ---------- power-up helpers ----------
   setGhost(on) {
     const m = this.ctx.ball.snow.material;
     if (on) { this.ghostWas = { t: m.transparent, o: m.opacity }; m.transparent = true; m.opacity = 0.4; }
@@ -933,7 +1289,7 @@ export class Runner {
     m.needsUpdate = true;
   }
 
-  // İkiz Top: a twin rolls one lane over — it has to dodge too; while it lives, +2 on the multiplier.
+  // İkiz Top (a power-up pickup): a twin rolls one lane over — it has to dodge too; while it lives, +2 on the multiplier.
   startClone(t) {
     this.cloneT = Math.max(this.cloneT, t);
     if (!this.clone) {
@@ -975,7 +1331,7 @@ export class Runner {
       c.events.length = 0;
       this.obstacles.collide(cb, c.events);
       for (const e of c.events) {
-        if (e.type === 'hit' && !(this.tier + 1 >= (e.toughness ?? 5) + RCFG.smashMargin) && this.ghostT <= 0 && this.rocketT <= 0) { this.endClone(true); return; }
+        if (e.type === 'hit' && !(this.sizeNow() >= (e.toughness ?? 5) + RCFG.smashMargin) && this.ghostT <= 0 && this.rocketT <= 0) { this.endClone(true); return; }
         if (e.type === 'pickup' && (e.kind === 'flake' || e.kind === 'snow')) this.handle(e);
       }
     }
@@ -990,54 +1346,62 @@ export class Runner {
     const tier = destructionTier(this.destTons);
     if (tier > this.destTier) {
       this.destTier = tier;
-      this.ctx.ui.banner(`YIKIM: ${DESTRUCTION[tier].name}`, Math.min(5, 2 + tier));
+      const text = `YIKIM: ${DESTRUCTION[tier].name}`;
+      if (this.ctx.ui.toastSoft) this.ctx.ui.toastSoft(text); else this.ctx.ui.banner(text, Math.min(5, 2 + tier));
       this.ctx.audio.milestone(Math.min(5, 1 + tier));
       this.ctx.platform.haptic('success');
     }
   }
 
   updateHud() {
-    this.ctx.ui.runnerDanger?.(this.dangerBonus(), this.chainBonus(), this.riskT > 0 ? 4 : 0);
+    const ui = this.ctx.ui;
+    ui.runnerDanger?.(this.dangerBonus(), this.chainBonus(), this.riskT > 0 ? 4 : 0);
     this.updateGoal();
-    const bi = biomeAt(this.b.s);
+    const bi = biomeAt(this.b.s, _bi);
     const prog = this.level ? clamp(this.b.s / this.level.length, 0, 1) : bi.t;
     const label = this.level ? `${this.level.act}-${this.level.idx} · ${this.level.name}` : bi.biome.name;
-    this.ctx.ui.runnerStats(this.score, this.coins, this.mult, prog, Math.round(this.b.s), label);
+    ui.runnerStats(this.score, this.coins, this.mult, prog, Math.round(this.b.s), label);
     if ((this._progT = (this._progT || 0) + 1) % 30 === 0) this.ctx.meta?.track?.('run_progress', { distance: Math.round(this.b.s), coins: this.coins });
-    this.ctx.ui.runnerVitals({
-      tier: this.tier, tiers: TIERS, grow: this.grow, gap: this.gap, yetiMax: RCFG.yetiMax,
-      helmet: this.helmet, magnet: this.magnetT > 0, rocket: this.rocketT > 0,
-      x2: this.x2T > 0, superjump: this.superT > 0, sled: this.sledT > 0,
-    });
+    const v = this._vit, y = this._yeti;
+    v.tier = this.tier; v.grow = this.grow; v.gap = this.gap;
+    v.helmet = this.helmet; v.helmetT = this.helmetT; v.magnet = this.magnetT > 0 || this.buffs.has('miknatis'); v.rocket = this.rocketT > 0;
+    v.x2 = this.x2T > 0; v.superjump = this.superT > 0 || this.buffs.has('yay'); v.sled = this.sledT > 0; v.sledCd = this.sledCdT;
+    y.mode = this.stumbleT > 0 ? 'stumble' : this.yetiHoldT > 0 ? 'hold' : null;
+    y.frac = this.stumbleT > 0 ? this.stumbleT / Math.max(0.1, this.stumbleMax) : this.yetiHoldT > 0 ? this.yetiHoldT / RCFG.yetiHold : 0;
+    ui.runnerVitals(v);
   }
 
   // Goal strip: the next checkpoint (every layer), "REKORA n m" when your record is near, the Yeti's barrage while it lasts.
   updateGoal() {
     if (this.level) return;
     const ui = this.ctx.ui, s = this.b.s, r = this.rage;
-    if (r && !r.failed) { ui.runnerGoal?.('rage', 0, (s - r.s0) / Math.max(1, r.B - r.s0)); return; }
+    if (r) { ui.runnerGoal?.('rage', 0, (s - r.s0) / Math.max(1, r.B - r.s0)); return; }
     if (this.newRecT > 0) { ui.runnerGoal?.('new', 0, 1); return; }
     const g = goalFor(s, RCFG.layerLen, this.bestDist, this.passedDist, RCFG.recNear, _goal);
     ui.runnerGoal?.(g.mode, g.val, g.frac);
   }
 
+  // ---------- physics ----------
   step(dt, hw) {
     const b = this.b;
     this.stepDt = dt;
     const tr = this.track;
     // Lateral: player spring (heavier when big, slippery on ice) + external knocks / curve drift.
-    // Lane spring: snappy when small, heavier when big, mushy on ice.
-    const mass = 1 + this.tier * 0.18;
-    const grip = this.iceT > 0 ? 0.3 : 1;
-    const speedK = clamp((b.vs - RCFG.startSpeed) / (RCFG.refSpeed - RCFG.startSpeed), 0, 1);
-    const k = (RCFG.laneStiff * grip * (1 - 0.32 * speedK)) / mass; // momentum: drift more at speed
-    b.vu += ((this.targetU - b.u) * k - b.vu * 2 * Math.sqrt(k) * 0.95) * dt;
+    // Once the ball has dropped off the track it can no longer steer (no sliding back "through" the ground).
+    const mass = 1 + this.tier * 0.06;
+    const grip = this.iceT > 0 ? 0.5 : 1;
+    const k = (RCFG.laneStiff * grip) / mass;
+    const locked = this.fallLock || this.wallRun !== null;
+    const tgtU = locked ? b.u : this.targetU;
+    b.vu += ((tgtU - b.u) * k - b.vu * 2 * Math.sqrt(k) * 0.95) * dt;
     b.ve *= Math.exp(-2.5 * dt);
-    b.ve -= tr.curvature(b.s) * b.vs * b.vs * 0.12 * dt;
+    b.ve -= clamp(tr.curvature(b.s) * b.vs * b.vs * 0.12, -3, 3) * dt;   // curves push outward, but never fling you
+    if (locked) { b.vu = 0; b.ve = 0; }
     const du = (b.vu + b.ve) * dt;
     b.u += du;
     const ds = b.vs * dt;
     b.s += ds;
+    if (this.wallRun) { this.wallStep(dt, hw); if (this.state !== 'play') return; }
 
     // Snow banks keep you in; cliffs (edge 0) don't.
     const edge = tr.edgeAt(b.s);
@@ -1050,8 +1414,8 @@ export class Runner {
       while (Math.abs(this.lane * RCFG.laneW) > lim + 0.01 && this.lane !== 0) this.lane -= Math.sign(this.lane);
     }
 
-    // Vertical. Rideable train roofs/ramps count as ground too.
-    const ts = tr.surfaceAt(b.s, b.u);
+    // Vertical. Rideable train roofs/ramps count as ground too. groundAt bridges one-sample seam holes between pieces.
+    const ts = this.groundAt(b.s, b.u);
     const ps = this.obstacles.platformAt ? this.obstacles.platformAt(b.s, b.u) : -Infinity;
     const surf = Math.max(ts, ps ?? -Infinity);
     if (this.zip) {
@@ -1066,7 +1430,7 @@ export class Runner {
       b.vh = 0;
       b.h = this.grind.h;
       this.lane = clamp(Math.round(this.grind.u / RCFG.laneW), -1, 1);
-      b.vs = Math.min(RCFG.maxSpeed + 4, b.vs + 3 * dt);
+      b.vs = Math.max(b.vs, Math.min(speedAt(b.s) + 4, b.vs + 3 * dt));
       this.score += 30 * dt * this.mult;
       this.addFlow(6 * dt);
       if (Math.random() < dt * 30) this.burst(1, 0xffd060, 2);
@@ -1076,35 +1440,84 @@ export class Runner {
       b.vh = 0;
       b.h += (RCFG.rocketH - b.h) * Math.min(1, dt * 4);
     } else if (this.grounded) {
-      if (surf === -Infinity) {
+      if (this.lastSlope > 0.08 && (surf === -Infinity || surf < this.lastSurf - 0.2)) {
+        // Left the end of a ramp: launched along its slope (works over a gap as well as onto lower ground).
+        this.holeRun = 0;
+        this.jump(Math.max(6, b.vs * this.lastSlope * 1.1), true);
+      } else if (surf === -Infinity) {
+        // Over a hole. The ball is held up by the edge for about its own radius before it really falls (also covers 1-sample seams).
+        this.holeRun += ds;
+        if (this.holeRun > Math.min(0.9, 0.5 * b.r + 0.1)) {
+          this.grounded = false;
+          this.holeAir = true;
+          this.coyoteT = RCFG.coyote;
+          b.vh = 0;
+        }
+      } else if (surf < b.h - RCFG.landTol) {
+        // A step down taller than a landing tolerance: drop instead of teleporting.
+        this.holeRun = 0;
         this.grounded = false;
+        this.holeAir = false;
         this.coyoteT = RCFG.coyote;
         b.vh = 0;
-      } else if (surf < this.lastSurf - 0.2 && this.lastSlope > 0.08) {
-        this.jump(Math.max(6, b.vs * this.lastSlope * 1.1), true); // left a ramp lip
+        this.lastSurf = surf;
       } else {
-        this.lastSlope = (surf - this.lastSurf) / Math.max(1e-3, ds);
+        this.holeRun = 0;
+        if (ds > 1e-4) this.lastSlope = (surf - this.lastSurf) / ds;       // (a frozen step — countdown — must not fake a slope)
         b.h = surf;
+        this.lastSurf = surf;
       }
-      if (surf !== -Infinity) this.lastSurf = surf;
     } else {
       b.vh -= RCFG.gravity * (this.inZone === 'lowgrav' ? 0.5 : 1) * dt;
       b.h += b.vh * dt;
-      if (surf !== -Infinity && b.vh <= 0 && b.h <= surf && b.h > surf - 1.2) this.land(surf);
-      if (b.h < RCFG.fallDeath) this.die('fall');
+      const pS = ps ?? -Infinity;
+      if (pS > ts && b.vh <= 0 && b.h <= pS && b.h > pS - 1.2) {
+        this.land(pS);                                  // onto a train roof / its ramp
+      } else if (ts !== -Infinity) {
+        // SOLID ground under the ball. It always wins: below the surface (the ball ended up inside the slab, e.g. after a seam
+        // or a rising ramp) or descending within a landing tolerance of it -> snap to the surface and land. The tolerance is
+        // about two steps of travel, so a touchdown never visibly pops.
+        const tol = clamp(-b.vh * dt * 2.5, 0.05, RCFG.landTol);
+        const below = b.h < ts - 0.05;
+        if ((below && (b.h >= ts - RCFG.fallDeep || !this.holeAir)) || (b.vh <= 0 && b.h <= ts + tol)) {
+          this.land(ts);
+        } else if (below) {
+          // Really fell off a ledge / out of a gap and is now far below the track again: that fall is final.
+          this.fallLock = true;
+          if (b.h < ts - 4) { this.die('fall'); return; }
+        }
+      } else {
+        // Over a hole (not just a seam: groundAt already bridged those). Falling for real after a moment.
+        this.holeRun = 0;
+        this.holeAir = true;
+        if (b.h < -0.6) this.fallLock = true;
+        if (b.h < RCFG.fallDeath) { this.die('fall'); return; }
+      }
     }
 
     // Collisions.
-    b.size = this.tier + 1;
+    b.size = this.sizeNow();
     b.duck = this.duckT > 0;
     b.magnet = this.magnetRadius();   // obstacles.collide may widen flake pickup radius by this
     const ev = this.events;
     ev.length = 0;
-    this.obstacles.collide(b, ev);
+    if (!this.wallRun) this.obstacles.collide(b, ev);       // a missed turn is already a crash
     for (let i = 0; i < ev.length && this.state === 'play'; i++) this.handle(ev[i]);
 
     this.rollS += ds;
     this.rollU += du;
+  }
+
+  // The ground height under (s, u): the track surface, or -Infinity over a real hole. A "hole" that is only ONE sample wide
+  // (both neighbours 0.35 m before and after are solid) is a seam between two pieces, not a hole: the ball is held up by it.
+  groundAt(s, u) {
+    const tr = this.track;
+    const y = tr.surfaceAt(s, u);
+    if (y !== -Infinity) return y;
+    const a = tr.surfaceAt(s - 0.35, u);
+    if (a === -Infinity) return y;
+    const c = tr.surfaceAt(s + 0.35, u);
+    return c === -Infinity ? y : Math.max(a, c);
   }
 
   jump(vh, fromRamp) {
@@ -1113,15 +1526,18 @@ export class Runner {
       this.jumps++;
       this.ctx.meta?.track?.('jump', {});
       if (this.superT > 0) vh *= RCFG.superJumpK;
-      if (this.perks?.has('yay')) vh *= 1.35;
+      if (this.buffs.has('yay')) vh *= 1.35;
     }
     this.grounded = false;
+    this.holeAir = false;
     this.coyoteT = 0;
+    this.edgeS = -1;
+    this.duckT = 0;           // a jump cancels a duck
     b.vh = vh;
     this.lastSlope = 0;
-    this.squash = -0.6; // stretch up
+    this.squash = -0.45; this.sqV = 0; // stretch up
     this.mistBurst(6, 0xffffff, 2.5, 1);
-    this.ctx.audio.whoosh();
+    if (this.ctx.audio.hop) this.ctx.audio.hop(fromRamp ? 0.8 : 0.6); else this.ctx.audio.whoosh();
     this.ctx.platform.haptic(fromRamp ? 'medium' : 'light');
   }
 
@@ -1129,33 +1545,36 @@ export class Runner {
     const b = this.b;
     const impact = clamp(-b.vh / 14, 0, 1);
     this.grounded = true;
+    this.fallLock = false;
+    this.holeAir = false;
+    this.holeRun = 0;
+    this.groundT = 0;
     b.h = surf;
     b.vh = 0;
     this.lastSurf = surf;
     this.lastSlope = 0;
-    this.squash = 0.4 + impact * 0.6;
+    this.squash = 0.25 + impact * 0.45; this.sqV = 0;
     if (impact > 0.15) this.mistBurst(Math.round(6 + impact * 16), 0xffffff, 3 + impact * 5, 1.2 + impact);
     if (impact > 0.3) {
       this.ctx.audio.land(impact);
       this.ctx.platform.haptic('medium');
-      this.shake += impact * 0.4;
+      this.trauma = Math.min(1, this.trauma + impact * 0.3);
       this.burst(12, 0xffffff, 3);
     }
+    if (impact > 0.6) this.kick += 1.5;
+    if (this.duckOnLand) { this.duckOnLand = false; this.duckT = 0.65; }      // the slam: land into a duck
+    if (this.jumpBufT > 0 && !this.grind && !this.zip) { this.jumpBufT = 0; this.jump(RCFG.jumpV, false); }   // buffered jump fires at touchdown
   }
 
   // ---------- the core loop ----------
   addSnow(amount) {
-    const b = this.b;
     if (this.tier >= TIERS - 1) {
-      // Max size: extra snow is pure score.
-      this.score += 60 * this.mult;
-      this.grow = 1;
+      // Max size: the meter fills first, only the overflow is pure score.
+      const prev = this.grow;
+      this.grow = Math.min(1, this.grow + amount);
+      if (amount > 0 && prev >= 1) this.score += 60 * this.mult;
     } else {
       this.grow += amount;
-      // Melting can eat into the layer below.
-      if (this.grow < 0) {
-        if (this.tier > 0) { this.tier--; this.grow += 1; } else this.grow = 0;
-      }
       if (this.grow >= 1) {
         this.grow -= 1;
         this.tier++;
@@ -1164,116 +1583,158 @@ export class Runner {
         this.ctx.audio.milestone(this.tier + 1);
         this.ctx.platform.haptic('success');
         this.float(`BÜYÜDÜN! x${this.mult}`, 'big');
-        this.ctx.ui.banner(['', 'BÜYÜYOR!', 'KOCAMAN!', 'DEV TOP!', 'ÇIĞ!'][this.tier] || 'ÇIĞ!', Math.min(5, this.tier + 1));
+        this.kick += 2;
+        this.squash = Math.max(this.squash, 0.35);
       }
     }
-    const t = this.tier, g = this.tier >= TIERS - 1 ? 0 : this.grow;
-    b.r = RCFG.tierR[t] + (RCFG.tierR[Math.min(TIERS - 1, t + 1)] - RCFG.tierR[t]) * g * 0.6;
+    this.syncRadius();
   }
 
-  // Hit something solid. Bigger than its toughness → it shatters. Otherwise you lose a layer (or burst).
+  // Smashing costs a little size (a fence is cheap, a cabin is not). Never fatal, never a stumble.
+  drain(x) {
+    this.grow -= x;
+    if (this.grow < 0) {
+      if (this.tier > 0) { this.tier--; this.grow += 1; this.mistBurst(10, 0xb8c2cc, 3, 1); this.float('KÜÇÜLDÜN', ''); }
+      else this.grow = 0;
+    }
+    this.syncRadius();
+    this.ctx.ui.runnerSizeTick?.();
+  }
+
+  // Hit something solid. Big enough (or rocketing / giant) → it shatters. Otherwise a shield takes it, or you stumble.
   hit(e) {
     const b = this.b;
     const { audio, platform } = this.ctx;
     const tough = e.toughness ?? 5;
-    if (this.rocketT > 0 || this.tier + 1 >= tough + RCFG.smashMargin) {
+    const giant = this.buffs.has('dev');
+    if (this.rocketT > 0 || this.sizeNow() >= tough + RCFG.smashMargin || (giant && tough <= 3)) {
       this.obstacles.resolve?.(e.id, true);
       this.smashes++;
       this.ctx.meta?.track?.('smash', { toughness: tough });
-      this.score += 40 * tough * this.mult * (1 + 0.1 * (this.perm.smash || 0));
+      this.score += 40 * tough * this.mult * (1 + 0.1 * Math.min(5, this.perm.smash || 0));
       this.addTons([0, 3, 8, 20, 60, 180][Math.min(5, tough)] * (0.6 + b.r));
       audio.crash(clamp(tough / 5, 0.3, 1));
-      platform.haptic('medium');
-      this.shake += 0.25;
-      b.vs *= this.rocketT > 0 ? 1 : 0.92;
+      platform.haptic('light');
+      this.trauma = Math.min(1, this.trauma + 0.12 + 0.06 * tough);
+      this.kick += 1.5 + 0.5 * tough;
+      this.squash = Math.max(this.squash, 0.35);
+      if (this.rocketT <= 0 && tough >= 2 && this.time - this.lastSmashStop > 0.3) { this.hitStop = Math.max(this.hitStop, 0.025 + 0.01 * tough); this.lastSmashStop = this.time; }
+      b.vs *= this.rocketT > 0 ? 1 : 0.94;
       this.debris(e, 14);
+      if (this.rocketT <= 0 && !giant) this.drain(RCFG.smashCost * tough);
       this.float(['', 'ÇİT!', 'KIRDIN!', 'PARAMPARÇA!', 'DEVİRDİN!', 'YIKTIN!'][Math.min(5, tough)], '');
       return;
     }
     this.obstacles.resolve?.(e.id, false);
-    if (this.invulnT > 0 || this.ghostT > 0) return;
-    if (this.kabuk > 0) {
-      this.kabuk--;
-      this.invulnT = RCFG.invulnAfterCrash;
-      audio.bump(0.6);
-      this.debris(e, 8);
-      this.float('KABUK KIRILDI!', 'big');
-      return;
-    }
-    if (this.perks.has('cam') && !this.sledT && !this.helmet) {
-      this.crashes++;
-      this.debris(e, 10);
-      this.explode();
-      return;
-    }
-    if (this.sledT > 0) {
-      this.sledT = 0;
-      this.invulnT = RCFG.invulnAfterCrash;
-      audio.crash(0.5);
-      platform.haptic('heavy');
-      this.debris(e, 10);
-      this.float('KIZAK KIRILDI!', 'big');
-      return;
-    }
-    if (this.helmet) {
-      this.helmet = false;
-      this.invulnT = RCFG.invulnAfterCrash;
-      audio.bump(0.6);
-      platform.haptic('medium');
-      this.debris(e, 8);
-      this.float('KASK KURTARDI!', 'big');
-      return;
-    }
+    this.hurt(e);
+  }
+
+  // A hit that is not smashed: invulnerable / ghost → nothing; a shield → absorbed; otherwise a crash (stumble).
+  hurt(e) {
+    if (this.invulnT > 0 || this.ghostT > 0) return false;
+    if (this.absorbShield(e)) { this.invulnT = RCFG.invulnAfterCrash; return false; }
+    if (this.isLethal(e)) { this.lethalHit(e); return true; }
     this.crash(e);
+    return true;
+  }
+
+  // A centred, head-on hit with one of the big solid things. A side clip, a ball riding on top of a car and the very first
+  // 300 m of the tutorial run are all merely stumbles.
+  isLethal(e) {
+    const k = e.kind;
+    if (!k || !e.headOn || e.nonLethal) return false;
+    const on = this.lethalOn;
+    if (!(LETHAL_BASE.has(k) ? on.base : LETHAL_CAR.has(k) ? on.car : LETHAL_WALL.has(k) ? on.wall : false)) return false;
+    const b = this.b;
+    if (this.tut && b.s < 300) return false;
+    if (e.ride && e.ht > 0 && b.h >= 0.5 * e.ht) return false;
+    return Math.abs(b.u - (e.u !== undefined ? e.u : b.u)) < 0.5 * (b.r + (e.halfW || 1));
+  }
+
+  lethalHit(e) {
+    this.killKind = e.kind;
+    this.crashes++;
+    this.flow = 0;
+    this.flowLvl = 0;
+    this.layersLost++;
+    this.ctx.meta?.track?.('crash', {});
+    this.debris(e, 16);
+    this.obstacles.tintKiller?.(e.id);       // the killer glows red through the death read-out
+    this.crashFx(30);
+    this.ctx.audio.crash(1);
+    this.die('smash');
+  }
+
+  // Sled → helmet → kabuk card: each absorbs ONE hit (a missed turn included).
+  absorbShield(e) {
+    const { audio, platform } = this.ctx;
+    let msg = null;
+    if (this.sledT > 0) { this.sledT = 0; this.sledCdT = RCFG.sledCd; msg = 'KIZAK KIRILDI!'; }
+    else if (this.helmet) { this.helmet = false; this.helmetT = 0; msg = 'KASK KURTARDI!'; }
+    else if (this.buffs.has('kabuk')) { this.spendBuff('kabuk'); msg = 'KABUK KIRILDI!'; }
+    if (!msg) return false;
+    this.invulnT = RCFG.invulnAfterCrash;
+    audio.crash(0.3);
+    platform.haptic('medium');
+    this.burst(14, 0xcfe6ff, 5);
+    if (e) this.debris(e, 8);
+    this.float(msg, 'bad');
+    return true;
   }
 
   crash(e) {
     const b = this.b;
-    const { audio, platform } = this.ctx;
+    const { audio, platform, ui } = this.ctx;
     this.crashes++;
-    if (this.flowLvl > 0) this.float('AKIŞ KIRILDI', 'bad');
     this.flow = 0;
     this.flowLvl = 0;
     this.ctx.meta?.track?.('crash', {});
     this.layersLost++;
     this.debris(e, 10);
-    if (this.tier === 0) {
-      this.explode();
+    // A second crash while the Yeti is right behind you: it catches you.
+    if (this.stumbleT > 0 && !this.buffs.has('yetikov')) {
+      this.crashFx(30, false);
+      this.die('yeti');
       return;
     }
+    // Smallest size: the ball bursts.
+    if (this.tier === 0) { this.explode(); return; }
     // Knock a layer off: the lost snow sprays out as chunks, the ball visibly shrinks and stumbles.
     const lostR = b.r - RCFG.tierR[this.tier - 1];
     this.tier--;
     this.grow = 0;
-    b.r = RCFG.tierR[this.tier];
+    this.syncRadius();
     b.vs *= RCFG.crashSlow;
     if (e.headOn !== false) b.s -= 0.6; // bounce back off the obstacle
     b.ve += (b.u >= (e.u ?? 0) ? 1 : -1) * 3;
-    this.gap -= RCFG.yetiCrash * (this.perks.has('yetikov') ? 0.6 : 1) * (1 - 0.04 * (this.perm.yeti || 0));
-    if (this.nearChain >= 3) this.float('ZİNCİR KIRILDI', 'bad');
     this.nearChain = 0;
     this.invulnT = RCFG.invulnAfterCrash;
+    this.openStumble();
     this.burst(18 + Math.round(lostR * 40), 0xffffff, 6);
     this.mistBurst(14, 0xffffff, 5, 1.6);
     this.hitStop = 0.11;
-    this.ctx.ui.flash?.('hit');
-    audio.crash(0.6);
+    this.trauma = Math.min(1, this.trauma + 0.75);
+    this.kick += 1;
+    ui.flash?.('hit');
+    audio.crash(0.5);
     audio.bump(1);
     platform.haptic('heavy');
-    this.shake += 0.9;
-    this.float(this.tier === 0 ? 'SON KATMAN!' : 'KÜÇÜLDÜN!', 'bad');
-    if (this.gap < 16) this.float('YETİ YAKLAŞIYOR!', 'bad');
+    this.float(this.tier === 0 ? 'ÇOK KÜÇÜLDÜN!' : 'TÖKEZLEDİN!', 'bad');
+  }
+
+  // The ball bursts into powder (and is hidden): used by explode / the barrier.
+  crashFx(n, hide = true) {
+    this.mistBurst(40, 0xffffff, 9, 3);
+    this.hitStop = 0.2;
+    this.trauma = 1;
+    this.ctx.ui.flash?.('hit');
+    this.burst(n + 20, 0xffffff, 10);
+    this.burst(20, 0xd6e8ff, 6);
+    if (hide) this.ctx.ball.group.visible = false;
   }
 
   explode() {
-    const b = this.b;
-    this.mistBurst(40, 0xffffff, 9, 3);
-    this.hitStop = 0.2;
-    this.ctx.ui.flash?.('hit');
-    // The ball bursts into powder.
-    this.burst(60, 0xffffff, 10);
-    this.burst(20, 0xd6e8ff, 6);
-    this.ctx.ball.group.visible = false;
+    this.crashFx(40);
     this.die('explode');
   }
 
@@ -1283,6 +1744,9 @@ export class Runner {
     switch (e.type) {
       case 'hit':
         this.hit(e);
+        break;
+      case 'critter':
+        this.critter(e);
         break;
       case 'block': {
         // Older event shape: treat head-on blocks as a toughness-5 hit, glancing ones as a nudge.
@@ -1297,7 +1761,7 @@ export class Runner {
         if (e.dh > 0) { this.grounded = false; b.vh = Math.max(b.vh, e.dh); }
         audio.bump(0.5);
         platform.haptic('medium');
-        this.shake += 0.35;
+        this.trauma = Math.min(1, this.trauma + 0.3);
         break;
       case 'ice':
         this.iceT = 0.15;
@@ -1305,7 +1769,7 @@ export class Runner {
       case 'warn':
         if (!this.warned || this.warned !== e.kind + e.lane + Math.round(e.t * 10)) {
           this.warned = e.kind + e.lane + Math.round(e.t * 10);
-          this.ctx.ui.laneWarn?.(e.lane, e.kind);
+          this.laneWarn(e);
           if (e.kind === 'oncoming') audio.ui('back');
           platform.haptic('light');
         }
@@ -1327,15 +1791,15 @@ export class Runner {
         this.nearChain = this.nearT > 0 ? this.nearChain + 1 : 1;
         this.nearT = 2.6;
         this.addFlow(4);
-        const bonus = Math.round(50 * (this.perks.has('kilpayi') ? 3 : 1) * this.mult);
+        const bonus = Math.round(50 * this.mult);
         this.score += bonus;
-        if (this.perks.has('risk')) this.riskStack = Math.min(0.8, this.riskStack + 0.04);
         const cm = this.chainBonus();
-        if (this.surge) this.surge.near++;
-        this.float(cm > 0 ? `KIL PAYI +${bonus} · ZİNCİR +${cm}` : `KIL PAYI +${bonus}`, cm > 0 ? 'big' : '');
+        if (this.stumbleT > 0) this.ctx.meta?.track?.('close_call', {});
+        if (cm > 0) this.float(`KIL PAYI +${bonus} · ZİNCİR +${cm}`, 'big');
         this.punch = Math.min(1.5, this.punch + 0.6);
+        this.kick += 3;
         this.mistBurst(6, 0xbfe6ff, 4, 0.9);
-        audio.whoosh();
+        if (audio.near) audio.near(); else audio.whoosh();
         if (cm > 0) audio.star(Math.min(2, cm - 1));
         platform.haptic('light');
         this.ctx.meta?.track?.('near', {});
@@ -1344,7 +1808,6 @@ export class Runner {
       case 'over':
         this.addFlow(3);
         this.score += 50 * this.mult;
-        this.float('ÜSTÜNDEN!', '');
         break;
       case 'push':
         b.u += (e.du || 0) * this.stepDt;
@@ -1381,7 +1844,7 @@ export class Runner {
         break;
       case 'valley':
         if (e.ok && this.diveT > 0 && this.grounded) {
-          b.vs = Math.min(RCFG.maxSpeed + 5, b.vs + 3.5);
+          b.vs = Math.max(b.vs, Math.min(speedAt(b.s) + 5, b.vs + 3.5));
           this.score += 80 * this.mult;
           this.gap = Math.min(RCFG.yetiMax, this.gap + 2);
           this.float('SÜPER DALIŞ!', 'big');
@@ -1393,105 +1856,14 @@ export class Runner {
         audio.bump(0.15);
         break;
       case 'pickup':
-        if (e.kind === 'gate') {
-          this.gateChain = e.value || 1;
-          this.score += 50 * this.gateChain * this.mult;
-          audio.star(Math.min(2, this.gateChain - 1));
-          this.float(`KAPI x${this.gateChain}`, '');
-        } else if (e.kind === 'flake') {
-          this.addFlow(0.8);
-          this.coinsF += (e.value || 1) * (this.perks.has('altin') ? 2 : 1) * (1 + 0.08 * (this.perm.coin || 0));
-          const whole = Math.floor(this.coinsF);
-          this.coins += whole;
-          this.coinsF -= whole;
-          this.score += 10 * this.mult;
-          music.note();
-          platform.haptic('select');
-        } else if (e.kind === 'snow') {
-          this.addSnow((1 / RCFG.pilesPerTier[Math.min(3, this.tier)]) * (this.perks.has('kar') ? 2 : 1) * (1 + 0.06 * (this.perm.size || 0)));
-          audio.pop(0.4, 3);
-          this.burst(8, 0xffffff, 2);
-        } else if (e.kind === 'star') {
-          this.score += 500;
-          audio.milestone(2);
-          this.float('+500', 'big');
-        } else if (e.kind === 'x2') {
-          this.x2T = this.dur('x2');
-          audio.milestone(3);
-          this.float('ÇARPAN +3!', 'big');
-          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'x2' });
-        } else if (e.kind === 'superjump') {
-          this.superT = this.dur('superjump');
-          audio.milestone(3);
-          this.float('SÜPER ZIPLAMA!', 'big');
-          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'superjump' });
-        } else if (e.kind === 'crystal') {
-          this.crystals++;
-          this.ctx.meta?.addCrystals?.(1);
-          audio.star(2);
-          platform.haptic('success');
-          this.float('💎 KRİSTAL!', 'big');
-        } else if (e.kind === 'box') {
-          this.boxes++;
-          audio.star(1);
-          platform.haptic('success');
-          this.float('🎁 SÜRPRİZ KUTU!', 'big');
-        } else if (e.kind === 'letter') {
-          const res = this.ctx.meta?.collectLetter?.();
-          audio.milestone(4);
-          platform.haptic('success');
-          this.float(`HARF: ${e.letter ?? '?'}`, 'big');
-          this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.().nextLetter ?? null);
-          if (res && res.complete) this.ctx.ui.banner('PATPAT TAMAM!', 4);
-        } else if (e.kind === 'timewarp') {
-          this.warpT = 3.5;
-          audio.milestone(3);
-          this.float('ZAMAN BÜKÜCÜ!', 'big');
-          this.ctx.ui.flash?.('white');
-          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'timewarp' });
-        } else if (e.kind === 'ghost') {
-          this.ghostT = 5;
-          this.setGhost(true);
-          audio.milestone(3);
-          this.float('HAYALET!', 'big');
-          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'ghost' });
-        } else if (e.kind === 'risk') {
-          this.riskT = 10;
-          audio.milestone(5);
-          this.float('RİSK MODU! HIZ ↑ ÇARPAN +4', 'big');
-          this.ctx.ui.flash?.('hit');
-          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'risk' });
-        } else if (e.kind === 'clone') {
-          this.startClone(12);
-          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'clone' });
-        } else if (e.kind === 'helmet') {
-          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'helmet' });
-          this.helmet = true;
-          audio.milestone(3);
-          platform.haptic('success');
-          this.float('KASK!', 'big');
-        } else if (e.kind === 'magnet') {
-          this.magnetT = this.dur('magnet');
-          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'magnet' });
-          audio.milestone(3);
-          this.float('MIKNATIS!', 'big');
-        } else if (e.kind === 'rocket') {
-          this.rocketT = this.dur('rocket');
-          this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'rocket' });
-          // Sky lane of snowflakes for the flight (if the obstacles module supports it).
-          this.obstacles.spawnSkyCoins?.(b.s + 12, b.s + 12 + this.rocketT * b.vs * 1.2);
-          this.gap = Math.min(RCFG.yetiMax, this.gap + 12);
-          audio.whoosh();
-          platform.haptic('success');
-          this.float('ROKET!', 'big');
-        }
+        this.pickup(e);
         break;
       case 'pad':
-        if (this.surge) this.surgeSave();   // boost strip / jump pad: the lunge misses
         if (e.kind === 'boost') {
-          b.vs = Math.min(RCFG.maxSpeed + 6, b.vs + 7 * (e.power || 1));
+          b.vs = Math.max(b.vs, Math.min(speedAt(b.s) * 1.3, b.vs + 7 * (e.power || 1)));
           this.gap = Math.min(RCFG.yetiMax, this.gap + 4);
-        } else this.jump(RCFG.jumpPadV * (e.onBeat ? 1.15 : 1) * (e.power || 1), true);
+          this.kick += 5;
+        } else { this.jump(RCFG.jumpPadV * (e.onBeat ? 1.15 : 1) * (e.power || 1), true); this.kick += 3; }
         if (e.onBeat) {
           this.perfects++;
           this.addFlow(5);
@@ -1506,17 +1878,18 @@ export class Runner {
         // Obstacles module decided it broke (older shape).
         this.score += 50 * this.mult;
         audio.crash(0.5);
-        this.shake += 0.3;
+        this.trauma = Math.min(1, this.trauma + 0.2);
         break;
       case 'melt':
-        this.addSnow(-(e.rate || 0.2) * this.stepDt); // rate is tiers per second
+        // Warm patches: they melt the ball faster (tiers per second). A soft drain, never a stumble.
+        if (this.rocketT <= 0 && !this.buffs.has('donma')) this.drainSoft((e.rate || 0.2) * this.stepDt);
         break;
       case 'portal': {
         const bi = biomeAt(b.s + 5);
         this.score += 200 * this.mult;
-        music.stinger('portal');
         music.setStyle(musicStyleAt(b.s + 5));
-        this.queueBanner(bi.biome.name.toLocaleUpperCase('tr-TR'), 3, 1);
+        music.stinger('portal');
+        if (this.ctx.ui.toastSoft) this.ctx.ui.toastSoft(bi.biome.name.toLocaleUpperCase('tr-TR')); else this.queueBanner(bi.biome.name.toLocaleUpperCase('tr-TR'), 3, 1);
         this.ctx.meta?.track?.('portal', { biome: bi.biome.id });
         audio.milestone(3);
         this.gap = Math.min(RCFG.yetiMax, this.gap + 8);
@@ -1527,24 +1900,252 @@ export class Runner {
     }
   }
 
-  // Magnet: pull nearby flakes in by asking the obstacles module for pickups in range (if it supports it).
-  // Falls back to a wider collision radius for flakes only.
-  magnetRadius() { return this.magnetT > 0 || this.magnetPerm ? 4.5 : 0; }
+  // Warm ground (volcano / desert): extra melt on top of hunger.
+  drainSoft(x) {
+    if (this.meltK <= 0) return;
+    this.grow -= x;
+    if (this.grow < 0) {
+      if (this.tier > 0) { this.tier--; this.grow += 1; this.onMeltDrop(); }
+      else { this.grow = 0; if (this.state === 'play') this.die('melt'); }
+    }
+  }
+
+  // Lane warning above the threatened lane (projected at a capped distance so the icons stay legible).
+  laneWarn(e) {
+    const ui = this.ctx.ui;
+    if (!ui.laneWarn) return;
+    const b = this.b, d = Math.min(18, b.vs * (e.t || 1));
+    this.track.toWorld(b.s + d, (e.lane - 1) * RCFG.laneW, 1.2, _v2);
+    _v2.project(this.ctx.camera);
+    if (_v2.z > 1) { ui.laneWarn(e.lane, e.kind); return; }
+    ui.laneWarn(e.lane, e.kind, (_v2.x * 0.5 + 0.5) * window.innerWidth, (-_v2.y * 0.5 + 0.5) * window.innerHeight);
+  }
+
+  // Pickups. Everything is credited silently — the result screen is where rewards show up.
+  pickup(e) {
+    const b = this.b;
+    const { audio, platform, ui } = this.ctx;
+    const gold = this.buffs.has('altin');
+    switch (e.kind) {
+      case 'gate':
+        this.gateChain = e.value || 1;
+        this.score += 50 * this.gateChain * this.mult;
+        audio.star(Math.min(2, this.gateChain - 1));
+        this.float(`KAPI x${this.gateChain}`, '');
+        break;
+      case 'flake':
+        this.addFlow(0.8);
+        this.addFlakes(e.value || 1);
+        this.score += 10 * this.mult * (gold ? 2 : 1);
+        if (audio.flake) audio.flake(); else music.note();
+        platform.haptic('select');
+        if (e.s !== undefined && e.s !== 0) {
+          this.track.toWorld(e.s, e.u, e.h, _v);
+          this.ctx.fx.burst(_v.x, _v.y, -_v.z, 3, 0xffe9a0, 2.5, 0.07, 1.5);
+        }
+        break;
+      case 'snow': {
+        this.snowChain = this.time - this.snowT < 1.5 ? this.snowChain + 1 : 0;
+        this.snowT = this.time;
+        this.addSnow((1 / RCFG.pilesPerTier[Math.min(3, this.tier)]) * (this.buffs.has('kar') ? 2 : 1) * (1 + 0.06 * Math.min(5, this.perm.size || 0)));
+        audio.pop(0.4, Math.min(8, this.snowChain + 3));
+        this.squash = Math.max(this.squash, 0.2);
+        this.burst(8, 0xffffff, 2);
+        break;
+      }
+      case 'star':
+        this.score += 500;
+        audio.milestone(2);
+        break;
+      case 'x2':
+        this.x2T = this.dur('x2');
+        audio.milestone(3);
+        this.float('ÇARPAN +3!', 'big');
+        this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'x2' });
+        break;
+      case 'superjump':
+        this.superT = this.dur('superjump');
+        audio.milestone(3);
+        this.float('SÜPER ZIPLAMA!', 'big');
+        this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'superjump' });
+        break;
+      case 'gem':
+      case 'crystal':
+        this.crystals++;              // the revive currency, credited the moment you grab it (a soft toast, no popup)
+        this.ctx.meta?.addCrystals?.(1);
+        audio.star(2);
+        platform.haptic('success');
+        ui.toastSoft?.('💎 +1');
+        break;
+      case 'box':
+        this.boxes++;                 // credited when the run is recorded; no popup
+        audio.star(1);
+        platform.haptic('success');
+        break;
+      case 'letter': {
+        this.ctx.meta?.collectLetter?.();
+        audio.milestone(4);
+        platform.haptic('success');
+        this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.()?.nextLetter ?? null);
+        break;
+      }
+      case 'timewarp':
+        this.warpT = 3.5;
+        audio.milestone(3);
+        this.float('ZAMAN BÜKÜCÜ!', 'big');
+        this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'timewarp' });
+        break;
+      case 'ghost':
+        this.ghostT = 5;
+        this.setGhost(true);
+        audio.milestone(3);
+        this.float('HAYALET!', 'big');
+        this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'ghost' });
+        break;
+      case 'risk':
+        this.riskT = 10;
+        audio.milestone(5);
+        this.float('RİSK MODU! HIZ ↑ ÇARPAN +4', 'big');
+        this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'risk' });
+        break;
+      case 'clone':
+        this.startClone(12);
+        this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'clone' });
+        break;
+      case 'helmet':
+        this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'helmet' });
+        if (this.helmet || this.sledT > 0) { this.coins += 50; this.float('+50 ❄️', ''); }   // already protected: a coin bonus instead
+        else {
+          this.helmet = true;
+          this.helmetT = RCFG.helmetT;
+          audio.milestone(3);
+          platform.haptic('success');
+          this.float('KASK!', 'big');
+        }
+        break;
+      case 'magnet':
+        this.magnetT = this.dur('magnet');
+        this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'magnet' });
+        audio.milestone(3);
+        this.float('MIKNATIS!', 'big');
+        break;
+      case 'rocket':
+        this.rocketT = this.dur('rocket');
+        this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'rocket' });
+        // Sky lane of snowflakes for the flight (if the obstacles module supports it).
+        this.obstacles.spawnSkyCoins?.(b.s + 12, b.s + 12 + this.rocketT * b.vs * 1.2);
+        this.stumbleT = 0;                    // flying: the Yeti loses you
+        this.gap = Math.max(this.gap, RCFG.yetiMax - 4);
+        audio.whoosh();
+        platform.haptic('success');
+        this.float('ROKET!', 'big');
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Flakes (coins). The gold card doubles them; permanent upgrades add a little. Whole coins only.
+  addFlakes(v) {
+    this.coinsF += v * (this.buffs.has('altin') ? 2 : 1) * (1 + 0.08 * Math.min(5, this.perm.coin || 0));
+    const whole = Math.floor(this.coinsF);
+    this.coins += whole;
+    this.coinsF -= whole;
+  }
+
+  // Little critters (Mario goombas): land on one from above and it pops and you bounce, chaining combos; touch one head-on
+  // or from the side and you stumble (never lethal). B decides `stomp` (ball moving down, ball bottom above 45% of its height).
+  critter(e) {
+    const b = this.b;
+    const { audio, platform, ui } = this.ctx;
+    const obs = this.obstacles;
+    if (e.stomp) {
+      obs.killCritter?.(e.id);
+      this.stompN++;
+      this.stompTotal++;
+      this.groundT = 0;
+      this.grounded = false;
+      this.holeAir = false;
+      this.coyoteT = 0;
+      this.duckT = 0;
+      b.vh = this.jumpBufT > 0 ? RCFG.stompV + 3 : RCFG.stompV;      // a jump pressed just before = a higher bounce (Mario)
+      this.jumpBufT = 0;
+      const n = this.stompN;
+      this.addFlakes(n);
+      this.score += 100 * n * this.mult;
+      this.addFlow(2);
+      this.kick += 1.5;
+      this.squash = -0.2; this.sqV = 0;
+      this.trauma = Math.min(1, this.trauma + 0.1);
+      if (audio.stomp) audio.stomp(Math.min(6, n - 1)); else audio.pop(0.6, Math.min(8, n + 2));
+      platform.haptic('light');
+      ui.stompCombo?.(n);              // (the HUD counts the 'stomp' mission event itself; endless_end carries the run total)
+      this.burst(10, 0xfff2b0, 3);
+      this.mistBurst(5, 0xffffff, 2.5, 0.8);
+      if (n >= 3 && n % 2 === 1) this.float(`EZDİN x${n}!`, 'big');
+      return;
+    }
+    obs.killCritter?.(e.id);
+    this.burst(8, 0xffffff, 3);
+    if (this.rocketT > 0 || this.buffs.has('dev')) {
+      // flying / giant: you just plough through it
+      this.score += 50 * this.mult;
+      audio.crash(0.3);
+      return;
+    }
+    this.critterHit();
+  }
+
+  // A critter bump: one size down, the Yeti closes in for the stumble window, 1 s of invulnerability. It never kills by
+  // itself (no Yeti catch, no burst): at the smallest size it just eats most of what is left of the meter.
+  critterHit() {
+    if (this.invulnT > 0 || this.ghostT > 0) return;
+    const b = this.b;
+    const { audio, platform, ui } = this.ctx;
+    const ce = this._ce || (this._ce = { s: 0, u: 0, h: 0.4, color: 0xffffff, toughness: 1, headOn: true });
+    ce.s = b.s; ce.u = b.u; ce.h = 0.4;
+    if (this.absorbShield(ce)) return;
+    this.crashes++;
+    this.flow = 0;
+    this.flowLvl = 0;
+    this.layersLost++;
+    this.ctx.meta?.track?.('crash', {});
+    if (this.tier > 0) { this.tier--; this.grow = Math.min(this.grow, 0.5); }
+    else this.grow = Math.max(0.05, this.grow - 0.4);
+    this.syncRadius();
+    b.vs *= RCFG.critterSlow;
+    this.nearChain = 0;
+    this.invulnT = RCFG.invulnAfterCrash;
+    this.openStumble();
+    this.burst(12, 0xffffff, 5);
+    this.mistBurst(8, 0xffffff, 4, 1.2);
+    this.hitStop = Math.max(this.hitStop, 0.06);
+    this.trauma = Math.min(1, this.trauma + 0.45);
+    this.kick += 1;
+    ui.flash?.('hit');
+    audio.crash(0.3);
+    audio.bump(0.6);
+    platform.haptic('heavy');
+    this.float('TÖKEZLEDİN!', 'bad');
+  }
+
+  // Magnet: pull nearby flakes in by widening the pickup radius for flakes only.
+  magnetRadius() { return this.magnetT > 0 || this.buffs.has('miknatis') ? 4.5 : 0; }
 
   finish() {
     if (this.state !== 'play') return;
     this.state = 'finished';
     this.finishT = 0;
-    this.surge = null;
-    this.ctx.ui.runnerSurge?.(false);
+    this.ctx.ui.turnCue?.(0, 0);
     this.ctx.ui.banner('BİTİŞ!', 5);
-    this.ctx.ui.flash?.('white');
+    this.ctx.ui.flash?.('gold');
     this.ctx.audio.win();
     this.ctx.platform.haptic('success');
     this.ctx.menus?.confetti?.(80);
     this.ctx.audio.setRoll(0, 0);
     music.duck(true);
     this.onFinish?.(this.levelStats());
+    this.coinsBanked = this.coins;      // the campaign's finish handler credits the coins itself
   }
 
   levelStats() {
@@ -1554,139 +2155,259 @@ export class Runner {
       distance: Math.round(this.b.s), score: Math.round(this.score), coins: this.coins,
       flakes: this.coins, flakesPct: clamp(this.coins / Math.max(1, len / 8), 0, 1),
       crashes: this.crashes, layersLost: this.layersLost, maxTier: this.maxTier,
-      minYetiGap: this.minGap ?? this.gap, perfects: this.perfects, powerups: this.powerups, time: this.time,
+      minYetiGap: Number.isFinite(this.minGap) ? this.minGap : RCFG.yetiMax, perfects: this.perfects, powerups: this.powerups, time: this.time,
+      turns: this.turns, stumbles: this.stumbles, stomps: this.stompTotal, killKind: this.killKind,
     };
   }
 
+  // ---------- death / result / revive ----------
   die(cause) {
     if (this.state !== 'play') return;
+    const { ui, audio, platform } = this.ctx;
     this.zip = null;
     this.grind = null;
     this.rage = null;
-    this.surge = null;
+    this.wallRun = null;
     this.bannerQ.length = 0;
     this.later.length = 0;
-    this.ctx.ui.runnerSurge?.(false);
+    this.juncSlow = false;
+    this.jnOpen = false;
+    this.jumpBufT = 0;
+    ui.turnCue?.(0, 0);
+    ui.hint?.(false);
+    ui.stompCombo?.(0);
     this.state = 'dying';
     this.cause = cause;
+    if (cause !== 'smash' && cause !== 'wall') this.killKind = null;       // (killKind only names what a head-on hit / the barrier was)
     this.deadT = 0;
     music.stinger('death');
     music.duck(true);
-    this.ctx.audio.setRoll(0, 0);
-    this.ctx.audio.lose();
-    this.ctx.platform.haptic('warning');
-    this.shake += 1;
+    audio.setRoll(0, 0);
+    audio.lose();
+    platform.haptic('warning');
+    this.trauma = Math.min(1, this.trauma + 0.5);
   }
 
-  updateDying(dt) {
+  updateDying(dt, rdt) {
     const b = this.b;
-    this.deadT += dt;
+    this.deadT += rdt;
+    let T = 1.4;
     if (this.cause === 'fall') {
       b.vh -= RCFG.gravity * dt;
       b.h = Math.max(-70, b.h + b.vh * dt);
       b.s += b.vs * 0.5 * dt;
+      T = 1.8;
     } else if (this.cause === 'yeti') {
       // The Yeti catches up and scoops the ball.
       this.gap = Math.max(-1, this.gap - 25 * dt);
       b.vs *= Math.exp(-3 * dt);
       b.s += b.vs * dt;
       if (this.deadT > 0.5) this.ctx.ball.group.visible = false;
+    } else if (this.cause === 'melt') {
+      // The ball melts away: it shrinks to nothing in a cloud of blue-white drops.
+      b.vs *= Math.exp(-1.5 * dt);
+      b.s += b.vs * dt;
+      b.r = Math.max(0.04, b.r - rdt * 0.5);
+      if (Math.random() < rdt * 40) this.mistBurst(1, 0xaed8ff, 1.5, 0.6);
+      if (this.deadT > 1.0) this.ctx.ball.group.visible = false;
+      T = 1.5;
     } else {
       b.vs *= Math.exp(-4 * dt);
     }
-    if (this.deadT > 1.4 && this.state === 'dying' && this.level) {
-      this.state = 'over';
-      this.ctx.save.addCoins(this.coins);
-      this.ctx.meta?.track?.('endless_end', { distance: Math.round(b.s), score: Math.round(this.score), coins: this.coins, crashes: this.crashes, cause: this.cause, maxTier: this.maxTier, campaign: true });
+    if (this.deadT > T && this.state === 'dying') this.finishOver();
+  }
+
+  bankCoins() {
+    const d = this.coins - this.coinsBanked;
+    if (d > 0) this.ctx.save.addCoins(d);
+    this.coinsBanked = this.coins;
+  }
+
+  // The run is over for good: record it (top list, daily best, missions) exactly once.
+  recordRun() {
+    if (this.recorded) return this.recInfo || { rank: 0, dailyBest: false };
+    this.recorded = true;
+    const { save } = this.ctx;
+    const meta = this.ctx.meta;
+    const score = Math.round(this.score), dist = Math.round(this.b.s);
+    const rank = save.recordRunner?.(score, dist) || 0;
+    const dailyBest = !!save.recordDailyRunner?.(score);
+    meta?.track?.('endless_end', {
+      distance: dist, score, coins: this.coins, crashes: this.crashes, cause: this.cause, killKind: this.killKind,
+      maxTier: this.maxTier, jumps: this.jumps, smashes: this.smashes, turns: this.turns, stumbles: this.stumbles, stomps: this.stompTotal,
+    });
+    if (this.boxes) meta?.addBoxes?.(this.boxes);      // credited silently
+    this.recInfo = { rank, dailyBest };
+    return this.recInfo;
+  }
+
+  // Leaving the run (retry, menu, quit): bank the coins, and record it if it had really ended. Idempotent.
+  closeOut() {
+    if (this.closed) return;
+    this.closed = true;
+    this.bankCoins();
+    if (this.level || this.recorded) return;
+    // a finished run, or one the player walked away from after real progress (quit / restart from the pause menu keeps the record)
+    if (this.state === 'over' || this.state === 'dying' || (this.state === 'play' && this.b.s > 100)) this.recordRun();
+  }
+
+  finalizeRun() { this.closeOut(); }
+
+  finishOver() {
+    this.state = 'over';
+    const meta = this.ctx.meta;
+    this.bankCoins();
+    if (this.level) {
+      meta?.track?.('endless_end', { distance: Math.round(this.b.s), score: Math.round(this.score), coins: this.coins, crashes: this.crashes, cause: this.cause, maxTier: this.maxTier, campaign: true, turns: this.turns, stumbles: this.stumbles });
       this.onFail?.(this.cause, this.levelStats());
       return;
     }
-    if (this.deadT > 1.4 && this.state === 'dying') {
-      this.state = 'over';
-      const { save, ui } = this.ctx;
-      const best = save.runnerBest();
-      const score = Math.round(this.score);
-      const rank = save.recordRunner(score, Math.round(b.s)) || 0;
-      const dailyBest = save.recordDailyRunner?.(score);
-      save.addCoins(this.coins);
-      const meta = this.ctx.meta;
-      meta?.track?.('endless_end', { distance: Math.round(b.s), score, coins: this.coins, crashes: this.crashes, cause: this.cause, maxTier: this.maxTier, jumps: this.jumps, smashes: this.smashes });
-      if (this.boxes) { meta?.addBoxes?.(this.boxes); }
-      const reviveCost = meta?.reviveCost?.(this.revives) ?? 0;
-      this.reviveCost = reviveCost;
-      ui.showRunnerResult({
-        dailyBest,
-        destruction: DESTRUCTION[this.destTier].name,
-        tons: Math.round(this.destTons),
-        rank,
-        toRecord: Math.max(0, Math.round(this.bestDist - b.s)),
-        missions: meta?.missions?.() ?? [],
-        layer: this.layer + 1,
-        boxes: this.boxes,
-        reviveCost,
-        crystals: meta?.crystals ?? 0,
-        title: this.cause === 'fall' ? 'UÇURUMA DÜŞTÜN!' : this.cause === 'yeti' ? 'YETİ SENİ YAKALADI!' : 'PATLADIN!',
-        distance: Math.round(b.s),
-        score,
-        coins: this.coins,
-        best: Math.max(best, score),
-        isBest: score > best,
-        canRevive: meta ? (meta.crystals ?? 0) >= reviveCost : !this.revived,
-      });
-      if (this.boxes && this.ctx.menus?.openBoxes) setTimeout(() => this.ctx.menus.openBoxes(this.boxes), 900);
-      // Pick one permanent upgrade (the "come back stronger" hook).
-      setTimeout(() => this.offerUpgrade(), this.boxes ? 2600 : 1100);
-    }
+    this.reviveCost = meta?.reviveCost?.(this.revives) ?? 0;
+    const canRevive = meta ? (meta.crystals ?? 0) >= this.reviveCost : !this.revived;
+    this.showResult(canRevive);
+  }
+
+  // The result screen. While a revive is possible the run is NOT recorded yet (a revive continues the same run).
+  showResult(canRevive) {
+    const { save, ui } = this.ctx;
+    const meta = this.ctx.meta;
+    const b = this.b;
+    const bestBefore = save.runnerBest?.() ?? 0, bestDistBefore = save.runnerBestDist?.() ?? 0;
+    const dist = Math.round(b.s), score = Math.round(this.score);
+    let rank = 0, dailyBest = false;
+    if (!canRevive) { const info = this.recordRun(); rank = info.rank; dailyBest = info.dailyBest; }
+    else rank = save.previewRunnerRank?.(dist) ?? 0;
+    const isBestDist = dist >= 50 && dist > bestDistBefore;
+    const dt = ui.runnerDeathText ? ui.runnerDeathText(this.cause, this.killKind) : null;
+    ui.showRunnerResult({
+      cause: this.cause,
+      killKind: this.killKind,
+      title: (dt && dt.title) || DEATH_TEXT[this.cause] || 'BİTTİ!',
+      tip: dt ? dt.tip : '',
+      dailyBest,
+      destruction: DESTRUCTION[this.destTier].name,
+      tons: Math.round(this.destTons),
+      rank,
+      toRecord: Math.max(0, Math.round(bestDistBefore - dist)),
+      missions: meta?.missions?.() ?? [],
+      layer: this.layer + 1,
+      boxes: this.boxes,
+      reviveCost: this.reviveCost,
+      crystals: meta?.crystals ?? 0,
+      distance: dist,
+      score,
+      coins: this.coins,
+      best: Math.max(bestBefore, score),
+      bestScore: Math.max(bestBefore, score),
+      bestDist: Math.max(bestDistBefore, dist),
+      isBest: isBestDist,
+      isBestDist,
+      canRevive,
+      onRevive: () => this.revive(),
+    });
+  }
+
+  // "BENİ KURTAR": gems buy a continuation of the same run (1, 2, 4, 8 💎). Nothing is banked or recorded twice.
+  revive() {
+    if (this.state !== 'over' || this.level || this.recorded) return false;
+    const meta = this.ctx.meta;
+    if (meta) {
+      if (!meta.spendCrystals?.(this.reviveCost ?? 1)) return false;
+    } else if (this.revived) return false;
+    this.revived = true;
+    this.revives++;
+    const { ui } = this.ctx;
+    const b = this.b;
+    const tr = this.track;
+    // The safe spot can be older than the part of the track that is still built (fast runs): take the first solid ground after it.
+    let sSafe = this.lastSafe.s;
+    for (let k = 0; k < 60 && sSafe < b.s && tr.surfaceAt(sSafe, this.lastSafe.u) === -Infinity; k++) sSafe += 4;
+    b.s = sSafe;
+    this.lane = clamp(Math.round(this.lastSafe.u / RCFG.laneW), -1, 1);
+    b.u = this.lane * RCFG.laneW;
+    b.h = Math.max(0, tr.surfaceAt(b.s, b.u));
+    b.vh = 0; b.vu = 0; b.ve = 0;
+    b.vs = speedAt(b.s) * 0.7;
+    this.killKind = null;
+    this.tier = Math.max(this.tier, 1);
+    this.grow = 0.5;
+    this.syncRadius();
+    this.rShown = b.r;
+    this.targetU = b.u;
+    this.grounded = true;
+    this.lastSurf = b.h;
+    this.lastSlope = 0;
+    this.fallLock = false;
+    this.holeRun = 0;
+    this.holeAir = false;
+    this.wallRun = null;
+    this.groundT = 0;
+    this.coyoteT = 0;
+    this.jumpBufT = 0;
+    this.edgeS = -1;
+    this.duckT = 0;
+    this.duckOnLand = false;
+    this.zip = null;
+    this.grind = null;
+    this.rocketT = 0;
+    this.stumbleT = 0;
+    this.yetiHoldT = 2;
+    this.gap = RCFG.yetiStart;
+    this.invulnT = 2.5;
+    this.meltGraceT = 4;
+    this.hungerWarn = false;
+    this.nearChain = 0;
+    this.stompN = 0;
+    this.jnId = null; this.jnDone = false; this.jnOpen = false; this.jnNear = false; this.juncSlow = false;
+    const J = tr.junctionAt ? tr.junctionAt(b.s) : null;
+    if (J && b.s >= J.s - Math.max(J.s - J.s0, RCFG.juncMinSecs * b.vs) - 1) { this.jnId = J.id !== undefined ? J.id : J.s; this.jnDone = true; }   // revived inside a turn window: that corner is forgiven
+    this.cornerK = 0;
+    this.countT = 0.8;
+    this.countQuiet = true;
+    this.hitStop = 0;
+    this.state = 'play';
+    this.ctx.ball.group.visible = true;
+    this.obstacles.clearRange?.(b.s, b.s + b.vs * 1.4);
+    ui.hideRunnerRevive?.();
+    ui.hideResult?.();
+    music.duck(false);
+    music.stinger('revive');
+    this.ctx.input.clear ? this.ctx.input.clear() : (this.ctx.input.consumeDx(), this.ctx.input.consumeJump());
+    this.placeBall(true);
+    return true;
+  }
+
+  // The result screen's "BİTİR" (compat with a separate revive panel): give up the revive and show the final result.
+  declineRevive() {
+    if (this.state !== 'over' || this.level) return;
+    this.ctx.ui.hideRunnerRevive?.();
+    this.showResult(false);
   }
 
   endGrind() {
     if (!this.grind) return;
     this.grind = null;
     this.jump(6, true);
-    this.b.vs += 3;
+    this.b.vs = Math.max(this.b.vs, Math.min(speedAt(this.b.s) + 4, this.b.vs + 3));
     this.float('RAY BİTTİ! +HIZ', '');
   }
 
-  revive() {
-    if (this.state !== 'over') return;
-    const meta = this.ctx.meta;
-    if (meta) {
-      if (!meta.spendCrystals?.(this.reviveCost ?? 1)) return;
-    } else if (this.revived) return;
-    this.revived = true;
-    this.revives++;
-    this.boxes = 0; // already banked at the result screen
-    const b = this.b;
-    b.s = this.lastSafe.s;
-    this.lane = clamp(Math.round(this.lastSafe.u / RCFG.laneW), -1, 1);
-    b.u = this.lane * RCFG.laneW;
-    b.h = Math.max(0, this.track.surfaceAt(b.s, b.u));
-    b.vh = 0; b.vu = 0; b.ve = 0;
-    b.vs = speedAt(b.s) * 0.7;
-    this.tier = Math.max(this.tier, 1);
-    this.grow = 0;
-    b.r = RCFG.tierR[this.tier];
-    this.targetU = b.u;
-    this.grounded = true;
-    this.lastSurf = b.h;
-    this.gap = RCFG.yetiStart;
-    this.avLevel = 1;
-    this.surgeT = Math.max(this.surgeT, 10);
-    this.invulnT = 2.5;
-    this.state = 'play';
-    this.ctx.ball.group.visible = true;
-    music.duck(false);
-    music.stinger('revive');
-    this.ctx.input.consumeDx();
-    this.ctx.input.consumeJump();
-  }
-
   // ---------- visuals ----------
-  placeBall(snap) {
+  placeBall(snap, dt = 1 / 60) {
     const b = this.b;
     const tr = this.track;
     tr.frame(b.s, _f);
-    tr.toWorld(b.s, b.u, b.h + this.rShown * (this.duckT > 0 ? 0.5 : 0.96), _v);
+    // Squash & stretch as a damped spring (frame-rate independent); the duck eases in and out.
+    const sdt = Math.min(dt, 0.05);
+    if (sdt > 0) {
+      this.sqV += (-260 * this.squash - 2 * 0.35 * 16.1 * this.sqV) * sdt;
+      this.squash += this.sqV * sdt;
+    }
+    this.duckK += ((this.duckT > 0 ? 1 : 0) - this.duckK) * Math.min(1, sdt * 25);
+    const sq = this.squash, dk = this.duckK;
+    const sy = (1 - 0.3 * sq) * (1 - 0.5 * dk), sxz = (1 + 0.25 * sq) * (1 + 0.35 * dk);
+    // The bottom of the ball stays on the snow while it squashes.
+    tr.toWorld(b.s, b.u, b.h + this.rShown * 0.96 * sy, _v);
     const ball = this.ctx.ball;
     // Rolling: forward motion turns about -right, sideways motion about the tangent.
     ball.rollAxis(_f.right, -this.rollS / Math.max(0.2, this.rShown));
@@ -1694,14 +2415,9 @@ export class Runner {
     this.rollS = this.rollU = 0;
     ball.group.position.copy(_v);
     ball.x = _v.x; ball.y = _v.y; ball.d = -_v.z; ball.r = this.rShown;
-    // Squash & stretch (world-vertical), springing back.
-    this.squash *= Math.exp(-10 * (1 / 60));
-    const sq = this.squash;
-    if (this.duckT > 0) ball.group.scale.set(1.35, 0.5, 1.35);
-    else ball.group.scale.set(1 + sq * 0.25, 1 - sq * 0.3, 1 + sq * 0.25);
-    this.juiceFrame(_f, _v);
+    ball.group.scale.set(sxz, sy, sxz);
+    this.juiceFrame(_f, _v, dt);
     this.updateClone();
-    ball.group.scale.multiplyScalar(1 + 0.03 * (this.perm.size || 0));
     this.placeShadow();
     ball.airborne = !this.grounded;
     if (this.state === 'play') {
@@ -1712,13 +2428,13 @@ export class Runner {
   }
 
   // Powder spray, ribbon trail and speed lines — what makes speed *feel* like speed.
-  juiceFrame(f, pos) {
+  juiceFrame(f, pos, dt) {
     const b = this.b;
     const fx = this.ctx.fx;
     const playing = this.state === 'play' && this.countT <= 0;
     const speedK = clamp((b.vs - RCFG.startSpeed) / (RCFG.refSpeed - RCFG.startSpeed), 0, 1);
     if (playing && this.grounded && !this.grind) {
-      const rate = 0.35 + speedK * 0.9;
+      const rate = (0.35 + speedK * 0.9) * Math.min(3, dt * 60);
       if (Math.random() < rate) {
         const side = Math.random() < 0.5 ? -1 : 1;
         _tp.copy(pos).addScaledVector(f.right, side * this.rShown * 0.8).addScaledVector(f.up, -this.rShown * 0.7);
@@ -1733,7 +2449,15 @@ export class Runner {
     }
     // Ribbon trail pressed into the snow (uses the equipped trail's material).
     this.updateTrail(f, pos);
-    this.ctx.ui.speedLines?.(playing ? Math.max(0, speedK - 0.35) / 0.65 + (this.rocketT > 0 ? 0.6 : 0) + (b.vs > RCFG.maxSpeed ? 0.4 : 0) : 0);
+    this.ctx.ui.speedLines?.(playing ? Math.max(0, speedK - 0.1) / 0.9 + (this.rocketT > 0 ? 0.6 : 0) + (b.vs > RCFG.maxSpeed ? 0.4 : 0) : 0);
+  }
+
+  trailPush(x, y, z, rx, ry, rz, w, gap) {
+    const TN = 18, P = this.tpt, G = this.tgap;
+    if (this.tn === TN) { P.copyWithin(0, 7, TN * 7); G.copyWithin(0, 1, TN); this.tn--; }
+    const i = this.tn++;
+    P[i * 7] = x; P[i * 7 + 1] = y; P[i * 7 + 2] = z; P[i * 7 + 3] = rx; P[i * 7 + 4] = ry; P[i * 7 + 5] = rz; P[i * 7 + 6] = w;
+    G[i] = gap ? 1 : 0;
   }
 
   updateTrail(f, pos) {
@@ -1751,30 +2475,31 @@ export class Runner {
       this.trail.frustumCulled = false;
       this.trail.renderOrder = 2;
       this.ctx.scene.add(this.trail);
-      this.trailPts = [];
+      // preallocated ring of trail points: x y z, right x y z, half width, gap flag
+      this.tpt = new Float32Array(TN * 7);
+      this.tgap = new Uint8Array(TN);
+      this.tn = 0;
     }
-    const pts = this.trailPts;
+    const P = this.tpt, G = this.tgap;
     const hw = this.rShown * 0.5;
-    const off = this.grounded ? 0.04 - this.rShown * 0.96 : null;
-    if (off === null) {
-      if (pts.length && !pts[pts.length - 1].gap) pts.push({ gap: true });
+    if (!this.grounded) {
+      if (this.tn && !G[this.tn - 1]) this.trailPush(0, 0, 0, 0, 0, 0, 0, true);
     } else {
-      const last = pts[pts.length - 1];
-      _tp.copy(pos).addScaledVector(f.up, off);
-      if (!last || last.gap || _tp.distanceToSquared(last.p) > 0.6) {
-        pts.push({ p: _tp.clone(), r: f.right.clone(), w: hw });
-      }
+      _tp.copy(pos).addScaledVector(f.up, 0.04 - this.rShown * 0.96);
+      const l = this.tn - 1;
+      let far = true;
+      if (l >= 0 && !G[l]) { const dx = _tp.x - P[l * 7], dy = _tp.y - P[l * 7 + 1], dz = _tp.z - P[l * 7 + 2]; far = dx * dx + dy * dy + dz * dz > 0.6; }
+      if (far) this.trailPush(_tp.x, _tp.y, _tp.z, f.right.x, f.right.y, f.right.z, hw, false);
     }
-    while (pts.length > TN) pts.shift();
     const arr = this.trailPos;
     let n = 0;
-    for (let i = 0; i < pts.length; i++) {
-      const q = pts[i];
-      if (q.gap) continue;
+    for (let i = 0; i < this.tn; i++) {
+      if (G[i]) continue;
+      const o = i * 7;
       const fade = Math.min(1, n / 10);
-      const w = q.w * fade;
-      arr[n * 6] = q.p.x - q.r.x * w; arr[n * 6 + 1] = q.p.y - q.r.y * w; arr[n * 6 + 2] = q.p.z - q.r.z * w;
-      arr[n * 6 + 3] = q.p.x + q.r.x * w; arr[n * 6 + 4] = q.p.y + q.r.y * w; arr[n * 6 + 5] = q.p.z + q.r.z * w;
+      const w = P[o + 6] * fade;
+      arr[n * 6] = P[o] - P[o + 3] * w; arr[n * 6 + 1] = P[o + 1] - P[o + 4] * w; arr[n * 6 + 2] = P[o + 2] - P[o + 5] * w;
+      arr[n * 6 + 3] = P[o] + P[o + 3] * w; arr[n * 6 + 4] = P[o + 1] + P[o + 4] * w; arr[n * 6 + 5] = P[o + 2] + P[o + 5] * w;
       n++;
     }
     this.trail.geometry.attributes.position.needsUpdate = true;
@@ -1801,11 +2526,20 @@ export class Runner {
     this.ctx.fx.burst(_v.x, _v.y, -_v.z, n, e.color ?? 0x8a6a4a, 7, 0.25, 6);
   }
 
+  // Floating callouts: at most about one per second (a higher-priority one may cut in after 0.35 s), spawned just BELOW the
+  // ball over the trail — never on the strip of track the player is reading.
   float(text, cls) {
+    const pri = FLOAT_PRI[cls] ?? 1;
+    const since = this.time - this.floatT;
+    if (since < 1.0 && !(pri > this.floatPri && since > 0.35)) return;
     const p = this.ctx.ball.group.position;
     _v2.copy(p).project(this.ctx.camera);
     if (_v2.z > 1) return;
-    this.ctx.ui.float(text, (_v2.x * 0.5 + 0.5) * window.innerWidth, (-_v2.y * 0.5 + 0.35) * window.innerHeight, cls);
+    this.floatT = this.time;
+    this.floatPri = pri;
+    const H = window.innerHeight;
+    const y = clamp((-_v2.y * 0.5 + 0.5 + 0.1) * H, H * 0.62, H * 0.82);
+    this.ctx.ui.float(text, (_v2.x * 0.5 + 0.5) * window.innerWidth, y, cls);
   }
 
   roar(quiet = false) {
@@ -1813,8 +2547,7 @@ export class Runner {
     audio.bump(1);
     audio.crash(0.25);
     platform.haptic('heavy');
-    this.shake += 0.5;
-    if (!quiet) this.float('GRRAAAH!', 'bad');
+    this.trauma = Math.min(1, this.trauma + (quiet ? 0.15 : 0.3));
   }
 
   updateYeti(dt) {
@@ -1822,7 +2555,7 @@ export class Runner {
     const b = this.b;
     // Only when it's really on the track (at the very start it would be clamped onto the start line, right in
     // front of the camera).
-    const show = this.b.s - this.gap > 1;
+    const show = this.b.s - this.gap > 1 && this.state !== 'idle';
     y.group.visible = show;
     this.avalanche.group.visible = show;
     if (!show) return;
@@ -1833,14 +2566,15 @@ export class Runner {
     // The Yeti tracks your lane with a lag and bounds along.
     y.u += (b.u - y.u) * Math.min(1, dt * 2.5);
     const run = Math.abs(Math.sin(y.t * 7));
-    tr.toWorld(Math.max(0, gs), y.u, Math.max(0, tr.surfaceAt(gs, y.u) === -Infinity ? 0 : tr.surfaceAt(gs, y.u)) + run * 0.8, _v);
+    const sf = tr.surfaceAt(gs, y.u);
+    tr.toWorld(Math.max(0, gs), y.u, Math.max(0, sf === -Infinity ? 0 : sf) + run * 0.8, _v);
     _x.copy(_f.right).negate();
     _m.makeBasis(_x, _f.up, _f.tan);
     _q.setFromRotationMatrix(_m);
     // Lean in and pump: tilt forward with the stride.
-    _v2.copy(_f.right);
     const lean = 0.25 + Math.sin(y.t * 7) * 0.08;
-    y.mesh.quaternion.copy(_q).multiply(_q.clone().setFromAxisAngle(_x.set(1, 0, 0), lean));
+    _q2.setFromAxisAngle(_ax.set(1, 0, 0), lean);
+    y.mesh.quaternion.copy(_q).multiply(_q2);
     y.mesh.position.copy(_v);
     const sc = y.scale * (1 + Math.sin(y.t * 14) * 0.03);
     y.mesh.scale.set(sc, sc * (1 - run * 0.06), sc);
@@ -1867,58 +2601,129 @@ export class Runner {
     av.mesh.instanceMatrix.needsUpdate = true;
   }
 
+  // The chase camera rides the path (exactly `camBackS` behind the ball along the track — no world-space lag, so it never
+  // cuts corners into banks), looks at a point 12-18 m AHEAD on the track, tilts at most 25° on banked sections (it only
+  // follows the track fully where the track itself turns upside down), climbs on high curvature / steep pitch and keeps
+  // the ball in the lower-middle of the screen. Hit-stop freezes its filters with the world.
   updateCamera(dt, snap = false) {
     const b = this.b;
     const tr = this.track;
     const r = this.rShown;
-    // When the Yeti closes in, the camera climbs and looks down so it looms at the bottom of the screen
-    // (Temple Run style) instead of blocking the view.
-    const close = this.state === 'play' ? clamp((15 - this.gap) / 10, 0, 1) : 0;
-    this.closeK = (this.closeK ?? 0) + (close - (this.closeK ?? 0)) * Math.min(1, dt * 4);
-    const back = 8 + r * 3 - this.closeK * 1.5;
-    const up = 4.4 + r * 1.6 + this.closeK * 5.5;
-    const camS = Math.max(0, b.s - back);
-    tr.frame(camS, _f);
-    const dying = this.state === 'dying' || this.state === 'over';
-    const camH = dying && this.cause === 'fall' ? Math.max(b.h + up, -6) + up * 0.5 : Math.max(b.h * 0.5, 0) + up;
-    // Banked spirals: follow only part of the track's roll (full roll reads as a glitch and dips the camera into
-    // the terrain). Loops/corkscrews genuinely turn upside down, so there we follow the frame completely.
-    const pc = tr.pieceAt(b.s);
-    const flip = pc && (pc.kind === 'loop' || pc.kind === 'corkscrew');
-    this.flipK = (this.flipK ?? 0) + ((flip ? 1 : 0) - (this.flipK ?? 0)) * Math.min(1, dt * 3);
-    const follow = 0.35 + 0.65 * this.flipK;
-    _x.copy(_f.up).multiplyScalar(follow).addScaledVector(WORLD_UP, 1 - follow).normalize();
-    tr.toWorld(camS, b.u * 0.45, 0, _v);
-    _v.addScaledVector(_x, camH);
-    tr.frame(b.s + 10, _f);
-    tr.toWorld(b.s + 10, b.u * 0.6, 0, _look);
-    _look.addScaledVector(_x, Math.max(b.h * 0.6, 0) + 0.4);
-    if (dying) _look.copy(this.ctx.ball.group.position);
-    const k = snap ? 1 : 1 - Math.exp(-dt * 7);
-    this.camPos.lerp(_v, k);
-    this.camLook.lerp(_look, snap ? 1 : 1 - Math.exp(-dt * 10));
-    this.camUp.lerp(_x, k).normalize();
     const cam = this.ctx.camera;
-    cam.position.copy(this.camPos);
-    if (this.shake > 0) {
-      const s = Math.min(this.shake, 1.5) * 0.25;
-      cam.position.x += (Math.random() - 0.5) * s;
-      cam.position.y += (Math.random() - 0.5) * s;
-      this.shake = Math.max(0, this.shake - dt * 3);
+    const playing = this.state === 'play';
+    const dying = this.state === 'dying' || this.state === 'over';
+    const cdt = this.hitStop > 0 ? dt * 0.06 : dt;      // camera filters freeze with the world during hit-stop
+    const speedK = clamp((b.vs - RCFG.startSpeed) / (RCFG.refSpeed - RCFG.startSpeed), 0, 1);
+
+    // When the Yeti closes in, the camera climbs and looks down so it looms at the bottom of the screen
+    // (Temple Run style) instead of blocking the view. Rises slowly, falls quickly.
+    const close = playing ? clamp((10 - this.gap) / 5, 0, 1) : 0;
+    this.closeK += (close - this.closeK) * (snap ? 1 : Math.min(1, cdt * (close > this.closeK ? 1.5 : 4)));
+
+    // What kind of ground is the ball on? (round sections / sharp curves / steep pitch need a higher, longer view)
+    const pc = tr.pieceAt(b.s);
+    const kind = pc ? pc.kind : '';
+    // Follow the track fully only where it really is rolled / upside down (loops, corkscrews, or a track left rolled behind them).
+    tr.frame(b.s, _f2);
+    const angB = Math.acos(clamp(_f2.up.y, -1, 1));
+    this.flipK += (((FLIP_KINDS.has(kind) || angB > 55 * DEG) ? 1 : 0) - this.flipK) * kfil(snap, cdt, 3);
+    this.camRoundK += ((ROUND_KINDS.has(kind) ? 1 : 0) - this.camRoundK) * kfil(snap, cdt, 3);
+    const curv = Math.abs(tr.curvature(b.s + 6));
+    const curvK = clamp(curv / 0.045, 0, 1);
+    tr.frame(b.s + 10, _f2);
+    const pitchK = clamp((Math.abs(_f2.tan.y) - 0.25) / 0.45, 0, 1);
+    const cornerT = this.jnJ && b.s >= this.jnJ.s - 12 && b.s <= this.jnJ.s + 18 ? 1 : 0;
+    this.cornerK += (cornerT - this.cornerK) * kfil(snap, cdt, 8);
+
+    let backT = 8 + r * 3 - this.closeK * 1.5 + 1.2 * speedK;
+    let upT = 4.4 + r * 1.6 + this.closeK * 3.5 + curvK * 1.4 + pitchK * 1.5 + this.camRoundK * 0.8;
+    let laT = 12 + 5 * speedK + 2 * this.closeK - 4 * this.cornerK;       // through a sharp corner: look a little shorter, swing a little slower
+    if (kind === 'tube') upT = Math.min(upT, 7);
+    // Inside a vertical loop (a circle only 5.5-11 m in radius) the camera is a rigid chase rig in the BALL's own frame:
+    // close behind (along the tangent), up toward the circle's centre, looking at the track a short way ahead.
+    const loopT = pc && pc.loop && b.s > pc.loop.s0 - 9 && b.s < pc.loop.s1 + 3 ? 1 : 0;
+    this.camLoopK += (loopT - this.camLoopK) * kfil(snap, cdt, 8);
+    if (loopT) { const R = pc.loop.R; backT = 0.75 * R + 0.5; upT = 0.55 * R + 0.5; laT = 0.8 * R; }
+    const lk = this.camLoopK;
+    this.camBackS += (backT - this.camBackS) * kfil(snap, cdt, 5);
+    this.camUpH += (upT - this.camUpH) * kfil(snap, cdt, 5);
+    this.camLa += (laT - this.camLa) * kfil(snap, cdt, 5);
+    this.camU += (b.u * 0.45 - this.camU) * kfil(snap, cdt, 9);
+    if (this.camLookBiasT > 0) this.camLookBiasT -= dt;
+    const biasT = this.camLookBiasT > 0 ? this.camLookBias : 0;
+    this.camLookU += (b.u * 0.5 + biasT - this.camLookU) * kfil(snap, cdt, 6);
+
+    const camS = Math.max(0, b.s - this.camBackS);
+    tr.frame(camS, _f);
+    // Camera "up": the world up tilted toward the track's up by at most 25° (all the way only on loops / corkscrews).
+    _ax.crossVectors(WORLD_UP, _f.up);
+    const sinA = _ax.length();
+    const angW = Math.atan2(sinA, WORLD_UP.dot(_f.up));
+    const maxAng = (25 + 155 * this.flipK) * DEG;
+    if (angW < 1e-4) _x.copy(WORLD_UP);
+    else {
+      if (sinA < 1e-3) _ax.copy(_f.right); else _ax.multiplyScalar(1 / sinA);
+      _x.copy(WORLD_UP).applyAxisAngle(_ax, Math.min(angW, maxAng));
     }
+    const camH = dying && this.cause === 'fall' ? Math.max(b.h + this.camUpH, -6) + this.camUpH * 0.5 : Math.max(b.h * 0.5, 0) + this.camUpH;
+    tr.toWorld(camS, this.camU, 0, _v);
+    _v.addScaledVector(_f.up, camH);          // centred over the track (only the camera's roll is limited, not its place)
+    if (lk > 0.001) {
+      tr.frame(b.s, _f2);
+      tr.toWorld(b.s, this.camU, 0, _tp);
+      _tp.addScaledVector(_f2.tan, -this.camBackS).addScaledVector(_f2.up, camH);
+      _v.lerp(_tp, lk);
+      _x.lerp(_f2.up, lk).normalize();
+    }
+    // Look target: a point on the track ahead (the lead term cancels the filter's lag at speed).
+    const laS = b.s + this.camLa + (snap ? 0 : b.vs * 0.1);
+    tr.toWorld(laS, this.camLookU, 0, _look);
+    _look.addScaledVector(_f.up, Math.max(b.h * 0.6, 0) + 0.4 - this.closeK * 0.6);
+    if (dying) _look.copy(this.ctx.ball.group.position);
+    this.camPos.copy(_v);
+    this.camLook.lerp(_look, snap ? 1 : 1 - Math.exp(-cdt * (10 - 3 * this.cornerK)));
+    this.camUp.lerp(_x, snap ? 1 : 1 - Math.exp(-cdt * (7 + 9 * lk)));
+    if (this.camUp.lengthSq() < 1e-4) this.camUp.copy(_x);       // (a half-turn between two opposite "ups" would cancel to nothing)
+    this.camUp.normalize();
+    cam.position.copy(this.camPos);
     cam.up.copy(this.camUp);
     cam.lookAt(this.camLook);
-    // Lean into lane changes a touch.
-    this.tilt = (this.tilt ?? 0) + ((-b.vu * 0.014) - (this.tilt ?? 0)) * Math.min(1, dt * 8);
+
+    // Lean into lane changes a touch (≤ 3°) and into a committed turn.
+    if (this.jnLeanT > 0) this.jnLeanT -= dt;
+    const lean = this.jnLeanT > 0 ? this.jnLean * (this.jnLeanT / 0.45) : 0;
+    this.tilt += (clamp(-b.vu * 0.006 - lean * 0.35, -0.052, 0.052) - this.tilt) * Math.min(1, dt * 8);     // <= 3 degrees
     cam.rotateZ(this.tilt);
-    const fovK = clamp((b.vs - RCFG.startSpeed) / (RCFG.refSpeed - RCFG.startSpeed), 0, 1);
-    cam.userData.fovBoost = fovK * 8 + (this.rocketT > 0 ? 6 : 0) + this.punch * 7 + (this.riskT > 0 ? 4 : 0);
+    // Trauma shake: smooth rotational noise that keeps running through hit-stop (peaks ≈ 3° at trauma 1).
+    if (!snap && this.trauma > 0) {
+      const a = Math.min(1, this.trauma) ** 2, t = (this.shakeClock += dt);
+      cam.rotateX(a * 0.035 * (Math.sin(t * 23.1) + 0.5 * Math.sin(t * 41.7)));
+      cam.rotateY(a * 0.035 * (Math.sin(t * 19.3 + 1) + 0.5 * Math.sin(t * 37.9)));
+      cam.rotateZ(a * 0.02 * Math.sin(t * 17.7 + 2));
+      this.trauma = Math.max(0, this.trauma - dt * 1.8);
+    }
+    // FOV: a slow speed widening plus unfiltered kicks (smash, near-miss, boost, speed steps).
+    if (this.kick > 8) this.kick = 8;
+    this.kick *= Math.exp(-7 * dt);
+    if (this.kick < 0.01) this.kick = 0;
+    const ud = cam.userData;
+    ud.fovKick = this.kick;
+    // main.js low-passes fovBoost at 4/s, which keeps only ~27% of a short pulse: until it applies fovKick itself (and sets
+    // fovKickOk) the pulse is sent through fovBoost with a gain that survives that filter (a smash or near miss: ~1.5 degrees).
+    ud.fovBoost = 2 + speedK * 8 + (this.rocketT > 0 ? 6 : 0) + (this.riskT > 0 ? 4 : 0) + (ud.fovKickOk ? 0 : this.kick * 1.6);
   }
 
   dispose() {
+    this.closeOut();
     this.track?.dispose();
     this.obstacles?.dispose();
     this.env?.dispose();
+    const ui = this.ctx.ui;
+    if (this.buffs) { for (const e of this.buffs.list) ui.buffRemove?.(e.id); this.buffs.reset(); }
+    ui.buffClear?.();
+    ui.hungerHide?.();
+    ui.turnCue?.(0, 0);
+    ui.stompCombo?.(0);
     if (this.clone) { this.ctx.scene.remove(this.clone.mesh); this.clone = null; }
     if (this.ghostWas) this.setGhost(false);
     if (this.trail) { this.ctx.scene.remove(this.trail); this.trail.geometry.dispose(); this.trail = null; }
@@ -1928,15 +2733,18 @@ export class Runner {
       this.recFlag.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.map?.dispose(); o.material.dispose(); } });
       this.recFlag = null;
     }
-    this.ctx.ui.speedLines?.(0);
+    ui.speedLines?.(0);
     for (const o of [this.avalanche, this.yeti]) {
       if (!o) continue;
       this.ctx.scene.remove(o.group);
       o.dispose();
     }
     this.track = this.obstacles = this.env = this.avalanche = this.yeti = null;
-    this.ctx.camera.up.set(0, 1, 0);
-    this.ctx.camera.userData.fovBoost = 0;
+    const cam = this.ctx.camera;
+    cam.up.set(0, 1, 0);
+    cam.userData.fovBoost = 0;
+    cam.userData.fovKick = 0;
+    if (this.camNear0 !== null && cam.near !== this.camNear0) { cam.near = this.camNear0; cam.updateProjectionMatrix?.(); }
     if (this.ctx.ball) this.ctx.ball.group.visible = true;
     music.stop();
     Biomes.setBiomeOverride?.(null);
@@ -1954,8 +2762,8 @@ function makeYeti(scene, lib) {
   group.add(mesh);
   group.visible = false;
   scene.add(group);
-  // ~4.8 m tall: big next to the ball, but it must not wall off the chase camera.
-  const scale = def ? 4.8 / Math.max(0.5, def.height) : 1.6;
+  // ~3.3 m tall: big next to the ball, but it must not wall off the chase camera.
+  const scale = def ? RCFG.yetiH / Math.max(0.5, def.height) : RCFG.yetiH / 3.2;
   return { group, mesh, scale, t: 0, u: 0, dispose: () => { mat.dispose(); if (!def) geo.dispose(); } };
 }
 
@@ -1974,4 +2782,5 @@ function makeAvalanche(scene) {
 }
 
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function kfil(snap, dt, rate) { return snap ? 1 : 1 - Math.exp(-dt * rate); }   // frame-rate independent smoothing factor
 function rand(a, b) { return a + Math.random() * (b - a); }

@@ -4,6 +4,8 @@
 //   meta.init(save);                       // once, after save.js is ready
 //   meta.track('swallow', { type });       // feed gameplay events (cheap; safe to call every frame-ish)
 //
+// Notices (achievements, missions, mission sets, level-ups, letters) are NEVER toasted while a run is on: they are queued
+// (meta.takeNotices()) and shown only on the result screen / menu. Rewards are credited silently.
 // Everything lives in its own localStorage key (`freemon.meta.v1`); every storage access is wrapped in try/catch and a
 // corrupted blob falls back to a fresh state. Importing this module never touches `document` / `localStorage`.
 // Rewards that touch the shop economy (❄️, skins, trails) go through the `save` object handed to init().
@@ -93,6 +95,7 @@ export const EGGS = [
   { id: 'logo', where: 'ui', name: 'Gökkuşağı Avcısı', hint: 'PATPAT yazısı sevilmeye bayılır. Yedi kez.', how: 'Logoya 7 kez dokun' },
   { id: 'konami', where: 'ui', name: 'Hile Yok!', hint: 'Eski kafa oyuncular bilir: yukarı yukarı aşağı aşağı...', how: '↑ ↑ ↓ ↓ ← → ← → B A' },
   { id: 'sneeze', where: 'ui', name: 'Hapşuu!', hint: 'Menüdeki kartopu burnunu çok seviyor. Gıdıkla.', how: 'Menüdeki kartopuna 3 sn basılı tut' },
+  { id: 'goldball', where: 'ui', name: 'Altın Dokunuş', hint: 'Kartopu hızlı hızlı dokunulmayı sever. On kez.', how: 'Menüdeki kartopuna art arda 10 kez dokun' },
   { id: 'typed', where: 'ui', name: 'Sihirli Kelime', hint: 'Klavyen varsa oyunun adını yaz.', how: 'Menüde "patpat" yaz' },
   { id: 'holiday', where: 'ui', name: 'Bayram Ruhu', hint: 'Takvimde kırmızı bir gün.', how: '1 Ocak / 23 Nisan / 29 Ekim günü oyunu aç' },
   { id: 'nasreddin', where: 'world', name: "Hoca'ya Selam", hint: 'Bir hoca eşeğine yanlış binmiş olabilir.', how: 'Nasreddin Hoca, eşeğine ters binmiş halde nadir bir yamaçta' },
@@ -118,7 +121,7 @@ function ach(id, name, desc, icon, goal, reward, on, val, opts = {}) {
   RULES[id] = { on, val, auto: !!opts.auto };
 }
 
-const END = ['endless_end', 'cig_end'];
+const END = ['endless_end', 'cig_end', 'cig_endless_end'];
 let sv = null; // save.js object (set by init)
 
 // ---------------- endless ----------------
@@ -143,7 +146,7 @@ ach('flatten', 'Kasaba Yok Oldu', 'Bir kasabayı tamamen yerle bir et.', '🏘�
 ach('destroy200', 'Kentsel Dönüşüm', 'Toplam 200 bina yık.', '🏢', 200, { coins: 120 }, ['destroy'], (S) => S.st.destroyed);
 ach('level10', 'Dağcı', '10. dağa ulaş.', '⛰️', 10, { coins: 100 }, ['@derive'], () => (sv ? num(sv.level) : 0));
 ach('milestone5', 'KIYAMET!', 'En büyük çığ eşiğine ulaş.', '🌋', 1, { coins: 100 }, ['milestone'], (S) => (S.st.maxMilestone >= 5 ? 1 : 0));
-ach('tons', 'Ton Ton', 'Toplam 250.000 ton kar topla.', '⚖️', 250000, { coins: 150 }, ['cig_end'], (S) => Math.floor(S.st.totalTons));
+ach('tons', 'Ton Ton', 'Toplam 250.000 ton kar topla.', '⚖️', 250000, { coins: 150 }, ['cig_end', 'cig_endless_end'], (S) => Math.floor(S.st.totalTons));
 ach('daily_first', 'Günün Adamı', "Günün Dağı'nı bitir.", '📅', 1, { coins: 50 }, ['cig_end'], (S) => S.st.dailyRuns);
 ach('night', 'Gece Kuşu', 'Gece temalı bir dağı bitir.', '🌙', 1, { coins: 50 }, ['cig_end'], (S) => S.st.nightRuns);
 
@@ -180,6 +183,7 @@ function eggAch(id, name, desc, icon, reward) {
 eggAch('logo', 'Gökkuşağı Avcısı', 'PATPAT logosuna 7 kez dokundun!', '🌈', { trail: 'rainbow' });
 eggAch('konami', 'Hile Yok!', 'Efsanevi kodu girdin. Ama hile yok!', '🎮', { coins: 100 });
 eggAch('sneeze', 'Hapşuu!', 'Kartopunu 3 saniye gıdıkladın.', '🤧', { coins: 60 });
+eggAch('goldball', 'Altın Dokunuş', 'Kartopuna on kez dokundun, altına döndü!', '🥇', { coins: 80 });
 eggAch('typed', 'Sihirli Kelime', "Klavyede 'patpat' yazdın.", '⌨️', { coins: 60 });
 eggAch('holiday', 'Bayram Ruhu', 'Milli bir bayramda oyunu açtın.', '🎊', { coins: 100 });
 eggAch('nasreddin', "Hoca'ya Selam", "Nasreddin Hoca'yı eşeğine ters binerken gördün.", '🐴', { coins: 150 });
@@ -230,27 +234,53 @@ const best = (f) => (d, v) => Math.max(v, num(f(d)));
 // modes: 'endless' | 'cig' | 'any'. scope 'run' = value resets at run_start, 'sum' = accumulates until the set is replaced.
 // `on` maps event -> (data, value) => newValue. Missions also look at the *_end event so they work even when the
 // game sends no live events (run_progress is optional).
+// `legacy: true` = still understood (saved missions keep working) but never offered again.
+// Live counters (RT) are reconciled with the *_end payload, so a mission works whether the game sends live events or only totals.
+const TIER_NAMES = ['', 'Kartopu', 'Çığ', 'Mega Çığ', 'Felaket', 'Kıyamet'];
+const tierFromName = (n) => {
+  const t = String(n || '').toLocaleLowerCase('tr-TR');
+  if (t.includes('kıyamet') || t.includes('kiyamet')) return 5;
+  if (t.includes('felaket')) return 4;
+  if (t.includes('mega')) return 3;
+  if (t.includes('çığ') || t.includes('cig')) return 2;
+  return t ? 1 : 0;
+};
 const MISSION_TPL = [
   { id: 'coins', group: 'coin', modes: 'endless', scope: 'run', icon: '❄️', goals: [100, 200, 350, 500, 800, 1200], text: (g) => `Bir koşuda ${fmtN(g)} kar tanesi topla`,
     on: { run_progress: best((d) => d.coins), endless_end: best((d) => d.coins) } },
-  { id: 'dist', group: 'dist', modes: 'endless', scope: 'run', icon: '📏', goals: [500, 800, 1200, 1800, 2500, 4000], text: (g) => `Bir koşuda ${fmtN(g)} m git`,
+  { id: 'dist', group: 'dist', modes: 'endless', scope: 'run', icon: '📏', goals: [500, 1000, 1500, 2500, 4000, 6000], text: (g) => `Bir koşuda ${fmtN(g)} m koş`,
     on: { run_progress: best((d) => d.distance), endless_end: best((d) => d.distance) } },
+  { id: 'stomp', group: 'stomp', modes: 'endless', scope: 'run', icon: '🦶', goals: [3, 5, 8, 12, 18, 25], text: (g) => `Bir koşuda ${g} yaratık ez`,
+    on: { stomp: inc, endless_end: best((d) => d.stomps) } },
+  { id: 'turn', group: 'turn', modes: 'endless', scope: 'sum', icon: '↪️', goals: [3, 5, 8, 12, 20, 30], text: (g) => `${g} kavşakta dön`,
+    on: { turn: inc, endless_end: (d, v) => v + Math.max(0, nz(d.turns) - RT.turns) } },
+  { id: 'buffs', group: 'buffs', modes: 'endless', scope: 'sum', icon: '🃏', goals: [2, 3, 5, 8, 12, 18], text: (g) => `${g} buff kartı topla`,
+    on: { buff: inc, endless_end: (d, v) => v + Math.max(0, nz(d.buffs) - RT.buffs) } },
   { id: 'jump', group: 'jump', modes: 'endless', scope: 'sum', icon: '🦘', goals: [5, 15, 30, 50, 80, 120], text: (g) => `${g} kez zıpla`, on: { jump: inc } },
   { id: 'close', group: 'close', modes: 'endless', scope: 'sum', icon: '😅', goals: [1, 2, 3, 5, 8, 12], text: (g) => `Yeti'den ${g} kez kıl payı kaç`, on: { close_call: inc } },
-  { id: 'turn', group: 'turn', modes: 'endless', scope: 'sum', icon: '↪️', goals: [5, 10, 20, 35, 50, 80], text: (g) => `${g} keskin viraj al`, on: { turn: inc } },
+  { id: 'smash', group: 'smash', modes: 'endless', scope: 'sum', icon: '🔨', goals: [10, 20, 35, 60, 100, 150], text: (g) => `${g} engel kır`, on: { smash: inc } },
   { id: 'power', group: 'power', modes: 'endless', scope: 'sum', icon: '⚡', goals: [1, 3, 4, 6, 8, 10], text: (g) => `${g} güçlendirme topla`, on: { powerup: inc } },
   { id: 'maxsize', group: 'size', modes: 'endless', scope: 'sum', icon: '🌕', goals: [1, 1, 2, 3, 4, 5], text: (g) => (g === 1 ? 'Maksimum boyuta ulaş' : `Maksimum boyuta ${g} kez ulaş`),
     on: { tier_up: (d, v) => (num(d.tier) >= 4 ? v + 1 : v) } },
-  { id: 'smash', group: 'smash', modes: 'endless', scope: 'sum', icon: '🔨', goals: [10, 20, 35, 60, 100, 150], text: (g) => `${g} engel kır`, on: { smash: inc } },
-  { id: 'perfect', group: 'perfect', modes: 'endless', scope: 'sum', icon: '🥁', goals: [3, 6, 10, 15, 25, 40], text: (g) => `${g} kez PERFECT yap`, on: { perfect: inc } },
-  { id: 'portal', group: 'portal', modes: 'endless', scope: 'sum', icon: '🌀', goals: [1, 1, 2, 2, 3, 4], text: (g) => (g === 1 ? 'Bir portaldan geç' : `${g} portaldan geç`), on: { portal: inc } },
-  { id: 'runs', group: 'runs', modes: 'any', scope: 'sum', icon: '🔁', goals: [1, 2, 3, 3, 4, 5], text: (g) => (g === 1 ? 'Bir koşu tamamla' : `${g} koşu tamamla`), on: { endless_end: inc, cig_end: inc } },
-  { id: 'stars', group: 'stars', modes: 'cig', scope: 'sum', icon: '⭐', goals: [1, 2, 2, 3, 3, 3], text: (g) => `Çığ modunda bir dağı ${g} yıldızla bitir`,
-    on: { cig_end: best((d) => d.stars) } },
+  { id: 'runs', group: 'runs', modes: 'any', scope: 'sum', icon: '🔁', goals: [1, 2, 3, 3, 4, 5], text: (g) => (g === 1 ? 'Bir koşu tamamla' : `${g} koşu tamamla`), on: { endless_end: inc, cig_end: inc, cig_endless_end: inc } },
+  // ---- ÇIĞ SONSUZ ----
+  { id: 'cigtier', group: 'cigtier', modes: 'cig', scope: 'run', icon: '🌋', goals: [2, 3, 3, 4, 4, 5], text: (g) => `ÇIĞ SONSUZ'da ${TIER_NAMES[Math.max(2, Math.min(5, g))]} bölgesine ulaş`,
+    on: { cig_tier: best((d) => (Number.isFinite(d.tier) ? d.tier : tierFromName(d.name))), cig_endless_end: best((d) => (Number.isFinite(d.tier) ? d.tier : tierFromName(d.tierName))) } },
+  { id: 'cigtons', group: 'cigtons', modes: 'cig', scope: 'run', icon: '⚖️', goals: [300, 1000, 3000, 8000, 20000, 50000], text: (g) => `ÇIĞ SONSUZ'da bir koşuda ${fmtN(g)} ton topla`,
+    on: { cig_endless_end: best((d) => d.tons), cig_progress: best((d) => d.tons) } },
+  { id: 'cigdist', group: 'cigdist', modes: 'cig', scope: 'run', icon: '⛰️', goals: [400, 800, 1500, 2500, 4000, 6000], text: (g) => `ÇIĞ SONSUZ'da bir koşuda ${fmtN(g)} m kay`,
+    on: { cig_endless_end: best((d) => d.dist), cig_progress: best((d) => d.dist) } },
   { id: 'swallow', group: 'swallow', modes: 'cig', scope: 'sum', icon: '🍽️', goals: [100, 200, 400, 700, 1000, 1500], text: (g) => `Çığ modunda ${fmtN(g)} şey yut`, on: { swallow: inc } },
-  { id: 'destroy', group: 'destroy', modes: 'cig', scope: 'sum', icon: '🏢', goals: [5, 10, 20, 40, 70, 100], text: (g) => `Kasabada ${g} bina yık`, on: { destroy: inc } },
+  // ---- legacy (finite ÇIĞ levels, rhythm, portals): old saves keep them, no new set offers them ----
+  { id: 'perfect', legacy: true, group: 'perfect', modes: 'endless', scope: 'sum', icon: '🥁', goals: [3, 6, 10, 15, 25, 40], text: (g) => `${g} kez PERFECT yap`, on: { perfect: inc } },
+  { id: 'portal', legacy: true, group: 'portal', modes: 'endless', scope: 'sum', icon: '🌀', goals: [1, 1, 2, 2, 3, 4], text: (g) => (g === 1 ? 'Bir portaldan geç' : `${g} portaldan geç`), on: { portal: inc } },
+  { id: 'stars', legacy: true, group: 'stars', modes: 'cig', scope: 'sum', icon: '⭐', goals: [1, 2, 2, 3, 3, 3], text: (g) => `Çığ modunda bir dağı ${g} yıldızla bitir`,
+    on: { cig_end: best((d) => d.stars) } },
+  { id: 'destroy', legacy: true, group: 'destroy', modes: 'cig', scope: 'sum', icon: '🏢', goals: [5, 10, 20, 40, 70, 100], text: (g) => `Kasabada ${g} bina yık`, on: { destroy: inc } },
 ];
 const TPL_BY_ID = Object.fromEntries(MISSION_TPL.map((t) => [t.id, t]));
+// Runtime-only live counters for the current run (reconciled with the *_end payloads) + the notice queue (never saved).
+const RT = { turns: 0, stomps: 0, buffs: 0, doneRun: [], finished: null, notices: [], lastCigEnd: -1e9, lastStomp: -1e9 };
 const MISSION_EVENTS = new Set();
 for (const t of MISSION_TPL) for (const ev of Object.keys(t.on)) MISSION_EVENTS.add(ev);
 
@@ -323,7 +353,7 @@ function sanitize(p) {
     s.h.last = typeof p.h.last === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.h.last) ? p.h.last : '';
     s.h.streak = Math.floor(nz(p.h.streak));
     s.h.done = !!p.h.done;
-    if (Array.isArray(p.h.found)) for (let i = 0; i < 7; i++) s.h.found[i] = p.h.found[i] ? 1 : 0;
+    if (Array.isArray(p.h.found)) for (let i = 0; i < WORD.length; i++) s.h.found[i] = p.h.found[i] ? 1 : 0;
   }
   if (isObj(p.c)) {
     const C = s.c;
@@ -369,6 +399,14 @@ function markDirty() {
   if (timer) return;
   timer = setTimeout(() => { timer = null; if (dirty) persistNow(); }, 900);
   if (timer && typeof timer.unref === 'function') timer.unref();
+}
+function pushNotice(n) {
+  RT.notices.push(n);
+  if (RT.notices.length > 24) RT.notices.shift();
+}
+function missionRow(m) {
+  const t = TPL_BY_ID[m.id];
+  return { id: m.id, icon: t.icon, text: t.text(m.g), value: Math.min(m.v, m.g), goal: m.g, done: !!m.d, justDone: RT.doneRun.includes(m.id) };
 }
 function fire(name, a, b) {
   const list = cbs[name];
@@ -428,7 +466,7 @@ function addXp(n) {
   const before = levelFor(S.xp);
   S.xp += n;
   const after = levelFor(S.xp);
-  if (after > before && !quiet) fire('levelup', after, before);
+  if (after > before && !quiet) { pushNotice({ kind: 'level', level: after }); fire('levelup', after, before); }
 }
 
 // =================================================================================================== achievements engine
@@ -448,7 +486,7 @@ function unlock(id, newly) {
     info = { auto: true, reward };
   }
   if (newly) newly.push(def);
-  if (!quiet) fire('unlock', def, info);
+  if (!quiet) { pushNotice({ kind: 'achievement', id, name: def.name, icon: def.icon, reward: info.reward || def.reward }); fire('unlock', def, info); }
 }
 
 function claim(id) {
@@ -480,8 +518,8 @@ function runRules(ev, d, newly) {
   }
 }
 const derive = (newly) => runRules('@derive', undefined, newly);
-const DERIVE_ON = new Set(['session', 'cig_end', 'endless_end', 'skin_select', 'trail_select', 'daily_claim', 'visual_mode', 'share']);
-const END_EVENTS = new Set(['endless_end', 'cig_end']);
+const DERIVE_ON = new Set(['session', 'cig_end', 'cig_endless_end', 'endless_end', 'skin_select', 'trail_select', 'daily_claim', 'visual_mode', 'share']);
+const END_EVENTS = new Set(['endless_end', 'cig_end', 'cig_endless_end']);
 
 function addSet(name, val) {
   if (typeof val !== 'string' || !val || val.length > 39) return;
@@ -497,6 +535,7 @@ function pushRecent(m) {
 }
 
 function eligible(t) {
+  if (t.legacy) return false;
   if (t.modes === 'any') return true;
   const hasE = S.recent.includes('e');
   const hasC = S.recent.includes('c');
@@ -509,7 +548,8 @@ function pickMission(exclude) {
   let pool = MISSION_TPL.filter((t) => eligible(t) && !exclude.groups.has(t.group));
   const fresher = pool.filter((t) => !exclude.ids.has(t.id));
   if (fresher.length) pool = fresher;
-  if (!pool.length) pool = MISSION_TPL.filter((t) => !exclude.groups.has(t.group));
+  if (!pool.length) pool = MISSION_TPL.filter((t) => !t.legacy && !exclude.groups.has(t.group));
+  if (!pool.length) pool = MISSION_TPL.filter((t) => !t.legacy);
   const t = pool[Math.floor(rand() * pool.length)];
   let tier = tier0 + (rand() < 0.3 ? 1 : 0) - (rand() < 0.15 ? 1 : 0);
   tier = Math.max(0, Math.min(5, tier));
@@ -543,7 +583,12 @@ function missionsOn(ev, d) {
       any = true;
       if (m.v >= m.g) {
         m.d = 1;
-        if (!quiet) fire('mission', { id: m.id, text: TPL_BY_ID[m.id].text(m.g), icon: TPL_BY_ID[m.id].icon, goal: m.g });
+        if (!RT.doneRun.includes(m.id)) RT.doneRun.push(m.id);
+        if (!quiet) {
+          const info = { id: m.id, text: TPL_BY_ID[m.id].text(m.g), icon: TPL_BY_ID[m.id].icon, goal: m.g };
+          pushNotice({ kind: 'mission', ...info });
+          fire('mission', info);
+        }
       }
     }
   }
@@ -568,12 +613,16 @@ function checkSet() {
   addXp(60);
   derive(null);
   persistNow();
-  if (!quiet) fire('missionset', { multiplier: m.mult, reward, n: m.n });
+  if (!quiet) {
+    pushNotice({ kind: 'missionset', multiplier: m.mult, reward, n: m.n });
+    fire('missionset', { multiplier: m.mult, reward, n: m.n });
+  }
 }
 
 function rollMissions() {
   const m = S.m;
   if (m.cur.length !== 3 || (m.awarded && m.cur.every((x) => x.d))) {
+    if (m.cur.length === 3 && m.awarded) RT.finished = { rows: m.cur.map((x) => missionRow(x)), mult: m.mult, n: m.n };
     m.cur = genMissions();
     m.awarded = false;
     return;
@@ -663,8 +712,22 @@ function rollBox() {
 // =================================================================================================== event handlers
 
 function onRunStart(d) {
+  RT.turns = 0; RT.stomps = 0; RT.buffs = 0; RT.doneRun.length = 0;
   resetRunMissions();
   rollMissions();
+  // (after the roll: a set that was finished in an earlier run and only rolled now must not show up again on THIS run's result screen)
+  RT.finished = null;
+}
+
+// ÇIĞ SONSUZ run ended: { tons, dist, tier?, tierName?, endless? }
+function onCigEndlessEnd(d) {
+  const st = S.st;
+  st.runs++;
+  st.cigRuns++;
+  const tons = nz(d.tons);
+  st.totalTons += tons;
+  pushRecent('c');
+  addXp(15 + nz(d.dist) / 25 + Math.sqrt(tons) * 0.9);
 }
 
 function onEndlessEnd(d) {
@@ -698,10 +761,30 @@ function onCigEnd(d) {
 
 function handle(ev, d, newly) {
   const st = S.st;
+  // The same ÇIĞ SONSUZ run may be reported twice (save.recordCigEndless hook + a direct 'cig_end'): count it once.
+  if (ev === 'cig_endless_end' || (ev === 'cig_end' && d.endless)) {
+    const t = now();
+    if (t - RT.lastCigEnd < 2500) return;
+    RT.lastCigEnd = t;
+    ev = 'cig_endless_end';
+  }
   switch (ev) {
     case 'session': st.sessions++; rollHunt(); rollMissions(); break;
     case 'run_start': onRunStart(d); break;
     case 'run_progress': break;
+    case 'cig_progress': break;
+    case 'cig_tier': break;
+    case 'cig_endless_end': onCigEndlessEnd(d); break;
+    case 'turn': RT.turns++; break;
+    case 'stomp': {
+      // Both the runner and ui.stompCombo report a stomp: two reports within 120 ms are one stomp (a real bounce takes longer).
+      const t = now();
+      if (t - RT.lastStomp < 120) return;
+      RT.lastStomp = t;
+      RT.stomps++;
+      break;
+    }
+    case 'buff': RT.buffs++; break;
     case 'cig_end': onCigEnd(d); break;
     case 'endless_end': onEndlessEnd(d); break;
     case 'swallow': st.swallowed++; if (d.type === 'k_police') st.police++; break;
@@ -745,6 +828,10 @@ export const meta = {
       derive(null);
     } finally { quiet = false; }
     persistNow();
+    try {
+      if (sv && typeof sv.bindCrystals === 'function') sv.bindCrystals({ get: () => S.cr, add: (n) => meta.addCrystals(n), spend: (n) => meta.spendCrystals(n) });
+      if (sv && typeof sv.onCigEndless === 'function') sv.onCigEndless((r) => meta.track('cig_endless_end', { ...r, endless: true }));
+    } catch { /* ignore */ }
     if (!listenersAdded && typeof document !== 'undefined' && document.addEventListener) {
       listenersAdded = true;
       try {
@@ -896,8 +983,29 @@ export const meta = {
   missions() {
     return S.m.cur.map((m) => {
       const t = TPL_BY_ID[m.id];
-      return { id: m.id, icon: t.icon, text: t.text(m.g), value: Math.min(m.v, m.g), goal: m.g, done: !!m.d };
+      return { id: m.id, icon: t.icon, text: t.text(m.g), value: Math.min(m.v, m.g), goal: m.g, done: !!m.d, justDone: RT.doneRun.includes(m.id) };
     });
+  },
+  // For the result screen: the 3 missions as they stood at the end of the run (a set that was finished during the run is
+  // still returned with all rows done, even though the next set was already rolled). { rows, setDone, mult, n }
+  missionsReport() {
+    if (RT.finished) return { rows: RT.finished.rows.map((r) => ({ ...r })), setDone: true, mult: RT.finished.mult, n: RT.finished.n };
+    const rows = S.m.cur.map((m) => missionRow(m));
+    return { rows, setDone: false, mult: S.m.mult, n: S.m.n };
+  },
+  // Queued notices (never toasted mid-run): [{kind:'achievement'|'mission'|'missionset'|'level'|'letter'|'hunt', ...}]. Clears the queue.
+  takeNotices() {
+    const out = RT.notices.slice();
+    RT.notices.length = 0;
+    return out;
+  },
+  peekNotices() { return RT.notices.slice(); },
+  // Daily reward as a badge (never a popup).
+  dailyBadge() {
+    const d = meta.daily();
+    let hol = false;
+    try { const h = meta.holiday(); hol = !!(h && !h.claimed); } catch { hol = false; }
+    return { available: d.available || hol, reward: d.available, holiday: hol, streak: d.streak, day: d.day, grace: d.grace };
   },
   multiplier() { return S.m.mult; },
   maxMultiplier() { return MAX_MULT; },
@@ -1014,6 +1122,7 @@ export const meta = {
     H.found[idx] = 1;
     S.st.lettersFound++;
     const res = { index: idx, letter: WORD[idx], count: idx + 1, complete: false, reward: null };
+    pushNotice({ kind: 'letter', letter: res.letter, count: res.count });
     fire('letter', res);
     if (idx === WORD.length - 1) {
       const today = dateKey();
@@ -1027,6 +1136,7 @@ export const meta = {
       addXp(40);
       derive(null);
       persistNow();
+      pushNotice({ kind: 'hunt', reward: res.reward });
       fire('hunt', res);
     } else markDirty();
     return res;
@@ -1110,7 +1220,7 @@ export const meta = {
       endlessUnlocked: nowEndless, justUnlockedEndless: nowEndless && !wasEndless, achievements: newly,
     });
   },
-  // YETİ KAÇIŞI is open from the first launch (it used to wait for Act 1's boss).
+  // YETİ RUSH is open from the first launch (it used to wait for Act 1's boss).
   endlessUnlocked() { return true; },
   introSeen(id) { return !!S.c.seen[id]; },
   markIntroSeen(id) { if (levelById(id)) { S.c.seen[id] = 1; markDirty(); } },

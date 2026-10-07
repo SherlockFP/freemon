@@ -25,6 +25,10 @@
 //
 // main.js should no longer create its own sky / lights, and World.buildBackdrop() (the old cones) can go: the ridges,
 // the end wall behind the town and the summit behind the start replace it.
+//
+// ENDLESS mode (world.endless, ÇIĞ SONSUZ): the slope has no end, so the valley ridges are built in 112 m chunks that
+// stream in ahead of the ball and recycle behind it, the summit stays behind the start, and the finite-level extras
+// (gate banners, ski lift, lake, flags, easter eggs) are skipped. Sky, lights, snowfall, clouds, birds are the same.
 
 import * as THREE from 'three';
 import { makeRng } from './rng.js';
@@ -611,8 +615,9 @@ export class Scenery {
     this.eggs = {};
 
     const W = world;
-    const mid = W.statics.length ? W.statics[W.statics.length >> 1] : null;
-    this.seed = (seed ?? ((W.L * 131 + W.townStart * 17 + W.statics.length * 7919 + Math.round((mid ? mid.x : 0) * 1000)) | 0)) >>> 0;
+    this.endless = !!(W && W.endless);
+    const mid = !this.endless && W.statics.length ? W.statics[W.statics.length >> 1] : null;
+    this.seed = (seed ?? (this.endless ? Math.imul(W.seed || 1, 2654435761) : ((W.L * 131 + W.townStart * 17 + W.statics.length * 7919 + Math.round((mid ? mid.x : 0) * 1000)) | 0))) >>> 0;
     this.sd = this.seed % 9973;
     this.rng = makeRng(this.seed);
 
@@ -627,15 +632,20 @@ export class Scenery {
     this.buildSky();
     this.buildSnow();
     this.buildClouds();
-    this.buildRidges();
-    this.planGates();
-    this.planLake();
-    this.buildDecor();
-    this.buildBanners();
-    this.buildFlags();
-    this.buildChairs();
-    this.buildBirds();
-    this.buildEggs();
+    if (this.endless) {
+      this.initEndlessRidges();
+      this.buildBirds();
+    } else {
+      this.buildRidges();
+      this.planGates();
+      this.planLake();
+      this.buildDecor();
+      this.buildBanners();
+      this.buildFlags();
+      this.buildChairs();
+      this.buildBirds();
+      this.buildEggs();
+    }
     this.computeInfo();
   }
 
@@ -989,9 +999,10 @@ export class Scenery {
   // Absolute height of the "outer" surface (heightfield beyond the terrain mesh) at (x, d).
   ridgeH(x, d, central = false) {
     const W = this.world, sd = this.sd;
-    const dEnd = W.dEnd;
-    const dc = d < -70 ? -70 : d > dEnd ? dEnd : d;
-    const q = d < -70 ? -70 - d : d > dEnd ? d - dEnd : 0;
+    const dEnd = this.endless ? Infinity : W.dEnd;
+    const dMin = this.endless ? -64 : -70;
+    const dc = d < dMin ? dMin : d > dEnd ? dEnd : d;
+    const q = d < dMin ? dMin - d : d > dEnd ? d - dEnd : 0;
     const X = Math.abs(x);
     let y;
     if (X <= 100) y = W.groundY(x, dc);
@@ -1019,8 +1030,8 @@ export class Scenery {
       y += Math.max(0, env * ((105 + 160 * nz) * lat + jag));
     }
     // Hide the seam under the terrain mesh edge.
-    if (X <= 80.01) {
-      if (central && d > -70 + 0.01 && d < dEnd - 0.01) y -= 3;
+    if (X <= (this.endless ? 100.01 : 80.01)) {
+      if (central && d > dMin + 0.01 && d < dEnd - 0.01) y -= 3;
       else y -= 0.5 * (1 - smooth(0, 32, q));
     }
     return y;
@@ -1029,7 +1040,7 @@ export class Scenery {
   // Height of whatever is drawn at (x, d): terrain mesh inside |x| <= 80, my heightfield outside.
   surfaceY(x, d) {
     const W = this.world;
-    if (Math.abs(x) <= 100 && d >= -70 && d <= W.dEnd) return W.groundY(x, d);
+    if (Math.abs(x) <= 100 && d >= (this.endless ? -64 : -70) && d <= (this.endless ? Infinity : W.dEnd)) return W.groundY(x, d);
     return this.ridgeH(x, d, false);
   }
 
@@ -1112,6 +1123,125 @@ export class Scenery {
     this.ridges = new THREE.Mesh(geo, mat);
     this.ridges.frustumCulled = false;
     this.group.add(this.ridges);
+  }
+
+  // ---------------------------------------------------------------- endless ridges (chunks) + summit
+
+  initEndlessRidges() {
+    this.ridgeMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    this.ridgeChunks = new Map();
+    this.ridgeCol = {
+      rock: new THREE.Color(this.theme.rock), rockDark: new THREE.Color(this.theme.rock).multiplyScalar(0.7),
+      rockLight: new THREE.Color(this.theme.rock).lerp(new THREE.Color(0xffffff), 0.22),
+      snow: new THREE.Color(this.theme.snow), snowShade: new THREE.Color(this.theme.snow).lerp(new THREE.Color(this.theme.horizon), 0.28),
+      hor: new THREE.Color(this.theme.horizon), tmp: new THREE.Color(),
+    };
+    this.ridgeTransN = 0;
+    this.ridgeNear = [-80, -60, -40, -20, 0, 20, 40, 60, 80];
+    this.ridgeOuterR = [96, 100, 118, 140, 168, 200, 236, 276, 322, 374, 430];
+    this.ridgeOuterL = this.ridgeOuterR.map((v) => -v).reverse();
+    this.updateEndlessRidges({ d: 0 }, true);
+    // the summit behind the start
+    const acc = new Accum(1 << 14);
+    const Q = [];
+    for (let q = 16; q <= 480; q += 16) Q.push(q);
+    const sumRows = [...Q.map((q) => -64 - q).reverse(), -64];
+    this.ridgeGrid(acc, this.ridgeNear, [...sumRows, -58], true);
+    this.ridgeGrid(acc, this.ridgeOuterL, sumRows, false);
+    this.ridgeGrid(acc, this.ridgeOuterR, sumRows, false);
+    this.summit = new THREE.Mesh(acc.build(true), this.ridgeMat);
+    this.summit.frustumCulled = false;
+    this.group.add(this.summit);
+  }
+
+  ridgeFaceColor(ny, cx, cy, cd, hz) {
+    const W = this.world, K = this.ridgeCol;
+    const X = Math.abs(cx);
+    const rel = cy - W.baseY(Math.max(-64, cd));
+    const edge = 1.3 * (1 - smooth(80, 160, X));
+    const score = (ny - 0.45) * 2.4 + (rel - 150) / 130 + edge + (hz - 0.5) * 0.6;
+    const tmp = K.tmp;
+    if (score > 0) tmp.copy(K.snow).lerp(K.snowShade, hz * 0.5);
+    else tmp.copy(K.rockDark).lerp(K.rockLight, clamp(0.2 + ny * 0.7 + hz * 0.4, 0, 1));
+    tmp.lerp(K.hor, smooth(180, 440, X) * 0.4);
+    return tmp;
+  }
+
+  ridgeGrid(acc, xs, ds, central) {
+    const nx = xs.length, nd = ds.length;
+    const Y = new Float32Array(nx * nd);
+    for (let i = 0; i < nd; i++) for (let j = 0; j < nx; j++) Y[i * nx + j] = this.ridgeH(xs[j], ds[i], central);
+    const sd = this.sd;
+    const cache = new THREE.Color();
+    const emit = (ax, ay, ad, bx, by, bd, cx, cy, cd) => {
+      const az = -ad, bz = -bd, cz = -cd;
+      const nxv = (by - ay) * (cz - az) - (bz - az) * (cy - ay);
+      const nyv = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
+      const nzv = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      const l = Math.hypot(nxv, nyv, nzv) || 1;
+      const hz = hash2(Math.round((ax + bx + cx) * 3), Math.round((ad + bd + cd) * 3), sd);
+      cache.copy(this.ridgeFaceColor(nyv / l, (ax + bx + cx) / 3, (ay + by + cy) / 3, (ad + bd + cd) / 3, hz));
+      acc.tri(ax, ay, az, bx, by, bz, cx, cy, cz, cache);
+    };
+    for (let i = 0; i < nd - 1; i++) {
+      for (let j = 0; j < nx - 1; j++) {
+        const x0 = xs[j], x1 = xs[j + 1], d0 = ds[i], d1 = ds[i + 1];
+        const ya = Y[i * nx + j], yb = Y[i * nx + j + 1], yc = Y[(i + 1) * nx + j], yd = Y[(i + 1) * nx + j + 1];
+        if ((i + j) & 1) {
+          emit(x0, ya, d0, x1, yb, d0, x1, yd, d1);
+          emit(x0, ya, d0, x1, yd, d1, x0, yc, d1);
+        } else {
+          emit(x0, ya, d0, x1, yb, d0, x0, yc, d1);
+          emit(x1, yb, d0, x1, yd, d1, x0, yc, d1);
+        }
+      }
+    }
+  }
+
+  buildRidgeChunk(k) {
+    const CHK = 112;
+    const d0 = k * CHK;
+    const rows = [];
+    for (let d = d0; d < d0 + CHK; d += 14) rows.push(d);
+    rows.push(d0 + CHK);
+    const acc = new Accum(1 << 12);
+    this.ridgeGrid(acc, this.ridgeOuterL, rows, false);
+    this.ridgeGrid(acc, this.ridgeOuterR, rows, false);
+    const mesh = new THREE.Mesh(acc.build(true), this.ridgeMat);
+    mesh.frustumCulled = false;
+    this.group.add(mesh);
+    return mesh;
+  }
+
+  updateEndlessRidges(ball, all = false) {
+    const CHK = 112;
+    // The slope widened (tier-up): the terrain behind the new width changed shape, so every ridge chunk that reaches past the
+    // start of the widening is rebuilt (one per frame, nearest first) instead of standing as a wall beside the new bank.
+    const W = this.world, tn = W.trans ? W.trans.length : 0;
+    if (tn !== this.ridgeTransN) {
+      this.ridgeTransN = tn;
+      const last = tn ? W.trans[tn - 1] : null;
+      if (last) {
+        const stale = last.d0 - 80;
+        for (const [k, mesh] of this.ridgeChunks) {
+          if ((k + 1) * CHK > stale) { this.group.remove(mesh); mesh.geometry.dispose(); this.ridgeChunks.delete(k); }
+        }
+      }
+    }
+    const kMin = Math.max(-1, Math.floor((ball.d - 160) / CHK)), kMax = Math.floor((ball.d + 520) / CHK);
+    for (const [k, mesh] of this.ridgeChunks) {
+      if (k < kMin - 1 || k > kMax + 1) {
+        this.group.remove(mesh);
+        mesh.geometry.dispose();
+        this.ridgeChunks.delete(k);
+      }
+    }
+    let budget = all ? 99 : 1;
+    for (let k = kMin; k <= kMax && budget > 0; k++) {
+      if (this.ridgeChunks.has(k)) continue;
+      this.ridgeChunks.set(k, this.buildRidgeChunk(k));
+      budget--;
+    }
   }
 
   // ---------------------------------------------------------------- gates (spec) and banners
@@ -1645,7 +1775,7 @@ export class Scenery {
       B.ok = true;
       B.d = ball.d + (250 + r.next() * 170) * k;
       B.x = (r.next() - 0.5) * 120 * k;
-      B.y = W.baseY(clamp(B.d, -70, W.dEnd + 300)) + (45 + r.next() * 40) * k;
+      B.y = W.baseY(clamp(B.d, -70, Number.isFinite(W.dEnd) ? W.dEnd + 300 : 1e9)) + (45 + r.next() * 40) * k;
     }
     const R = 48 * k, w = 0.24;
     for (let i = 0; i < this.birdN; i++) {
@@ -1986,6 +2116,11 @@ export class Scenery {
     if (this.aurora) this.updateAurora(t);
     if (this.snow) this.updateSnow(dt, camera, ball);
     if (this.clouds) this.updateClouds(dt, ball);
+    if (this.endless) {
+      this.updateEndlessRidges(ball);
+      this.updateBirds(t, ball);
+      return;
+    }
     this.updateGates(camera);
     this.updateDecorWindow(ball);
     this.updateFlags(t);

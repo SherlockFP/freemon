@@ -9,6 +9,9 @@
 // Public API: `audio` (bottom of file). Every method is a safe no-op when the
 // context is missing / not initialised / muted / paused, and never throws.
 //
+// v2 mix philosophy: PLEASANT, never shrill. Master level is -6 dB vs v1, a gentle lowpass sits on the master bus (nothing above ~6.5 kHz),
+// every synth voice has rounder / shorter envelopes, and every repetitive sound (flakes, pops, near-miss, whoosh, thuds) is rate-limited.
+//
 // Mixing notes: all noise buffers are normalised to RMS ~0.3, so the numbers
 // below are "roughly RMS-ish" levels. Tune per sound with MIX (synth) and SM (samples,
 // 1 = the file's own loudness-normalised level, see sfx.js), or MASTER_LEVEL.
@@ -16,8 +19,9 @@
 import { sfx } from './sfx.js';
 
 const LS_KEY = 'cig.muted';
-const MAX_VOICES = 24; // simultaneous one-shot synth voices (roll loop not counted); samples have their own cap in sfx.js
-const MASTER_LEVEL = 0.7;
+const MAX_VOICES = 16; // simultaneous one-shot synth voices (roll loop not counted); samples have their own cap in sfx.js
+const MASTER_LEVEL = 0.36; // v1 was 0.7: about -6 dB
+const MASTER_LP = 6500; // Hz: the whole mix is rolled off above this (the single biggest "less shrill" lever)
 const BASE_HZ = 392; // G4, root of the pop pentatonic walk
 const PENT = [0, 2, 4, 7, 9]; // major pentatonic semitones
 const COIN_HZ = 1976; // pitch (B6) of the coin_N samples, so star(i) can tune them to its synth bell
@@ -29,16 +33,17 @@ const STAR_RATE = Math.pow(2, (11 + STEEL_FIX) / 12); // D#4 -> A#4 becomes D5 -
 
 /** Per-sound trim (1 = default). Handy for balancing without touching the synths. */
 const MIX = {
-  pop: 1.4, bump: 1, crash: 0.7, roll: 1, whoosh: 1, land: 1,
-  milestone: 0.6, ui: 1.5, star: 1.25, win: 1.25, lose: 1.25,
+  pop: 1.1, bump: 0.85, crash: 0.6, roll: 0.9, whoosh: 0.7, land: 0.9,
+  milestone: 0.5, ui: 1.2, star: 0.9, win: 1.0, lose: 1.0,
+  hop: 0.9, flake: 1.0, stomp: 1.0, chime: 0.9, pof: 1.0, near: 0.7,
 };
 
 /** Per-use sample trim (volume of the sample layer; the synth layer keeps MIX). */
 const SM = {
-  pop: 0.5, bumpSoft: 0.9, bumpHit: 0.8,
-  crashBreak: 0.8, crashWood: 0.75, crashRock: 0.6, crashGlass: 0.45,
-  landSoft: 1.0, landCrunch: 0.7,
-  ui: 1.0, coin: 0.7, starJingle: 0.55, win: 0.9, lose: 0.9, milestone: 0.6,
+  pop: 0.28, bumpSoft: 0.8, bumpHit: 0.6,
+  crashBreak: 0.65, crashWood: 0.6, crashRock: 0.5, crashGlass: 0.3,
+  landSoft: 0.9, landCrunch: 0.5,
+  ui: 0.9, coin: 0.4, starJingle: 0.45, win: 0.8, lose: 0.8, milestone: 0.5,
 };
 
 /** ui(kind) -> sample name. */
@@ -62,7 +67,8 @@ let graceUntil = 0; // ms: a resume() is in flight, scheduling is allowed meanwh
 let lastResumeTry = 0;
 let voices = []; // oldest first
 let roll = null;
-const lastAt = { pop: -1, popS: -1, bump: -1, crash: -1, land: -1, ui: -1, whoosh: -1 };
+const lastAt = { milestone: -1, pop: -1, popS: -1, bump: -1, crash: -1, land: -1, ui: -1, whoosh: -1, hop: -1, flake: -1, stomp: -1, near: -1, turn: -1, pof: -1, chime: -1, star: -1 };
+let flakeChain = 0, flakeT = -9; // consecutive flake pickups walk up the scale gently, reset after a pause
 
 // ---------------------------------------------------------------- small utils
 
@@ -395,7 +401,12 @@ function build(c) {
   comp.ratio.value = 6;
   comp.attack.value = 0.004; // slow enough to let the crunch transients through
   comp.release.value = 0.2;
-  m.connect(comp);
+  const mlp = c.createBiquadFilter();
+  mlp.type = 'lowpass';
+  mlp.frequency.value = Math.min(MASTER_LP, c.sampleRate * 0.45);
+  mlp.Q.value = 0.55;
+  m.connect(mlp);
+  mlp.connect(comp);
   comp.connect(c.destination);
   // old iOS: a started silent buffer inside the gesture unlocks output
   try {
@@ -500,7 +511,7 @@ function createRoll() {
   const hiss = ctx.createBufferSource();
   hiss.buffer = whiteBuf;
   hiss.loop = true;
-  const hbp = filt('bandpass', 2000, 0.6);
+  const hbp = filt('bandpass', 1300, 0.6);
   const hg = gain0(0);
   link(hiss, hbp, hg, out);
   hiss.start(0, rand(0, whiteBuf.duration - 0.1));
@@ -535,47 +546,154 @@ function setRoll(speed01, size01) {
   roll.lp.frequency.setTargetAtTime((140 + 620 * sp) * (1 - 0.5 * sz), t, 0.12);
   roll.sub.frequency.setTargetAtTime(96 - 44 * sz + 14 * sp, t, 0.15);
   roll.subG.gain.setTargetAtTime(sp === 0 ? 0 : 0.05 + 0.1 * sz, t, 0.12);
-  roll.hbp.frequency.setTargetAtTime(1600 + 1600 * sp, t, 0.12);
-  roll.hg.gain.setTargetAtTime(0.7 * sp * sp * (1 - 0.4 * sz), t, 0.1);
+  roll.hbp.frequency.setTargetAtTime(1000 + 1100 * sp, t, 0.12);
+  roll.hg.gain.setTargetAtTime(0.38 * sp * sp * (1 - 0.4 * sz), t, 0.1);
   roll.lfo.frequency.setTargetAtTime((1.5 + 5 * sp) / (0.8 + 0.8 * sz), t, 0.15);
   roll.lfoG.gain.setTargetAtTime(level * 0.16, t, 0.1);
 }
 
 // ------------------------------------------------------------------- sounds
 
+/**
+ * Soft swallow / pile pop. A round sine "bloop" that climbs the major pentatonic with the combo (gentle steps, 2 octaves, then it
+ * cycles), a whisper of filtered snow underneath. No clicks, no crackle, nothing above ~3 kHz. >= 60 ms between pops.
+ */
 function pop(size01, combo) {
-  if (!ready() || !throttle('pop', 0.022)) return;
+  if (!ready() || !throttle('pop', 0.06)) return; // flakes / swallows are never closer than 60 ms (a magnet pulling ten flakes is not a buzz)
   const s = clamp01(num(size01, 0.3));
   const c = Math.max(0, Math.floor(num(combo, 0)));
-  const v = begin(P_POP, 0.45, MIX.pop);
+  const v = begin(P_POP, 0.35, MIX.pop);
   if (!v) return;
   const t = ctx.currentTime + 0.002;
   const cm = Math.min(c, 10) / 10;
 
-  // pitched pluck walking up the pentatonic scale; bigger things sit a little lower
-  const f = BASE_HZ * Math.pow(2, (scaleSemis(c) - s * 4) / 12) * rand(0.97, 1.03);
-  tone(v, 'triangle', t, f * 1.05, f, 0.012, 0.2 * (1 + 0.3 * cm), 0.002, 0.15 + 0.05 * s);
-  tone(v, 'sine', t, f * 2, 0, 0, 0.07 + 0.07 * cm, 0.001, 0.07); // sparkle octave
+  const f = BASE_HZ * Math.pow(2, (scaleSemis(c) - s * 5) / 12) * rand(0.985, 1.015);
+  const lp = filt('lowpass', 2400 - 600 * s, 0.6);
+  lp.connect(v.out);
+  const o = osc(v, 'sine', f * 0.8, t, 0.2);
+  o.frequency.setValueAtTime(f * 0.8, t);
+  o.frequency.exponentialRampToValueAtTime(f, t + 0.028);
+  const g = gain0();
+  env(g.gain, t, 0.26 * (1 + 0.25 * cm), 0.004, 0.11 + 0.05 * s);
+  link(o, g, lp);
+  tone(v, 'triangle', t, f * 2, 0, 0, 0.035, 0.002, 0.05); // soft overtone, no sparkle
+  // snow puff: low band only
+  nz(v, whiteBuf, t, 'bandpass', 900 - 300 * s, 600, 0.9, 0.08, 0.35 * (0.6 + 0.4 * s), 0.004, 0.06 + 0.05 * s);
+  // body for the big stuff
+  if (s > 0.25) tone(v, 'sine', t, rand(120, 150) * (1 - 0.25 * s), 55, 0.1, 0.22 * s, 0.003, 0.11);
 
-  // snow crunch: crackle grains through a band that drops with size, plus a click
-  // (a bit quieter when the real crunch sample is layered on top)
-  const sc = has('snow_crunch');
-  const bf = rand(2300, 3800) * (1 - 0.4 * s);
-  nz(v, crackleBuf, t, 'bandpass', bf, bf * 0.7, rand(0.9, 1.5), 0.08, 2.0 * (0.7 + 0.3 * s) * (sc ? 0.55 : 1), 0.002, 0.05 + 0.07 * s);
-  nz(v, whiteBuf, t, 'highpass', rand(2500, 3500), 0, 0.7, 0, 0.3 * (sc ? 0.6 : 1), 0.0008, 0.012);
-
-  // body thump for the big stuff
-  if (s > 0.2) tone(v, 'sine', t, rand(130, 160) * (1 - 0.3 * s), 50, 0.11, 0.3 * s, 0.003, 0.12);
-
-  // sampled snow crunch: bigger = lower + longer; throttled harder than the synth so a
-  // swallow burst can't pile up a wall of 0.3 s tails (and eat the shared voice cap)
-  if (sc && throttle('popS', 0.04)) {
-    smp('snow_crunch', SM.pop * (0.75 + 0.45 * s), (1.5 - 0.75 * s) * rand(0.92, 1.08), P_POP, t, 0.12 + 0.2 * s);
+  // sampled crunch: very low in the mix, pitched down, throttled harder than the synth
+  if (has('snow_crunch') && throttle('popS', 0.09)) {
+    smp('snow_crunch', SM.pop * (0.6 + 0.4 * s), (1.0 - 0.4 * s) * rand(0.94, 1.04), P_POP, t, 0.1 + 0.12 * s);
   }
 }
 
+/**
+ * Flake pickup: a tiny round "tink" (sine + quiet octave, lowpassed) that steps up the pentatonic while you keep collecting and
+ * resets after a pause. >= 60 ms apart, so a magnet pulling ten flakes never turns into a buzz.
+ */
+function flake(step) {
+  if (!ready() || !throttle('flake', 0.06)) return;
+  const t = ctx.currentTime;
+  if (t - flakeT > 0.7) flakeChain = 0; else flakeChain++;
+  flakeT = t;
+  const k = Number.isFinite(step) ? Math.max(0, Math.floor(step)) : flakeChain;
+  const v = begin(P_POP, 0.25, MIX.flake);
+  if (!v) return;
+  const tt = t + 0.002;
+  const f = BASE_HZ * 2 * Math.pow(2, scaleSemis(Math.min(k, 9)) / 12);
+  const lp = filt('lowpass', 3200, 0.5);
+  lp.connect(v.out);
+  const o = osc(v, 'sine', f, tt, 0.2);
+  const g = gain0();
+  env(g.gain, tt, 0.17, 0.003, 0.09);
+  link(o, g, lp);
+  tone(v, 'sine', tt, f * 2, 0, 0, 0.03, 0.002, 0.05);
+}
+
+/** Warm thud for stomping a critter: a round low body that rises a semitone per combo step (max 6), plus a muffled puff. */
+function stomp(combo) {
+  if (!ready() || !throttle('stomp', 0.07)) return;
+  const c = Math.max(0, Math.min(6, Math.floor(num(combo, 0))));
+  const v = begin(P_BIG, 0.4, MIX.stomp);
+  if (!v) return;
+  const t = ctx.currentTime + 0.002;
+  const k = Math.pow(2, c / 12);
+  tone(v, 'sine', t, 190 * k, 70 * k, 0.1, 0.55, 0.003, 0.2);
+  tone(v, 'triangle', t, 300 * k, 140 * k, 0.07, 0.16, 0.002, 0.1);
+  nz(v, whiteBuf, t, 'lowpass', 1100, 350, 0.7, 0.12, 0.35, 0.003, 0.1);
+  // tiny rubbery "boing" so it reads as a bounce, not a hit
+  tone(v, 'sine', t + 0.03, 380 * k, 560 * k, 0.12, 0.08, 0.004, 0.14);
+}
+
+/** Menu ball: soft 'pof' (low round body + a breath of snow). */
+function pof() {
+  if (!ready() || !throttle('pof', 0.06)) return;
+  const v = begin(P_UI, 0.3, MIX.pof);
+  if (!v) return;
+  const t = ctx.currentTime + 0.001;
+  const f = rand(190, 235);
+  tone(v, 'sine', t, f * 1.5, f * 0.6, 0.07, 0.5, 0.003, 0.15);
+  nz(v, whiteBuf, t, 'lowpass', 1500, 500, 0.7, 0.1, 0.4, 0.004, 0.1);
+  tone(v, 'sine', t + 0.01, f * 3, f * 2.2, 0.08, 0.06, 0.003, 0.07);
+}
+
+/** Buff card: a gentle two-note chime (a fifth apart, sine only, long soft tail). kind 'end' = a falling pair. */
+function chime(kind) {
+  if (!ready() || !throttle('chime', 0.25)) return;
+  const v = begin(P_JINGLE, 1.2, MIX.chime);
+  if (!v) return;
+  const t = ctx.currentTime + 0.005;
+  const down = kind === 'end';
+  const f1 = down ? 784 : 587.33; // D5 / G5
+  const f2 = down ? 587.33 : 880; // D5 / A5
+  const lp = filt('lowpass', 3600, 0.5);
+  lp.connect(v.out);
+  const n = (ti, f, pk, dec) => {
+    const o = osc(v, 'sine', f, ti, dec + 0.05);
+    const g = gain0();
+    env(g.gain, ti, pk, 0.006, dec);
+    link(o, g, lp);
+    const o2 = osc(v, 'sine', f * 2, ti, dec * 0.5 + 0.05);
+    const g2 = gain0();
+    env(g2.gain, ti, pk * 0.18, 0.004, dec * 0.4);
+    link(o2, g2, lp);
+  };
+  n(t, f1, 0.2, 0.5);
+  n(t + 0.09, f2, 0.18, 0.7);
+}
+
+/** Successful junction turn / lane swoosh: a soft low-passed air puff. */
+function turn() {
+  if (!ready() || !throttle('turn', 0.25)) return;
+  const v = begin(P_FX, 0.5, MIX.near);
+  if (!v) return;
+  const t = ctx.currentTime + 0.002;
+  swell(v, whiteBuf, t, 'bandpass', 500, 1300, 700, 0.9, 0.45, 0.14, 0.36);
+}
+
+/** Near-miss / passing air: a very soft, short puff. At most 2 per second. */
+function near() {
+  if (!ready() || !throttle('near', 0.5)) return;
+  const v = begin(P_FX, 0.4, MIX.near);
+  if (!v) return;
+  const t = ctx.currentTime + 0.002;
+  swell(v, whiteBuf, t, 'bandpass', 600, 1500, 800, 0.8, 0.4, 0.06, 0.26);
+}
+
+/** Player jump / hop: a quick soft air blip + a low thump. k 0..1. */
+function hop(k) {
+  if (!ready() || !throttle('hop', 0.09)) return;
+  const a = clamp01(num(k, 0.6));
+  const v = begin(P_FX, 0.3, MIX.hop);
+  if (!v) return;
+  const t = ctx.currentTime + 0.002;
+  nz(v, whiteBuf, t, 'bandpass', 450, 1700, 1.0, 0.1, 0.55 * (0.6 + 0.4 * a), 0.012, 0.13);
+  tone(v, 'sine', t, 190, 95, 0.09, 0.24 * a, 0.004, 0.1);
+}
+
 function bump(intensity01) {
-  if (!ready() || !throttle('bump', 0.07)) return;
+  if (!ready() || !throttle('bump', 0.12)) return;
   const k = clamp01(num(intensity01, 0.5));
   const v = begin(P_BIG, 0.9, MIX.bump);
   if (!v) return;
@@ -589,13 +707,13 @@ function bump(intensity01) {
   tone(v, 'triangle', t, rand(170, 200), 80, 0.12, 0.45 * a * (sh ? 0.4 : 1), 0.002, 0.14); // mid knock (phone speakers)
   nz(v, brownBuf, t, 'lowpass', 280, 120, 0.7, 0.2, 0.6 * a * ps, 0.004, 0.22);
   nz(v, whiteBuf, t, 'lowpass', 1200, 300, 0.7, 0.2, 0.7 * a * (ss || sh ? 0.8 : 1), 0.004, 0.16); // muffled snow puff
-  rattle(v, t, 0.03, 0.25 + 0.15 * k, 4 + Math.round(8 * k), 700, 2000, 0.8, 0.9 * a * (ss || sh ? 0.8 : 1)); // crumble
+  rattle(v, t, 0.03, 0.22 + 0.12 * k, 3 + Math.round(5 * k), 600, 1500, 0.8, 0.55 * a * (ss || sh ? 0.8 : 1)); // crumble (soft)
   if (ss) smp('impact_soft', SM.bumpSoft * (0.55 + 0.45 * k), (1.1 - 0.15 * k) * rand(0.94, 1.06), P_BIG, t, 0);
   if (sh) smp('hit', SM.bumpHit * (0.45 + 0.55 * k), rand(0.94, 1.06), P_BIG, t, 0.4);
 }
 
 function crash(intensity01) {
-  if (!ready() || !throttle('crash', 0.06)) return;
+  if (!ready() || !throttle('crash', 0.12)) return;
   const k = clamp01(num(intensity01, 0.7));
   const v = begin(P_BIG + 0.5, 1.8, MIX.crash);
   if (!v) return;
@@ -609,9 +727,9 @@ function crash(intensity01) {
   tone(v, 'sine', t, rand(70, 90), 26, 0.6, 0.55 * a, 0.004, 0.95); // sub boom
   tone(v, 'triangle', t, rand(150, 190), 55, 0.25, 0.5 * a * (sm ? 0.7 : 1), 0.002, 0.28); // punch (phone speakers)
   nz(v, brownBuf, t, 'lowpass', 650, 150, 0.8, 0.7, 0.8 * a * (sm ? 0.85 : 1), 0.004, 0.8); // rumble body
-  nz(v, whiteBuf, t, 'lowpass', 7000, 400, 0.8, 0.6, 0.9 * a * ds, 0.002, 0.55); // noise burst
-  rattle(v, t, 0.08, 0.7 + 0.5 * k, 8 + Math.round(14 * k), 600, 4200, 1.0, 0.6 * a * ds); // debris
-  rattle(v, t, 0.2, 0.9 + 0.4 * k, 5 + Math.round(8 * k), 250, 1400, 0.9, 0.5 * a * ds); // heavy chunks
+  nz(v, whiteBuf, t, 'lowpass', 3800, 300, 0.8, 0.6, 0.75 * a * ds, 0.004, 0.5); // noise burst (rounded)
+  rattle(v, t, 0.08, 0.6 + 0.4 * k, 6 + Math.round(9 * k), 500, 2600, 1.0, 0.42 * a * ds); // debris
+  rattle(v, t, 0.2, 0.8 + 0.3 * k, 4 + Math.round(6 * k), 250, 1200, 0.9, 0.4 * a * ds); // heavy chunks
   if (sm) crashSamples(k, t);
 }
 
@@ -640,26 +758,25 @@ function crashSamples(k, t) {
 }
 
 function whoosh() {
-  if (!ready() || !throttle('whoosh', 0.3)) return;
+  if (!ready() || !throttle('whoosh', 0.5)) return;
   const v = begin(P_FX, 1.3, MIX.whoosh);
   if (!v) return;
   const t = ctx.currentTime + 0.002;
   const s = noise(v, whiteBuf, t, 1.25);
-  const bp = filt('bandpass', 320, 1.1);
-  bp.frequency.setValueAtTime(320, t);
-  bp.frequency.exponentialRampToValueAtTime(2800, t + 0.5);
-  bp.frequency.exponentialRampToValueAtTime(900, t + 1.15);
+  const bp = filt('bandpass', 280, 1.0);
+  bp.frequency.setValueAtTime(280, t);
+  bp.frequency.exponentialRampToValueAtTime(1800, t + 0.5);
+  bp.frequency.exponentialRampToValueAtTime(700, t + 1.15);
   const g = gain0();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(1.6, t + 0.38);
+  g.gain.linearRampToValueAtTime(1.0, t + 0.38);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
   link(s, bp, g, v.out);
-  swell(v, brownBuf, t, 'lowpass', 300, 500, 200, 0.7, 0.6, 0.3, 1.0); // air body
-  swell(v, whiteBuf, t + 0.05, 'highpass', 4500, 5500, 4000, 0.7, 0.12, 0.3, 0.9); // shimmer
+  swell(v, brownBuf, t, 'lowpass', 300, 500, 200, 0.7, 0.5, 0.3, 1.0); // air body
 }
 
 function land(intensity01) {
-  if (!ready() || !throttle('land', 0.1)) return;
+  if (!ready() || !throttle('land', 0.12)) return;
   const k = clamp01(num(intensity01, 0.5));
   const v = begin(P_BIG, 0.9, MIX.land);
   if (!v) return;
@@ -672,14 +789,14 @@ function land(intensity01) {
   tone(v, 'sine', t, rand(100, 120), 42, 0.14, 0.75 * a * ps, 0.003, 0.28);
   tone(v, 'triangle', t, rand(150, 175), 70, 0.12, 0.4 * a, 0.002, 0.16); // mid knock (phone speakers)
   nz(v, brownBuf, t, 'lowpass', 240, 110, 0.7, 0.25, 0.55 * a * ps, 0.004, 0.3);
-  nz(v, whiteBuf, t, 'lowpass', 2400, 500, 0.7, 0.3, 0.7 * a * pc, 0.008, 0.3); // soft "poof"
-  rattle(v, t, 0.04, 0.3, 3 + Math.round(8 * k), 900, 2400, 0.8, 0.8 * a * pc); // snow settling
+  nz(v, whiteBuf, t, 'lowpass', 1800, 450, 0.7, 0.3, 0.6 * a * pc, 0.01, 0.28); // soft "poof"
+  rattle(v, t, 0.04, 0.28, 2 + Math.round(5 * k), 800, 1800, 0.8, 0.5 * a * pc); // snow settling
   if (ss) smp('impact_soft', SM.landSoft * (0.5 + 0.5 * k), (1.1 - 0.2 * k) * rand(0.95, 1.05), P_BIG, t, 0.45);
   if (sc) smp('snow_crunch', SM.landCrunch * (0.6 + 0.4 * k), (1 - 0.3 * k) * rand(0.94, 1.06), P_BIG, t + 0.012, 0);
 }
 
 function milestone(level) {
-  if (!ready()) return;
+  if (!ready() || !throttle('milestone', 0.9)) return; // checkpoints / tier-ups / buff cards never pile their rumbles on top of each other
   const lv = Math.max(1, Math.min(6, Math.floor(num(level, 1))));
   const v = begin(P_JINGLE, 2.4, MIX.milestone);
   if (!v) return;
@@ -716,7 +833,7 @@ function milestone(level) {
   swell(v, brownBuf, t, 'lowpass', 90, 520, 140, 0.8, 0.9 + 0.1 * lv, tp, 1.9);
   tswell(v, 'sine', t, 50, 78, 0.28 + 0.04 * lv, tp, 1.8);
   swell(v, whiteBuf, t, 'bandpass', 500, 2500, 900, 0.8, 0.5 + 0.05 * lv, tp, 1.5);
-  if (lv >= 4) nz(v, whiteBuf, t + n * gap, 'highpass', 5000, 0, 0.7, 0, 0.1, 0.01, 0.6); // sparkle
+  // (no highpass sparkle: the master lowpass would eat it anyway)
 }
 
 /**
@@ -724,6 +841,10 @@ function milestone(level) {
  * 'toggle'. Sample only; the synth blip is the fallback (and only knows 'click').
  */
 function ui(kind) {
+  if (kind === 'pof') { pof(); return; }
+  if (kind === 'chime') { chime(); return; }
+  if (kind === 'pop') { pop(0.3, 0); return; }
+  if (kind === 'stomp') { stomp(0); return; }
   if (!ready() || !throttle('ui', 0.03)) return;
   let name = typeof kind === 'string' ? UI_SAMPLE[kind] : undefined;
   if (!name || !has(name)) name = 'ui_click';
@@ -734,13 +855,12 @@ function ui(kind) {
   const v = begin(P_UI, 0.15, MIX.ui);
   if (!v) return;
   const t = ctx.currentTime + 0.001;
-  tone(v, 'sine', t, 1500, 900, 0.03, 0.26, 0.001, 0.05);
-  tone(v, 'triangle', t, 3000, 1800, 0.03, 0.06, 0.001, 0.03);
-  nz(v, whiteBuf, t, 'highpass', 3500, 0, 0.7, 0, 0.12, 0.0008, 0.008);
+  tone(v, 'sine', t, 1100, 700, 0.04, 0.22, 0.002, 0.06);
+  tone(v, 'sine', t, 2200, 1400, 0.04, 0.04, 0.002, 0.03);
 }
 
 function star(i) {
-  if (!ready()) return;
+  if (!ready() || !throttle('star', 0.25)) return;
   const k = Math.max(0, Math.min(2, Math.round(num(i, 0))));
   const v = begin(P_JINGLE, 1.6, MIX.star);
   if (!v) return;
@@ -749,9 +869,8 @@ function star(i) {
   const f = 784 * Math.pow(2, [0, 4, 7][k] / 12);
   tone(v, 'sine', t, f * 0.5, f, 0.09, 0.1, 0.01, 0.08); // rising "pfiu"
   tone(v, 'sine', tn, f, 0, 0, 0.28, 0.003, 0.7 + 0.15 * k); // bell
-  tone(v, 'sine', tn, f * 2.76, 0, 0, 0.08, 0.002, 0.35); // inharmonic bell partials
-  tone(v, 'sine', tn, f * 5.4, 0, 0, 0.04, 0.002, 0.2);
-  nz(v, whiteBuf, tn, 'highpass', 6000 + k * 500, 0, 0.7, 0, 0.07 + 0.02 * k, 0.001, 0.12);
+  tone(v, 'sine', tn, f * 2.76, 0, 0, 0.035, 0.002, 0.28); // inharmonic bell partials (quiet)
+  tone(v, 'sine', tn, f * 5.4, 0, 0, 0.012, 0.002, 0.12);
   if (k === 2) {
     tone(v, 'triangle', tn, f * 2, 0, 0, 0.12, 0.004, 1.0);
     tone(v, 'sine', tn, f * 1.5, 0, 0, 0.1, 0.004, 0.9);
@@ -794,11 +913,10 @@ function win() {
   note(tc, 659.25, 0.9, 0.07);
   note(tc, 783.99, 0.9, 0.07);
   note(tc, 1046.5, 0.9, 0.08);
-  // confetti sparkle
-  nz(v, whiteBuf, tc, 'highpass', 5500, 0, 0.7, 0, 0.09, 0.01, 0.5);
-  tone(v, 'sine', tc + 0.04, 2093, 0, 0, 0.05, 0.002, 0.25);
-  tone(v, 'sine', tc + 0.16, 2637, 0, 0, 0.05, 0.002, 0.25);
-  tone(v, 'sine', tc + 0.28, 3136, 0, 0, 0.05, 0.002, 0.3);
+  // soft sparkle (low sines only; no hiss)
+  tone(v, 'sine', tc + 0.04, 1568, 0, 0, 0.04, 0.004, 0.25);
+  tone(v, 'sine', tc + 0.16, 1976, 0, 0, 0.04, 0.004, 0.25);
+  tone(v, 'sine', tc + 0.28, 2349, 0, 0, 0.04, 0.004, 0.3);
 }
 
 function lose() {
@@ -857,7 +975,7 @@ function lose() {
 
 // Every method goes through guard(): whatever happens inside, callers never see a throw.
 const guard = (fn, fallback) => function () {
-  try { return fn.apply(null, arguments); } catch (e) { return fallback; }
+  try { return fn.apply(null, arguments); } catch (e) { if (globalThis.__cigAudioDebug) console.error('[audio]', fn.name, e && e.message); return fallback; }
 };
 
 export const audio = {
@@ -867,6 +985,21 @@ export const audio = {
   isMuted: guard(isMuted, false),
   /** Swallow sound. size01: 0..1 (bigger = lower/thumpier); combo: consecutive swallows (pitch walks up). */
   pop: guard(pop),
+  /** Soft ÇIĞ swallow (alias of pop). */
+  swallow: guard(pop),
+  /** Flake pickup tink: pass nothing (internal chain, gentle pitch steps) or a step number. >= 60 ms apart. */
+  flake: guard(flake),
+  /** Warm thud for a critter stomp; combo 0..6 raises the pitch a semitone each. */
+  stomp: guard(stomp),
+  /** Menu snowball 'pof'. */
+  pof: guard(pof),
+  /** Buff card chime; chime('end') = the falling pair for an expiring buff. */
+  chime: guard(chime),
+  /** Soft puff for near-misses / a clean junction turn. At most 2 per second. */
+  near: guard(near),
+  turn: guard(turn),
+  /** Player jump: quick soft air blip + thump. k 0..1 */
+  hop: guard(hop),
   bump: guard(bump),
   crash: guard(crash),
   /** Per-frame rolling rumble. speed01 = 0 silences it. */

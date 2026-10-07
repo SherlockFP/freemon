@@ -1,4 +1,4 @@
-// Customization shop: full-screen DOM overlay ("DOLAP") for ball skins and snow trails.
+// Customization shop: full-screen DOM overlay ("DOLAP") for ball skins, snow trails and power upgrades (what ❄️ is for).
 //
 //   const close = openShop({ save, onClose, onSelect });
 //
@@ -7,6 +7,51 @@
 // Items are sorted by rarity (SIRADAN -> NADİR -> EPİK -> EFSANE), then price. Items with unlock.secret stay
 // hidden ("GİZLİ", name and look concealed) until save.isOwned(kind, id) becomes true.
 import { SKINS, TRAILS, RARITY, sortCatalog } from './skins.js';
+import { meta, UPGRADES as POWER_UPGRADES, SLED_PACK } from './meta.js';
+import * as Perks from './runner/perks.js';
+
+// Permanent run upgrades (runner/perks.js owns the list; this is only the fallback).
+const PERM_FALLBACK = [
+  { id: 'size', icon: '🧊', name: 'Kartopu', desc: 'Kar yığınları daha çok büyütür' },
+  { id: 'speed', icon: '🦬', name: 'Yeti Kaçağı', desc: 'Skor çarpanı artar' },
+  { id: 'smash', icon: '🏔️', name: 'Çığ', desc: 'Yıkım puanı ve tonu artar' },
+  { id: 'coin', icon: '💰', name: 'Altın', desc: 'Kar taneleri daha değerli' },
+  { id: 'yeti', icon: '🧤', name: 'Kalın Eldiven', desc: 'Tökezleme süresi kısalır' },
+  { id: 'flow', icon: '🌊', name: 'Akış', desc: 'Akış kombosu daha yavaş söner' },
+];
+const permList = () => (Array.isArray(Perks.UPGRADES) && Perks.UPGRADES.length ? Perks.UPGRADES : PERM_FALLBACK);
+const MAX_LV = 5;
+// Star-gated items unlock with ÇIĞ level stars + MACERA stars (the finite ÇIĞ levels are no longer the only way to earn them).
+function starsOf(sv) {
+  let n = 0;
+  try { n += sv.totalStars(); } catch { /* ignore */ }
+  try { n += meta.campaign().totalStars || 0; } catch { /* ignore */ }
+  return n;
+}
+
+// The next thing coins can buy: the cheapest unowned skin / trail / upgrade that costs more than you have ("1.250 ❄️ → Kızıl Kaos").
+// Items gated by stars or secrets are never coin goals. Returns { kind, id, name, icon, price, have, frac, ready } or null.
+export function nextGoal(sv) {
+  const have = sv && Number.isFinite(sv.coins) ? sv.coins : 0;
+  const c = [];
+  try {
+    for (const it of SKINS) if (it.price > 0 && !(it.unlock && (it.unlock.stars || it.unlock.secret)) && !sv.isOwned('skin', it.id)) c.push({ kind: 'skin', id: it.id, name: it.name, icon: '👕', price: it.price });
+    for (const it of TRAILS) if (it.price > 0 && !(it.unlock && (it.unlock.stars || it.unlock.secret)) && !sv.isOwned('trail', it.id)) c.push({ kind: 'trail', id: it.id, name: it.name.toLocaleLowerCase('tr-TR').includes('izi') ? it.name : it.name + ' izi', icon: '✨', price: it.price });
+    const perm = sv.perm ? sv.perm() : {};
+    for (const u of permList()) {
+      const cost = sv.permCost ? sv.permCost(u.id) : null;
+      if (cost != null) c.push({ kind: 'perm', id: u.id, name: `${u.name} Sv${(perm[u.id] || 0) + 1}`, icon: u.icon, price: cost });
+    }
+    for (const u of POWER_UPGRADES) {
+      const cost = meta.upgradeCost(u.id);
+      if (cost != null) c.push({ kind: 'power', id: u.id, name: `${u.name} Sv${meta.upgradeLevel(u.id) + 1}`, icon: u.icon, price: cost });
+    }
+  } catch { /* a bad catalog entry must never break the result screen */ }
+  if (!c.length) return null;
+  const above = c.filter((x) => x.price > have).sort((a, b) => a.price - b.price);
+  const pick = above.length ? above[0] : c.sort((a, b) => b.price - a.price)[0];
+  return { ...pick, have, frac: Math.max(0, Math.min(1, have / pick.price)), ready: have >= pick.price };
+}
 
 const STYLE_ID = 'cig-shop-style';
 
@@ -493,6 +538,34 @@ const CSS = `
 }
 .cs-card.locked .cs-prev { filter: grayscale(0.85) brightness(0.92); }
 
+/* ---- next goal strip ---- */
+.cs-goal { width: 100%; max-width: 520px; margin: -4px auto 8px; padding: 0 16px; flex: none; }
+.cs-goal .gi {
+  display: flex; flex-direction: column; gap: 4px; padding: 7px 12px 8px; border-radius: 14px; border: 3px solid var(--ink); background: linear-gradient(180deg, #2c5799, var(--ink));
+  box-shadow: 0 3px 0 var(--ink); color: #fff;
+}
+.cs-goal .gt { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; letter-spacing: 0.02em; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4); }
+.cs-goal .gt b { color: var(--gold); font-weight: 900; }
+.cs-goal .gb { height: 9px; border-radius: 5px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
+.cs-goal .gb i { display: block; height: 100%; background: linear-gradient(90deg, #ffe066, #ff9a3a); }
+.cs-goal.ready .gb i { background: linear-gradient(90deg, #8dff9a, #2fc13f); }
+
+/* ---- power tab: upgrade rows ---- */
+.cs-list { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 520px; margin: 0 auto; padding: 4px 16px 0; }
+.cs-sec { margin: 6px 2px -4px; font-size: 13px; letter-spacing: 0.14em; color: var(--ink); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55); }
+.cs-up {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 20px; border: 3px solid var(--ink);
+  background: linear-gradient(180deg, #ffffff, #e2f0ff); box-shadow: 0 5px 0 var(--ink); color: var(--ink);
+}
+.cs-up.shake { animation: csShake 0.32s; }
+.cs-up .ui { flex: none; width: 46px; height: 46px; display: grid; place-items: center; font-size: 25px; line-height: 1; border-radius: 15px; background: rgba(23, 52, 92, 0.1); border: 2.5px solid var(--ink); }
+.cs-up .um { flex: 1; min-width: 0; }
+.cs-up .un { font-size: 16px; line-height: 1.15; }
+.cs-up .ud { margin-top: 2px; font-size: 12.5px; color: #5a7196; line-height: 1.25; font-weight: 800; }
+.cs-up .up { display: flex; gap: 4px; margin-top: 5px; }
+.cs-up .up i { width: 18px; height: 8px; border-radius: 4px; background: rgba(23, 52, 92, 0.18); border: 2px solid var(--ink); }
+.cs-up .up i.on { background: linear-gradient(180deg, #8dff9a, #2fc13f); }
+.cs-up .cs-btn { width: auto; min-width: 84px; margin-top: 0; flex: none; padding: 9px 10px 8px; }
 @media (prefers-reduced-motion: reduce) {
   .cs-root *, .cs-root *::before, .cs-root *::after, .cs-root { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
@@ -674,17 +747,23 @@ export function openShop({ save, onClose, onSelect } = {}) {
   const tabs = h('div', 'cs-tabs');
   const tabSkin = h('button', 'cs-tab on', 'TOPLAR');
   const tabTrail = h('button', 'cs-tab', 'İZLER');
+  const tabPower = h('button', 'cs-tab', 'GÜÇLER');
   tabSkin.setAttribute('type', 'button');
   tabTrail.setAttribute('type', 'button');
+  tabPower.setAttribute('type', 'button');
   tabs.appendChild(tabSkin);
   tabs.appendChild(tabTrail);
+  tabs.appendChild(tabPower);
 
+  const goalBox = h('div', 'cs-goal');
   const scroll = h('div', 'cs-scroll');
   const grid = h('div', 'cs-grid');
+  const plist = h('div', 'cs-list');
   scroll.appendChild(grid);
 
   root.appendChild(head);
   root.appendChild(tabs);
+  root.appendChild(goalBox);
   root.appendChild(scroll);
 
   // The game blocks document-level touchmove with preventDefault (to kill iOS rubber-band / zoom);
@@ -692,9 +771,30 @@ export function openShop({ save, onClose, onSelect } = {}) {
   scroll.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
 
   // ---- coins ----
+  function renderGoal() {
+    goalBox.innerHTML = '';
+    let g = null;
+    try { g = nextGoal(save); } catch { g = null; }
+    goalBox.classList.toggle('hidden', !g);
+    if (!g) return;
+    goalBox.classList.toggle('ready', g.ready);
+    const gi = h('div', 'gi');
+    const gt = h('div', 'gt');
+    gt.appendChild(h('span', '', `${g.icon} SIRADAKİ HEDEF: ${g.name}`));
+    gt.appendChild(h('b', '', g.ready ? 'HAZIR!' : `${fmt(g.have)} / ${fmt(g.price)} ❄️`));
+    const gb = h('div', 'gb');
+    const bi = h('i');
+    bi.style.width = `${Math.round(g.frac * 100)}%`;
+    gb.appendChild(bi);
+    gi.appendChild(gt);
+    gi.appendChild(gb);
+    goalBox.appendChild(gi);
+  }
+
   function showCoins(target, animate) {
     const from = shownCoins;
     shownCoins = target;
+    renderGoal();
     if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf);
     if (!animate || from === target || typeof requestAnimationFrame !== 'function') {
       coinsNum.textContent = fmt(target);
@@ -716,7 +816,7 @@ export function openShop({ save, onClose, onSelect } = {}) {
 
   // ---- item state ----
   function stateOf(it) {
-    const stars = save.totalStars();
+    const stars = starsOf(save);
     const need = (it.unlock && it.unlock.stars) || 0;
     const secretGate = !!(it.unlock && it.unlock.secret);
     const selected = save.selected(kind) === it.id;
@@ -803,9 +903,67 @@ export function openShop({ save, onClose, onSelect } = {}) {
   }
 
   function render(popId, bought) {
+    renderGoal();
+    if (kind === 'power') { renderPower(); return; }
+    if (plist.parentNode) { plist.remove(); scroll.appendChild(grid); }
     const list = sortCatalog(kind === 'skin' ? SKINS : TRAILS);
     grid.innerHTML = '';
     for (const it of list) grid.appendChild(makeCard(it, it.id === popId, bought));
+  }
+
+  // ---- GÜÇLER: what coins are for. Permanent run upgrades + power-up durations + sled pack. ----
+  function upRow(icon, name, desc, lv, cost, onBuy) {
+    const row = h('div', 'cs-up');
+    row.appendChild(h('div', 'ui', icon));
+    const mid = h('div', 'um');
+    mid.appendChild(h('div', 'un', name));
+    mid.appendChild(h('div', 'ud', desc));
+    if (lv !== null) {
+      const pips = h('div', 'up');
+      for (let i = 0; i < MAX_LV; i++) pips.appendChild(h('i', i < lv ? 'on' : ''));
+      mid.appendChild(pips);
+    }
+    row.appendChild(mid);
+    let btn;
+    if (cost === null) btn = h('button', 'cs-btn on', 'MAKS ✓');
+    else {
+      const afford = save.coins >= cost;
+      btn = h('button', `cs-btn${afford ? '' : ' poor'}`, `❄️ ${fmt(cost)}`);
+      btn.addEventListener('click', () => {
+        if (!afford || !onBuy()) { anim(row, 'shake', 340); sfx(); return; }
+        sfx();
+        showCoins(save.coins, true);
+        renderPower();
+      });
+    }
+    btn.setAttribute('type', 'button');
+    row.appendChild(btn);
+    return row;
+  }
+
+  function renderPower() {
+    if (grid.parentNode) { grid.remove(); scroll.appendChild(plist); }
+    const keep = scroll.scrollTop;
+    plist.innerHTML = '';
+    plist.appendChild(h('div', 'cs-sec', 'KALICI GELİŞTİRMELER'));
+    const perm = save.perm ? save.perm() : {};
+    for (const u of permList()) {
+      const lv = Math.min(MAX_LV, perm[u.id] || 0);
+      const cost = save.permCost ? save.permCost(u.id) : null;
+      plist.appendChild(upRow(u.icon, u.name, `${u.desc} · Sv ${lv}/${MAX_LV}`, lv, cost, () => !!save.buyPerm(u.id, cost)));
+    }
+    plist.appendChild(h('div', 'cs-sec', 'GÜÇ SÜRELERİ'));
+    for (const u of POWER_UPGRADES) {
+      const lv = meta.upgradeLevel(u.id);
+      const cost = meta.upgradeCost(u.id);
+      const sec = (x) => String(x).replace('.', ','); // 3.5 -> 3,5 (Turkish decimal comma)
+      const cur = sec(meta.duration(u.id));
+      const nxt = lv < MAX_LV ? sec(u.durations[lv + 1]) : null;
+      plist.appendChild(upRow(u.icon, u.name, nxt ? `${cur} sn → ${nxt} sn · ${u.desc}` : `${cur} sn (en yüksek) · ${u.desc}`, lv, cost, () => meta.buyUpgrade(u.id)));
+    }
+    plist.appendChild(h('div', 'cs-sec', 'KIZAK'));
+    plist.appendChild(upRow('🛷', 'Kızak', `Bir çarpışmayı affeder · Stok: ${meta.sleds()}`, null, SLED_PACK.price, () => meta.buySled(1)));
+    scroll.scrollTop = keep;
   }
 
   function setTab(k) {
@@ -813,6 +971,7 @@ export function openShop({ save, onClose, onSelect } = {}) {
     kind = k;
     tabSkin.classList.toggle('on', k === 'skin');
     tabTrail.classList.toggle('on', k === 'trail');
+    tabPower.classList.toggle('on', k === 'power');
     scroll.scrollTop = 0;
     sfx();
     render();
@@ -820,6 +979,7 @@ export function openShop({ save, onClose, onSelect } = {}) {
 
   tabSkin.addEventListener('click', () => setTab('skin'));
   tabTrail.addEventListener('click', () => setTab('trail'));
+  tabPower.addEventListener('click', () => setTab('power'));
 
   // ---- close ----
   const onKey = (e) => { if (e.key === 'Escape') close(); };

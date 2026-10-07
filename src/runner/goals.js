@@ -9,17 +9,22 @@ export function scoreMult(tier, flow, chain, danger, risk, keep = 0, cap = 8) {
 /** near-miss chain → bonus (replaces the old ×2/×3/×5) */
 export const chainBonus = (c) => (c >= 8 ? 3 : c >= 5 ? 2 : c >= 3 ? 1 : 0);
 
-/** Yeti closeness → bonus (replaces the old ×2/×3); the "tehlike" perk doubles it */
-export const dangerBonus = (gap, doubled) => {
-  const m = gap < 9 ? 2 : gap < 16 ? 1 : 0;
-  return doubled ? m * 2 : m;
-};
+/** Yeti closeness → bonus: +1 while a stumble window is open (the Yeti is right behind you), else 0 */
+export const dangerBonus = (stumbling) => (stumbling ? 1 : 0);
 
 /** Coins for crossing checkpoint number n (1 = first layer boundary). */
 export const checkpointReward = (n, per = 25) => per * Math.min(Math.max(1, n), 8);
 
-/** Seconds-between-boulders scale for the Yeti rage: 1 at the first one, faster every layer, floor 0.6. */
-export const rageScale = (layer) => Math.max(0.6, Math.pow(0.93, Math.max(0, layer - 1)));
+/** Seconds-between-boulders scale for the Yeti rage: 1 at the first one, faster every layer, floor 0.7. */
+export const rageScale = (layer) => Math.max(0.7, Math.pow(0.93, Math.max(0, layer - 1)));
+
+/**
+ * Hunger: how fast the ball melts, in size tiers per second.
+ * (base + perTier * tier) grows with distance (up to +meltGrow after `ramp` m); `k` scales it (campaign is gentler).
+ */
+export function meltRate(tier, s, cfg, k = 1) {
+  return (cfg.meltBase + cfg.meltPerTier * tier) * (1 + cfg.meltGrow * Math.min(1, Math.max(0, s) / cfg.meltRamp)) * k;
+}
 
 /**
  * Goal strip state at distance s. Fills `out` { mode: 'cp' | 'rec', val, frac }:

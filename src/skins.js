@@ -2279,15 +2279,38 @@ const BUILDERS = {
   hali: skinHali,
 };
 
+// ---- golden snowball secret (10 quick taps on the lobby ball): the CLASSIC skin turns gold for the rest of the session ----
+let activeSkin = null;
+function tintGold(skin, on) {
+  if (!skin || skin.id !== 'classic') return false;
+  const mats = Array.isArray(skin.material) ? skin.material : [skin.material];
+  for (const m of mats) {
+    if (!m || !m.color) continue;
+    m.color.set(on ? 0xffc83a : 0xffffff);
+    if (m.emissive) m.emissive.set(on ? 0x4a2c00 : 0x000000);
+  }
+  return true;
+}
+/** Tint (or restore) the ball skin that is on screen right now. Returns true when it was the classic skin and got tinted. */
+export function setGoldBall(on) {
+  try { globalThis.__patpatGold = !!on; } catch (e) { /* ignore */ }
+  return tintGold(activeSkin, !!on);
+}
+
 export function makeSkin(id) {
   const key = BUILDERS[id] ? id : 'classic';
   const skin = BUILDERS[key]();
   skin.id = key;
+  activeSkin = skin;
+  let gold = false;
+  try { gold = !!globalThis.__patpatGold; } catch (e) { gold = false; }
+  if (gold) tintGold(skin, true);
   return skin;
 }
 
 export function disposeSkin(skin) {
   if (!skin) return;
+  if (skin === activeSkin) activeSkin = null;
   if (skin.geometry) skin.geometry.dispose();
   const mats = Array.isArray(skin.material) ? skin.material : [skin.material];
   for (const m of mats) {

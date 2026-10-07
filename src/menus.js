@@ -1,15 +1,21 @@
 // menus.js — PATPAT lobby (mobile-game style main menu) + panels (campaign map, daily reward, achievements, missions, upgrades,
 // letter hunt, settings, mystery boxes, level complete/failed, toasts, easter eggs). Self-contained DOM + injected CSS (<style id="freemon-menus-style">).
 //
+// Lobby flow: OYNA starts YETİ RUSH directly (callbacks.onEndless), no mode screen and no modal on boot. The daily reward is a
+// badge on a button (claim inside). Mid-run meta events (achievements, missions, letters) are never toasted here: they are
+// queued in meta.js and shown on the result screen only.
+//
 //   const menus = createMenus({ save, meta, root: document.getElementById('app'), callbacks });
 //   menus.showMain(info); menus.hideMain(); menus.toastAchievement(a); menus.showDailyIfAvailable();
 //   menus.openBoxes(n, onDone); menus.refresh(); menus.isOpen();
 //   menus.back();  // Esc / Android Back: closes the top overlay (planet screen, panel, card), true if it closed one
 //
 // Importing this module never touches `document`; everything happens inside createMenus().
-import { SKINS, TRAILS } from './skins.js';
+import { SKINS, TRAILS, setGoldBall } from './skins.js';
 import { ACHIEVEMENTS, EGGS, DAILY_REWARDS, UPGRADES, SLED_PACK } from './meta.js';
 import { ACTS, LEVELS, levelById } from './campaign.js';
+import { nextGoal } from './shop.js';
+import { hideBoot, runnerDeathText } from './ui.js';
 
 const STYLE_ID = 'freemon-menus-style';
 const VERSION = '0.3.0';
@@ -117,15 +123,8 @@ const CSS = `
 @keyframes fmSpin { 0% { transform: rotate(-2deg) scale(1); } 40% { transform: rotate(358deg) scale(1.3); } 100% { transform: rotate(718deg) scale(1); } }
 @keyframes fmSquish { 0% { transform: rotate(-2deg) scale(1); } 50% { transform: rotate(-2deg) scale(0.94, 1.04); } 100% { transform: rotate(-2deg) scale(1); } }
 
-.fm-ribrow { flex: none; display: flex; justify-content: center; margin-top: 8px; }
-.fm-rib {
-  position: relative; isolation: isolate; display: flex; align-items: center; gap: 3px; padding: 3px 9px 4px; cursor: pointer; border: 2.5px solid var(--ink); border-radius: 9px;
-  background: linear-gradient(180deg, #b27aff, #6a2fd8); box-shadow: 0 3px 0 #3b1a8a, inset 0 2px 0 rgba(255, 255, 255, 0.35); min-height: 40px;
-}
-.fm-rib::before, .fm-rib::after { content: ""; position: absolute; z-index: -1; top: 7px; bottom: -5px; width: 20px; background: #3b1a8a; }
-.fm-rib::before { left: -14px; clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 34% 50%); }
-.fm-rib::after { right: -14px; clip-path: polygon(0 0, 100% 0, 66% 50%, 100% 100%, 0 100%); }
-.fm-rib:active { transform: translateY(3px); box-shadow: 0 1px 0 #3b1a8a; }
+/* the letter-hunt ribbon moved into the missions panel */
+.fm-ribrow, .fm-rib { display: none; }
 .fm-chip {
   width: 23px; height: 27px; flex: none; display: grid; place-items: center; font-size: 15px; line-height: 1; border-radius: 7px; text-shadow: none;
   border: 2px solid var(--ink); background: rgba(10, 25, 55, 0.5); color: rgba(255, 255, 255, 0.45);
@@ -133,44 +132,122 @@ const CSS = `
 .fm-chip.got { background: linear-gradient(180deg, #fff3a8, var(--gold)); color: var(--ink); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.7); }
 .fm-chip.next { color: #fff; animation: fmChip 1s ease-in-out infinite alternate; }
 @keyframes fmChip { from { box-shadow: 0 0 0 0 rgba(255, 207, 58, 0.9); } to { box-shadow: 0 0 0 4px rgba(255, 207, 58, 0); } }
+.fm-tag { flex: none; text-align: center; margin-top: -2px; font-size: 12px; letter-spacing: 0.26em; color: #e4ecff; text-shadow: var(--ol-sm); }
+.fm-avt { display: none; }
+.fm-av { flex: 0 0 auto; }
+.fm-top { gap: 6px; }
+.fm-top .fm-av { margin-right: auto; }
+.fm-cur { height: 36px; padding: 0 3px 0 8px; }
+.fm-cur .num { min-width: 30px; font-size: 16px; }
 
-/* ---- middle: side stacks + hero zone (the 3D ball shows through) ---- */
+/* ---- daily reward: a badge on a button (never a popup) ---- */
+.fm-dl {
+  position: relative; flex: none; width: 44px; height: 44px; padding: 0; cursor: pointer; display: grid; place-items: center; border-radius: 50%; border: 3px solid var(--ink);
+  background: radial-gradient(ellipse 60% 38% at 36% 22%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0)), linear-gradient(180deg, #ffb347, #ff7a2f);
+  box-shadow: 0 4px 0 #a8400f, 0 6px 8px rgba(10, 30, 60, 0.35); font-size: 22px; line-height: 1; text-shadow: none; transition: transform 0.06s, box-shadow 0.06s;
+}
+.fm-dl:active { transform: translateY(3px); box-shadow: 0 1px 0 #a8400f; }
+.fm-dl .fm-bdg { top: -7px; right: -5px; }
+.fm-dl .fm-dls { position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); min-width: 26px; padding: 1px 6px 2px; border-radius: 9px; border: 2px solid var(--ink); background: var(--ink); font-size: 11px; line-height: 1.1; white-space: nowrap; }
+.fm-dl .fm-dls:empty { display: none; }
+.fm-dl.ready { animation: fmDlWob 1.4s ease-in-out infinite; }
+@keyframes fmDlWob { 0%, 70%, 100% { transform: rotate(0); } 76% { transform: rotate(-10deg); } 84% { transform: rotate(9deg); } 92% { transform: rotate(-5deg); } }
+
+/* ---- middle: the 3D snowball shows through the hero zone; tapping it bounces it ---- */
 .fm-mid { flex: 1 1 0; min-height: 0; position: relative; }
-.fm-hero { position: absolute; left: 80px; right: 80px; top: 0; bottom: 0; touch-action: none; pointer-events: auto; }
-.fm-pod { position: absolute; left: 50%; bottom: 3%; width: 96%; height: 15%; max-height: 90px; transform: translateX(-50%); pointer-events: none; border-radius: 50%;
-  background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(255, 255, 255, 0.5) 0%, rgba(150, 190, 255, 0.28) 45%, rgba(150, 190, 255, 0) 72%); }
+.fm-hero { position: absolute; left: 12%; right: 12%; top: 0; bottom: 0; touch-action: none; pointer-events: auto; }
 .fm-best {
-  position: absolute; left: 50%; top: 6px; transform: translateX(-50%) rotate(-1.5deg); max-width: 100%; padding: 6px 12px 7px; text-align: center; pointer-events: none; border-radius: 16px; border: 3px solid var(--ink);
+  position: absolute; left: 50%; top: 4px; transform: translateX(-50%) rotate(-1.5deg); max-width: 100%; padding: 5px 12px 6px; text-align: center; pointer-events: none; border-radius: 16px; border: 3px solid var(--ink);
   background: linear-gradient(180deg, #ffffff, #dfeaff); color: var(--ink); text-shadow: none; box-shadow: 0 4px 0 var(--ink2), 0 8px 12px rgba(10, 20, 60, 0.35); animation: fmBubble 3.2s ease-in-out infinite alternate;
 }
 .fm-best::after { content: ""; position: absolute; left: 50%; bottom: -11px; width: 16px; height: 16px; margin-left: -8px; transform: rotate(45deg); background: #dfeaff; border: 0 solid var(--ink); border-right-width: 3px; border-bottom-width: 3px; border-radius: 0 0 5px 0; }
 .fm-best .bk { display: block; font-size: 11px; line-height: 1; letter-spacing: 0.12em; color: #5a7196; }
 .fm-best .bv { display: block; margin-top: 2px; font-size: 24px; line-height: 1.05; color: var(--orange-dark); white-space: nowrap; }
-.fm-best .bs { display: block; margin-top: 2px; font-size: 13px; line-height: 1.1; white-space: nowrap; }
+.fm-best .bs { display: block; margin-top: 2px; font-size: 12px; line-height: 1.1; white-space: nowrap; }
 @keyframes fmBubble { from { transform: translateX(-50%) translateY(0) rotate(-1.5deg); } to { transform: translateX(-50%) translateY(-4px) rotate(1deg); } }
 .fm-achoo {
-  position: absolute; left: 50%; top: 30%; transform: translateX(-50%) scale(0.3) rotate(-6deg); opacity: 0; pointer-events: none; white-space: nowrap; font-size: 34px; text-shadow: var(--ol);
+  position: absolute; left: 50%; top: 40%; transform: translateX(-50%) scale(0.3) rotate(-6deg); opacity: 0; pointer-events: none; white-space: nowrap; font-size: 34px; text-shadow: var(--ol);
 }
 .fm-achoo.on { animation: fmAchoo 1.5s ease-out forwards; }
 @keyframes fmAchoo { 0% { opacity: 0; transform: translateX(-50%) scale(0.3) rotate(-6deg); } 30% { opacity: 0; } 40% { opacity: 1; transform: translateX(-50%) scale(1.25) rotate(4deg); } 80% { opacity: 1; transform: translateX(-50%) scale(1) rotate(0); } 100% { opacity: 0; transform: translateX(-50%) translateY(-24px) scale(1); } }
 .fm-burst { position: absolute; left: 50%; top: 50%; font-size: 20px; pointer-events: none; animation: fmBurst 1.1s ease-out forwards; }
 @keyframes fmBurst { 0% { opacity: 1; transform: translate(-50%, -50%) scale(0.4); } 100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.2) rotate(240deg); } }
-.fm-side { position: absolute; top: 4px; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: auto; }
-.fm-side.l { left: 8px; } .fm-side.r { right: 8px; }
-.fm-rb { --c1: #ffb347; --c2: #ff7a2f; --sh: #a8400f; position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; width: 66px; padding: 0; border: 0; background: none; cursor: pointer; }
-.fm-rb .ic {
-  position: relative; width: 56px; height: 56px; display: grid; place-items: center; border-radius: 50%; border: 3px solid var(--ink); font-size: 26px; line-height: 1; text-shadow: none;
-  background: radial-gradient(ellipse 60% 38% at 36% 22%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0)), linear-gradient(180deg, var(--c1), var(--c2));
-  box-shadow: 0 5px 0 var(--sh), 0 9px 10px rgba(10, 30, 60, 0.35), inset 0 -4px 0 rgba(0, 0, 0, 0.14); transition: transform 0.06s, box-shadow 0.06s;
+/* tap juice: powder puffs + a ring + a canvas hop when the 3D lobby ball has no bounce of its own */
+.fm-puff { position: absolute; width: var(--s, 12px); height: var(--s, 12px); margin: calc(var(--s, 12px) / -2) 0 0 calc(var(--s, 12px) / -2); border-radius: 50%; pointer-events: none; background: radial-gradient(circle at 35% 30%, #fff, #dcecff 70%); opacity: 0; animation: fmPuff 0.55s ease-out forwards; }
+@keyframes fmPuff { 0% { opacity: 0.95; transform: translate(0, 0) scale(0.5); } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(1.5); } }
+.fm-ring { position: absolute; width: 80px; height: 80px; margin: -40px 0 0 -40px; border-radius: 50%; border: 4px solid rgba(255, 255, 255, 0.85); pointer-events: none; opacity: 0; animation: fmRing 0.5s ease-out forwards; }
+@keyframes fmRing { 0% { opacity: 0.9; transform: scale(0.3); } 100% { opacity: 0; transform: scale(2.1); } }
+.fm-pof { position: absolute; font-size: 22px; pointer-events: none; opacity: 0; color: #fff; animation: fmPofT 0.7s ease-out forwards; text-shadow: var(--ol); }
+@keyframes fmPofT { 0% { opacity: 0; transform: translate(-50%, 0) scale(0.4); } 25% { opacity: 1; transform: translate(-50%, -14px) scale(1.15); } 100% { opacity: 0; transform: translate(-50%, -34px) scale(1); } }
+#c.fm-hop { animation: fmCanvasHop 0.34s cubic-bezier(.3, 1.5, .5, 1); transform-origin: 50% 52%; }
+@keyframes fmCanvasHop { 0% { transform: scale(1, 1); } 20% { transform: scale(1.03, 0.95) translateY(0.6%); } 55% { transform: scale(0.99, 1.025) translateY(-1.3%); } 100% { transform: scale(1, 1); } }
+.fm-ball.hop { animation: fmBallHop 0.4s cubic-bezier(.3, 1.6, .5, 1); }
+@keyframes fmBallHop { 0% { transform: scale(1, 1); } 25% { transform: scale(1.25, 0.72) translateY(0.08em); } 60% { transform: scale(0.88, 1.18) translateY(-0.22em); } 100% { transform: scale(1, 1); } }
+/* golden ball secret (10 quick taps): gold glow over the lobby ball + a gold logo mascot for the session */
+.fm-aura { position: fixed; left: 50%; top: 50.5%; width: min(30vw, 140px); height: min(30vw, 140px); transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none; z-index: 41; opacity: 0;
+  background: radial-gradient(circle, rgba(255, 196, 40, 0.5) 0%, rgba(255, 196, 40, 0.42) 60%, rgba(255, 196, 40, 0) 100%); }
+.fm-gold:not(.fm-real) .fm-aura { opacity: 1; animation: fmAura 1.8s ease-in-out infinite alternate; }
+@keyframes fmAura { from { transform: translate(-50%, -50%) scale(0.96); filter: brightness(1); } to { transform: translate(-50%, -50%) scale(1.06); filter: brightness(1.12); } }
+.fm-gold .fm-ball { background: radial-gradient(circle at 34% 28%, #fffbe0 0 28%, #ffd84a 60%, #d89a00 100%); box-shadow: 0 0.07em 0 var(--ink), 0 0 0.35em rgba(255, 200, 40, 0.9), inset -0.05em -0.06em 0 rgba(180, 110, 0, 0.5); }
+
+/* ---- info card: 3 missions + multiplier + streak, next unlock goal ---- */
+.fm-info {
+  flex: none; width: min(calc(100% - 24px), 380px); margin: 0 auto 10px; padding: 7px 9px 8px; display: flex; flex-direction: column; gap: 5px; cursor: pointer; text-align: left;
+  border-radius: 20px; border: 3px solid var(--ink); background: linear-gradient(180deg, rgba(36, 70, 128, 0.9), rgba(14, 30, 64, 0.92)); box-shadow: 0 4px 0 var(--ink2), 0 8px 14px rgba(10, 30, 60, 0.3);
 }
-.fm-rb:active .ic { transform: translateY(4px); box-shadow: 0 1px 0 var(--sh), 0 3px 5px rgba(10, 30, 60, 0.3), inset 0 -4px 0 rgba(0, 0, 0, 0.14); }
-.fm-rb .lb { font-size: 13px; line-height: 1; text-shadow: var(--ol-sm); white-space: nowrap; }
-.fm-rb.c-daily { --c1: #ffb347; --c2: #ff7a2f; --sh: #a8400f; }
-.fm-rb.c-ach { --c1: #c79bff; --c2: #7a3cf0; --sh: #4b1fa8; }
-.fm-rb.c-mis { --c1: #6cc0ff; --c2: #2f7dff; --sh: #1b4fae; }
-.fm-rb.c-shop { --c1: #ff8fb8; --c2: #ff4f8b; --sh: #a3204f; }
-.fm-rb.c-up { --c1: #7dff9a; --c2: #2fc13f; --sh: #1b7a2a; }
-.fm-rb.c-set { --c1: #9fb2d0; --c2: #5f78a3; --sh: #34486e; }
+.fm-info:active { transform: translateY(2px); }
+.fm-ihead { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; letter-spacing: 0.12em; color: #cfe2ff; text-shadow: var(--ol-sm); }
+.fm-chips { display: flex; gap: 5px; }
+.fm-ichip { display: flex; align-items: center; gap: 3px; height: 21px; padding: 0 8px; border-radius: 11px; border: 2.5px solid var(--ink); background: rgba(255, 255, 255, 0.14); font-size: 12.5px; line-height: 1; letter-spacing: 0; color: #fff; text-shadow: none; white-space: nowrap; }
+.fm-ichip.mult { background: linear-gradient(180deg, #ffe27a, var(--gold)); color: var(--ink); }
+.fm-mrows { display: flex; flex-direction: column; gap: 4px; }
+.fm-mr { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 8px; border-radius: 10px; background: rgba(255, 255, 255, 0.09); font-size: 12.5px; text-shadow: none; }
+.fm-mr .mi { flex: none; font-size: 14px; line-height: 1; }
+.fm-mr .mt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; letter-spacing: 0.01em; }
+.fm-mr .mb { flex: none; width: 52px; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
+.fm-mr .mb i { display: block; height: 100%; background: linear-gradient(90deg, #8dff9a, #2fc13f); }
+.fm-mr .mn { flex: none; min-width: 34px; text-align: right; font-size: 11px; color: #cfe2ff; }
+.fm-mr.done { background: rgba(255, 207, 58, 0.22); }
+.fm-mr.done .mn { color: var(--gold); }
+.fm-mr.done .mb i { background: linear-gradient(90deg, #fff3a8, var(--gold)); }
+.fm-goal { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 10px; border: 2px dashed rgba(255, 255, 255, 0.28); width: 100%; background: none; cursor: pointer; font-size: 12.5px; color: #fff; text-align: left; }
+.fm-goal .gi { flex: none; font-size: 15px; line-height: 1; }
+.fm-goal .gn { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.01em; text-shadow: none; }
+.fm-goal .gb { flex: none; width: 54px; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
+.fm-goal .gb i { display: block; height: 100%; background: linear-gradient(90deg, #ffe066, #ff9a3a); }
+.fm-goal .gc { flex: none; font-size: 11.5px; color: var(--gold); text-shadow: none; white-space: nowrap; }
+.fm-goal.ready { border-color: #8dff9a; }
+.fm-goal.ready .gc { color: #8dff9a; }
+.fm-goal.ready .gb i { background: linear-gradient(90deg, #8dff9a, #2fc13f); }
+
+/* ---- bottom: OYNA (straight into YETİ RUSH) + 5 small buttons ---- */
+.fm-bot { flex: none; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 0 14px calc(var(--sab, env(safe-area-inset-bottom, 0px)) + 14px); }
+.fm-playw { width: min(100%, 380px); animation: fmBreath 1.8s ease-in-out infinite; }
+@keyframes fmBreath { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.03); } }
+.fm-play {
+  position: relative; overflow: hidden; width: 100%; min-height: 84px; padding: 4px 0 8px; cursor: pointer; border: 4px solid var(--ink); border-radius: 28px; font-size: 50px; line-height: 0.95; letter-spacing: 0.05em; color: #fff;
+  background: linear-gradient(180deg, #f0ff6a 0%, #a6ec35 42%, #55c61f 100%); box-shadow: 0 8px 0 #2f7a14, 0 12px 16px rgba(10, 30, 60, 0.4), inset 0 4px 0 rgba(255, 255, 255, 0.6), inset 0 -5px 0 rgba(0, 0, 0, 0.1);
+  text-shadow: 0 3px 0 var(--ink), 3px 3px 0 var(--ink), -3px 3px 0 var(--ink), 3px -3px 0 var(--ink), -3px -3px 0 var(--ink), 0 -3px 0 var(--ink), 3px 0 0 var(--ink), -3px 0 0 var(--ink), 0 8px 8px rgba(10, 30, 60, 0.35);
+  transition: transform 0.06s, box-shadow 0.06s;
+}
+.fm-play small { display: block; margin-top: 4px; font-size: 14px; letter-spacing: 0.2em; color: #1f4a0d; text-shadow: none; opacity: 0.9; }
+.fm-play::after { content: ""; position: absolute; top: -20%; bottom: -20%; left: -60%; width: 34%; background: linear-gradient(100deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0)); transform: skewX(-20deg); animation: fmShine 3.8s ease-in-out infinite; pointer-events: none; }
+@keyframes fmShine { 0%, 55% { left: -60%; } 80%, 100% { left: 130%; } }
+.fm-play:active { transform: translateY(6px); box-shadow: 0 2px 0 #2f7a14, 0 4px 8px rgba(10, 30, 60, 0.3), inset 0 4px 0 rgba(255, 255, 255, 0.6); }
+.fm-secrow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; width: min(100%, 380px); }
+.fm-sb { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 0; border: 0; background: none; cursor: pointer; --c1: #ffb347; --c2: #ff7a2f; --sh: #a8400f; }
+.fm-sb .ic {
+  position: relative; width: 50px; height: 50px; display: grid; place-items: center; border-radius: 50%; border: 3px solid var(--ink); font-size: 23px; line-height: 1; text-shadow: none;
+  background: radial-gradient(ellipse 60% 38% at 36% 22%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0)), linear-gradient(180deg, var(--c1), var(--c2));
+  box-shadow: 0 4px 0 var(--sh), 0 8px 10px rgba(10, 30, 60, 0.35), inset 0 -4px 0 rgba(0, 0, 0, 0.14); transition: transform 0.06s, box-shadow 0.06s;
+}
+.fm-sb:active .ic { transform: translateY(3px); box-shadow: 0 1px 0 var(--sh), 0 3px 5px rgba(10, 30, 60, 0.3), inset 0 -4px 0 rgba(0, 0, 0, 0.14); }
+.fm-sb .lb { font-size: 12.5px; line-height: 1.05; color: #fff; text-shadow: 0 1.5px 0 var(--ink), 1px 1px 0 var(--ink), -1px 1px 0 var(--ink), 1px -1px 0 var(--ink), -1px -1px 0 var(--ink); white-space: nowrap; text-align: center; letter-spacing: 0.01em; }
+.fm-sb.c-cig { --c1: #c79bff; --c2: #7a3cf0; --sh: #4b1fa8; }
+.fm-sb.c-map { --c1: #7dc4ff; --c2: #2f7dff; --sh: #1b4fae; }
+.fm-sb.c-shop { --c1: #ff8fb8; --c2: #ff4f8b; --sh: #a3204f; }
+.fm-sb.c-mis { --c1: #6cdc8a; --c2: #2fc13f; --sh: #1b7a2a; }
+.fm-sb.c-set { --c1: #9fb2d0; --c2: #5f78a3; --sh: #34486e; }
 .fm-bdg {
   position: absolute; top: -6px; right: -4px; min-width: 24px; height: 24px; padding: 0 6px; display: grid; place-items: center; border-radius: 12px; border: 2.5px solid var(--ink);
   background: linear-gradient(180deg, #ff7a7a, var(--red)); color: #fff; font-size: 13px; line-height: 1; pointer-events: none; box-shadow: 0 2px 0 var(--ink2); text-shadow: none;
@@ -181,65 +258,46 @@ const CSS = `
 .fm-bdg.off { display: none; }
 @keyframes fmPulse { from { transform: scale(1); } to { transform: scale(1.22); } }
 .fm-xchip {
-  position: absolute; right: -2px; bottom: 12px; min-width: 32px; height: 24px; padding: 0 6px; display: grid; place-items: center; border-radius: 12px; border: 2.5px solid var(--ink);
-  background: linear-gradient(180deg, #ffe27a, var(--gold)); color: var(--ink); font-size: 14px; line-height: 1; text-shadow: none; box-shadow: 0 2px 0 var(--ink2); transform: rotate(6deg); pointer-events: none;
+  position: absolute; right: -4px; bottom: 14px; min-width: 30px; height: 22px; padding: 0 6px; display: grid; place-items: center; border-radius: 11px; border: 2.5px solid var(--ink);
+  background: linear-gradient(180deg, #ffe27a, var(--gold)); color: var(--ink); font-size: 13px; line-height: 1; text-shadow: none; box-shadow: 0 2px 0 var(--ink2); transform: rotate(6deg); pointer-events: none;
 }
 
-/* ---- bottom: OYNA (opens the planet screen) + map ---- */
-.fm-bot { flex: none; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 0 16px calc(var(--sab, env(safe-area-inset-bottom, 0px)) + 16px); }
-.fm-playrow { display: flex; align-items: stretch; gap: 12px; width: min(100%, 380px); }
-.fm-mapb {
-  flex: none; width: 84px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 0 0 4px; cursor: pointer; line-height: 1;
-  border-radius: 24px; border: 4px solid var(--ink); background: linear-gradient(180deg, #7dc4ff, var(--blue)); box-shadow: 0 8px 0 var(--blue-dark), 0 12px 16px rgba(10, 30, 60, 0.3), inset 0 4px 0 rgba(255, 255, 255, 0.45), inset 0 -5px 0 rgba(0, 0, 0, 0.1);
-  transition: transform 0.06s, box-shadow 0.06s;
-}
-.fm-mapb .mi { font-size: 30px; text-shadow: none; }
-.fm-mapb .ml { font-size: 13px; letter-spacing: 0.04em; text-shadow: var(--ol-sm); }
-.fm-mapb:active { transform: translateY(6px); box-shadow: 0 2px 0 var(--blue-dark), 0 4px 8px rgba(10, 30, 60, 0.25), inset 0 4px 0 rgba(255, 255, 255, 0.45); }
-.fm-playw { flex: 1 1 0; min-width: 0; animation: fmBreath 1.8s ease-in-out infinite; }
-@keyframes fmBreath { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
-.fm-play {
-  position: relative; overflow: hidden; width: 100%; min-height: 80px; padding: 0; cursor: pointer; border: 4px solid var(--ink); border-radius: 28px; font-size: 48px; line-height: 1; letter-spacing: 0.05em; color: #fff;
-  background: linear-gradient(180deg, #f0ff6a 0%, #a6ec35 42%, #55c61f 100%); box-shadow: 0 8px 0 #2f7a14, 0 12px 16px rgba(10, 30, 60, 0.4), inset 0 4px 0 rgba(255, 255, 255, 0.6), inset 0 -5px 0 rgba(0, 0, 0, 0.1);
-  text-shadow: 0 3px 0 var(--ink), 3px 3px 0 var(--ink), -3px 3px 0 var(--ink), 3px -3px 0 var(--ink), -3px -3px 0 var(--ink), 0 -3px 0 var(--ink), 3px 0 0 var(--ink), -3px 0 0 var(--ink), 0 8px 8px rgba(10, 30, 60, 0.35);
-  transition: transform 0.06s, box-shadow 0.06s;
-}
-.fm-play::after { content: ""; position: absolute; top: -20%; bottom: -20%; left: -60%; width: 34%; background: linear-gradient(100deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0)); transform: skewX(-20deg); animation: fmShine 3.8s ease-in-out infinite; pointer-events: none; }
-@keyframes fmShine { 0%, 55% { left: -60%; } 80%, 100% { left: 130%; } }
-.fm-play:active { transform: translateY(6px); box-shadow: 0 2px 0 #2f7a14, 0 4px 8px rgba(10, 30, 60, 0.3), inset 0 4px 0 rgba(255, 255, 255, 0.6); }
-
+.fm-main.fm-starting > * { pointer-events: none; }
+.fm-main.fm-starting .fm-play { filter: brightness(0.92); transform: translateY(5px); box-shadow: 0 3px 0 #2f7a14; }
 .fm-main.enter .fm-top { animation: fmDrop 0.5s cubic-bezier(.2, 1.3, .4, 1) backwards; }
-.fm-main.enter .fm-logorow, .fm-main.enter .fm-ribrow { animation: fmDrop 0.5s cubic-bezier(.2, 1.3, .4, 1) 0.08s backwards; }
-.fm-main.enter .fm-rb { animation: fmPopIn 0.5s cubic-bezier(.2, 1.4, .4, 1) backwards; }
-.fm-main.enter .fm-side.l .fm-rb:nth-child(2), .fm-main.enter .fm-side.r .fm-rb:nth-child(2) { animation-delay: 0.07s; }
-.fm-main.enter .fm-side.l .fm-rb:nth-child(3), .fm-main.enter .fm-side.r .fm-rb:nth-child(3) { animation-delay: 0.14s; }
+.fm-main.enter .fm-logorow { animation: fmDrop 0.5s cubic-bezier(.2, 1.3, .4, 1) 0.08s backwards; }
 .fm-main.enter .fm-best { animation: fmPopIn 0.55s cubic-bezier(.2, 1.4, .4, 1) 0.3s backwards, fmBubble 3.2s ease-in-out 0.9s infinite alternate; }
-.fm-main.enter .fm-playrow { animation: fmUp 0.55s cubic-bezier(.2, 1.3, .4, 1) 0.15s backwards; }
+.fm-main.enter .fm-info { animation: fmUp 0.5s cubic-bezier(.2, 1.3, .4, 1) 0.1s backwards; }
+.fm-main.enter .fm-playw { animation: fmUp 0.55s cubic-bezier(.2, 1.3, .4, 1) 0.18s backwards, fmBreath 1.8s ease-in-out 0.8s infinite; }
+.fm-main.enter .fm-sb { animation: fmPopIn 0.5s cubic-bezier(.2, 1.4, .4, 1) backwards; }
+.fm-main.enter .fm-sb:nth-child(2) { animation-delay: 0.05s; } .fm-main.enter .fm-sb:nth-child(3) { animation-delay: 0.1s; }
+.fm-main.enter .fm-sb:nth-child(4) { animation-delay: 0.15s; } .fm-main.enter .fm-sb:nth-child(5) { animation-delay: 0.2s; }
 
-@media (max-height: 700px) {
-  .fm-rb .ic { width: 50px; height: 50px; font-size: 23px; }
-  .fm-side { gap: 6px; }
-  .fm-logo { font-size: clamp(38px, 12.4vw, 52px); min-height: 46px; }
-  .fm-logorow { margin-top: 4px; }
-  .fm-ribrow { margin-top: 5px; }
-  .fm-best .bv { font-size: 21px; }
-  .fm-play { min-height: 68px; font-size: 40px; }
+@media (max-height: 760px) {
+  .fm-logo { font-size: clamp(38px, 12.4vw, 54px); min-height: 46px; }
+  .fm-logorow { margin-top: 2px; }
+  .fm-tag { display: none; }
+  .fm-play { min-height: 70px; font-size: 42px; }
+  .fm-sb .ic { width: 44px; height: 44px; font-size: 20px; }
   .fm-bot { gap: 9px; padding-bottom: calc(var(--sab, env(safe-area-inset-bottom, 0px)) + 10px); }
+  .fm-info { margin-bottom: 8px; gap: 4px; }
+  .fm-mr { height: 23px; }
+  .fm-best .bv { font-size: 21px; }
 }
-@media (max-height: 600px) {
-  .fm-rb .lb { display: none; }
-  .fm-logo { font-size: clamp(32px, 10.5vw, 42px); min-height: 38px; }
+@media (max-height: 680px) {
+  .fm-mrows .fm-mr:nth-child(n+3) { display: none; }
+  .fm-ihead { display: none; }
+  .fm-sb .lb { display: none; }
   .fm-best .bs { display: none; }
 }
+@media (max-height: 590px) {
+  .fm-info { display: none; }
+}
 @media (max-width: 350px) {
-  .fm-nm { display: none; }
-  .fm-xp { width: 56px; }
-  .fm-cur .num { font-size: 15px; min-width: 26px; }
-  .fm-hero { left: 72px; right: 72px; }
-  .fm-rb { width: 60px; } .fm-rb .ic { width: 50px; height: 50px; }
-  .fm-mapb { width: 72px; }
+  .fm-cur .num { font-size: 14px; min-width: 24px; }
   .fm-play { font-size: 40px; }
-  .fm-chip { width: 21px; height: 25px; font-size: 14px; }
+  .fm-sb .ic { width: 42px; height: 42px; }
+  .fm-sb .lb { font-size: 11px; }
 }
 
 /* =============================================================== PANELS */
@@ -803,7 +861,6 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   let boxEl = null;
   let mainTimer = 0;
   let tick = 0;
-  let holidayShown = '';
   const offs = [];
 
   // ---- persistent layers ----
@@ -817,18 +874,23 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
   // ============================================================================================ fx helpers
 
+  // Menu / result celebrations get the full shower; during a run (the runner calls this for a new record) it is only a light, quick
+  // sprinkle so the track stays readable.
   function confetti(n = 60) {
     const colors = ['#ff5d73', '#ffb02e', '#ffe14a', '#5fe08a', '#3fc1ff', '#b07bff', '#ffffff'];
+    const inRun = !mainOpen && !activePanel && !modalEl && !boxEl && !resultEl;
+    if (inRun) n = Math.min(n, 16);
+    if (fxLayer.childElementCount > 140) return;
     for (let i = 0; i < n; i++) {
       const c = el('i', 'fm-cf');
       setCss(c, '--x', `${Math.random() * 100}%`);
       setCss(c, '--dx', `${Math.round((Math.random() - 0.5) * 160)}px`);
       setCss(c, '--r', `${Math.round(360 + Math.random() * 900)}deg`);
-      setCss(c, '--d', `${(1.8 + Math.random() * 1.6).toFixed(2)}s`);
+      setCss(c, '--d', `${(inRun ? 1.0 + Math.random() * 0.7 : 1.8 + Math.random() * 1.6).toFixed(2)}s`);
       setCss(c, '--c', colors[i % colors.length]);
       c.style.animationDelay = `${(Math.random() * 0.4).toFixed(2)}s`;
       fxLayer.appendChild(c);
-      setTimeout(() => c.remove(), 3800);
+      setTimeout(() => c.remove(), inRun ? 2400 : 3800);
     }
   }
 
@@ -1057,6 +1119,21 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       claimBtn = null;
       p.setSub(d.streak > 0 ? `🔥 SERİ ${d.streak} GÜN` : 'HER GÜN GEL, KAZAN');
 
+      let hol = null;
+      try { hol = meta.holiday(); } catch { hol = null; }
+      if (hol && !hol.claimed) {
+        const hb = button('fm-btn big green', `${hol.emoji} ${hol.name}: AL ${rewardLine({ coins: hol.coins })}`, () => {
+          const rr = meta.claimHoliday();
+          if (!rr) { render(); return; }
+          sfx('confirm');
+          if (cb.onReward) { try { cb.onReward('holiday', rr); } catch { /* ignore */ } }
+          confetti(40);
+          fly(hb, p.pills.coins && p.pills.coins.el, '❄️', 8, () => p.refreshPills(true));
+          setTimeout(() => { if (activePanel === p) render(); if (mainOpen) updateMain(); }, 900);
+        });
+        p.list.appendChild(hb);
+        p.list.appendChild(el('div', 'fm-note', hol.msg));
+      }
       const sb = el('div', 'fm-streak');
       const flame = el('div', 'fl', d.streak > 0 ? '🔥' : '🌱');
       const txt = el('div', '');
@@ -1251,7 +1328,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const s = meta.stats();
     const tiles = [
       ['SEVİYE', s.level], ['TOPLAM KOŞU', fmt(s.runs)], ['EN UZUN KOŞU', fmtDist(s.bestDistance)], ['TOPLAM MESAFE', fmtDist(s.totalDistance)],
-      ['YUTULAN', fmt(s.swallowed)], ['YIKILAN BİNA', fmt(s.destroyed)], ['KIRILAN ENGEL', fmt(s.smashed)], ['KIL PAYI', fmt(s.closeCalls)],
+      ['YUTULAN', fmt(s.swallowed)], ['ÇIĞ REKORU', fmtTons(save && save.cigEndlessBest ? save.cigEndlessBest().tons : 0)], ['KIRILAN ENGEL', fmt(s.smashed)], ['KIL PAYI', fmt(s.closeCalls)],
       ['TOPLANAN TON', fmtTons(s.totalTons)], ['YILDIZ', `⭐ ${s.stars}`], ['BAŞARIM', `${s.achievements}/${s.achievementsTotal}`], ['SIRLAR', `${s.eggs}/${s.eggsTotal}`],
       ['ÇARPAN', `x${s.multiplier}`], ['GÖREV SETİ', fmt(s.missionSets)], ['MACERA', `⭐ ${s.campaignStars}/300`], ['BÖLÜM', `${s.campaignCleared}/100`],
     ];
@@ -1317,6 +1394,19 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       const rw = meta.missionSetReward();
       p.list.appendChild(el('div', 'fm-note', `SET ÖDÜLÜ: ${rewardLine(rw)}`));
       p.list.appendChild(el('div', 'fm-note', 'Her gün 1 görevi ücretsiz değiştirebilirsin, sonrası 💎 1.'));
+
+      // shortcuts (the lobby only has room for five buttons)
+      const unclaimed = meta.unclaimedCount();
+      const link = (icon, name, desc, label, glow, fn) => {
+        const rr = el('div', 'fm-row');
+        add(rr, el('div', 'fm-aico', icon), add(el('div', 'fm-amid'), el('div', 'fm-an', name), el('div', 'fm-ad', desc)), button(`fm-btn sm${glow ? ' glow' : ''}`, label, fn));
+        p.list.appendChild(rr);
+      };
+      link('🏆', 'Başarımlar', `${meta.doneCount()}/${ACHIEVEMENTS.length} açık${unclaimed ? ` · ${unclaimed} ödül seni bekliyor` : ''}`, unclaimed ? 'AL' : 'AÇ', unclaimed > 0, () => openAchievements());
+      const hh = meta.letterHunt();
+      link('🔤', 'Günün kelimesi', hh.complete ? 'Bugün tamam!' : `${hh.count}/${WORD.length} harf · koşarken harfleri topla`, 'AÇ', false, () => openHunt());
+      link('⚡', 'Güçlendirmeler', 'Kar tanesiyle güçlen: dolaptan al', 'DOLAP', false, () => { if (cb.onShop) cb.onShop(); });
+      if (cb.onDaily) link('🏔️', `Günün Dağı #${info.dailyNum}`, info.dailyBest > 0 ? `Rekorun: ${fmtTons(info.dailyBest)}` : 'Bugünün özel dağı', 'OYNA', false, () => { closePanel(true); try { meta.setMode('daily'); } catch { /* ignore */ } cb.onDaily(); });
     }
 
     render();
@@ -1393,13 +1483,13 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     sfx('click');
     const p = openPanel({ id: 'hunt', title: 'GÜNÜN KELİMESİ', pills: ['coins'] });
     const h = meta.letterHunt();
-    p.setSub(h.complete ? 'BUGÜN TAMAM!' : `${h.count}/7 HARF`);
+    p.setSub(h.complete ? 'BUGÜN TAMAM!' : `${h.count}/${WORD.length} HARF`);
     const word = el('div', 'fm-word');
     h.found.forEach((got, i) => word.appendChild(el('div', `fm-chip${got ? ' got' : i === h.nextLetter ? ' next' : ''}`, got || i === h.nextLetter ? WORD[i] : '?')));
     p.list.appendChild(word);
     p.list.appendChild(el('div', 'fm-note', h.complete
       ? 'Bugünkü kelimeyi tamamladın! Yarın yeni bir av seni bekliyor.'
-      : `Koşu sırasında F-R-E-E-M-O-N harfleri sırayla belirir. Bir günde yedisini de topla! Sıradaki harf: ${h.letter}`));
+      : `Koşu sırasında ${WORD.split('').join('-')} harfleri sırayla belirir. Bir günde hepsini topla! Sıradaki harf: ${h.letter}`));
     const r = el('div', 'fm-row');
     add(r, el('div', 'fm-aico', '🔤'), add(el('div', 'fm-amid'), el('div', 'fm-an', h.complete ? 'KAZANDIN' : 'ÖDÜL'), el('div', 'fm-ar', rewardLine(h.reward))));
     p.list.appendChild(r);
@@ -1415,32 +1505,6 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   function closeModal() {
     if (modalEl) { modalEl.remove(); modalEl = null; }
   }
-  function openHoliday(hol) {
-    closeModal();
-    const m = el('div', 'fm-modal');
-    const card = el('div', 'fm-mcard');
-    const get = button('fm-btn big', `AL ${rewardLine({ coins: hol.coins })}`, () => {
-      const r = meta.claimHoliday();
-      sfx('confirm');
-      if (r && cb.onReward) { try { cb.onReward('holiday', r); } catch { /* ignore */ } }
-      confetti(60);
-      if (r && refs) fly(get, refs.coinsPill.el, '❄️', 8, () => { refs.coinsPill.set(coins(), true); });
-      setTimeout(closeModal, 500);
-    });
-    add(card, el('div', 'big', hol.emoji), el('div', 'mt', hol.name), el('div', 'mm', hol.msg), get);
-    m.appendChild(card);
-    host.appendChild(m);
-    modalEl = m;
-    confetti(50);
-  }
-  function maybeHoliday() {
-    let hol = null;
-    try { hol = meta.holiday(); } catch { hol = null; }
-    if (!hol || hol.claimed || holidayShown === hol.key) return;
-    holidayShown = hol.key;
-    openHoliday(hol);
-  }
-
   // ---------------------------------------------------------------------------------------------- mystery boxes
 
   function closeBoxes() {
@@ -1568,7 +1632,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
   const MODE_STYLE = {
     camp: { icon: '🗺️', title: 'MACERA', cls: 'camp' },
-    endless: { icon: '∞', title: 'YETİ KAÇIŞI', cls: 'endless' },
+    endless: { icon: '∞', title: 'YETİ RUSH', cls: 'endless' },
     cig: { icon: '⛰️', title: 'ÇIĞ', cls: 'cig' },
     daily: { icon: '🏔️', title: 'GÜNÜN DAĞI', cls: 'daily' },
   };
@@ -1610,9 +1674,14 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   // remember the mode, then enter it
   function playMode(m) {
     try { meta.setMode(m); } catch { /* ignore */ }
+    // the runner chunk may still be loading: no double taps, a pressed look until the lobby hides
+    if (refs && (m === 'endless' || m === 'cig')) {
+      refs.root.classList.add('fm-starting');
+      setTimeout(() => { if (refs) refs.root.classList.remove('fm-starting'); }, 2500);
+    }
     if (m === 'camp') startLevel(campInfo().current);
     else if (m === 'endless') { if (cb.onEndless) cb.onEndless(); }
-    else if (m === 'cig') { if (cb.onLevels) cb.onLevels(); }
+    else if (m === 'cig') { if (cb.onCigEndless) cb.onCigEndless(); else if (cb.onLevels) cb.onLevels(); }
     else if (cb.onDaily) cb.onDaily();
   }
 
@@ -2034,7 +2103,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       ov.appendChild(el('div', 'fm-rspecial', `${lv ? ACTS[lv.act - 1].icon : '🎁'} ACT TAMAM! SANDIK${line ? `: ${line}` : ''}`));
     }
     if (rw.perfect) ov.appendChild(el('div', 'fm-rspecial', '💎 KUSURSUZ ACT! +💎 2 · 🎁 1'));
-    if (rw.justUnlockedEndless) ov.appendChild(el('div', 'fm-rspecial', '∞ YETİ KAÇIŞI AÇILDI!'));
+    if (rw.justUnlockedEndless) ov.appendChild(el('div', 'fm-rspecial', '∞ YETİ RUSH AÇILDI!'));
 
     const done = (fn) => () => { sfx('confirm'); closeResult(); if (fn) { try { fn(); } catch { /* ignore */ } } };
     const btns = el('div', 'fm-rbtns');
@@ -2055,17 +2124,27 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const lv = levelOf(d.level);
     closeResult();
     closeModal();
-    const T = {
-      yeti: ['👹', 'YETİ YAKALADI!'], fall: ['🕳️', 'DÜŞTÜN!'], explode: ['💥', 'PATLADIN!'], crash: ['💥', 'ÇARPTIN!'],
-    };
-    const t = T[d.cause] || ['❄️', 'OLMADI!'];
+    const dt = runnerDeathText(d.cause === 'crash' ? 'smash' : d.cause, d.killKind);
+    const t = [dt.icon, dt.title];
     const ov = el('div', 'fm-resov fail');
     ov.setAttribute('role', 'dialog');
     ov.setAttribute('aria-modal', 'true');
     ov.setAttribute('aria-label', 'Bölüm başarısız');
     add(ov, el('div', 'fm-ficon', t[0]), el('div', 'fm-banner red', t[1]));
     if (lv) add(ov, el('div', 'fm-rname', `${lv.id}. ${lv.name}`));
-    add(ov, el('div', 'fm-ftip', TIPS[Math.floor(Math.random() * TIPS.length)]));
+    const dist = d.stats && Number.isFinite(d.stats.distance) ? d.stats.distance : d.distance;
+    if (lv && Number.isFinite(dist) && lv.length > 0) {
+      const pct = Math.max(0, Math.min(99, Math.floor((dist / lv.length) * 100)));
+      const bar = el('div', 'fm-abar');
+      bar.style.width = '260px';
+      const bb = el('div', 'fm-bar');
+      const fill = el('i');
+      setCss(fill, '--p', `${pct}%`);
+      bb.appendChild(fill);
+      bar.appendChild(bb);
+      add(ov, bar, el('div', 'fm-ftip', `%${pct} tamamlandı · bitişe ${fmt(Math.max(0, lv.length - dist))} m kaldı!`));
+      if (pct < 30) add(ov, el('div', 'fm-ftip', (dt.tip || TIPS[Math.floor(Math.random() * TIPS.length)])));
+    } else add(ov, el('div', 'fm-ftip', (dt.tip || TIPS[Math.floor(Math.random() * TIPS.length)])));
     const done = (fn) => () => { sfx('confirm'); closeResult(); if (fn) { try { fn(); } catch { /* ignore */ } } };
     const btns = el('div', 'fm-rbtns');
     btns.appendChild(button('fm-btn big green', '↻ TEKRAR DENE', done(h.onRetry)));
@@ -2079,13 +2158,25 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
   // ============================================================================================ main screen (lobby)
 
-  function sideBtn(cls, emoji, label, fn, small) {
-    const b = button(`fm-rb ${cls}${small ? ' sm' : ''}`, '', () => { sfx('click'); fn(); }, label);
+  function secBtn(cls, emoji, label, fn) {
+    const b = button(`fm-sb ${cls}`, '', () => { sfx('click'); fn(); }, label);
     const ic = el('span', 'ic', emoji);
     const bdg = el('span', 'fm-bdg off', '');
     ic.appendChild(bdg);
-    add(b, ic, small ? null : el('span', 'lb', label));
+    add(b, ic, el('span', 'lb', label));
     return { b, bdg, ic };
+  }
+
+  const bestOf = () => {
+    let bd = info.endlessBestDist | 0;
+    try { bd = Math.max(bd, (save && save.runnerBestDist ? save.runnerBestDist() : 0) | 0); } catch { /* ignore */ }
+    return bd;
+  };
+
+  function startCig() {
+    try { meta.setMode('cig'); } catch { /* ignore */ }
+    if (cb.onCigEndless) cb.onCigEndless();
+    else if (cb.onLevels) cb.onLevels();
   }
 
   function buildMain() {
@@ -2093,7 +2184,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const r = {};
     r.root = root0;
 
-    // ---- top bar: avatar + xp, currencies with + ----
+    // ---- top bar: avatar (level) · daily reward badge · currencies ----
     const top = el('div', 'fm-top');
     r.av = button('fm-av', '', () => {
       sfx('click');
@@ -2103,16 +2194,19 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const avc = el('div', 'fm-avc', '⛄');
     r.lvNum = el('span', 'fm-lv', '1');
     avc.appendChild(r.lvNum);
-    const xp = el('div', 'fm-xp');
-    r.xpFill = el('i');
-    xp.appendChild(r.xpFill);
-    add(r.av, avc, add(el('div', 'fm-avt'), el('div', 'fm-nm', 'Oyuncu'), xp));
+    add(r.av, avc);
+    r.dl = button('fm-dl', '', () => openDaily(), 'Günlük ödül');
+    r.dlBdg = el('span', 'fm-bdg dot off', '!');
+    r.dlStreak = el('span', 'fm-dls', '');
+    add(r.dl, el('span', 'ic', '🎁'), r.dlBdg, r.dlStreak);
     r.coinsPill = makePill('❄️', '', () => { sfx('click'); if (cb.onShop) cb.onShop(); }, 'fm-cur');
     r.crPill = makePill('💎', 'cr', () => { sfx('click'); if (meta.boxes > 0) openBoxes(meta.boxes); else openMissions(); }, 'fm-cur');
-    add(top, r.av, r.coinsPill.el, r.crPill.el);
+    r.boxBdg = el('span', 'fm-bdg dot gold off', '🎁');
+    r.crPill.el.appendChild(r.boxBdg);
+    add(top, r.av, r.dl, r.coinsPill.el, r.crPill.el);
     root0.appendChild(top);
 
-    // ---- small logo + PATPAT letter-hunt ribbon ----
+    // ---- logo (7 taps = rainbow secret); the snowball mascot rides along ----
     const logo = el('div', 'fm-logo');
     logo.setAttribute('role', 'img');
     logo.setAttribute('aria-label', 'PATPAT');
@@ -2125,50 +2219,60 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       setCss(c, '--c2', COL[i][1]);
       logo.appendChild(c);
     });
-    // The snowball mascot rides along after the word.
     const ball = el('span', 'fm-ball');
     setCss(ball, '--i', String(WORD.length));
     add(ball, el('i', 'e l'), el('i', 'e r'), el('i', 'n'));
     logo.appendChild(ball);
     r.logo = logo;
+    r.logoBall = ball;
     root0.appendChild(add(el('div', 'fm-logorow'), logo));
+    root0.appendChild(el('div', 'fm-tag', 'KARTOPU · YETİ · ÇIĞ'));
 
-    const rib = button('fm-rib', '', () => openHunt(), 'Günün kelimesi');
-    r.chips = WORD.split('').map(() => el('div', 'fm-chip', '?'));
-    for (const c of r.chips) rib.appendChild(c);
-    root0.appendChild(add(el('div', 'fm-ribrow'), rib));
-
-    // ---- middle: side stacks around the clear hero zone ----
+    // ---- middle: the 3D snowball shows through; tap it ----
     const mid = el('div', 'fm-mid');
-    const left = el('div', 'fm-side l');
-    const right = el('div', 'fm-side r');
-    const sDaily = sideBtn('c-daily', '🎁', 'Günlük', () => openDaily());
-    const sAch = sideBtn('c-ach', '🏆', 'Başarım', () => openAchievements());
-    const sMis = sideBtn('c-mis', '📜', 'Görevler', () => openMissions());
-    r.xchip = el('span', 'fm-xchip', 'x1');
-    sMis.b.appendChild(r.xchip);
-    const sShop = sideBtn('c-shop', '👕', 'Dolap', () => { if (cb.onShop) cb.onShop(); });
-    const sUp = sideBtn('c-up', '⚡', 'Geliştir', () => openUpgrades());
-    const sSet = sideBtn('c-set', '⚙️', 'Ayarlar', () => openSettings());
-    r.bDaily = sDaily.bdg; r.bAch = sAch.bdg; r.bUp = sUp.bdg;
-    add(left, sDaily.b, sAch.b, sMis.b);
-    add(right, sShop.b, sUp.b, sSet.b);
     const hero = el('div', 'fm-hero');
     r.hero = hero;
     r.achoo = el('div', 'fm-achoo', 'HAPŞUU!');
     r.bestV = el('span', 'bv', '');
     r.bestS = el('span', 'bs', 'Yeti seni bekliyor!');
-    r.best = add(el('div', 'fm-best'), el('span', 'bk', 'REKOR'), r.bestV, r.bestS);
+    r.best = add(el('div', 'fm-best'), el('span', 'bk', 'YETİ RUSH REKORU'), r.bestV, r.bestS);
+    r.aura = el('div', 'fm-aura');
     add(hero, r.best, r.achoo);
-    add(mid, left, hero, right);
+    add(mid, hero);
     root0.appendChild(mid);
+    root0.appendChild(r.aura);
 
-    // ---- bottom: OYNA (opens the MOD SEÇ planet screen) + map ----
+    // ---- info card: missions + multiplier + streak, next unlock goal ----
+    const infoCard = el('div', 'fm-info');
+    infoCard.setAttribute('role', 'button');
+    infoCard.setAttribute('aria-label', 'Görevler');
+    infoCard.tabIndex = 0;
+    r.multChip = el('span', 'fm-ichip mult', '✖️ x1');
+    r.streakChip = el('span', 'fm-ichip', '🔥 0');
+    add(infoCard, add(el('div', 'fm-ihead'), el('span', '', '📜 GÖREVLER'), add(el('div', 'fm-chips'), r.streakChip, r.multChip)));
+    r.mrows = el('div', 'fm-mrows');
+    infoCard.appendChild(r.mrows);
+    r.goalBtn = button('fm-goal', '', () => { sfx('click'); if (cb.onShop) cb.onShop(); }, 'Sıradaki hedef');
+    infoCard.appendChild(r.goalBtn);
+    infoCard.addEventListener('click', () => { sfx('click'); openMissions(); });
+    infoCard.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMissions(); } });
+    r.info = infoCard;
+    root0.appendChild(infoCard);
+
+    // ---- bottom: OYNA (straight into YETİ RUSH) + ÇIĞ SONSUZ · MACERA · Dolap · Görevler · Ayarlar ----
     const bot = el('div', 'fm-bot');
-    r.mapb = button('fm-mapb', '', () => openMap(), 'Harita');
-    add(r.mapb, el('span', 'mi', '🗺️'), el('span', 'ml', 'HARİTA'));
-    r.play = button('fm-play', 'OYNA', () => { sfx('confirm'); openWorlds(); }, 'Oyna');
-    add(bot, add(el('div', 'fm-playrow'), add(el('div', 'fm-playw'), r.play), r.mapb));
+    r.play = button('fm-play', 'OYNA', () => { sfx('confirm'); playMode('endless'); }, 'Oyna: Yeti Rush');
+    r.play.appendChild(el('small', '', 'YETİ RUSH'));
+    add(bot, add(el('div', 'fm-playw'), r.play));
+    const sCig = secBtn('c-cig', '⛰️', 'ÇIĞ SONSUZ', () => startCig());
+    const sMap = secBtn('c-map', '🗺️', 'MACERA', () => { try { meta.setMode('camp'); } catch { /* ignore */ } openMap(); });
+    const sShop = secBtn('c-shop', '👕', 'Dolap', () => { if (cb.onShop) cb.onShop(); });
+    const sMis = secBtn('c-mis', '📜', 'Görevler', () => openMissions());
+    const sSet = secBtn('c-set', '⚙️', 'Ayarlar', () => openSettings());
+    r.xchip = el('span', 'fm-xchip', 'x1');
+    sMis.ic.appendChild(r.xchip);
+    r.bMis = sMis.bdg; r.bShop = sShop.bdg;
+    bot.appendChild(add(el('div', 'fm-secrow'), sCig.b, sMap.b, sShop.b, sMis.b, sSet.b));
     root0.appendChild(bot);
 
     host.appendChild(root0);
@@ -2182,33 +2286,63 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     if (!r) return;
     const li = meta.levelInfo();
     r.lvNum.textContent = String(li.level);
-    setCss(r.xpFill, '--p', `${Math.round(li.frac * 100)}%`);
     r.coinsPill.set(coins(), false);
     r.crPill.set(meta.crystals, false);
 
-    r.xchip.textContent = `x${meta.multiplier()}`;
+    const mult = meta.multiplier();
+    r.xchip.textContent = `x${mult}`;
+    r.multChip.textContent = `✖️ x${mult}`;
 
-    const bd = Math.max(info.endlessBestDist | 0, 0);
+    const bd = bestOf();
     r.bestV.textContent = bd > 0 ? fmtDist(bd) : 'İLK KOŞU?';
-    r.bestS.textContent = bd > 0 ? 'Yeti seni bekliyor!' : 'Yeti seni kovalıyor!';
+    let cig = { tons: 0, dist: 0 };
+    try { cig = save && save.cigEndlessBest ? save.cigEndlessBest() : cig; } catch { /* ignore */ }
+    r.bestS.textContent = cig.tons > 0 ? `ÇIĞ: ${fmtTons(cig.tons)}` : (bd > 0 ? 'Yeti seni bekliyor!' : 'Yeti seni kovalıyor!');
 
-    const h = meta.letterHunt();
-    h.found.forEach((got, i) => {
-      const c = r.chips[i];
-      c.className = `fm-chip${got ? ' got' : i === h.nextLetter ? ' next' : ''}`;
-      c.textContent = got || i === h.nextLetter ? WORD[i] : '?';
-    });
+    // missions (3 compact rows)
+    clear(r.mrows);
+    for (const m of meta.missions().slice(0, 3)) {
+      const row = el('div', `fm-mr${m.done ? ' done' : ''}`);
+      const bar = el('span', 'mb');
+      const fill = el('i');
+      fill.style.width = `${Math.round(Math.max(0, Math.min(1, m.value / Math.max(1, m.goal))) * 100)}%`;
+      bar.appendChild(fill);
+      add(row, el('span', 'mi', m.icon), el('span', 'mt', m.text), bar, el('span', 'mn', m.done ? '✓' : `${fmt(m.value)}/${fmt(m.goal)}`));
+      r.mrows.appendChild(row);
+    }
+
+    // daily reward = badge on the 🎁 button + the streak
+    let db = { available: false, streak: 0 };
+    try { db = meta.dailyBadge(); } catch { /* ignore */ }
+    r.dlBdg.className = `fm-bdg dot${db.available ? ' pulse' : ' off'}`;
+    r.dl.classList.toggle('ready', !!db.available);
+    r.dlStreak.textContent = db.streak > 0 ? `🔥${db.streak}` : '';
+    r.streakChip.textContent = `🔥 ${db.streak} gün`;
+    r.streakChip.style.display = db.streak > 0 ? '' : 'none';
+
+    // next unlock goal
+    let g = null;
+    try { g = nextGoal(save); } catch { g = null; }
+    r.goalBtn.style.display = g ? '' : 'none';
+    if (g) {
+      r.goalBtn.classList.toggle('ready', g.ready);
+      clear(r.goalBtn);
+      const bar = el('span', 'gb');
+      const fill = el('i');
+      fill.style.width = `${Math.round(g.frac * 100)}%`;
+      bar.appendChild(fill);
+      add(r.goalBtn, el('span', 'gi', g.icon), el('span', 'gn', g.name), bar, el('span', 'gc', g.ready ? 'HAZIR!' : `${fmt(g.have)}/${fmt(g.price)} ❄️`));
+      r.bShop.className = `fm-bdg dot gold${g.ready ? ' pulse' : ' off'}`;
+      r.bShop.textContent = '!';
+    } else r.bShop.className = 'fm-bdg off';
+
+    const nb = meta.boxes | 0;
+    r.boxBdg.textContent = nb > 1 ? String(nb) : '🎁';
+    r.boxBdg.className = `fm-bdg dot gold${nb > 0 ? ' pulse' : ' off'}`;
 
     const unclaimed = meta.unclaimedCount();
-    r.bAch.textContent = String(unclaimed);
-    r.bAch.className = `fm-bdg${unclaimed <= 0 ? ' off' : ''}`;
-    const d = meta.daily();
-    r.bDaily.textContent = '!';
-    r.bDaily.className = `fm-bdg dot${d.available ? ' pulse' : ' off'}`;
-    let afford = false;
-    for (const u of UPGRADES) { const c = meta.upgradeCost(u.id); if (c !== null && coins() >= c) { afford = true; break; } }
-    r.bUp.textContent = '!';
-    r.bUp.className = `fm-bdg dot gold${afford ? '' : ' off'}`;
+    r.bMis.textContent = String(unclaimed);
+    r.bMis.className = `fm-bdg${unclaimed <= 0 ? ' off' : ''}`;
   }
 
   // ============================================================================================ easter eggs (UI side)
@@ -2282,7 +2416,76 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     meta.egg('sneeze');
   }
 
+  // ---- the hero snowball: every tap = squash & hop + powder puff + a soft 'pof'. 10 quick taps = golden ball (this session). ----
+  let tapN = 0;
+  let tapT = 0;
+  let goldOn = false;
+  try { goldOn = !!(typeof window !== 'undefined' && window.__patpatGold); } catch { goldOn = false; }
+
+  function puff(x, y) {
+    if (!refs || refs.hero.querySelectorAll('.fm-puff').length > 16) return;
+    const ring = el('i', 'fm-ring');
+    ring.style.left = `${Math.round(x)}px`;
+    ring.style.top = `${Math.round(y)}px`;
+    refs.hero.appendChild(ring);
+    setTimeout(() => ring.remove(), 560);
+    const n = 6;
+    for (let i = 0; i < n; i++) {
+      const p = el('i', 'fm-puff');
+      const a = (i / n) * Math.PI * 2 + Math.random() * 0.8;
+      const d = 34 + Math.random() * 30;
+      setCss(p, '--dx', `${Math.round(Math.cos(a) * d)}px`);
+      setCss(p, '--dy', `${Math.round(Math.sin(a) * d * 0.8 - 8)}px`);
+      setCss(p, '--s', `${Math.round(9 + Math.random() * 9)}px`);
+      p.style.left = `${Math.round(x)}px`;
+      p.style.top = `${Math.round(y)}px`;
+      refs.hero.appendChild(p);
+      setTimeout(() => p.remove(), 620);
+    }
+  }
+
+  function canvasHop() {
+    const c = typeof document !== 'undefined' ? document.getElementById('c') : null;
+    if (!c) return;
+    c.classList.remove('fm-hop');
+    void c.offsetWidth;
+    c.classList.add('fm-hop');
+    setTimeout(() => c.classList.remove('fm-hop'), 380);
+  }
+
+  function goldBall() {
+    goldOn = true;
+    let real = setGoldBall(true); // the real 3D classic ball turns gold; otherwise the DOM aura fakes it
+    // the host tints whatever skin is on screen itself: then the DOM glow is not needed at all
+    try { if (cb.onBallGold) { cb.onBallGold(); real = true; } } catch { /* ignore */ }
+    if (refs) { refs.root.classList.add('fm-gold'); if (real) refs.root.classList.add('fm-real'); }
+    meta.egg('goldball');
+    confetti(46);
+    sfx('confirm');
+    toast({ icon: '🥇', title: 'ALTIN TOP!', sub: 'Kartopun bu oturumluk altına döndü', kind: 'gold', ms: 2200 });
+  }
+
+  function ballTap(e) {
+    if (!refs) return;
+    const t = performance.now();
+    tapN = t - tapT < 1000 ? tapN + 1 : 1;
+    tapT = t;
+    sfx('pof');
+    let handled = false;
+    try { if (cb.onBallTap) { cb.onBallTap(tapN); handled = true; } } catch { /* ignore */ }
+    if (!handled) canvasHop();
+    const hr = refs.hero.getBoundingClientRect();
+    const x = e && Number.isFinite(e.clientX) ? e.clientX - hr.left : hr.width / 2;
+    const y = e && Number.isFinite(e.clientY) ? e.clientY - hr.top : hr.height / 2;
+    puff(x, y);
+    refs.logoBall.classList.remove('hop');
+    void refs.logoBall.offsetWidth;
+    refs.logoBall.classList.add('hop');
+    if (tapN >= 10) { tapN = 0; if (!goldOn) goldBall(); else { confetti(18); sfx('confirm'); } }
+  }
+
   function wireEggs(r) {
+    if (goldOn) r.root.classList.add('fm-gold');
     r.logo.addEventListener('click', (e) => { e.stopPropagation(); if (swiped) { swiped = false; return; } tapLogo(); });
 
     // hero zone: swipes + taps feed the Konami buffer, a 3 s hold sneezes
@@ -2308,6 +2511,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       window.removeEventListener('pointercancel', cancelSwipe);
     };
     r.hero.addEventListener('pointerdown', (e) => {
+      ballTap(e);
       down = true; swiped = false; heroHeld = false; sx = e.clientX; sy = e.clientY;
       stopLp();
       lp = setTimeout(() => { lp = 0; heroHeld = true; sneeze(); }, 3000);
@@ -2363,20 +2567,17 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
   // ============================================================================================ events from meta
 
-  offs.push(meta.onUnlock((a, extra) => toastAchievement(a, extra)));
-  offs.push(meta.on('levelup', (L) => {
-    toast({ icon: '⭐', title: `SEVİYE ${L}!`, sub: 'Yeni seviyeye ulaştın', kind: 'gold' });
+  // Nothing is toasted during a run: meta.js queues mission / achievement / letter notices and the result screen shows them.
+  // Only while the lobby is on screen (secrets found in the menu, items bought in the shop) a small toast is fine.
+  offs.push(meta.onUnlock((a, extra) => { if (mainOpen && !activePanel) toastAchievement(a, extra); else if (mainOpen) updateMain(); }));
+  offs.push(meta.on('levelup', () => { if (mainOpen) updateMain(); }));
+  offs.push(meta.on('mission', () => { if (mainOpen) updateMain(); }));
+  offs.push(meta.on('missionset', (s) => {
+    if (cb.onReward) { try { cb.onReward('missions', s.reward); } catch { /* ignore */ } }
     if (mainOpen) updateMain();
   }));
-  offs.push(meta.on('mission', (m) => toast({ icon: m.icon || '🎯', title: 'GÖREV TAMAM!', sub: m.text })));
-  offs.push(meta.on('missionset', (s) => {
-    toast({ icon: '✖️', title: `ÇARPAN x${s.multiplier}!`, sub: `GÖREV SETİ TAMAM · ${rewardLine(s.reward)}`, kind: 'gold', ms: 3200 });
-    if (cb.onReward) { try { cb.onReward('missions', s.reward); } catch { /* ignore */ } }
-    if (mainOpen) { confetti(50); updateMain(); }
-  }));
-  offs.push(meta.on('letter', (l) => toast({ icon: '🔤', title: `HARF: ${l.letter}`, sub: `${WORD} ${l.count}/${WORD.length}`, ms: 1800 })));
+  offs.push(meta.on('letter', () => { if (mainOpen) updateMain(); }));
   offs.push(meta.on('hunt', (res) => {
-    toast({ icon: '🔤', title: 'KELİME TAMAM!', sub: `GÜNÜN KELİMESİ · ${rewardLine(res.reward)}`, kind: 'gold', ms: 3200 });
     if (cb.onReward) { try { cb.onReward('hunt', res.reward); } catch { /* ignore */ } }
   }));
 
@@ -2386,19 +2587,24 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     info = { ...info, ...(i || {}) };
     try { if (meta.refresh) meta.refresh(); } catch { /* ignore */ }
     if (!refs) buildMain();
+    hideBoot();
     closePanel(true);
     closeModal();
     closeWorlds();
     closeResult();
-    refs.root.classList.remove('fm-hide');
+    refs.root.classList.remove('fm-hide', 'fm-starting');
     mainOpen = true;
+    // anything the last run queued (and the result screen did not drain) is dropped silently, except a finished mission set
+    let notes = [];
+    try { notes = meta.takeNotices(); } catch { notes = []; }
+    const set = notes.find((n) => n.kind === 'missionset');
     updateMain();
+    if (set) toast({ icon: '✖️', title: `ÇARPAN x${set.multiplier}!`, sub: 'Görev seti tamam', kind: 'gold', ms: 2200 });
     refs.root.classList.remove('enter');
     void refs.root.offsetWidth;
     refs.root.classList.add('enter');
     setTimeout(() => { if (refs) refs.root.classList.remove('enter'); }, 1000);
     startMainTimers();
-    maybeHoliday();
   }
 
   function hideMain() {
@@ -2410,14 +2616,8 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     if (refs) refs.root.classList.add('fm-hide');
   }
 
-  function showDailyIfAvailable() {
-    if (!mainOpen || activePanel || modalEl || boxEl || worldEl || resultEl) return false;
-    let d = null;
-    try { d = meta.daily(); } catch { d = null; }
-    if (!d || !d.available) return false;
-    openDaily();
-    return true;
-  }
+  // The daily reward never opens by itself any more: it is a badge on the 🎁 button. Kept so old callers do not break.
+  function showDailyIfAvailable() { return false; }
 
   function refresh() {
     if (refs && mainOpen) updateMain();
@@ -2441,10 +2641,14 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   }
 
   return {
-    showMain, hideMain, toastAchievement, showDailyIfAvailable, refresh, isOpen, back,
+    showMain, hideMain, toastAchievement, showDailyIfAvailable, refresh, isOpen, back, setHold() { /* toasts are menu-only now; kept for old callers */ },
     // campaign
     showLevelComplete, showLevelFailed, showLevelIntro, openMap,
     // extras
-    toast, confetti, openBoxes, openDaily, openAchievements, openMissions, openUpgrades, openHunt, openSettings, closePanel, destroy,
+    toast, confetti,
+    // Mystery boxes never pop up by themselves any more: a bare openBoxes(n) call (the old post-run auto-open) is ignored, boxes stay
+    // banked and open from the lobby (💎 pill). Pass { user: true } as the 3rd argument for an explicit open.
+    openBoxes: (n, onDone, opts) => { if (opts && opts.user) return openBoxes(n, onDone); if (onDone) { try { onDone(); } catch { /* ignore */ } } return null; },
+    openDaily, openAchievements, openMissions, openUpgrades, openHunt, openSettings, closePanel, destroy,
   };
 }

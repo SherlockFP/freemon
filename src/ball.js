@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { patchMaterial } from './shaders.js';
 
-const STUCK_CAP = 28; // per prop type; oldest gets buried first
+const STUCK_CAP = 28;   // per prop type; oldest gets buried first
+const STUCK_TYPES = 22; // distinct prop types stuck on the ball at once (least recently eaten type is dropped)
 
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
@@ -15,7 +16,7 @@ export class Ball {
   constructor(scene, lib, material) {
     this.lib = lib;
     this.material = material;
-    this.group = new THREE.Group();   // position only
+    this.group = new THREE.Group();   // position + squash only
     this.spin = new THREE.Group();    // accumulated rolling rotation
     this.group.add(this.spin);
     scene.add(this.group);
@@ -24,7 +25,11 @@ export class Ball {
     this.spin.add(this.snow);
 
     this.pp = 0; this.pv = 0; // scale punch spring (growth feedback)
-    this.stuck = {}; // type → { mesh, items: [] }
+    this.sq = 0; this.sqv = 0; // squash spring (landing / bounce): >0 = flattened
+    this.hopY = 0; this.hopV = 0; this.hopping = false; this.onHopLand = null; // lobby bounce
+    this.visK = 1; this.visT = 1;  // visual-only size factor (the giant power)
+    this.stuck = {}; // type → { mesh, items: [], t }
+    this.stuckT = 0;
     this.reset(0.55);
   }
 
@@ -36,29 +41,68 @@ export class Ball {
     this.airborne = false;
     this.airTime = 0;
     this.spin.quaternion.identity();
-    for (const k in this.stuck) {
-      this.stuck[k].items.length = 0;
-      this.stuck[k].mesh.count = 0;
-    }
-    this.pp = 0; this.pv = 0;
-    this.snow.scale.setScalar(r);
+    for (const k of Object.keys(this.stuck)) this.dropSlot(k);
+    this.pp = 0; this.pv = 0; this.sq = 0; this.sqv = 0;
+    this.hopY = 0; this.hopV = 0; this.hopping = false;
+    this.visK = 1; this.visT = 1;
+    this.applyScale();
+    this.group.scale.set(1, 1, 1);
+  }
+
+  applyScale() {
+    this.snow.scale.setScalar(this.r * (1 + this.pp) * this.visK);
   }
 
   // Growth punch: a quick springy overshoot of the snowball's scale (peak about 0.9 * a, settles in ~0.25 s).
   punch(a) { this.pv += a * 45; }
 
+  // Landing / hit squash: a = 0.1..0.4 (fraction flattened at the peak).
+  squash(a) { this.sqv += a * 40; }
+
+  // Lobby bounce: a hop with stretch on the way up and squash on landing.
+  bounce(v = 7.5) {
+    this.hopV = v;
+    this.hopping = true;
+    this.sqv -= 5; // stretch
+  }
+
+  setVisual(k) { this.visT = k; }
+
   tick(dt) {
-    if (this.pp === 0 && this.pv === 0) return;
-    const w = 32, z = 0.32, h = Math.min(dt, 0.033);
-    this.pv += (-w * w * this.pp - 2 * z * w * this.pv) * h;
-    this.pp += this.pv * h;
-    if (Math.abs(this.pp) < 1e-4 && Math.abs(this.pv) < 1e-3) { this.pp = 0; this.pv = 0; }
-    this.snow.scale.setScalar(this.r * (1 + this.pp));
+    const h = Math.min(dt, 0.033);
+    if (this.pp !== 0 || this.pv !== 0) {
+      const w = 32, z = 0.32;
+      this.pv += (-w * w * this.pp - 2 * z * w * this.pv) * h;
+      this.pp += this.pv * h;
+      if (Math.abs(this.pp) < 1e-4 && Math.abs(this.pv) < 1e-3) { this.pp = 0; this.pv = 0; }
+    }
+    if (this.sq !== 0 || this.sqv !== 0) {
+      const w = 26, z = 0.34;
+      this.sqv += (-w * w * this.sq - 2 * z * w * this.sqv) * h;
+      this.sq += this.sqv * h;
+      this.sq = Math.max(-0.35, Math.min(0.5, this.sq));
+      if (Math.abs(this.sq) < 1e-3 && Math.abs(this.sqv) < 1e-2) { this.sq = 0; this.sqv = 0; }
+    }
+    if (this.hopping) {
+      this.hopV -= 24 * h;
+      this.hopY += this.hopV * h;
+      if (this.hopY <= 0 && this.hopV < 0) {
+        const v = -this.hopV;
+        this.hopY = 0; this.hopV = 0; this.hopping = false;
+        this.sqv += 2.4 + v * 0.5;
+        if (this.onHopLand) this.onHopLand(v);
+      }
+    }
+    if (this.visK !== this.visT) {
+      this.visK += (this.visT - this.visK) * Math.min(1, dt * 6);
+      if (Math.abs(this.visT - this.visK) < 0.002) this.visK = this.visT;
+    }
+    this.applyScale();
   }
 
   setRadius(r) {
     this.r = r;
-    this.snow.scale.setScalar(r);
+    this.applyScale();
     this.bury();
   }
 
@@ -68,11 +112,11 @@ export class Ball {
     if (dist < 1e-5) return;
     // velocity in world: (dx, 0, -dd); axis = up × v
     _axis.set(-dd, 0, -dx).normalize();
-    _q.setFromAxisAngle(_axis, dist / this.r);
+    _q.setFromAxisAngle(_axis, dist / (this.r * this.visK));
     this.spin.quaternion.premultiply(_q);
   }
 
-  // Roll about an arbitrary world axis (endless mode: the track curves, so "forward" isn't -Z).
+  // Roll about an arbitrary world axis (endless runner: the track curves, so "forward" isn't -Z).
   rollAxis(axis, angle) {
     if (Math.abs(angle) < 1e-6) return;
     _q.setFromAxisAngle(axis, angle);
@@ -80,24 +124,34 @@ export class Ball {
   }
 
   sync() {
-    this.group.position.set(this.x, this.y, -this.d);
+    const sy = 1 - this.sq, sx = 1 + this.sq * 0.55;
+    const rr = this.r * this.visK;
+    this.group.position.set(this.x, this.y + this.hopY - rr * (1 - sy), -this.d);
+    if (sy !== 1 || this.group.scale.y !== 1) this.group.scale.set(sx, sy, sx);
   }
 
-  // Glue a swallowed prop onto the surface, standing outward like a tiny planet.
-  stick(def, worldPos, scale) {
+  // Glue a swallowed prop onto the surface, standing outward like a tiny planet. `shrink` scales it down a little so
+  // a swallowed house does not turn the ball into a skyscraper.
+  stick(def, worldPos, scale, shrink = 0.6) {
     let slot = this.stuck[def.name];
     if (!slot) {
+      if (Object.keys(this.stuck).length >= STUCK_TYPES) {
+        let oldest = null;
+        for (const k in this.stuck) if (!oldest || this.stuck[k].t < this.stuck[oldest].t) oldest = k;
+        if (oldest) this.dropSlot(oldest);
+      }
       const mesh = new THREE.InstancedMesh(def.geometry, this.material, STUCK_CAP);
       mesh.count = 0;
       mesh.frustumCulled = false;
       this.spin.add(mesh);
-      slot = this.stuck[def.name] = { mesh, items: [] };
+      slot = this.stuck[def.name] = { mesh, items: [], t: 0 };
     }
+    slot.t = ++this.stuckT;
     // Direction from ball centre to the prop, in the ball's rotating frame.
     _v.copy(worldPos).sub(this.group.position);
     if (_v.lengthSq() < 1e-6) _v.set(Math.random() - 0.5, 1, Math.random() - 0.5);
     _v.normalize();
-    // Bias toward the top-front so new loot is visible from the chase camera.
+    // Bias toward the top-back so new loot is visible from the chase camera.
     _v.y = Math.abs(_v.y) * 0.6 + 0.35;
     _v.z = Math.abs(_v.z) * 0.5 + 0.3; // back-top (toward the chase camera) so every pickup is seen right away
     _v.x += (Math.random() - 0.5) * 0.6;
@@ -105,12 +159,13 @@ export class Ball {
     _q2.copy(this.spin.quaternion).invert();
     _v.applyQuaternion(_q2);
 
+    const sc = scale * shrink;
     const embed = this.r * 0.78;
     const item = {
       px: _v.x * embed, py: _v.y * embed, pz: _v.z * embed,
       q: new THREE.Quaternion().setFromUnitVectors(_up, _v),
-      s: scale,
-      top: embed + def.height * scale * 0.8,
+      s: sc,
+      top: embed + def.height * sc * 0.8,
     };
     // Random twist + lean so the pile looks chaotic, not stamped.
     _q.setFromAxisAngle(_up, Math.random() * Math.PI * 2);
@@ -122,6 +177,14 @@ export class Ball {
     if (slot.items.length >= STUCK_CAP) slot.items.shift();
     slot.items.push(item);
     this.writeSlot(slot);
+  }
+
+  dropSlot(k) {
+    const slot = this.stuck[k];
+    if (!slot) return;
+    this.spin.remove(slot.mesh);
+    slot.mesh.dispose();
+    delete this.stuck[k];
   }
 
   // Items get swallowed by the snow as the ball grows past them.

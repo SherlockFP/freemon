@@ -38,7 +38,7 @@ const MANIFEST = [
   ['jingle_win', 0.55], ['jingle_lose', 0.59], ['jingle_milestone', 0.59], ['jingle_star', 0.77],
 ];
 
-const MAX_VOICES = 16; // simultaneous sample voices
+const MAX_VOICES = 12; // simultaneous sample voices (v1: 16)
 const MIN_FADE = 0.004;
 
 /** @type {AudioContext|null} */ let ctx = null;

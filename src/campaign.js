@@ -3,7 +3,7 @@
 //
 //   LEVELS[i] = {
 //     id: 1..100, act: 1..10, idx: 1..10, name: 'İlk Kar', biome: 'snow', seed: uint32,
-//     length: metres (500 at L1 -> 2600 at L100, with an in-act ramp), hardness: 0.7..1.8, startTier: 0..4,
+//     length: metres (400 at L1 -> 740 at L10 -> 2600 at L100, with an in-act ramp), hardness: 0.55..1.8, startTier: 0..4,
 //     features: ['waves', ...]            // every set-piece / mechanic allowed on this level (cumulative)
 //     intro: { text, icon, feature } | null   // level that introduces something new -> show a tutorial card
 //     goals: [ {star:1, kind:'finish', text},
@@ -47,7 +47,7 @@ const NAMES = [
 
 // Level id at which each set-piece / mechanic first appears (it stays unlocked afterwards).
 export const FEATURE_INTRO = {
-  waves: 4, skiJump: 6, duck: 8, boulder: 10, chasm: 12, iceBridge: 14, oncoming: 17, halfpipe: 19, slideWall: 24,
+  critters: 3, junction: 11, waves: 4, skiJump: 6, duck: 8, boulder: 10, chasm: 12, iceBridge: 14, oncoming: 17, halfpipe: 19, slideWall: 24,
   helix: 21, tube: 28, rail: 33, wind: 38, zipline: 44, fog: 51, loop: 58, corkscrew: 67,
 };
 const FEATURE_ORDER = Object.keys(FEATURE_INTRO).sort((a, b) => FEATURE_INTRO[a] - FEATURE_INTRO[b]);
@@ -56,13 +56,14 @@ const FEATURE_ORDER = Object.keys(FEATURE_INTRO).sort((a, b) => FEATURE_INTRO[a]
 const INTROS = {
   1: { icon: '👆', text: 'Sağa ya da sola kaydır: şerit değiştir!', feature: null },
   2: { icon: '⬆️', text: 'Yukarı kaydır: zıpla!', feature: null },
-  3: { icon: '⛄', text: 'Kar yığınlarını topla: büyürsün! Çarparsan küçülürsün.', feature: null },
+  3: { icon: '🐧', text: 'Kar yığınlarını topla: büyürsün! Küçük yaratıkların üstüne zıpla: ezersin. Önlerinden çarparsan tökezlersin.', feature: 'critters' },
   4: { icon: '🌊', text: 'Dalgalı pist! Tepelerde havalanabilirsin.', feature: 'waves' },
   5: { icon: '⬇️', text: 'Havadayken aşağı kaydır: yere çak!', feature: null },
   6: { icon: '🎿', text: 'Kayak rampası! Hızını al ve uç.', feature: 'skiJump' },
   7: { icon: '⚡', text: 'Güçlendirmeler: kask, mıknatıs, roket!', feature: null },
   8: { icon: '🙇', text: 'Aşağı kaydır: eğil! Alçak engellerin altından geç.', feature: 'duck' },
   10: { icon: '👹', text: "Yeti'nin İni! Yeti hızlı ve sana kaya fırlatıyor. Kayalardan kaç!", feature: 'boulder' },
+  11: { icon: '↪️', text: 'Kavşak! Sarı oklar yönü gösterir: o yöne kaydır ve dön. Kaçırırsan bariyere çarparsın.', feature: 'junction' },
   12: { icon: '🕳️', text: 'Uçurum! Zıpla ya da yana kaç.', feature: 'chasm' },
   14: { icon: '🧊', text: 'Buz köprü! Dar ve kaygan, dikkatli ol.', feature: 'iceBridge' },
   15: { icon: '🛷', text: 'Kızak: çift dokun, bir çarpışmayı affeder.', feature: null },
@@ -121,9 +122,14 @@ function build() {
     const t = (id - 1) / (CAMPAIGN_SIZE - 1);
     const u = (idx - 1) / (LEVELS_PER_ACT - 1);
 
-    // in-act ramp: each act starts a little easier/shorter than it ends; endpoints land exactly on 500 and 2600
-    const length = Math.round((lerp(532, 2500, t) * (0.94 + 0.1 * u)) / 10) * 10;
-    const hardness = Math.round(Math.max(0.7, Math.min(1.8, lerp(0.7, 1.8, t) + 0.06 * (u - 0.5) + (boss ? 0.05 : 0))) * 100) / 100;
+    // in-act ramp: each act starts a little easier/shorter than it ends (levels 1-10 are handled separately below)
+    const early = id <= LEVELS_PER_ACT;  // levels 1-10: gentle (400 m -> 740 m, hardness 0.55 -> 0.9)
+    const length = early
+      ? Math.round(lerp(400, 740, (id - 1) / (LEVELS_PER_ACT - 1)) / 10) * 10
+      : Math.round((lerp(532, 2500, t) * (0.94 + 0.1 * u)) / 10) * 10;
+    const hardness = early
+      ? Math.round((0.55 + 0.3 * ((id - 1) / (LEVELS_PER_ACT - 1)) + (boss ? 0.05 : 0)) * 100) / 100
+      : Math.round(Math.max(0.7, Math.min(1.8, lerp(0.7, 1.8, t) + 0.06 * (u - 0.5) + (boss ? 0.05 : 0))) * 100) / 100;
     const startTier = id <= 20 ? 1 : act >= 3 && idx === 7 ? 2 : 0;
 
     const features = FEATURE_ORDER.filter((f) => FEATURE_INTRO[f] <= id);

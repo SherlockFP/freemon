@@ -11,6 +11,7 @@
 <body>
   <div id="app">
     <canvas id="c"></canvas>
+    <div id="boot" aria-hidden="true"><div class="boot-logo">PATPAT</div><div class="boot-dots"><i></i><i></i><i></i></div></div>
 
     <div id="hud" class="hidden">
       <div class="hud-top">
@@ -28,11 +29,17 @@
       <div class="hud-coins hidden" id="hud-coins">❄️ 0</div>
       <div class="hud-vitals hidden" id="hud-vitals">
         <div class="pips" id="hud-pips"></div>
-        <div class="growbar"><div class="growfill" id="hud-grow"></div></div>
+        <div class="growbar" id="hud-growbar"><div class="growfill" id="hud-grow"></div></div>
         <div class="powers" id="hud-powers"></div>
       </div>
+      <div class="hunger hidden" id="hunger" aria-label="Boyut"><span class="hg-ico" id="hg-ico">⛄</span><div class="hg-bar"><i class="hg-fill" id="hg-fill"></i></div></div>
       <div class="hud-flow hidden" id="hud-flow"><span class="flow-lbl" id="hud-flow-lbl">AKIŞ</span><div class="flowbar"><div class="flowfill" id="hud-flow-fill"></div></div></div>
       <div class="hud-record hidden" id="hud-record"></div>
+      <div class="buffs" id="buffs"></div>
+      <div class="cig-hud hidden" id="cig-hud">
+        <div class="cg-tier"><span class="cg-tn" id="cg-tn"></span><div class="cg-bar"><i id="cg-fill"></i></div></div>
+        <div class="cg-row"><span id="cg-dist">0 m</span><span id="cg-best"></span></div>
+      </div>
       <div class="hud-yeti hidden" id="hud-yeti">
         <span class="yeti-ico">👣</span>
         <div class="yetibar"><div class="yetifill" id="hud-yetifill"></div></div>
@@ -48,6 +55,10 @@
     <div id="floats"></div>
     <div id="markers"></div>
     <div id="banner"></div>
+    <div id="buff-fly"></div>
+    <div id="stomp" class="hidden"></div>
+    <div id="cig-banner" class="hidden"><div class="cb-k">YENİ BÖLGE!</div><div class="cb-n" id="cb-n"></div></div>
+    <div id="toast-soft" aria-live="polite"></div>
     <div id="tutor" class="hidden"><div class="tt-icon"></div><div class="tt-title"></div><div class="tt-text"></div></div>
     <div id="hint" class="hidden"><div class="finger">👆</div><div>sürükle</div></div>
     <div id="subtitle"></div>
@@ -60,13 +71,14 @@
       </div>
     </div>
 
+    <!-- Legacy start screen: kept only because ui.showMenu() writes to it. The real menu lives in menus.js. -->
     <div id="menu" class="screen hidden">
       <div class="logo">PATPAT</div>
       <div class="tagline">kartopu · yeti · çığ</div>
       <div class="menu-card">
         <div class="menu-level" id="menu-level">DAĞ 1</div>
         <div class="menu-stars" id="menu-stars"></div>
-        <button class="btn big endless" id="btn-endless"><span class="badge">YENİ</span>∞ YETİ KAÇIŞI</button>
+        <button class="btn big endless" id="btn-endless"><span class="badge">YENİ</span>∞ YETİ RUSH</button>
         <div class="menu-best" id="menu-best"></div>
         <button class="btn big" id="btn-play">BAŞLA</button>
         <button class="btn daily" id="btn-daily">🏔️ GÜNÜN DAĞI</button>
@@ -80,19 +92,26 @@
     </div>
 
     <div id="result" class="screen hidden">
-      <div class="res-title" id="res-title">KASABA YERLE BİR!</div>
-      <div class="res-stars" id="res-stars"><span>★</span><span>★</span><span>★</span></div>
-      <div class="res-pct" id="res-pct">%0</div>
-      <div class="res-label">kasaba yıkıldı</div>
-      <div class="res-tons" id="res-tons">0 ton</div>
-      <div class="res-sub" id="res-sub"></div>
-      <div class="res-coins hidden" id="res-coins"></div>
-      <div class="res-extra hidden" id="res-extra"></div>
-      <button class="btn big" id="btn-next">SONRAKİ DAĞ ▶</button>
-      <div class="row three">
-        <button class="btn mid" id="btn-retry">↻ TEKRAR</button>
-        <button class="btn mid alt" id="btn-menu">⌂ MENÜ</button>
-        <button class="btn mid share" id="btn-share">PAYLAŞ</button>
+      <div class="res-top">
+        <div class="res-title" id="res-title">KASABA YERLE BİR!</div>
+        <div class="res-badge hidden" id="res-badge">YENİ REKOR!</div>
+        <div class="res-stars" id="res-stars"><span>★</span><span>★</span><span>★</span></div>
+        <div class="res-pct" id="res-pct">%0</div>
+        <div class="res-label" id="res-label">kasaba yıkıldı</div>
+        <div class="res-tons" id="res-tons">0 ton</div>
+        <div class="res-sub" id="res-sub"></div>
+      </div>
+      <div class="res-mid">
+        <div class="res-coins hidden" id="res-coins"></div>
+        <div class="res-extra hidden" id="res-extra"></div>
+      </div>
+      <div class="res-actions">
+        <button class="btn big next" id="btn-next">SONRAKİ DAĞ ▶</button>
+        <button class="btn big retry" id="btn-retry">↻ TEKRAR</button>
+        <div class="row three">
+          <button class="btn mid alt" id="btn-menu">⌂ MENÜ</button>
+          <button class="btn mid share" id="btn-share">PAYLAŞ</button>
+        </div>
       </div>
       <div class="toast" id="toast"></div>
     </div>

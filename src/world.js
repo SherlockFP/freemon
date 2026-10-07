@@ -1,115 +1,156 @@
+// world.js — the endless ÇIĞ slope.
+//
+// Downhill distance `d` grows forward, world z = -d. The slope is generated forever in ~64 m terrain chunks and
+// ~10-36 m content segments just ahead of the ball and recycled behind it. Everything is seeded (same seed = same slope).
+//
+// Content is RADIUS-DRIVEN: what spawns is chosen from the prop library by its size relative to the ball
+// (food = clearly smaller than the ball, obstacles = clearly bigger), so every size tier automatically gets the right
+// stuff: pebbles/people/snowmen -> cars/kiosks -> trucks/cabins/houses -> hotels/apartments -> towers. Props are scaled
+// (never below ~0.3x or above ~6x) to fit when the library has no natural size. Tier N always also holds food of the tier below.
+//
+// The slope WIDENS with every size tier (width keyframes blend over ~60 m, started beyond what is on screen).
+//
+// Public API used by main.js / cigplus.js:
+//   new World(scene, lib, { seed })
+//   world.update(dt, ballD, ahead, behind, ball)      stream + animate + render
+//   world.halfWidth(d), baseY(d), groundY(x, d), rampAt(x, d), inPatch(x, d), footY(p)
+//   world.query(x, d, reach, out), world.kill(p), world.spawnChunk(x, d, r)
+//   world.pull(p, ball, dur)  /  world.onArrive(proxy)  visible suction (the flight itself is rendered here)
+//   world.setTier(tier, ballD)  widen the slope + new-tier welcome food;  world.colorOf(type)
+//   world.gates / world.breakGate(g)  size gates;  world.events  (town / gate / golden cues for the HUD)
+//   world.zoneFree(d0, d1, kinds), world.specialQueue (golden snowballs for cigplus), world.dispose()
 import * as THREE from 'three';
-import { CFG, MASS, TIER_MASS } from './config.js';
+import { CFG, MASS, fallbackMass, tierOf, foodRelAt, expectedRAt } from './config.js';
 import { makeRng } from './rng.js';
-import { SLOPE_TIERS, TOWN_TYPES } from './props.js';
 import { patchMaterial } from './shaders.js';
 
-// Downhill distance `d` grows forward; world z = -d.
 // Movement modes for props.
-const MOVE_NONE = 0, MOVE_SKI = 1, MOVE_WANDER = 2, MOVE_CROSS = 3;
+export const MOVE_NONE = 0, MOVE_SKI = 1, MOVE_WANDER = 2, MOVE_CROSS = 3, MOVE_ARMY = 77, MOVE_PULL = 88, MOVE_CHUNK = 99;
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+const _c = new THREE.Color();
 
-// Imported Kenney models (src/assets.js) that join each slope tier / the town when present in the library.
-const KENNEY_TIERS = [
-  ['k_present_a', 'k_present_b', 'k_present_c', 'k_candy_cane', 'k_candy_cane_green', 'k_lantern', 'k_cone', 'k_rock_small'],
-  ['k_snowman', 'k_snowman_hat', 'k_sled', 'k_bench', 'k_gingerbread', 'k_campfire', 'k_tent_small', 'k_pine_small'],
-  ['k_sedan', 'k_sports', 'k_suv', 'k_taxi', 'k_police', 'k_van', 'k_ambulance', 'k_pickup', 'k_tractor', 'k_tent', 'k_canoe', 'k_pine_a', 'k_pine_b', 'k_rock_a', 'k_rock_b'],
-  ['k_truck', 'k_delivery', 'k_garbage_truck', 'k_firetruck', 'k_pine_a_big', 'k_pine_b_big', 'k_rock_c', 'k_rock_d'],
-  [],
+export function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth01 = (t) => { t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t); };
+
+// ---- terrain chunk layout ----
+const CH = 64;                 // chunk length (m)
+const NR = 16;                 // rows per chunk
+const ROW = CH / NR;           // 4 m
+const NCI = 10;                // cells across the track
+const BANK_F = [1.0, 0.88, 0.72, 0.56, 0.42, 0.3, 0.2, 0.12, 0.06, 0.02]; // bank columns as fractions of (EDGE - hw), outermost first
+const NB = BANK_F.length;
+const NC = 2 * NB + NCI + 1;   // columns per row
+const EDGE = 100;              // terrain half-extent; the scenery ridges start here
+const MESH_CAP = 480;          // instances per prop type
+
+// Content size mix per tier: [weight, qLo, qHi] with q = prop radius / ball radius (food is always < 0.9).
+// Later tiers are made of MANY smaller things (a field of people and cars for a ball the size of a house).
+const Q_MIX = [
+  [[0.6, 0.25, 0.42], [0.3, 0.42, 0.65], [0.1, 0.65, 0.86]],
+  [[0.62, 0.17, 0.34], [0.3, 0.34, 0.56], [0.08, 0.56, 0.86]],
+  [[0.66, 0.11, 0.26], [0.28, 0.26, 0.46], [0.06, 0.46, 0.84]],
+  [[0.68, 0.08, 0.22], [0.27, 0.22, 0.42], [0.05, 0.42, 0.82]],
+  [[0.7, 0.06, 0.2], [0.25, 0.2, 0.4], [0.05, 0.4, 0.8]],
 ];
-const KENNEY_HOUSES = ['k_house_a', 'k_house_b', 'k_house_c', 'k_house_d', 'k_house_e', 'k_house_f', 'k_house_g', 'k_house_h', 'k_house_i', 'k_house_j', 'k_house_k', 'k_house_l'];
-const KENNEY_STREET = ['k_sedan', 'k_taxi', 'k_police', 'k_van', 'k_planter', 'k_tree_small', 'k_snowman', 'k_bench'];
-
-export function levelParams(level, daily) {
-  const n = daily ? 7 : level;
-  return {
-    L: Math.min(520 + n * 45, 1100),
-    density: Math.min(0.95 + n * 0.05, 1.5),
-    townRows: Math.min(6 + n, 13),
-    ramps: n < 2 ? 1 : Math.min(2 + (n >> 1), 6),
-    patches: n < 3 ? 0 : Math.min(n - 1, 7),
-    roads: n < 2 ? 0 : Math.min(1 + (n >> 1), 5),
-  };
-}
+const DECOR_SCALE = [1, 1.3, 1.75, 2.3, 3];
+const STRUCT = new Set(['lift_pylon', 'water_tower', 'gondola_station', 'hotel', 'clocktower', 'apartment']);
 
 export class World {
-  constructor(scene, lib, { seed, level, daily }) {
+  constructor(scene, lib, { seed = 1 } = {}) {
+    this.endless = true;
     this.scene = scene;
     this.lib = lib;
-    this.rng = makeRng(seed);
-    const P = levelParams(level, daily);
-    this.P = P;
-    this.L = P.L;
-    this.townStart = P.L + 28;
-    this.townEnd = this.townStart + P.townRows * 17 + 30;
-    this.dEnd = this.townEnd + 160;
-
-    this.statics = [];   // sorted by d after generation
-    this.movers = [];
-    this.ramps = [];
-    this.patches = [];
-    this.roads = [];
-    this.buildings = []; // town buildings, for the destruction %
-    this.maxPropR = 1;
+    this.seed = (seed >>> 0) || 1;
+    this.rng = makeRng(this.seed);
+    this.rngD = makeRng(this.seed ^ 0x5bd1e995);
     this.time = 0;
+    this.ballD = 0; this.ballR = CFG.startR; this.ballX = 0;
+    this.ahead = CFG.viewAhead; this.behind = CFG.viewBehind;
     this.group = new THREE.Group();
     scene.add(this.group);
 
-    // Spawn tables: procedural props + whatever imported models are available.
-    this.tiers = SLOPE_TIERS.map((t, i) => [...t, ...KENNEY_TIERS[i].filter((k) => lib[k])]);
-    this.houses = KENNEY_HOUSES.filter((k) => lib[k]);
-    this.street = KENNEY_STREET.filter((k) => lib[k]);
     this.mat = patchMaterial(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
     this.snowMat = patchMaterial(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), { snow: true });
-    this.avgColor = {};
-    for (const name in lib) this.avgColor[name] = averageColor(lib[name].geometry);
 
-    this.generate();
-    this.statics.sort((a, b) => a.d - b.d);
-    this.buildInstancing();
-    this.buildTerrain();
-    this.buildRamps();
-    this.buildPisteMarkers();
+    this.statics = [];   // colliding props, sorted by d
+    this.decor = [];     // scenery, sorted by d (never collides)
+    this.movers = [];
+    this.pulls = []; this.pullPool = [];
+    this.ramps = [];
+    this.patches = [];
+    this.gates = [];
+    this.arches = [];
+    this.events = [];
+    this.zones = [];
+    this.specialQueue = [];
+    this.boxItems = [];
+    this.trans = [];     // width transitions {d0, d1, from, to, tier}
+    this.hw0 = CFG.tierWidth[0] / 2;
+    this.curTier = 0;
+    this.maxPropR = 1;
+    this.meshes = {}; this.meshList = [];
+    this.recent = []; this.obsRecent = [];
+    this.credit = 0; this.spent = 0; // food ledger: features and events spend from the same budget as ordinary stretches
+    this.genD = 4; this.decorD = -70;
+    this.nextFeatureD = 230; this.nextEventD = CFG.firstEvent; this.eventNo = 0; this.lastEventKind = '';
+    this.cullT = 0;
+    this.labels = [];
+    this.onArrive = null;
+    this.lastGen = { gr: CFG.startR, T: 0 };
+    // Size tint (readability): the game sets the ball radius and its eat ratio every frame; props near the ball that are too
+    // big to swallow are painted amber (almost) / red (no way) through per-instance colours. 0 = off (lobby).
+    this.tintR = 0; this.tintEat = CFG.eatRatio;
+
+    this.buildCatalog();
+    this.buildShared();
+    this.initTerrain();
+    this.breadcrumbs();
+    for (let i = 0; i < 40 && this.genD < 150; i++) this.genSegment();
+    this.stream(0, 300, 40, true);
+    this.render(0);
   }
 
-  // ---------- terrain shape ----------
-  // The valley opens up as you descend, so the world's scale keeps pace with the ball.
+  // ===================================================================== terrain shape
+  // The slope widens with every tier: a list of smooth width transitions keyed by distance.
   halfWidth(d) {
-    const h0 = CFG.trackW / 2, h1 = CFG.trackWEnd / 2, tw = CFG.townW / 2;
-    if (d <= this.L) {
-      const u = Math.max(0, d / this.L);
-      return h0 + (h1 - h0) * u * u;
+    const T = this.trans;
+    let hw = this.hw0;
+    for (let i = 0; i < T.length; i++) {
+      const t = T[i];
+      if (d <= t.d0) break;
+      if (d >= t.d1) hw = t.to;
+      else { hw = lerp(t.from, t.to, smooth01((d - t.d0) / (t.d1 - t.d0))); break; }
     }
-    const u = Math.min(1, (d - this.L) / CFG.flattenLen);
-    return h1 + (tw - h1) * u * u * (3 - 2 * u);
+    return hw;
+  }
+
+  // Tier whose width applies at distance d (for scaling scenery with the zone).
+  tierAtD(d) {
+    let t = 0;
+    for (let i = 0; i < this.trans.length; i++) if (d > this.trans[i].d0) t = this.trans[i].tier; else break;
+    return t;
   }
 
   baseY(d) {
-    const g = CFG.grade, L = this.L, F = CFG.flattenLen;
-    if (d <= L) return -g * d + 4 * Math.sin(d * 0.011);
-    const yL = -g * L + 4 * Math.sin(L * 0.011);
-    const u = Math.min(d - L, F);
-    return yL - g * (u - (u * u) / (2 * F));
+    return -CFG.grade * d + 4 * Math.sin(d * 0.011) + 2.2 * Math.sin(d * 0.0037 + 1.3);
   }
 
   groundY(x, d) {
     let y = this.baseY(d);
     const hw = this.halfWidth(d);
     const ax = Math.abs(x) - hw;
-    const flat = d > this.L ? Math.max(0, 1 - (d - this.L) / 30) : 1;
-    if (ax > 0) {
-      y += ax * ax * 0.014 + ax * 0.22 + ax * 0.1 * Math.sin(d * 0.05 + x * 0.13);
-    }
-    y += flat * 0.2 * Math.sin(x * 0.45 + d * 0.09) * Math.sin(d * 0.13 - x * 0.2);
+    if (ax > 0) y += ax * ax * 0.014 + ax * 0.22 + ax * 0.1 * Math.sin(d * 0.05 + x * 0.13);
+    y += 0.2 * Math.sin(x * 0.45 + d * 0.09) * Math.sin(d * 0.13 - x * 0.2);
     return y;
   }
 
-  // Ground + ramp kickers (what the ball actually rides on).
+  // Ramp kicker height above the ground at (x, d).
   rampAt(x, d) {
     for (let i = 0; i < this.ramps.length; i++) {
       const r = this.ramps[i];
@@ -120,7 +161,7 @@ export class World {
     return 0;
   }
 
-  // Lowest ground under a prop's footprint, so long things (buses, cabins) sink into slopes instead of floating.
+  // Lowest ground under a prop's footprint, so long things sink into slopes instead of floating.
   footY(p) {
     const e = Math.min(p.r * 0.7, 6);
     return Math.min(
@@ -128,19 +169,6 @@ export class World {
       this.groundY(p.x, p.d + e), this.groundY(p.x, p.d - e),
       this.groundY(p.x + e, p.d), this.groundY(p.x - e, p.d),
     );
-  }
-
-  // Drop dead movers and chunks left far behind so update/query loops stay short.
-  compactMovers(ballD) {
-    const a = this.movers;
-    let n = 0;
-    for (let i = 0; i < a.length; i++) {
-      const p = a[i];
-      if (!p.alive) continue;
-      if (p.kind === 'chunk' && p.d < ballD - 60) { p.alive = false; continue; }
-      a[n++] = p;
-    }
-    a.length = n;
   }
 
   inPatch(x, d) {
@@ -152,11 +180,78 @@ export class World {
     return false;
   }
 
-  // ---------- generation ----------
+  // ===================================================================== catalog
+  buildCatalog() {
+    const lib = this.lib;
+    const FOOD = new Set(['static', 'walker', 'skier', 'car', 'building', 'rock', 'tree']);
+    const food = [], obst = [], town = [], walkers = [], trees = [], decorAll = [];
+    for (const name in lib) {
+      if (name === 'chunk') continue;
+      const def = lib[name];
+      if (!def || !def.geometry || !(def.radius > 0.2)) continue;
+      const kind = def.kind;
+      if (!FOOD.has(kind)) continue;
+      const e = { type: name, r: def.radius, h: def.height, kind, w: 1 };
+      const isRockTree = kind === 'rock' || kind === 'tree';
+      food.push({ ...e, w: isRockTree ? 0.35 : 1 });
+      if (isRockTree || STRUCT.has(name)) obst.push({ ...e, w: kind === 'rock' ? 1.2 : 1 });
+      if (!isRockTree && e.r > 0.3) town.push(e);
+      if (kind === 'walker' || kind === 'skier') walkers.push(e);
+      if (isRockTree) decorAll.push({ ...e, w: kind === 'tree' ? 3 : 1 });
+    }
+    const byR = (a, b) => a.r - b.r;
+    food.sort(byR); obst.sort(byR); town.sort(byR); walkers.sort(byR); decorAll.sort(byR); trees.sort(byR);
+    this.food = food; this.obst = obst; this.town = town; this.walkers = walkers; this.decorPool = decorAll;
+    this.snackNames = ['pebble', 'gift', 'traffic_cone', 'penguin', 'bush_small', 'rabbit'].filter((n) => lib[n]);
+    if (!this.snackNames.length) this.snackNames = food.slice(0, 4).map((e) => e.type);
+  }
+
+  // Pick a library entry whose natural radius lets a scale in [sLo, sHi] reach `tr`; nearest entry when none does.
+  pick(list, tr, sLo = 0.6, sHi = 1.6) {
+    const n = list.length;
+    if (!n) return null;
+    let lo = 0, hi = n;
+    const a = tr / sHi;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (list[m].r < a) lo = m + 1; else hi = m; }
+    const i0 = lo;
+    lo = i0; hi = n;
+    const b = tr / sLo;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (list[m].r <= b) lo = m + 1; else hi = m; }
+    const i1 = lo;
+    if (i1 <= i0) {
+      let i = clamp(i0, 0, n - 1);
+      if (i > 0 && Math.abs(list[i - 1].r - tr) < Math.abs(list[i].r - tr)) i--;
+      return list[i];
+    }
+    let tot = 0;
+    for (let i = i0; i < i1; i++) tot += list[i].w;
+    let roll = this.rng.next() * tot;
+    for (let i = i0; i < i1; i++) { roll -= list[i].w; if (roll <= 0) return list[i]; }
+    return list[i1 - 1];
+  }
+
+  rollQ(T) {
+    const mix = Q_MIX[Math.min(T, Q_MIX.length - 1)];
+    let roll = this.rng.next();
+    for (let i = 0; i < mix.length; i++) {
+      roll -= mix[i][0];
+      if (roll <= 0 || i === mix.length - 1) return this.rng.range(mix[i][1], mix[i][2]);
+    }
+    return 0.3;
+  }
+
+  colorOf(type) {
+    const def = this.lib[type];
+    if (!def) return _c.setHex(0xcccccc);
+    if (!def._avg) def._avg = averageColor(def.geometry);
+    return def._avg;
+  }
+
+  // ===================================================================== props
   add(type, x, d, opts = {}) {
     const def = this.lib[type];
     if (!def) return null;
-    const s = opts.s ?? 0.9 + this.rng.next() * 0.25;
+    const s = clamp(opts.s ?? 0.9 + this.rng.next() * 0.25, 0.2, 8);
     const p = {
       type, def, x, d,
       y: 0,
@@ -166,302 +261,830 @@ export class World {
       h: def.height * s,
       tier: def.tier,
       kind: def.kind,
-      mass: (MASS[type] ?? TIER_MASS[def.tier] ?? 1) * s * s * s,
+      mass: (MASS[type] ?? fallbackMass(def.radius)) * s * s * s,
       alive: true,
-      decor: !!opts.decor, // scenery: rendered, never collides
+      decor: !!opts.decor,
       move: opts.move ?? MOVE_NONE,
       m: null,
-      // mover state
-      ox: x, od: d, vx: opts.vx ?? 0, vd: opts.vd ?? 0, phase: this.rng.range(0, 6.28),
+      ox: x, od: d, vx: opts.vx ?? 0, vd: opts.vd ?? 0, phase: Math.random() * 6.28,
+      tonK: opts.tonK ?? 1,
+      id: 0,
     };
-    if (p.r > this.maxPropR && def.kind !== 'building' && !opts.decor) this.maxPropR = p.r;
-    if (p.move === MOVE_NONE) this.statics.push(p);
-    else this.movers.push(p);
-    if (def.kind === 'building') this.buildings.push(p);
-    return p;
-  }
-
-  // The radius the content is tuned for at a given distance (food tier thresholds below).
-  expectedR(d) {
-    const k = CFG.expectedR;
-    const prog = Math.max(0, Math.min(1, d / this.L)) * (k.length - 1);
-    const i = Math.min(k.length - 2, Math.floor(prog));
-    return k[i] + (k[i + 1] - k[i]) * (prog - i);
-  }
-
-  // Food tops out at tier 3; tier 4 giants are landmarks placed off to the side, never walls.
-  foodTier(prog) {
-    if (prog < 0.14) return 0;
-    if (prog < 0.38) return 1;
-    if (prog < 0.66) return 2;
-    return 3;
-  }
-
-  // Mostly current food, plenty of smaller stuff to recover with, a few bigger ones.
-  mixTier(ft) {
-    const r = this.rng.next();
-    return Math.max(0, Math.min(3, r < 0.4 ? ft - 1 : r < 0.92 ? ft : ft + 1));
-  }
-
-  pickTier(t) {
-    const tier = this.tiers[Math.max(0, Math.min(4, t))];
-    // Huge rocks only as rare landmarks; keep food readable.
-    return this.rng.pick(tier);
-  }
-
-  generate() {
-    const R = this.rng;
-    const L = this.L;
-
-    // Breadcrumb line straight ahead: the first second of play is a satisfying combo.
-    for (let i = 0; i < 9; i++) this.add(R.pick(['gift', 'traffic_cone', 'penguin', 'bush_small']), Math.sin(i * 0.5) * 1.5, 10 + i * 3.2);
-
-    // Pre-place special features so they're spread across the run.
-    const specials = [];
-    for (let i = 0; i < this.P.ramps; i++) specials.push({ kind: 'ramp', d: L * (0.2 + 0.7 * (i + R.next() * 0.6) / this.P.ramps) });
-    for (let i = 0; i < this.P.patches; i++) specials.push({ kind: 'patch', d: L * (0.25 + 0.65 * (i + R.next()) / this.P.patches) });
-    for (let i = 0; i < this.P.roads; i++) specials.push({ kind: 'road', d: L * (0.3 + 0.6 * (i + R.next() * 0.5) / this.P.roads) });
-    specials.sort((a, b) => a.d - b.d);
-
-    let d = 44;
-    let si = 0;
-    while (d < L - 12) {
-      while (si < specials.length && specials[si].d <= d) {
-        const sp = specials[si++];
-        if (sp.kind === 'ramp') d += this.placeRamp(d);
-        else if (sp.kind === 'patch') d += this.placePatch(d);
-        else d += this.placeRoad(d);
-      }
-      const prog = d / L;
-      const ft = this.foodTier(prog);
-      const hw = this.halfWidth(d) - 1.5;
-      const roll = R.next();
-      if (roll < 0.34) this.patternLine(d, ft, hw);
-      else if (roll < 0.62) this.patternCluster(d, ft, hw);
-      else if (roll < 0.8) this.patternFiller(d, ft, hw);
-      else if (roll < 0.92) this.patternObstacle(d, ft, hw);
-      else this.patternMovers(d, ft, hw);
-      d += R.range(8, 14) / this.P.density;
-    }
-
-    this.generateBanks();
-    this.generateTown();
-    // Nothing may hide under a ramp kicker.
-    if (this.ramps.length) {
-      const under = (p) => this.ramps.some((r) => Math.abs(p.x - r.x) < r.w / 2 + p.r * 0.5 && p.d > r.d - p.r && p.d < r.d + r.len + p.r);
-      this.statics = this.statics.filter((p) => p.decor || !under(p));
-      this.movers = this.movers.filter((p) => !under(p));
-    }
-  }
-
-  patternLine(d, ft, hw) {
-    const R = this.rng;
-    const type = this.pickTier(this.mixTier(ft));
-    const def = this.lib[type];
-    const n = R.int(5, 9);
-    const spacing = Math.max(2.2, def.radius * 2.4);
-    const x0 = R.range(-hw * 0.8, hw * 0.8);
-    const amp = R.range(0, hw * 0.4), freq = R.range(0.05, 0.12);
-    for (let i = 0; i < n; i++) {
-      const x = clamp(x0 + Math.sin(i * spacing * freq) * amp, -hw, hw);
-      this.add(type, x, d + i * spacing);
-    }
-    if (ft > 0 && R.chance(0.6)) this.patternFiller(d + n * spacing * 0.5, ft - 1, hw, 5);
-  }
-
-  patternCluster(d, ft, hw) {
-    const R = this.rng;
-    const cx = R.range(-hw * 0.7, hw * 0.7);
-    const centerType = this.pickTier(Math.min(3, ft + (R.chance(0.25) ? 1 : 0)));
-    const center = this.add(centerType, cx, d + 6);
-    const ringR = (center ? center.r : 2) + R.range(1.5, 4);
-    const foodType = this.pickTier(this.mixTier(ft));
-    const n = R.int(6, 11);
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + R.next() * 0.4;
-      const rr = ringR * R.range(0.8, 1.3);
-      this.add(R.chance(0.7) ? foodType : this.pickTier(Math.max(0, ft - 1)),
-        clamp(cx + Math.cos(a) * rr, -hw, hw), d + 6 + Math.sin(a) * rr);
-    }
-  }
-
-  patternFiller(d, ft, hw, n = 0) {
-    const R = this.rng;
-    const count = n || R.int(6, 12);
-    const t = Math.max(0, ft - (R.chance(0.5) ? 1 : 0));
-    for (let i = 0; i < count; i++) this.add(this.pickTier(R.chance(0.8) ? t : this.mixTier(ft)), R.range(-hw, hw), d + R.range(0, 14));
-  }
-
-  patternObstacle(d, ft, hw) {
-    const R = this.rng;
-    const t = Math.min(4, ft + 1);
-    const big = this.pickTier(t);
-    // Giants hug one side so there's always a lane past them.
-    const x = t >= 4 ? R.sign() * R.range(hw * 0.55, hw * 0.85) : R.range(-hw * 0.6, hw * 0.6);
-    this.add(big, x, d + 8);
-    // Food arcs around the obstacle reward steering around it.
-    const food = this.pickTier(ft);
-    const side = x > 0 ? -1 : 1;
-    for (let i = 0; i < 6; i++) this.add(food, clamp(x + side * (5 + Math.sin(i * 0.6) * 3), -hw, hw), d + i * 3);
-  }
-
-  patternMovers(d, ft, hw) {
-    const R = this.rng;
-    if (ft <= 1 || R.chance(0.5)) {
-      // Skiers racing downhill — slower than you, so the chase always pays off.
-      const n = R.int(3, 6);
-      for (let i = 0; i < n; i++) {
-        this.add('skier', R.range(-hw, hw), d + R.range(0, 10), { move: MOVE_SKI, vd: R.range(5, 8.5), rot: Math.PI });
-      }
-    } else {
-      // Wandering creatures.
-      const type = R.pick(['penguin', 'deer', 'yeti', 'person']);
-      const cx = R.range(-hw * 0.7, hw * 0.7);
-      const n = type === 'yeti' ? R.int(1, 3) : R.int(4, 8);
-      for (let i = 0; i < n; i++) this.add(type, clamp(cx + R.range(-5, 5), -hw, hw), d + R.range(0, 10), { move: MOVE_WANDER });
-    }
-  }
-
-  placeRamp(d) {
-    const R = this.rng;
-    const hw = this.halfWidth(d);
-    const w = R.range(6, 8);
-    const x = R.range(-hw + w, hw - w);
-    this.ramps.push({ x, d, w, len: 9, h: 2.6 });
-    // Landing zone full of food: flying into a crowd is the money shot.
-    const prog = d / this.L;
-    const ft = this.foodTier(prog);
-    const land = d + 30;
-    for (let i = 0; i < 14; i++) this.add(this.pickTier(this.rng.chance(0.6) ? ft : Math.max(0, ft - 1)), clamp(x + R.range(-7, 7), -hw + 1, hw - 1), land + R.range(-6, 10));
-    return 52;
-  }
-
-  placePatch(d) {
-    const R = this.rng;
-    const hw = this.halfWidth(d);
-    const rx = R.range(4, 8), rd = R.range(8, 16);
-    const x = R.range(-hw + rx * 0.5, hw - rx * 0.5);
-    this.patches.push({ x, d: d + rd, rx, rd });
-    // Bait: something tasty on the far side of the dirt.
-    const ft = this.foodTier(d / this.L);
-    for (let i = 0; i < 5; i++) this.add(this.pickTier(ft), clamp(x + R.range(-rx, rx) * 0.6, -hw + 1, hw - 1), d + rd + R.range(-rd * 0.5, rd * 0.5));
-    return rd * 2 + 14;
-  }
-
-  placeRoad(d) {
-    const R = this.rng;
-    this.roads.push({ d, w: 7 });
-    const n = R.int(2, 4);
-    const prog = d / this.L;
-    for (let i = 0; i < n; i++) {
-      const lane = i % 2 === 0 ? -1.7 : 1.7;
-      const dir = lane < 0 ? 1 : -1;
-      const type = prog > 0.55 && R.chance(0.4) ? R.pick(['bus', 'truck']) : R.pick(['car', 'car_blue', 'snowmobile']);
-      this.add(type, R.range(-40, 40), d + lane, { move: MOVE_CROSS, vx: dir * R.range(6, 10), rot: dir > 0 ? Math.PI / 2 : -Math.PI / 2, s: 1 });
-    }
-    return 18;
-  }
-
-  generateBanks() {
-    const R = this.rng;
-    for (let d = -60; d < this.dEnd; d += R.range(2.5, 5.5)) {
-      for (const side of [-1, 1]) {
-        if (R.chance(0.15)) continue;
-        const hw = this.halfWidth(d);
-        const off = R.range(1, 34);
-        const kp = this.lib.k_pine_a && R.chance(0.45);
-        const t = off < 6 ? (kp ? 'k_pine_small' : 'pine_small')
-          : off < 18 ? (kp ? R.pick(['k_pine_a', 'k_pine_b']) : R.pick(['pine', 'pine', 'pine_small', 'boulder']))
-          : (kp ? R.pick(['k_pine_a_big', 'k_pine_b_big']) : R.pick(['pine_big', 'pine', 'rock_big', 'pine_big']));
-        if (d > this.L && t === 'rock_big') continue;
-        this.add(t, side * (hw + off), d, { decor: true });
-      }
-    }
-  }
-
-  generateTown() {
-    const R = this.rng;
-    const tw = CFG.townW / 2;
-    const rows = this.P.townRows;
-    const early = ['house', 'shop', 'barn', 'house', 'house_tall'];
-    const late = ['house_tall', 'apartment', 'shop', 'house', 'apartment'];
-    for (let i = 0; i < rows; i++) {
-      const d = this.townStart + 10 + i * 17;
-      const prog = i / rows;
-      for (const side of [-1, 1]) {
-        let x = 9 + R.range(0, 2);
-        while (x < tw - 3) {
-          const type = this.houses.length && R.chance(0.55) ? R.pick(this.houses) : R.pick(prog < 0.5 ? early : late);
-          if (!this.lib[type]) break;
-          const s = R.range(0.9, 1.1);
-          const half = this.lib[type].radius * s * 0.75;
-          if (x + half > tw + 2) break;
-          this.add(type, side * (x + half), d + R.range(-1.5, 1.5), { rot: side > 0 ? -Math.PI / 2 : Math.PI / 2, s });
-          x += half * 2 + R.range(1.5, 3.5);
-        }
-      }
-      // Street life between rows.
-      const streetPool = ['person', 'person', 'bench', 'traffic_cone', 'car', 'car_blue', 'snowman', ...this.street];
-      for (let k = 0; k < 4; k++) this.add(R.pick(streetPool), R.range(-7, 7), d + 8 + R.range(-3, 3));
-      if (i % 3 === 1) this.add(R.pick(['kiosk', 'shop']), R.range(-4, 4), d + 8);
-    }
-    // The finale "boss" sits dead centre at the end of the main street.
-    this.add('clocktower', 0, this.townStart + 10 + rows * 17, { rot: 0, s: 1 });
-  }
-
-  // ---------- rendering ----------
-  buildInstancing() {
-    const counts = {};
-    for (const p of this.statics) counts[p.type] = (counts[p.type] || 0) + 1;
-    for (const p of this.movers) counts[p.type] = (counts[p.type] || 0) + 1;
-    this.meshes = {};
-    for (const type in counts) {
-      const mesh = new THREE.InstancedMesh(this.lib[type].geometry, this.mat, counts[type]);
-      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      mesh.frustumCulled = false;
-      mesh.count = 0;
-      this.meshes[type] = mesh;
-      this.group.add(mesh);
-    }
-    // Static props: bake world matrices once.
-    for (const p of this.statics) {
-      p.y = this.footY(p) - 0.05;
+    p.y = this.footY(p) - 0.05;
+    if (p.move === MOVE_NONE) {
+      p.m = new Float32Array(16);
       _p.set(p.x, p.y, -p.d);
       _q.setFromAxisAngle(_up, p.rot);
       _s.setScalar(p.s);
       _m.compose(_p, _q, _s);
-      p.m = new Float32Array(16);
       _m.toArray(p.m);
+      if (p.decor) insertSorted(this.decor, p);
+      else {
+        insertSorted(this.statics, p);
+        if (p.r > this.maxPropR) this.maxPropR = p.r;
+      }
+    } else {
+      this.movers.push(p);
+      if (p.r > this.maxPropR) this.maxPropR = p.r;
     }
-    this.moverMat = new Float32Array(16);
+    return p;
   }
 
-  lowerBound(d) {
-    const a = this.statics;
-    let lo = 0, hi = a.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (a[mid].d < d) lo = mid + 1; else hi = mid;
+  // Place with overlap rejection against recently placed things (a few retries). Returns the prop or null.
+  place(type, x, d, hw, opts = {}) {
+    const def = this.lib[type];
+    if (!def) return null;
+    const s = clamp(opts.s ?? 1, 0.2, 8);
+    const rad = def.radius * s * 0.8;
+    const rec = this.recent;
+    const pad = opts.pad ?? 0.4;
+    for (let k = 0; k < 6; k++) {
+      let ok = true;
+      for (let i = rec.length - 1; i >= 0; i--) {
+        const c = rec[i];
+        if (Math.abs(c.d - d) > rad + c.r + 1) continue;
+        if (Math.hypot(c.x - x, c.d - d) < (rad + c.r) * 0.95 + pad) { ok = false; break; }
+      }
+      if (ok) {
+        const p = this.add(type, x, d, opts);
+        if (p) { rec.push({ x, d, r: rad }); if (rec.length > 260) rec.splice(0, 100); }
+        return p;
+      }
+      x = clamp(x + this.rng.range(-1, 1) * (rad * 2 + 1), -hw, hw);
+      d += this.rng.range(-0.5, 1) * (rad + 0.6);
     }
-    return lo;
+    return null;
   }
 
-  update(dt, ballD, ahead = CFG.viewAhead, behind = CFG.viewBehind) {
+  // Food piece at relative size q (prop radius / ball radius) near (x, d). Returns its radius^3 (volume units) or 0.
+  food1(q, gr, x, d, hw, opts = {}) {
+    const tr = Math.max(0.12, q * gr);
+    const list = opts.list || this.food;
+    const e = this.pick(list, tr, opts.sLo ?? 0.62, opts.sHi ?? 1.6);
+    if (!e) return 0;
+    const s = clamp(tr / e.r * this.rng.range(0.94, 1.06), 0.22, 7);
+    const pad = Math.min(0.5 + tr * 0.5, hw * 0.3);
+    const p = this.place(e.type, clamp(x, -hw + pad, hw - pad), d, hw, { s, tonK: opts.tonK, rot: opts.rot, pad: opts.spacing });
+    if (!p) return 0;
+    const v = p.r ** 3;
+    this.spent += v;
+    return v;
+  }
+
+  // ===================================================================== generation
+  genRad() { return Math.max(CFG.startR, this.ballR); }
+
+  breadcrumbs() {
+    const R = this.rng;
+    const names = this.snackNames;
+    // (scaled so every crumb is edible for the starting ball whatever the library's natural size is)
+    const cap = (type, k) => Math.min(1, (CFG.startR * CFG.eatRatio * k) / Math.max(0.05, this.lib[type].radius));
+    for (let i = 0; i < 9; i++) {
+      const type = names[i % names.length];
+      const x = Math.sin(i * 0.55) * 1.6;
+      this.add(type, x, 6 + i * 2.8, { s: R.range(0.85, 1.05) * cap(type, 0.9) });
+    }
+    // a second, wider breadcrumb wave so the first seconds are one satisfying combo
+    for (let i = 0; i < 12; i++) {
+      const type = names[(i + 2) % names.length];
+      this.add(type, Math.cos(i * 0.7) * (3 + i * 0.35), 36 + i * 3.4, { s: R.range(0.7, 1.0) * cap(type, 0.9) });
+    }
+  }
+
+  genSegment() {
+    const gr = this.genRad();
+    const T = tierOf(gr);
+    this.lastGen.gr = gr; this.lastGen.T = T;
+    const d = this.genD;
+    const hw = this.halfWidth(d + 10);
+    const seg = clamp(5 + 3.2 * gr, 9, 36);
+    if (d >= this.nextEventD) {
+      const len = this.placeEvent(d, gr, T, hw);
+      this.genD = d + len;
+      this.nextEventD = this.genD + this.rng.range(CFG.eventGap[0], CFG.eventGap[1]);
+      if (this.nextFeatureD < this.genD + 120) this.nextFeatureD = this.genD + 120;
+      return;
+    }
+    if (d >= this.nextFeatureD && d > 150) {
+      const len = this.placeFeature(d, gr, T, hw);
+      this.genD = d + len;
+      this.nextFeatureD = this.genD + this.rng.range(190, 330);
+      if (this.nextEventD < this.genD + 120 && this.nextEventD - this.genD < 120) this.nextEventD = this.genD + 120;
+      return;
+    }
+    if (d > 36) this.regular(d, seg, gr, T, hw, 0);
+    this.genD = d + seg;
+    // keep the overlap list short
+    const rec = this.recent;
+    if (rec.length && rec[0].d < d - 60) { let k = 0; while (k < rec.length && rec[k].d < d - 60) k++; rec.splice(0, k); }
+    const ob = this.obsRecent;
+    if (ob.length && ob[0].d < d - 60) { let k = 0; while (k < ob.length && ob[k].d < d - 60) k++; ob.splice(0, k); }
+  }
+
+  // One ordinary stretch: a budget of food volume, spent on trails / clusters / scatter, plus a few obstacles and movers.
+  // `inner` > 0 = fill only the strip |x| in [inner, hw] (used when the slope just widened).
+  regular(d, seg, gr, T, hw, inner) {
+    const R = this.rng;
+    const frac = inner > 0 ? clamp((hw - inner) / hw, 0, 1) : 1;
+    let allowed = (foodRelAt(gr) * gr ** 3 * seg * frac) / CFG.growK;
+    // The very first stretches are generous: the first minute must feel like a feast.
+    if (d < 400) allowed *= 1.35;
+    // Everything placed anywhere (trails, towns, ramps' landing fields...) draws on one ledger, so jackpots are followed
+    // by a thinner stretch instead of snowballing the growth.
+    this.credit += allowed;
+    let budget = Math.max(this.credit - this.spent, allowed * 0.25);
+    const floor = 0.0008 * gr ** 3;
+    let guard = 0;
+    while (budget > floor && guard++ < 60) {
+      const roll = R.next();
+      let used = 0;
+      if (inner > 0 || roll >= 0.58) used = this.patScatter(d, seg, gr, T, hw, budget, inner);
+      else if (roll < 0.34) used = this.patTrail(d, seg, gr, T, hw, budget);
+      else used = this.patCluster(d, seg, gr, T, hw, budget);
+      if (used <= 0) { budget -= floor * 4; continue; }
+      budget -= used;
+    }
+    this.credit = Math.min(this.credit, this.spent + 3 * allowed);
+    if (inner > 0) return;
+    // obstacles: bigger than the ball, never walls (a free corridor is guaranteed)
+    if (d > 130) {
+      const rate = CFG.obstacleRate[T] * seg / 100;
+      let n = Math.floor(rate);
+      if (R.next() < rate - n) n++;
+      for (let i = 0; i < n; i++) this.placeObstacle(d + R.range(0, seg), gr, T, hw);
+    }
+    // life: skiers / walkers racing or wandering around
+    if (d > 90 && R.next() < 0.1 * seg / 12) this.patMovers(d, seg, gr, T, hw);
+  }
+
+  patScatter(d, seg, gr, T, hw, budget, inner) {
+    const R = this.rng;
+    const n = R.int(3, 8);
+    let used = 0;
+    for (let i = 0; i < n && used < budget; i++) {
+      const q = this.rollQ(T);
+      let x;
+      if (inner > 0) x = R.sign() * R.range(inner, hw);
+      else x = R.range(-hw, hw);
+      used += this.food1(q, gr, x, d + R.range(0, seg), hw);
+    }
+    return used;
+  }
+
+  // A snake of snack-size pieces: the "follow the line" candy.
+  patTrail(d, seg, gr, T, hw, budget) {
+    const R = this.rng;
+    const n = R.int(6, 11);
+    const x0 = R.range(-hw * 0.75, hw * 0.75);
+    const amp = R.range(0, hw * 0.35), freq = R.range(0.04, 0.1);
+    const q0 = this.rollQ(T);
+    let used = 0;
+    let dd = d + R.range(0, seg * 0.4);
+    for (let i = 0; i < n && used < budget * 1.3; i++) {
+      const q = clamp(q0 * R.range(0.85, 1.15), 0.1, 0.86);
+      const tr = Math.max(0.12, q * gr);
+      const x = clamp(x0 + Math.sin(dd * freq) * amp, -hw, hw);
+      used += this.food1(q, gr, x, dd, hw, { spacing: 0.1 });
+      dd += Math.max(1.5, tr * 2.1 + 0.4);
+    }
+    return used;
+  }
+
+  // One bigger piece with a ring of snacks: the "meal".
+  patCluster(d, seg, gr, T, hw, budget) {
+    const R = this.rng;
+    const cx = R.range(-hw * 0.7, hw * 0.7);
+    const cd = d + R.range(0, seg * 0.6);
+    const qc = R.range(0.45, 0.8);
+    const trc = qc * gr;
+    let used = this.food1(qc, gr, cx, cd, hw);
+    const ringR = trc * 0.9 + R.range(0.8, 2) + gr * 0.5;
+    const n = R.int(5, 9);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + R.next() * 0.4;
+      const q = clamp(this.rollQ(T) * 0.8, 0.1, 0.5);
+      used += this.food1(q, gr, cx + Math.cos(a) * ringR * R.range(0.9, 1.3), cd + Math.sin(a) * ringR * R.range(0.9, 1.3), hw);
+      if (used > budget * 1.6) break;
+    }
+    return used;
+  }
+
+  patMovers(d, seg, gr, T, hw) {
+    const R = this.rng;
+    if (!this.walkers.length) return;
+    const skiers = R.chance(0.55);
+    const n = R.int(3, 6);
+    const q = R.range(0.3, 0.7);
+    const e = this.pick(this.walkers, q * gr, 0.6, 1.6);
+    if (!e) return;
+    const s = clamp(q * gr / e.r, 0.25, 6);
+    const cx = R.range(-hw * 0.6, hw * 0.6);
+    for (let i = 0; i < n; i++) {
+      const x = clamp(cx + R.range(-5, 5) * (1 + gr * 0.3), -hw + 1, hw - 1);
+      if (skiers) this.add(e.type, x, d + R.range(0, 10), { s: s * R.range(0.92, 1.08), move: MOVE_SKI, vd: R.range(5, 8.5), rot: Math.PI });
+      else this.add(e.type, x, d + R.range(0, 10), { s: s * R.range(0.92, 1.08), move: MOVE_WANDER });
+    }
+  }
+
+  // A prop clearly bigger than the ball. Never closes the track: a corridor of at least ~3 ball widths stays free.
+  placeObstacle(d, gr, T, hw) {
+    const R = this.rng;
+    const q = R.chance(0.15) ? R.range(2.6, 3.6) : R.range(1.3, 2.5);
+    const tr = q * gr;
+    const e = this.pick(this.obst, tr, 0.6, 1.7);
+    if (!e) return;
+    const s = clamp(tr / e.r * R.range(0.95, 1.08), 0.3, 7);
+    const rad = e.r * s;
+    const big = q > 2;
+    for (let k = 0; k < 5; k++) {
+      const x = big ? R.sign() * R.range(hw * 0.35, hw * 0.9) : R.range(-hw * 0.85, hw * 0.85);
+      if (Math.abs(x) + rad * 0.7 > hw + rad * 0.3) continue;
+      // free-corridor check against the obstacles around this distance
+      const need = Math.max(3.2 * gr + 2, 4);
+      const ivs = [[x - rad * CFG.contactK, x + rad * CFG.contactK]];
+      for (const o of this.obsRecent) if (Math.abs(o.d - d) < (o.r + rad) * 0.7 + gr * 5) ivs.push([o.x - o.r * CFG.contactK, o.x + o.r * CFG.contactK]);
+      ivs.sort((a, b) => a[0] - b[0]);
+      let cursor = -hw, best = 0;
+      for (const iv of ivs) { best = Math.max(best, iv[0] - cursor); cursor = Math.max(cursor, iv[1]); }
+      best = Math.max(best, hw - cursor);
+      if (best < need) continue;
+      const p = this.place(e.type, x, d, hw, { s, pad: 1 });
+      if (!p) continue;
+      p.obstacle = true;
+      this.obsRecent.push({ x, d, r: rad });
+      // a snack arc around it: steering around is rewarded
+      const side = x > 0 ? -1 : 1;
+      const arcN = 6;
+      for (let i = 0; i < arcN; i++) {
+        const t = i / (arcN - 1);
+        this.food1(clamp(this.rollQ(T) * 0.75, 0.12, 0.45), gr, x + side * (rad * CFG.contactK + gr * 1.2 + 1.2 + Math.sin(t * Math.PI) * 1.5), d - rad + t * rad * 2.4, hw, { spacing: 0.1 });
+      }
+      return;
+    }
+  }
+
+  // ---- terrain features: kicker ramp with a landing field, or a bare-ground patch with bait on the far side ----
+  placeFeature(d, gr, T, hw) {
+    const R = this.rng;
+    const kind = R.chance(0.55) ? 'ramp' : 'patch';
+    if (kind === 'ramp') return this.placeRamp(d, gr, T, hw);
+    return this.placePatch(d, gr, T, hw);
+  }
+
+  placeRamp(d, gr, T, hw) {
+    const R = this.rng;
+    const w = Math.min(hw * 1.1, R.range(6, 8) + gr * 1.3);
+    const len = 9 + gr * 1.2;
+    const h = 2.6 + gr * 0.3;
+    const x = R.range(-hw + w / 2 + 0.5, hw - w / 2 - 0.5) * 0.9;
+    const flip = d > 450 && R.chance(0.5);
+    const ramp = { x, d, w, len, h, flip, mesh: null, R: gr };
+    this.ramps.push(ramp);
+    this.zones.push({ d0: d - 8, d1: d + len + 60 + gr * 3, kind: 'ramp' });
+    // landing field: flying into a crowd is the money shot
+    const v = Math.min(CFG.maxSpeed, CFG.baseSpeed + CFG.sizeSpeed * Math.sqrt(gr));
+    const B = 5 + 0.42 * v + CFG.grade * v;
+    const t = (B + Math.sqrt(B * B + 2 * CFG.gravity * h)) / CFG.gravity;
+    const land = d + len + v * t;
+    const n = 14 + (flip ? 6 : 0);
+    for (let i = 0; i < n; i++) {
+      const q = clamp(this.rollQ(T) * R.range(0.8, 1.1), 0.12, 0.86);
+      this.food1(q, gr, clamp(x + R.range(-7, 7), -hw + 1, hw - 1), land + R.range(-8, 10), hw, { spacing: 0.1 });
+    }
+    this.buildRampMesh(ramp);
+    return land - d + 14;
+  }
+
+  placePatch(d, gr, T, hw) {
+    const R = this.rng;
+    const rx = Math.min(hw * 0.4, R.range(4, 7) + gr * 1.6), rd = R.range(8, 14) + gr * 2.6;
+    const x = R.range(-hw + rx * 0.6, hw - rx * 0.6);
+    const pd = d + rd + 4;
+    this.patches.push({ x, d: pd, rx, rd });
+    this.zones.push({ d0: pd - rd - 6, d1: pd + rd + 6, kind: 'patch' });
+    this.markDirty(pd - rd - 8);
+    // bait on the far side of the dirt, and a clean path around it
+    for (let i = 0; i < 7; i++) {
+      const q = clamp(this.rollQ(T), 0.15, 0.7);
+      this.food1(q, gr, clamp(x + R.range(-rx, rx) * 0.7, -hw + 1, hw - 1), pd + rd * R.range(0.4, 1.1), hw);
+    }
+    return rd * 2 + 14;
+  }
+
+  zoneFree(d0, d1, kinds) {
+    for (let i = 0; i < this.zones.length; i++) {
+      const z = this.zones[i];
+      if (kinds && kinds.indexOf(z.kind) < 0) continue;
+      if (d0 < z.d1 && d1 > z.d0) return false;
+    }
+    return true;
+  }
+
+  // ---- events: KASABA jackpot, size gate, golden snowball ----
+  placeEvent(d, gr, T, hw) {
+    const kinds = ['town', 'golden', 'gate'];
+    let kind;
+    if (this.eventNo === 0) kind = 'town';
+    else {
+      const pool = kinds.filter((k) => k !== this.lastEventKind);
+      kind = pool[Math.floor(this.rng.next() * pool.length)];
+    }
+    this.eventNo++;
+    this.lastEventKind = kind;
+    if (kind === 'town') return this.placeTown(d, gr, T, hw);
+    if (kind === 'gate') return this.placeGate(d, gr, T, hw);
+    return this.placeGolden(d, gr, T, hw);
+  }
+
+  placeTown(d, gr, T, hw) {
+    const R = this.rng;
+    const tr = gr * 0.58;
+    const pitch = Math.max(2.6, tr * 2 + 2.2);
+    const rows = clamp(Math.round(70 / pitch), 5, 8);
+    const len = rows * pitch + 16;
+    const street = Math.max(2.4 + gr * 0.9, 4);
+    const d0 = d + 8;
+    this.events.push({ kind: 'town', d0, d1: d0 + rows * pitch, name: 'KASABA', seen: false });
+    this.zones.push({ d0: d - 10, d1: d + len + 10, kind: 'town' });
+    for (let i = 0; i < rows; i++) {
+      const dd = d0 + i * pitch;
+      for (const side of [-1, 1]) {
+        const q = R.range(0.3, 0.62);
+        const e = this.pick(this.town, q * gr, 0.55, 1.7);
+        if (!e) continue;
+        const s = clamp(q * gr / e.r, 0.25, 6);
+        const rad = e.r * s;
+        const x = side * (street + rad * CFG.contactK + R.range(0, 0.8));
+        if (Math.abs(x) + rad * 0.5 > hw) continue;
+        this.place(e.type, x, dd + R.range(-0.5, 0.5), hw, { s, rot: side > 0 ? -Math.PI / 2 : Math.PI / 2, tonK: 1.5, pad: 0.1 });
+      }
+      // street life
+      this.food1(clamp(this.rollQ(T) * 0.9, 0.12, 0.6), gr, R.range(-street * 0.6, street * 0.6), dd + pitch * 0.5, hw, { tonK: 1.5, spacing: 0.1 });
+    }
+    return len;
+  }
+
+  placeGolden(d, gr, T, hw) {
+    const R = this.rng;
+    const x = R.range(-hw * 0.5, hw * 0.5);
+    const gd = d + 22;
+    this.specialQueue.push({ kind: 'golden', x, d: gd });
+    this.events.push({ kind: 'golden', d0: gd - 25, d1: gd + 4, name: 'ALTIN KARTOPU', seen: false });
+    this.zones.push({ d0: d - 6, d1: d + 46, kind: 'golden' });
+    // a halo of snacks around it, so the detour is worth it anyway
+    const n = 12;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      this.food1(clamp(this.rollQ(T) * 0.8, 0.12, 0.5), gr, x + Math.cos(a) * (3 + gr * 1.6), gd + Math.sin(a) * (4 + gr * 1.6), hw, { spacing: 0.1 });
+    }
+    return 46;
+  }
+
+  // Size gate: a full-width wall of ice blocks you smash through if you are big enough ('⛔ X m'). Too small = heavy bump,
+  // but the wall always breaks (no soft-lock). A feast before it lets you top up.
+  placeGate(d, gr, T, hw) {
+    const R = this.rng;
+    const gd = d + 70;
+    // a pace check: you should be about as big as the slope expects there
+    const minR = Math.max(gr * 0.96, Math.min(gr * 1.5, expectedRAt(gd) * 0.9), CFG.startR + 0.1);
+    const g = this.buildGate(gd, minR, Math.max(hw, this.halfWidth(gd)));
+    this.events.push({ kind: 'gate', d0: gd - 60, d1: gd + 5, name: 'KAPI', seen: false, gate: g });
+    this.zones.push({ d0: d - 6, d1: gd + 14, kind: 'gate' });
+    // feeding zone before the wall: two snack trails
+    for (let k = 0; k < 2; k++) {
+      let x = R.range(-hw * 0.5, hw * 0.5);
+      const amp = R.range(2, hw * 0.3);
+      for (let i = 0; i < 11; i++) {
+        const dd = d + 8 + k * 14 + i * (2.2 + gr * 0.4);
+        this.food1(clamp(this.rollQ(T) * 0.9, 0.12, 0.7), gr, clamp(x + Math.sin(i * 0.6 + k) * amp, -hw, hw), dd, hw, { spacing: 0.1 });
+      }
+    }
+    return 70 + 14;
+  }
+
+  buildGate(gd, minR, hw) {
+    const hwG = hw + 1.4;
+    const colW = Math.max(1.8, Math.min(3.4, minR * 0.7));
+    const n = Math.max(4, Math.ceil((hwG * 2) / colW));
+    const w = (hwG * 2) / n;
+    const H = Math.max(2.4, minR * 2.1);
+    const T = Math.max(1.5, minR * 0.45);
+    const g = { d: gd, minR, hw: hwG, H, T, cols: [], broken: false, t: 0, weak: false, label: null, labelText: '' };
+    for (let i = 0; i < n; i++) {
+      const x = -hwG + w * (i + 0.5);
+      const gy = this.groundY(x, gd);
+      const tint = i % 2 ? 0xbfdcf7 : 0xd8ecff;
+      const col = { x, y: gy + H / 2 - 0.2, d: gd, sx: w * 0.96, sy: H, sz: T, rot: 0, rx: 0, color: tint, vx: 0, vy: 0, vd: 0, wx: 0, wy: 0, alive: true, big: true };
+      const cap = { x, y: gy + H + 0.35, d: gd, sx: w * 0.96, sy: Math.max(0.5, H * 0.14), sz: T * 1.08, rot: 0, rx: 0, color: i % 2 ? 0xff4d4d : 0xffffff, vx: 0, vy: 0, vd: 0, wx: 0, wy: 0, alive: true, big: true };
+      g.cols.push(col, cap);
+      this.boxItems.push(col, cap);
+    }
+    const txt = `⛔ ${fmtDiam(minR * 2)} m`;
+    g.labelText = txt;
+    g.label = this.makeLabel(txt, '#ff5a4a');
+    if (g.label) {
+      g.label.position.set(0, this.groundY(0, gd) + H + Math.max(2, H * 0.55), -gd);
+      const lw = clamp(hwG * 0.8, 5, 34);
+      g.label.scale.set(lw, lw * 0.3, 1);
+      this.group.add(g.label);
+    }
+    this.gates.push(g);
+    return g;
+  }
+
+  // Gate smashed (or it smashed you): blocks fly apart.
+  breakGate(g, hitX = 0, power = 1) {
+    if (g.broken) return;
+    g.broken = true; g.t = 0;
+    for (const c of g.cols) {
+      const dx = c.x - hitX;
+      c.vx = dx * 0.5 * power + (Math.random() - 0.5) * 3;
+      c.vy = (4 + Math.random() * 7) * power;
+      c.vd = (6 + Math.random() * 9) * power;
+      c.wx = (Math.random() - 0.5) * 8;
+      c.wy = (Math.random() - 0.5) * 6;
+    }
+    if (g.label) g.label.visible = false;
+  }
+
+  makeLabel(text, color = '#ffffff') {
+    if (typeof document === 'undefined') return null;
+    const cv = document.createElement('canvas');
+    cv.width = 320; cv.height = 96;
+    const g = cv.getContext('2d');
+    g.fillStyle = 'rgba(20,28,48,0.78)';
+    const r = 26;
+    g.beginPath();
+    g.moveTo(r, 4); g.lineTo(316 - r, 4); g.quadraticCurveTo(316, 4, 316, r); g.lineTo(316, 92 - r); g.quadraticCurveTo(316, 92, 316 - r, 92);
+    g.lineTo(r, 92); g.quadraticCurveTo(4, 92, 4, 92 - r); g.lineTo(4, r); g.quadraticCurveTo(4, 4, r, 4);
+    g.closePath(); g.fill();
+    g.lineWidth = 5; g.strokeStyle = color; g.stroke();
+    g.font = '800 54px system-ui, -apple-system, Segoe UI, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#ffffff';
+    g.fillText(text, 160, 52);
+    const tex = new THREE.CanvasTexture(cv);
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }));
+    spr.renderOrder = 8;
+    spr.frustumCulled = false;
+    return spr;
+  }
+
+  // Floating "⛔ X m" tag above a too-big obstacle (used for the first few the player meets).
+  tagObstacle(p, text) {
+    if (p.tag) return;
+    const spr = this.makeLabel(text, '#ff5a4a');
+    if (!spr) return;
+    p.tag = spr;
+    const lw = clamp(p.r * 1.3, 2.6, 22);
+    spr.scale.set(lw, lw * 0.3, 1);
+    spr.position.set(p.x, p.y + p.h + lw * 0.22, -p.d);
+    this.group.add(spr);
+    this.labels = this.labels || [];
+    this.labels.push(p);
+  }
+
+  // ---- tier-up: the slope widens, new-tier food drops right ahead ----
+  setTier(t, ballD) {
+    if (t <= this.curTier) return;
+    const from = this.trans.length ? this.trans[this.trans.length - 1].to : this.hw0;
+    const to = CFG.tierWidth[Math.min(t, CFG.tierWidth.length - 1)] / 2;
+    let d0 = ballD + CFG.widthLead;
+    if (this.trans.length) d0 = Math.max(d0, this.trans[this.trans.length - 1].d1 + 4);
+    this.trans.push({ d0, d1: d0 + CFG.widthBlend, from, to, tier: t });
+    this.curTier = t;
+    // scenery beyond the start of the widening is re-decorated for the new width
+    const cut = lbD(this.decor, d0 - 10);
+    this.decor.length = Math.min(this.decor.length, cut);
+    this.decorD = Math.min(this.decorD, d0 - 10);
+    this.markDirty(d0 - CH);
+    this.addArch(d0 + CFG.widthBlend, to, t);
+    // new-tier welcome food, then fill the new strip of slope
+    const gr = this.genRad();
+    const T = tierOf(gr);
+    const hw = this.halfWidth(ballD + 55);
+    const wd = ballD + 42;
+    for (let i = 0; i < 3; i++) this.food1(this.rng.range(0.45, 0.7), gr, this.rng.range(-hw * 0.6, hw * 0.6), wd + i * 9, hw);
+    for (let i = 0; i < 9; i++) this.food1(clamp(this.rollQ(T), 0.15, 0.55), gr, this.rng.range(-hw * 0.7, hw * 0.7), wd + this.rng.range(0, 34), hw, { spacing: 0.1 });
+    this.food1(this.rng.range(0.72, 0.84), gr, this.rng.range(-hw * 0.3, hw * 0.3), wd + 24, hw);
+    if (this.genD > d0) {
+      for (let dd = d0; dd < this.genD; dd += clamp(5 + 3.2 * gr, 9, 36)) {
+        const hwd = this.halfWidth(dd + 20);
+        const inner = this.halfWidth(d0 - 1);
+        if (hwd > inner + 1) this.regular(dd, clamp(5 + 3.2 * gr, 9, 36), gr, T, hwd, inner);
+      }
+    }
+  }
+
+  // Zone border: two striped pylons at the end of the widening + a coloured line across the new slope.
+  addArch(d, hw, tier) {
+    const H = 7 + tier * 3.2;
+    const w = 1.6 + tier * 0.5;
+    const cols = [0xff6a2a, 0x2f7dff, 0xffc83a, 0xb066ff, 0xff4fd8];
+    const a = { d, hw, tier, items: [] };
+    for (const sd of [-1, 1]) {
+      const x = sd * (hw + w);
+      const gy = this.groundY(x, d);
+      for (let i = 0; i < 4; i++) {
+        const it = { x, y: gy + (H / 4) * (i + 0.5), d, sx: w, sy: H / 4, sz: w, rot: 0, rx: 0, color: i % 2 ? 0xffffff : cols[Math.min(tier, 4)], alive: true };
+        a.items.push(it); this.boxItems.push(it);
+      }
+      const cap = { x, y: gy + H + w * 0.4, d, sx: w * 1.4, sy: w * 0.8, sz: w * 1.4, rot: 0, rx: 0, color: 0x1f3a66, alive: true };
+      a.items.push(cap); this.boxItems.push(cap);
+    }
+    this.arches.push(a);
+  }
+
+  // ===================================================================== decor (banks)
+  genDecor() {
+    const R = this.rngD;
+    const d = this.decorD;
+    const T = this.tierAtD(d);
+    const ts = DECOR_SCALE[Math.min(T, DECOR_SCALE.length - 1)];
+    const step = (2.6 + this.ballR * 0.5) * ts;
+    this.decorD = d + step * R.range(0.8, 1.25);
+    if (!this.decorPool.length) return;
+    const hw = this.halfWidth(d);
+    for (const side of [-1, 1]) {
+      if (R.chance(0.14)) continue;
+      const off = R.range(1.2, 30) * ts;
+      const near = off < 7 * ts;
+      const tr = ts * (near ? R.range(1.2, 2.6) : off < 18 * ts ? R.range(2.2, 4.8) : R.range(4.5, 9));
+      const e = this.pick(this.decorPool, tr, 0.6, 1.7);
+      if (!e) continue;
+      const s = clamp(tr / e.r * R.range(0.92, 1.18), 0.3, 8);
+      const x = side * (hw + off + e.r * s * 0.4 + 1.2);
+      if (Math.abs(x) > EDGE - 4) continue;
+      this.add(e.type, x, d + R.range(-1, 1) * step * 0.4, { s, decor: true });
+    }
+  }
+
+  // ===================================================================== shared meshes: chunks, boxes, poles
+  buildShared() {
+    // snow chunk (knocked-off snow, always edible)
+    const cgeo = new THREE.IcosahedronGeometry(1, 0);      // (already non-indexed: no toNonIndexed() warning)
+    const col = new Float32Array(cgeo.attributes.position.count * 3);
+    _c.setHex(0xf6faff);
+    for (let i = 0; i < col.length; i += 3) { col[i] = _c.r; col[i + 1] = _c.g; col[i + 2] = _c.b; }
+    cgeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    cgeo.translate(0, 0.8, 0);
+    cgeo.computeBoundingSphere();
+    this.chunkDef = { name: 'chunk', geometry: cgeo, radius: 1, height: 2, tier: 0, kind: 'chunk' };
+    this.lib.chunk = this.chunkDef;
+
+    // generic box (gate blocks, zone pylons): unit cube, per-instance colour
+    const bgeo = new THREE.BoxGeometry(1, 1, 1).toNonIndexed();
+    const bcol = new Float32Array(bgeo.attributes.position.count * 3).fill(1);
+    bgeo.setAttribute('color', new THREE.BufferAttribute(bcol, 3));
+    this.boxMesh = new THREE.InstancedMesh(bgeo, this.mat, 420);
+    this.boxMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.boxMesh.setColorAt(0, _c.setHex(0xffffff));
+    this.boxMesh.frustumCulled = false;
+    this.boxMesh.count = 0;
+    this.group.add(this.boxMesh);
+
+    // piste poles marking the track edge
+    const pgeo = new THREE.CylinderGeometry(0.09, 0.09, 1.8, 5).translate(0, 0.9, 0);
+    this.poleMesh = new THREE.InstancedMesh(pgeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), 96);
+    this.poleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.poleMesh.setColorAt(0, _c.setHex(0xff6a2a));
+    this.poleMesh.frustumCulled = false;
+    this.poleMesh.count = 0;
+    this.group.add(this.poleMesh);
+    this.poleA = new THREE.Color(0xff6a2a); this.poleB = new THREE.Color(0x2f7dff);
+  }
+
+  getMesh(type) {
+    let mesh = this.meshes[type];
+    if (mesh) return mesh;
+    const def = this.lib[type];
+    mesh = new THREE.InstancedMesh(def.geometry, this.mat, MESH_CAP);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MESH_CAP * 3).fill(1), 3).setUsage(THREE.DynamicDrawUsage);
+    mesh.frustumCulled = false;
+    mesh.count = 0;
+    mesh.userData.prev = 0;
+    this.meshes[type] = mesh;
+    this.meshList.push(mesh);
+    this.group.add(mesh);
+    return mesh;
+  }
+
+  // ===================================================================== terrain chunks (pooled)
+  initTerrain() {
+    this.chunks = new Map();
+    this.chunkPool = [];
+    const idx = new Uint32Array(NR * (NC - 1) * 6);
+    let k = 0;
+    for (let j = 0; j < NR; j++) {
+      for (let i = 0; i < NC - 1; i++) {
+        const a = j * NC + i, b = a + 1, c = a + NC, dd = c + 1;
+        idx[k++] = a; idx[k++] = b; idx[k++] = c; idx[k++] = b; idx[k++] = dd; idx[k++] = c; // counter-clockwise from above
+      }
+    }
+    this.terrIndex = new THREE.BufferAttribute(idx, 1);
+    this.cSnow = new THREE.Color(0xf4f8ff); this.cShade = new THREE.Color(0xdde8f6); this.cBank = new THREE.Color(0xe2ecf8);
+    this.cDirt = new THREE.Color(0x8a6447); this.cGrass = new THREE.Color(0x6f9a52);
+  }
+
+  newChunk() {
+    const pos = new Float32Array((NR + 1) * NC * 3);
+    const col = new Float32Array((NR + 1) * NC * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setIndex(this.terrIndex);
+    const mesh = new THREE.Mesh(geo, this.snowMat);
+    mesh.frustumCulled = false;
+    this.group.add(mesh);
+    return { mesh, geo, pos, col, k: -9999, stale: false };
+  }
+
+  colX(i, hw) {
+    if (i < NB) return -(hw + BANK_F[i] * (EDGE - hw));
+    if (i <= NB + NCI) return -hw + (2 * hw * (i - NB)) / NCI;
+    return hw + BANK_F[NB - 1 - (i - NB - NCI - 1)] * (EDGE - hw);
+  }
+
+  fillChunk(ch, k) {
+    ch.k = k;
+    ch.stale = false;
+    const d0 = k * CH;
+    const { pos, col } = ch;
+    const c = _c;
+    let o = 0;
+    for (let j = 0; j <= NR; j++) {
+      const d = d0 + j * ROW;
+      const hw = this.halfWidth(d);
+      // zone borders: a coloured line across the track where the slope starts to widen
+      let zone = 0;
+      for (let t = 0; t < this.trans.length; t++) {
+        const dz = Math.abs(d - this.trans[t].d1);
+        if (dz < 2.4) zone = Math.max(zone, 1 - dz / 2.4);
+      }
+      for (let i = 0; i < NC; i++) {
+        const x = this.colX(i, hw);
+        pos[o] = x; pos[o + 1] = this.groundY(x, d); pos[o + 2] = -d;
+        const ax = Math.abs(x) - hw;
+        if (ax > 0.001) c.copy(this.cBank).lerp(this.cShade, Math.min(1, 0.5 + 0.5 * Math.sin(d * 0.07 + x))).lerp(this.cSnow, Math.max(0, 1 - ax / 6));
+        else c.copy(this.cSnow).lerp(this.cShade, 0.25 + 0.25 * Math.sin(x * 0.7 + d * 0.21));
+        for (let q = 0; q < this.patches.length; q++) {
+          const p = this.patches[q];
+          const a = (x - p.x) / (p.rx + 1.5), b = (d - p.d) / (p.rd + 1.5);
+          const qq = a * a + b * b;
+          if (qq < 1) c.copy(qq < 0.6 ? this.cDirt : this.cGrass).lerp(this.cDirt, Math.sin(x * 3 + d) * 0.3 + 0.3);
+        }
+        if (zone > 0 && ax < 0.5) c.lerp(_c2.setHex(0x7fd0ff), zone * 0.8);
+        col[o] = c.r; col[o + 1] = c.g; col[o + 2] = c.b;
+        o += 3;
+      }
+    }
+    ch.geo.attributes.position.needsUpdate = true;
+    ch.geo.attributes.color.needsUpdate = true;
+    ch.geo.computeVertexNormals();
+    ch.geo.computeBoundingSphere();
+  }
+
+  syncTerrain(ballD, ahead, behind, unlimited = false) {
+    const kMin = Math.max(-1, Math.floor((ballD - behind - 10) / CH));
+    const kMax = Math.floor((ballD + ahead) / CH);
+    // release chunks out of range (chunk.k is its index; iterating values() allocates no entry arrays)
+    for (const ch of this.chunks.values()) {
+      const k = ch.k;
+      if (k < kMin || k > kMax) { this.chunks.delete(k); this.chunkPool.push(ch); ch.mesh.visible = false; }
+    }
+    let budget = unlimited ? 99 : 2;
+    for (let k = kMin; k <= kMax && budget > 0; k++) {
+      let ch = this.chunks.get(k);
+      if (!ch) {
+        ch = this.chunkPool.pop() || this.newChunk();
+        ch.mesh.visible = true;
+        this.chunks.set(k, ch);
+        this.fillChunk(ch, k);
+        budget--;
+      } else if (ch.stale) {
+        this.fillChunk(ch, k);
+        budget--;
+      }
+    }
+  }
+
+  // The ground changed (slope widened, patch added): chunks reaching past `d` get rebuilt over the next frames.
+  markDirty(d) {
+    for (const ch of this.chunks.values()) if ((ch.k + 1) * CH > d) ch.stale = true;
+  }
+
+  buildRampMesh(r) {
+    const pos = [], col = [];
+    const white = new THREE.Color(0xffffff), blue = new THREE.Color(0x4aa8ff), orange = new THREE.Color(0xff7a2f);
+    const pink = new THREE.Color(0xff4fd8), cyan = new THREE.Color(0x3fe0ff), yellow = new THREE.Color(0xffe03a), violet = new THREE.Color(0x6a3df0);
+    const push = (x, y, d, c) => { pos.push(x, y, -d); col.push(c.r, c.g, c.b); };
+    const n = 8;
+    const surf = (x, u) => this.groundY(x, r.d + u) + r.h * Math.pow(u / r.len, 1.4);
+    const xl = r.x - r.w / 2, xr = r.x + r.w / 2;
+    for (let i = 0; i < n; i++) {
+      const u0 = (i / n) * r.len, u1 = ((i + 1) / n) * r.len;
+      const c = r.flip ? (i >= n - 1 ? yellow : i % 2 ? pink : cyan) : (i >= n - 1 ? orange : i % 2 ? white : blue);
+      push(xl, surf(xl, u0), r.d + u0, c); push(xr, surf(xr, u0), r.d + u0, c); push(xl, surf(xl, u1), r.d + u1, c);
+      push(xr, surf(xr, u0), r.d + u0, c); push(xr, surf(xr, u1), r.d + u1, c); push(xl, surf(xl, u1), r.d + u1, c);
+      const sc = r.flip ? violet : blue;
+      for (const x of [xl, xr]) {
+        const g0 = this.groundY(x, r.d + u0) - 0.3, g1 = this.groundY(x, r.d + u1) - 0.3;
+        push(x, g0, r.d + u0, sc); push(x, surf(x, u0), r.d + u0, sc); push(x, g1, r.d + u1, sc);
+        push(x, surf(x, u0), r.d + u0, sc); push(x, surf(x, u1), r.d + u1, sc); push(x, g1, r.d + u1, sc);
+      }
+    }
+    const u = r.len;
+    const lc = r.flip ? pink : orange;
+    push(xl, this.groundY(xl, r.d + u) - 0.3, r.d + u, lc); push(xl, surf(xl, u), r.d + u, lc); push(xr, surf(xr, u), r.d + u, lc);
+    push(xl, this.groundY(xl, r.d + u) - 0.3, r.d + u, lc); push(xr, surf(xr, u), r.d + u, lc); push(xr, this.groundY(xr, r.d + u) - 0.3, r.d + u, lc);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.computeVertexNormals();
+    if (!this.rampMat) this.rampMat = patchMaterial(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide }), { snow: true });
+    r.mesh = new THREE.Mesh(geo, this.rampMat);
+    r.mesh.frustumCulled = false;
+    this.group.add(r.mesh);
+  }
+
+  // ===================================================================== streaming
+  stream(ballD, ahead, behind, unlimited = false) {
+    // content must reach as far as the fog lets you see, or props pop in on a big ball (the camera rises with the radius)
+    const contentAhead = clamp(140 + 20 * this.ballR, 150, 330);
+    let n = 0;
+    while (this.genD < ballD + contentAhead && (unlimited || n++ < 5)) this.genSegment();
+    n = 0;
+    const decorAhead = Math.max(ahead, contentAhead) + 20;
+    while (this.decorD < ballD + decorAhead && (unlimited || n++ < 10)) this.genDecor();
+    this.syncTerrain(ballD, ahead, behind, unlimited);
+    // recycle what is far behind
+    this.cullT -= 1;
+    if (this.cullT <= 0 || unlimited) {
+      this.cullT = 45;
+      const cut = ballD - behind - 70;
+      let k = lbD(this.statics, cut);
+      if (k > 0) this.statics.splice(0, k);
+      k = lbD(this.decor, cut);
+      if (k > 0) this.decor.splice(0, k);
+      for (let i = this.ramps.length - 1; i >= 0; i--) {
+        const r = this.ramps[i];
+        if (r.d + r.len < cut) { if (r.mesh) { this.group.remove(r.mesh); r.mesh.geometry.dispose(); } this.ramps.splice(i, 1); }
+      }
+      for (let i = this.patches.length - 1; i >= 0; i--) if (this.patches[i].d + this.patches[i].rd < cut) this.patches.splice(i, 1);
+      for (let i = this.zones.length - 1; i >= 0; i--) if (this.zones[i].d1 < cut) this.zones.splice(i, 1);
+      for (let i = this.events.length - 1; i >= 0; i--) if (this.events[i].d1 < cut) this.events.splice(i, 1);
+      for (let i = this.gates.length - 1; i >= 0; i--) {
+        const g = this.gates[i];
+        if (g.d < cut) { if (g.label) { this.group.remove(g.label); g.label.material.map?.dispose(); g.label.material.dispose(); } this.gates.splice(i, 1); }
+      }
+      for (let i = this.arches.length - 1; i >= 0; i--) if (this.arches[i].d < cut) { for (const it of this.arches[i].items) it.alive = false; this.arches.splice(i, 1); }
+      let w = 0;
+      for (let i = 0; i < this.boxItems.length; i++) { const b = this.boxItems[i]; if (b.alive && b.d > cut) this.boxItems[w++] = b; }
+      this.boxItems.length = w;
+      if (this.labels) {
+        for (let i = this.labels.length - 1; i >= 0; i--) {
+          const p = this.labels[i];
+          if (!p.alive || p.d < cut) { this.group.remove(p.tag); p.tag.material.map?.dispose(); p.tag.material.dispose(); p.tag = null; this.labels.splice(i, 1); }
+        }
+      }
+    }
+  }
+
+  // ===================================================================== per frame
+  update(dt, ballD, ahead = CFG.viewAhead, behind = CFG.viewBehind, ball = null) {
     this.ahead = ahead;
     this.behind = behind;
     this.time += dt;
+    this.ballD = ballD;
+    if (ball) { this.ballR = ball.r; this.ballX = ball.x; }
+    this.stream(ballD, ahead, behind);
+    this.updateMovers(dt);
+    if (ball) this.updatePulls(dt, ball);
+    this.updateGateAnim(dt);
+    this.render(ballD);
+  }
+
+  updateMovers(dt) {
     const t = this.time;
-    for (const p of this.movers) {
+    const a = this.movers;
+    let n = 0;
+    for (let i = 0; i < a.length; i++) {
+      const p = a[i];
       if (!p.alive) continue;
+      if (p.move !== MOVE_CHUNK && p.d < this.ballD - this.behind - 90) { p.alive = false; continue; }
+      if (p.kind === 'chunk' && p.d < this.ballD - 60) { p.alive = false; continue; }
+      a[n++] = p;
       if (p.move === MOVE_SKI) {
         p.d += p.vd * dt;
-        p.x = clamp(p.ox + Math.sin(t * 0.9 + p.phase) * 4, -this.halfWidth(p.d) + 1, this.halfWidth(p.d) - 1);
+        const hw = this.halfWidth(p.d);
+        p.x = clamp(p.ox + Math.sin(t * 0.9 + p.phase) * 4, -hw + 1, hw - 1);
         p.rot = Math.PI + Math.cos(t * 0.9 + p.phase) * 0.5;
       } else if (p.move === MOVE_WANDER) {
-        const a = t * 0.5 + p.phase;
-        p.x = p.ox + Math.sin(a) * 2.5;
-        p.d = p.od + Math.sin(a * 0.7) * 2;
-        p.rot = Math.atan2(Math.cos(a) * 2.5, Math.cos(a * 0.7) * -1.4);
+        const ph = t * 0.5 + p.phase;
+        p.x = p.ox + Math.sin(ph) * 2.5;
+        p.d = p.od + Math.sin(ph * 0.7) * 2;
+        p.rot = Math.atan2(Math.cos(ph) * 2.5, Math.cos(ph * 0.7) * -1.4);
       } else if (p.move === MOVE_CROSS) {
         p.x += p.vx * dt;
         if (p.x > 45) p.x = -45;
@@ -469,259 +1092,294 @@ export class World {
       }
       p.y = this.footY(p) - 0.05;
     }
-    this.compactMovers(ballD);
-    this.render(ballD);
+    a.length = n;
+  }
+
+  // ---- visible suction ----
+  // The prop leaves the slope immediately (alive = false) and flies as a pooled proxy: curved path, shrinking and
+  // spinning toward the ball's surface; world.onArrive(proxy) is called when it sticks.
+  pull(p, ball, dur) {
+    if (this.pulls.length >= CFG.maxPulls) return false;
+    const q = this.pullPool.pop() || { def: null };
+    q.type = p.type; q.def = p.def; q.kind = p.kind; q.tier = p.tier; q.mass = p.mass; q.tonK = p.tonK || 1;
+    q.s0 = p.s; q.s = p.s; q.r = p.r; q.h = p.h;
+    q.x = p.x; q.y = p.y + p.h * 0.3; q.d = p.d; q.rot = p.rot;
+    q.sx = p.x; q.sy = q.y; q.sd = p.d;
+    q.t = 0; q.dur = Math.max(0.05, dur);
+    // (cosmetic randomness only: never draw from the seeded generator, or the slope would depend on what you ate)
+    q.spin = (Math.random() < 0.5 ? -1 : 1) * (8 + Math.random() * 8);
+    q.arc = (Math.random() - 0.5) * 2.2;
+    q.lift = 0.6 + Math.random() * 0.6;
+    p.alive = false;
+    this.pulls.push(q);
+    return true;
+  }
+
+  updatePulls(dt, ball) {
+    const a = this.pulls;
+    let n = 0;
+    const bx = ball.x, by = ball.y, bd = ball.d, br = ball.r;
+    for (let i = 0; i < a.length; i++) {
+      const q = a[i];
+      q.t += dt;
+      const u = q.t / q.dur;
+      if (u >= 1) {
+        q.x = bx; q.y = by + br * 0.4; q.d = bd;
+        if (this.onArrive) this.onArrive(q, bx, by, bd);
+        q.def = null;
+        this.pullPool.push(q);
+        continue;
+      }
+      const e = u * u * (1.7 - 0.7 * u);          // ease-in: it hangs for a beat, then is sucked in
+      // aim at the ball's surface (toward the prop), not the centre
+      let dx = q.sx - bx, dz = q.sd - bd;
+      const dl = Math.hypot(dx, dz) || 1;
+      const tx = bx + (dx / dl) * br * 0.6, td = bd + (dz / dl) * br * 0.6, ty = by + br * 0.25;
+      q.x = lerp(q.sx, tx, e) + (-dz / dl) * q.arc * Math.sin(u * Math.PI);
+      q.d = lerp(q.sd, td, e) + (dx / dl) * q.arc * Math.sin(u * Math.PI);
+      q.y = lerp(q.sy, ty, e) + Math.sin(u * Math.PI) * q.lift * Math.min(q.h, br * 1.5 + 1);
+      q.s = q.s0 * (1 - 0.4 * u * u);   // ends at the 0.6 scale it sticks with: no size pop
+      q.rot += q.spin * dt;
+      a[n++] = q;
+    }
+    a.length = n;
+  }
+
+  updateGateAnim(dt) {
+    for (let i = 0; i < this.gates.length; i++) {
+      const g = this.gates[i];
+      if (!g.broken) continue;
+      g.t += dt;
+      const fade = clamp(1 - (g.t - 0.5) / 0.9, 0, 1);
+      for (const c of g.cols) {
+        if (!c.alive) continue;
+        c.vy -= 24 * dt;
+        c.x += c.vx * dt; c.y += c.vy * dt; c.d += c.vd * dt;
+        c.rot += c.wy * dt; c.rx += c.wx * dt;
+        c.k = fade;
+        if (fade <= 0) c.alive = false;
+      }
+    }
+  }
+
+  // ===================================================================== rendering
+  // Per-instance colour: white = edible, amber = almost (a little more snow and it is yours), red = far too big.
+  // Only props within ~110 m ahead are tinted, fading in over the last 40 m so nothing pops.
+  paintTint(mesh, i, p, ballD, tR, tE) {
+    const a = mesh.instanceColor.array, o = i * 3;
+    let g = 1, b = 1;
+    if (tR > 0 && p.kind !== 'chunk') {
+      const lim = tR * tE;
+      if (p.r > lim) {
+        const dd = p.d - ballD;
+        if (dd < 110) {
+          const f = dd < 70 ? 1 : (110 - dd) / 40;
+          if (p.r > lim * 1.5) { g = 1 - 0.42 * f; b = 1 - 0.46 * f; } else { g = 1 - 0.16 * f; b = 1 - 0.38 * f; }
+        }
+      }
+    }
+    a[o] = 1; a[o + 1] = g; a[o + 2] = b;
   }
 
   render(ballD) {
-    if (!this.meshList || this.meshList.length !== Object.keys(this.meshes).length) this.meshList = Object.values(this.meshes);
     const meshes = this.meshList;
     for (let i = 0; i < meshes.length; i++) { meshes[i].userData.prev = meshes[i].count; meshes[i].count = 0; }
-    const d0 = ballD - (this.behind ?? CFG.viewBehind), d1 = ballD + (this.ahead ?? CFG.viewAhead);
-    const i0 = this.lowerBound(d0), i1 = this.lowerBound(d1);
-    for (let i = i0; i < i1; i++) {
-      const p = this.statics[i];
+    const d0 = ballD - this.behind, d1 = ballD + this.ahead;
+    const tR = this.tintR, tE = this.tintEat;
+    const st = this.statics;
+    for (let i = lbD(st, d0), n = lbD(st, d1); i < n; i++) {
+      const p = st[i];
       if (!p.alive) continue;
-      const mesh = this.meshes[p.type];
+      const mesh = this.getMesh(p.type);
+      if (mesh.count >= MESH_CAP) continue;
       mesh.instanceMatrix.array.set(p.m, mesh.count * 16);
+      this.paintTint(mesh, mesh.count, p, ballD, tR, tE);
       mesh.count++;
     }
-    for (const p of this.movers) {
+    const dc = this.decor;
+    for (let i = lbD(dc, d0), n = lbD(dc, d1); i < n; i++) {
+      const p = dc[i];
+      if (!p.alive) continue;
+      const mesh = this.getMesh(p.type);
+      if (mesh.count >= MESH_CAP) continue;
+      mesh.instanceMatrix.array.set(p.m, mesh.count * 16);
+      this.paintTint(mesh, mesh.count, p, ballD, 0, tE);
+      mesh.count++;
+    }
+    const mv = this.movers;
+    for (let i = 0; i < mv.length; i++) {
+      const p = mv[i];
       if (!p.alive || p.d < d0 || p.d > d1) continue;
-      const mesh = this.meshes[p.type];
+      const mesh = this.getMesh(p.type);
+      if (mesh.count >= MESH_CAP) continue;
       _p.set(p.x, p.y, -p.d);
       _q.setFromAxisAngle(_up, p.rot);
       _s.setScalar(p.s);
       _m.compose(_p, _q, _s);
       _m.toArray(mesh.instanceMatrix.array, mesh.count * 16);
+      this.paintTint(mesh, mesh.count, p, ballD, tR, tE);
+      mesh.count++;
+    }
+    const pl = this.pulls;
+    for (let i = 0; i < pl.length; i++) {
+      const p = pl[i];
+      const mesh = this.getMesh(p.type);
+      if (mesh.count >= MESH_CAP) continue;
+      _p.set(p.x, p.y, -p.d);
+      _q.setFromAxisAngle(_up, p.rot);
+      _s.setScalar(p.s);
+      _m.compose(_p, _q, _s);
+      _m.toArray(mesh.instanceMatrix.array, mesh.count * 16);
+      this.paintTint(mesh, mesh.count, p, ballD, 0, tE);
       mesh.count++;
     }
     for (let i = 0; i < meshes.length; i++) {
       const mesh = meshes[i];
       mesh.visible = mesh.count > 0; // empty types cost no draw call
-      if (!mesh.count && !mesh.userData.prev) continue; // empty before and now: nothing to upload
+      if (!mesh.count && !mesh.userData.prev) continue;
+      const k = Math.max(1, mesh.count);
       const attr = mesh.instanceMatrix;
       attr.clearUpdateRanges();
-      attr.addUpdateRange(0, Math.max(1, mesh.count) * 16);
+      attr.addUpdateRange(0, k * 16);
       attr.needsUpdate = true;
+      const ic = mesh.instanceColor;
+      ic.clearUpdateRanges();
+      ic.addUpdateRange(0, k * 3);
+      ic.needsUpdate = true;
     }
+    this.renderBoxes(d0, d1);
+    this.renderPoles(ballD);
   }
 
-  // Collect live props whose centers fall within `reach` of (x, d).
-  query(x, d, reach, out) {
-    out.length = 0;
-    const pad = reach + this.maxPropR;
-    const i0 = this.lowerBound(d - pad), i1 = this.lowerBound(d + pad);
-    for (let i = i0; i < i1; i++) {
-      const p = this.statics[i];
-      if (p.alive && !p.decor && Math.abs(p.x - x) < reach + p.r) out.push(p);
+  renderBoxes(d0, d1) {
+    const mesh = this.boxMesh;
+    let n = 0;
+    const items = this.boxItems;
+    for (let i = 0; i < items.length && n < 420; i++) {
+      const b = items[i];
+      if (!b.alive || b.d < d0 - 20 || b.d > d1 + 20) continue;
+      const k = b.k === undefined ? 1 : b.k;
+      _p.set(b.x, b.y, -b.d);
+      _q.setFromAxisAngle(_up, b.rot);
+      if (b.rx) { _q.multiply(_qx.setFromAxisAngle(_rx, b.rx)); }
+      _s.set(b.sx * k, b.sy * k, b.sz * k);
+      _m.compose(_p, _q, _s);
+      mesh.setMatrixAt(n, _m);
+      mesh.setColorAt(n, _c.setHex(b.color));
+      n++;
     }
-    // Buildings can be wider than maxPropR; the town is short so scan them directly.
-    if (d > this.L) {
-      for (const p of this.buildings) {
-        if (p.alive && Math.abs(p.d - d) >= pad && Math.abs(p.d - d) < reach + p.r && Math.abs(p.x - x) < reach + p.r) out.push(p);
+    mesh.count = n;
+    mesh.visible = n > 0;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }
+
+  renderPoles(ballD) {
+    const mesh = this.poleMesh;
+    const d0 = ballD - this.behind * 0.6, d1 = ballD + Math.min(this.ahead, 340);
+    let n = 0;
+    const step = 14;   // fixed spacing: a tier-up must not shift every pole (only their size follows the zone)
+    for (let d = Math.ceil(d0 / step) * step; d < d1 && n < 94; d += step) {
+      const t = DECOR_SCALE[Math.min(this.tierAtD(d), 4)];
+      const hw = this.halfWidth(d);
+      for (let si = 0; si < 2; si++) {
+        const side = si ? 1 : -1;
+        const x = side * (hw + 0.6);
+        _p.set(x, this.groundY(x, d), -d);
+        _q.identity();
+        _s.set(t, t, t);
+        _m.compose(_p, _q, _s);
+        mesh.setMatrixAt(n, _m);
+        mesh.setColorAt(n, side < 0 ? this.poleA : this.poleB);
+        n++;
       }
     }
-    for (const p of this.movers) {
+    mesh.count = n;
+    mesh.visible = n > 0;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }
+
+  // ===================================================================== queries
+  // Collect live colliding props whose centres fall within `reach` of (x, d).
+  query(x, d, reach, out) {
+    out.length = 0;
+    const st = this.statics;
+    const pad = reach + this.maxPropR;
+    const i1 = lbD(st, d + pad);
+    for (let i = lbD(st, d - pad); i < i1; i++) {
+      const p = st[i];
+      if (p.alive && Math.abs(p.x - x) < reach + p.r) out.push(p);
+    }
+    const mv = this.movers;
+    for (let i = 0; i < mv.length; i++) {
+      const p = mv[i];
       if (p.alive && Math.abs(p.d - d) < reach + p.r && Math.abs(p.x - x) < reach + p.r) out.push(p);
     }
     return out;
   }
 
-  // Snow chunks knocked off the ball: they land ahead and can be re-collected.
+  // Snow knocked off the ball: lands ahead and can be re-collected (always edible).
   spawnChunk(x, d, r) {
-    const def = this.chunkDef || (this.chunkDef = makeChunkDef());
-    if (!this.meshes.chunk) {
-      const mesh = new THREE.InstancedMesh(def.geometry, this.mat, 64);
-      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      mesh.frustumCulled = false;
-      mesh.count = 0;
-      this.meshes.chunk = mesh;
-      this.group.add(mesh);
-      this.lib.chunk = def;
-    }
     let live = 0;
-    for (const p of this.movers) if (p.type === 'chunk' && p.alive && p.d > d - 40) live++;
-    if (live >= 60) return;
+    for (const p of this.movers) if (p.move === MOVE_CHUNK && p.alive && p.d > d - 40) live++;
+    if (live >= 110) return null;
+    const hw = this.halfWidth(d);
     const p = {
-      type: 'chunk', def, x: clamp(x, -this.halfWidth(d) + 1, this.halfWidth(d) - 1), d, y: 0, rot: 0, s: r, r: r, h: r * 2,
-      tier: 0, kind: 'chunk', mass: MASS.chunk * r * r * r * 20, alive: true, move: MOVE_NONE + 99, ox: x, od: d, vx: 0, vd: 0, phase: 0,
+      type: 'chunk', def: this.chunkDef, x: clamp(x, -hw + 1, hw - 1), d, y: 0, rot: 0, s: r, r, h: r * 2,
+      tier: 0, kind: 'chunk', mass: MASS.chunk * r * r * r * 20, alive: true, decor: false, move: MOVE_CHUNK, m: null,
+      ox: x, od: d, vx: 0, vd: 0, phase: 0, tonK: 1, id: 0,
     };
+    p.y = this.footY(p) - 0.05;
     this.movers.push(p);
+    return p;
   }
 
   kill(p) { p.alive = false; }
-
-  townProgress() {
-    let total = 0, dead = 0;
-    for (const b of this.buildings) { total++; if (!b.alive) dead++; }
-    return total ? dead / total : 0;
-  }
-
-  buildTerrain() {
-    const xMin = -80, xMax = 80, dMin = -70, dMax = this.dEnd;
-    const nx = 46, nd = Math.ceil((dMax - dMin) / 4);
-    const pos = new Float32Array((nx + 1) * (nd + 1) * 3);
-    const col = new Float32Array((nx + 1) * (nd + 1) * 3);
-    const c = new THREE.Color();
-    const snow = new THREE.Color(0xf4f8ff), snowShade = new THREE.Color(0xdde8f6), bank = new THREE.Color(0xe2ecf8);
-    const dirt = new THREE.Color(0x8a6447), grass = new THREE.Color(0x6f9a52), road = new THREE.Color(0xb9c2cf), street = new THREE.Color(0xa7b0bc);
-    let k = 0;
-    for (let j = 0; j <= nd; j++) {
-      const d = dMin + (j / nd) * (dMax - dMin);
-      const hw = this.halfWidth(d);
-      for (let i = 0; i <= nx; i++) {
-        // Denser columns near the track, sparse out on the banks.
-        const u = i / nx * 2 - 1;
-        const x = Math.sign(u) * Math.pow(Math.abs(u), 1.6) * (xMax - xMin) / 2;
-        const y = this.groundY(x, d);
-        pos[k] = x; pos[k + 1] = y; pos[k + 2] = -d;
-        const ax = Math.abs(x) - hw;
-        if (ax > 0) c.copy(bank).lerp(snowShade, Math.min(1, 0.5 + 0.5 * Math.sin(d * 0.07 + x))).lerp(snow, Math.max(0, 1 - ax / 6));
-        else c.copy(snow).lerp(snowShade, 0.25 + 0.25 * Math.sin(x * 0.7 + d * 0.21));
-        for (const p of this.patches) {
-          const a = (x - p.x) / (p.rx + 1.5), b = (d - p.d) / (p.rd + 1.5);
-          const q = a * a + b * b;
-          if (q < 1) c.copy(q < 0.6 ? dirt : grass).lerp(dirt, Math.sin(x * 3 + d) * 0.3 + 0.3);
-        }
-        for (const r of this.roads) if (Math.abs(d - r.d) < r.w / 2) c.copy(road);
-        if (d > this.townStart - 6 && d < this.townEnd + 20 && ax < 0) {
-          const crossStreet = ((d - this.townStart - 10 + 8.5) % 17 + 17) % 17 < 5;
-          if (Math.abs(x) < 7.5 || crossStreet) c.copy(street);
-        }
-        col[k] = c.r; col[k + 1] = c.g; col[k + 2] = c.b;
-        k += 3;
-      }
-    }
-    const idx = [];
-    for (let j = 0; j < nd; j++) {
-      for (let i = 0; i < nx; i++) {
-        const a = j * (nx + 1) + i, b = a + 1, cc = a + nx + 1, dd = cc + 1;
-        idx.push(a, b, cc, b, dd, cc); // counter-clockwise from above, or the snow gets back-face culled
-      }
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    geo.setIndex(idx);
-    geo.computeVertexNormals();
-    this.terrain = new THREE.Mesh(geo, this.snowMat);
-    this.terrain.frustumCulled = false;
-    this.group.add(this.terrain);
-  }
-
-  buildRamps() {
-    if (!this.ramps.length) return;
-    const pos = [], col = [];
-    const white = new THREE.Color(0xffffff), blue = new THREE.Color(0x4aa8ff), orange = new THREE.Color(0xff7a2f);
-    const push = (x, y, d, c) => { pos.push(x, y, -d); col.push(c.r, c.g, c.b); };
-    for (const r of this.ramps) {
-      const n = 8;
-      const surf = (x, u) => this.groundY(x, r.d + u) + r.h * Math.pow(u / r.len, 1.4);
-      const xl = r.x - r.w / 2, xr = r.x + r.w / 2;
-      for (let i = 0; i < n; i++) {
-        const u0 = (i / n) * r.len, u1 = ((i + 1) / n) * r.len;
-        const c = i >= n - 1 ? orange : i % 2 ? white : blue;
-        // top
-        push(xl, surf(xl, u0), r.d + u0, c); push(xr, surf(xr, u0), r.d + u0, c); push(xl, surf(xl, u1), r.d + u1, c);
-        push(xr, surf(xr, u0), r.d + u0, c); push(xr, surf(xr, u1), r.d + u1, c); push(xl, surf(xl, u1), r.d + u1, c);
-        // sides
-        for (const x of [xl, xr]) {
-          const g0 = this.groundY(x, r.d + u0) - 0.3, g1 = this.groundY(x, r.d + u1) - 0.3;
-          push(x, g0, r.d + u0, blue); push(x, surf(x, u0), r.d + u0, blue); push(x, g1, r.d + u1, blue);
-          push(x, surf(x, u0), r.d + u0, blue); push(x, surf(x, u1), r.d + u1, blue); push(x, g1, r.d + u1, blue);
-        }
-      }
-      // lip wall
-      const u = r.len;
-      push(xl, this.groundY(xl, r.d + u) - 0.3, r.d + u, orange); push(xl, surf(xl, u), r.d + u, orange); push(xr, surf(xr, u), r.d + u, orange);
-      push(xl, this.groundY(xl, r.d + u) - 0.3, r.d + u, orange); push(xr, surf(xr, u), r.d + u, orange); push(xr, this.groundY(xr, r.d + u) - 0.3, r.d + u, orange);
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    geo.computeVertexNormals();
-    const mat = patchMaterial(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide }), { snow: true });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.frustumCulled = false;
-    this.group.add(mesh);
-  }
-
-  // Orange/blue piste poles mark the edges so steering is readable at a glance.
-  buildPisteMarkers() {
-    const geo = new THREE.CylinderGeometry(0.09, 0.09, 1.8, 5).translate(0, 0.9, 0);
-    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    const n = Math.ceil(this.L / 14) * 2;
-    const mesh = new THREE.InstancedMesh(geo, mat, n);
-    const ca = new THREE.Color(0xff6a2a), cb = new THREE.Color(0x2f7dff);
-    let k = 0;
-    for (let d = 6; d < this.L && k < n - 1; d += 14) {
-      for (const side of [-1, 1]) {
-        const x = side * (this.halfWidth(d) + 0.6);
-        _m.makeTranslation(x, this.groundY(x, d), -d);
-        mesh.setMatrixAt(k, _m);
-        mesh.setColorAt(k, side < 0 ? ca : cb);
-        k++;
-      }
-    }
-    mesh.count = k;
-    this.group.add(mesh);
-  }
-
-  buildBackdrop() {
-    // Distant peaks that frame the valley; cheap cones, no fog so they read as far away silhouettes.
-    const R = this.rng;
-    const geo = new THREE.ConeGeometry(1, 1, 7, 1).translate(0, 0.5, 0);
-    const pos = geo.attributes.position;
-    const col = new Float32Array(pos.count * 3);
-    const rock = new THREE.Color(0x8fa3bf), cap = new THREE.Color(0xffffff);
-    for (let i = 0; i < pos.count; i++) {
-      const c = pos.getY(i) > 0.55 ? cap : rock;
-      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
-    }
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    const n = 40;
-    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, fog: false }), n);
-    for (let i = 0; i < n; i++) {
-      const d = this.dEnd * (i / n) + R.range(0, 80) + 150;
-      const side = i % 2 ? 1 : -1;
-      const h = R.range(120, 260);
-      const rad = h * R.range(0.55, 0.8);
-      // Keep the whole base clear of the valley so a peak never swallows the camera.
-      const x = side * (rad + R.range(90, 200));
-      _p.set(x, this.baseY(d) - 40, -d);
-      _q.setFromAxisAngle(_up, R.range(0, 6));
-      _s.set(rad, h, rad);
-      _m.compose(_p, _q, _s);
-      mesh.setMatrixAt(i, _m);
-    }
-    mesh.frustumCulled = false;
-    this.group.add(mesh);
-  }
 
   dispose() {
     this.scene.remove(this.group);
     const shared = new Set();
     for (const k in this.lib) if (k !== 'chunk') shared.add(this.lib[k].geometry);
     this.group.traverse((o) => {
+      if (o.isSprite) { o.material.map?.dispose(); o.material.dispose(); return; }
       if (!o.isMesh) return;
       if (o.isInstancedMesh) o.dispose();
       if (!shared.has(o.geometry)) o.geometry.dispose();
-      o.material.map?.dispose();
-      o.material.dispose();
+      if (o.material && o.material !== this.mat && o.material !== this.snowMat && o.material !== this.rampMat) { o.material.map?.dispose(); o.material.dispose(); }
     });
+    this.mat.dispose(); this.snowMat.dispose(); this.rampMat?.dispose();
+    this.chunks.clear();
+    delete this.lib.chunk;
   }
 }
 
-function makeChunkDef() {
-  const geo = new THREE.IcosahedronGeometry(1, 0).toNonIndexed();
-  const col = new Float32Array(geo.attributes.position.count * 3);
-  const c = new THREE.Color(0xf6faff);
-  for (let i = 0; i < col.length; i += 3) { col[i] = c.r; col[i + 1] = c.g; col[i + 2] = c.b; }
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  geo.translate(0, 0.8, 0);
-  geo.computeBoundingSphere();
-  return { name: 'chunk', geometry: geo, radius: 1, height: 2, tier: 0, kind: 'chunk' };
+const _c2 = new THREE.Color();
+const _qx = new THREE.Quaternion();
+const _rx = new THREE.Vector3(1, 0, 0);
+
+function fmtDiam(d) {
+  if (d >= 10) return String(Math.round(d));
+  return (Math.round(d * 10) / 10).toFixed(1).replace('.', ',').replace(/,0$/, '');
+}
+export { fmtDiam };
+
+// First index whose d >= v in a d-sorted array.
+function lbD(a, v) {
+  let lo = 0, hi = a.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (a[mid].d < v) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
+// Keep a d-sorted array sorted after pushing p (it is nearly always the last or second-to-last).
+function insertSorted(a, p) {
+  let i = a.length;
+  a.push(p);
+  while (i > 0 && a[i - 1].d > p.d) { a[i] = a[i - 1]; i--; }
+  a[i] = p;
 }
 
 function averageColor(geo) {
@@ -731,5 +1389,3 @@ function averageColor(geo) {
   for (let i = 0; i < col.count; i++) { r += col.getX(i); g += col.getY(i); b += col.getZ(i); }
   return new THREE.Color(r / col.count, g / col.count, b / col.count);
 }
-
-export function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
