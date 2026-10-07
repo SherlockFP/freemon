@@ -276,3 +276,46 @@ Hepsi push edildi.
 - Ana ekrana 🛂 Pasaport butonu geldi.
 - Alt menü artık başka öğelerin üstüne binmiyor.
 - "Görünüm: NORMAL" ve "Yeni damga: …!" metinleri düzeltildi.
+
+## Tur 5 — Değerlendirme
+
+| Mod | Puan |
+|---|---|
+| Rush | 7.7 (+0.2) |
+| ÇIĞ | 6.7 (+0.2) |
+| Arena | 6 |
+| Macera | 7 |
+| Menü | 7.2 |
+| **Genel** | **7.1** |
+
+**Ne iyi**
+- Rush HUD'u artık okunur.
+- Sonuç ekranı güçlü.
+- ÇIĞ Dağ 12 görsel olarak zengin.
+- Macera temiz.
+
+**Ne gelişmeli**
+- Rush:
+  - Biyom adı iki kez yazıyor.
+  - Soluk "DİKKAT!" ve "ÇİT! GÜÇ!" yazıları duruyor.
+  - Ortadaki "1" yazısının ne olduğu belli değil.
+- Sonuç ekranında konfeti kartların üstüne biniyor, görev yazıları kırpılıyor.
+- ÇIĞ:
+  - Yıkılan nesnelerin parçaları ekranı kaplıyor.
+  - Bant ile tabela çakışıyor.
+  - Etap yazısı çelişkili.
+- Arena:
+  - 60. saniyede oyuncu hâlâ son sırada.
+  - Zemin boş.
+  - HUD 4 kart.
+- Menü:
+  - Alt menü hizası bozuk.
+  - Pasaport bulunması zor.
+  - Görev paneli kesik.
+
+**Yeni fikirler**
+- Rush: Yeti Aynası, Ritimde Kırılan Köprü.
+- ÇIĞ: Gizli Kar Tüneli, Ekip Topu.
+- Arena: Küçülen Harita Fırtınası, Takım Boyası.
+- Macera: Yıldız Haritası.
+- Menü: Günlük Kar Küresi.
