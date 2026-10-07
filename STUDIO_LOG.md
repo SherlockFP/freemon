@@ -975,3 +975,10 @@ Genel 6.9 · Rush 6.5 · ÇIĞ 7.5 · Arena 6.5 · Menü 7.0
 - Not: "Rush topu görünmüyor" raporu test düzeneği kaynaklı (invulnT/zorla u) — 6 sn simde top görünür.
 - Orijinal fikir: GÜNÜN RUSH'I — herkes için aynı seed, paylaşılabilir sonuç.
 - Şimdi: yazı kuyruğu temizliği + karakter kartı slotu + günlük Rush; menü rozet/çip düzeni; arena plato.
+
+### Döngü 19 — sonuçlar
+- Rush: düşük öncelikli yazılar (buff bitti, +50 ❄ vb.) kaldırıldı; tek merkez + tek üst şerit; yazılar en çok 2.2 sn; ipuçları meşgulken düşüyor. Karakter kartı 3-2-1'den sonra.
+- YENİ: GÜNÜN RUSH'I — tarihe göre herkes için aynı seed, sonuç ekranında "GÜNÜN RUSH'I #N: x m" + PAYLAŞ; menüde BUGÜN şeridinde 2. çip (günün en iyisi gösteriliyor). Test: çip → runner daily=true, sonuç + paylaş butonu OK.
+- Menü: kilit rozetleri köşe etiketi; Sezon çipi kısaltıldı.
+- Arena: kaçak bot tavanı (3× oyuncu), yakında her zaman 0.5–0.8× av; 2 seed'de 90 sn'de oyuncu #4/#8.
+- Smoke: Rush/ÇIĞ L1+L6/Arena/boss L5-7-14 hatasız.
