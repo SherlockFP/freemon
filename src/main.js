@@ -386,6 +386,11 @@ function leaveEndless() {
 }
 
 // ---------- AGAR mode (module in ./agar/agar.js; it owns its own scene + camera) ----------
+// After a redeploy, lazily loaded chunks of a cached page may 404: reload once instead of failing silently.
+window.addEventListener('vite:preloadError', (e) => {
+  if (sessionStorage.getItem('patpat.reloaded')) return;
+  e.preventDefault?.(); sessionStorage.setItem('patpat.reloaded', '1'); location.reload();
+});
 async function startAgar() {
   audio.init();
   audio.ui();

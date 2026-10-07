@@ -1646,8 +1646,8 @@ Object.assign(Obstacles.prototype, {
         case 'train': {
           // Subway-style: 8-25 m blocks. Rideable ones (kar treni / ice blocks, roof 1.6 m) come as 1-3 parallel cars with ONE ramp at the back
           const L = Math.min(rng.int(8, 25), Math.floor(room - 12));
-          const rideK = plan.lethalOk && diff >= 0.12 && rng.chance(0.6);
-          const np = rideK ? (NL >= 5 && rng.chance(0.4) ? 3 : NL >= 4 && rng.chance(0.55) ? 2 : 1) : 1, rl = 9;
+          const rideK = plan.lethalOk && diff >= 0.12 && rng.chance(NL > 3 ? 0.85 : 0.6);
+          const np = rideK ? (NL >= 5 && rng.chance(0.55) ? 3 : NL >= 4 && rng.chance(0.7) ? 2 : 1) : 1, rl = 9;
           const lo = np === 1 ? (rng.chance(0.5) ? 0 : NL - 1) : (rng.chance(0.5) ? 0 : NL - np);
           const ls = []; for (let k = 0; k < np; k++) ls.push(lo + k);
           let lm = 0; for (const l of ls) lm |= bit(l);
@@ -1929,9 +1929,9 @@ Object.assign(Obstacles.prototype, {
       if (fit < 1) return null;
       n = Math.min(n, fit);
     }
-    const hop = !opt.teach && d >= 0.12 && rng.chance(0.4 + 0.3 * d);
+    const hop = !opt.teach && (NL > 3 ? rng.chance(0.85) : d >= 0.12 && rng.chance(0.4 + 0.3 * d));
     let hopTo = -1;
-    if (hop) { hopTo = [laneA - 1, laneA + 1].filter((l) => l >= 0 && l < NL && l !== prevRoute && free0.indexOf(l) >= 0)[0] ?? -1; if (hopTo >= 0) used.push(hopTo); }
+    if (hop) { hopTo = (NL > 3 ? [laneA - 2, laneA - 1, laneA + 1, laneA + 2] : [laneA - 1, laneA + 1]).filter((l) => l >= 0 && l < NL && l !== prevRoute && free0.indexOf(l) >= 0)[0] ?? -1; if (hopTo >= 0) used.push(hopTo); }
     const second = !opt.teach && !hop && n >= 3 && d >= 0.3 && rng.chance(0.35) ? free0.find((l) => l !== laneA && l !== prevRoute) : undefined;
     cr.spawnGroup({ species, s, lane: laneA, n, spacing, vc, hopTo, second: second ?? -1, seed: (rng.next() * 1e9) | 0, skin: plan.skin });
     if (second !== undefined) used.push(second);
@@ -1974,12 +1974,15 @@ Object.assign(Obstacles.prototype, {
     let s = sA + rng.range(0, 6);
     while (s < sB - 4) {
       const vs = T.speedAt(s), sp = (vs * 60) / T.bpmAt(s) / 2;
-      const n = rng.int(6, 11);
+      const wide = NL > 3 && plan.piece.kind !== 'junction', snake = wide && rng.chance(0.6), amp = (NL - 1) * LANE_W * 0.42, ph = rng.range(0, 6.28);
+      const n = snake ? rng.int(9, 14) : rng.int(6, 11);
       for (let i = 0; i < n; i++) {
         const si = s + i * sp;
         if (si > sB) break;
         if (inAv(si)) continue;
-        this._pickup('flake', si, route(si), this._flakeH(si, arcs));
+        const free = !snake || plan.rows.some((r) => Math.abs(si - r.s) < r.ext + 3);
+        const u = free ? route(si) : clamp(route(si) + amp * Math.sin(i * 0.75 + ph), LANES[0], LANES[NL - 1]);
+        this._pickup('flake', si, u, this._flakeH(si, arcs));
       }
       s += n * sp + rng.range(12, 24);
     }
@@ -2122,6 +2125,10 @@ Object.assign(Obstacles.prototype, {
     const kind = piece.kind, s0 = piece.s0, s1 = piece.s1, F = T.features || {};
     if (kind === 'finish') {
       this._mk(plan, { kind: 'finish', s: s0, u: 0, ext: 4 });
+    } else if (piece.narrow) {
+      this._funnel(plan, piece);
+    } else if (piece.bonus) {
+      this._spawnBonus(plan, piece);
     } else if (piece.noObs) {
       // campaign run-out after the finish line: empty
     } else if (kind === 'portal') {
@@ -2222,6 +2229,11 @@ Object.assign(Obstacles.prototype, {
         const k = wpick(rng, POWERS, (x) => this.powerW[x] ?? 1) || 'magnet', s = freeS(mid);
         this._powerUp(plan, k, s, rng.chance(0.5) ? offRoute(s) : laneOf(route(s)));
         this.next.power = s + rng.range(420, 520);
+      }
+      if (s0 >= 450 && normal && !plan.zone && s1 - s0 > 36 && s1 > (this.next.sball ?? 0) && T.allows('critters')) {
+        const sc = freeS(mid + 6), l = rng.int(0, NL - 1), sg = rng.chance(0.5) ? 1 : -1;
+        this._mk(plan, { kind: 'snowball', s: sc, u: LANES[l], lane: l, uT: sg * (hwFor(NL) + 0.9), sT: sc + 9, ext: 60 });
+        this.next.sball = sc + rng.range(NL > 3 ? 150 : 260, NL > 3 ? 280 : 420);
       }
       if (kind !== 'junction' && (normal || apex)) this._gems(plan, route, s0 + 4, s1 - 3, apex);
       // mini mechanics: speed-pad chain, Y-E-T-I letters, snowplow head-on
@@ -2389,12 +2401,95 @@ KIND.gate = {
   hit(ob, ball, events) {
     if (ob.done || ball.s < ob.s) return;
     ob.done = true;
-    if (Math.abs(ball.u - ob.u) <= 1.1) {
-      this.gateChain++;
+    const ok = Math.abs(ball.u - ob.u) <= 1.1;
+    if (ok) this.gateChain++; else this.gateChain = 0;
+    if (ok || ob.grp) {
       const e = ev(events, 'pickup');
-      e.kind = 'gate'; e.value = this.gateChain; e.s = ob.s; e.u = ob.u; e.h = 1.1;
-    } else this.gateChain = 0;
+      e.kind = 'gate'; e.value = ok ? this.gateChain : 0; e.s = ob.s; e.u = ob.u; e.h = 1.1;
+      e.grp = ob.grp || 0; e.idx = ob.idx || 0; e.n = ob.n || 0; e.miss = !ok;
+    }
   },
+};
+
+// air ring (HAVA HALKASI): glowing ring on the flight path of a big launch ramp; flying through emits pickup kind 'ring' (value = ring number in the group)
+KIND.ring = {
+  build(ob) {
+    ob.hc = 1.2; ob.tough = 0; ob.color = 0xffd24a; ob.done = false;
+    ob.r1 = this._part(ob, 'ring', 0xffd24a, ob.u, ob.h, 0, 0, 2.5, 2.5, 0.6);
+    ob.r2 = this._part(ob, 'ring', 0xffffff, ob.u, ob.h, 0, 0, 1.9, 1.9, 0.3);
+  },
+  anim(ob, b, pulse) {
+    if (ob.done) return;
+    const k = 1 + 0.08 * Math.sin(this.time * 6 + ob.id);
+    this._repart(ob.r1, ob.u, ob.h, 0, 0, 2.5 * k, 2.5 * k, 0.6);
+    this._repart(ob.r2, ob.u, ob.h, 0, 0, 1.9 * k, 1.9 * k, 0.3);
+  },
+  hit(ob, ball, events) {
+    if (ob.done || ball.s < ob.s) return;
+    ob.done = true;
+    const ok = Math.abs(ball.u - ob.u) < 1.55 && Math.abs(ball.h - ob.h) < 2.6;
+    const e = ev(events, 'pickup');
+    e.kind = 'ring'; e.value = ok ? ob.idx : 0; e.miss = !ok; e.grp = ob.grp; e.n = ob.n; e.s = ob.s; e.u = ob.u; e.h = ob.h;
+    if (ok) for (const p of ob.parts) this._repart(p, ob.u, ob.h, 0, 0, 3.6, 3.6, 0.1);
+  },
+};
+
+// snowball fight: a roadside snowman throws an arcing snowball at a lane. A red shadow on the lane warns ~1.1 s ahead; jump or change lane. Not lethal ('snowball' event).
+KIND.snowball = {
+  build(ob) {
+    ob.hc = 0.5; ob.tough = 0; ob.color = 0xffffff; ob.state = 0; ob.warned = false; ob.done = false; ob.mf = new Float64Array(12); ob.TF = 1.1;
+    const fT = this._frameOf(ob.sT), sg = Math.sign(ob.uT);
+    ob.fT = fT; ob.fC = fT;
+    ob.body = this._part(ob, 'ball', 0xf4f7fb, ob.uT, 0.6, 0, 0, 1.2, 1.1, 1.2, 0, 0, 0, fT);
+    ob.head = this._part(ob, 'ball', 0xf4f7fb, ob.uT, 1.45, 0, 0, 0.8, 0.8, 0.8, 0, 0, 0, fT);
+    ob.hat = this._part(ob, 'box', 0xd8453a, ob.uT, 1.95, 0, 0, 0.6, 0.35, 0.6, 0, 0, 0, fT);
+    ob.nose = this._part(ob, 'box', 0xff9a3a, ob.uT - sg * 0.1, 1.45, 0, 0, 0.12, 0.12, 0.35, 0, 0, 0.45, fT);
+    ob.sb = this._part(ob, 'ball', 0xffffff, ob.uT, 1.2, 0, 0, 0.0001, 0.0001, 0.0001);
+    ob.sh = this._part(ob, 'shadow', 0xff2a2a, ob.u, 0.04, 0, 0, 0.0001, 1, 0.0001);
+  },
+  anim(ob, b, pulse) {
+    if (ob.state === 0) {
+      if (this.lastS >= ob.s - this.ballVs * ob.TF) {
+        ob.state = 1; ob.tStart = this.time; ob.cS = this.lastS + this.ballVs * ob.TF; ob.fC = this._frameOf(ob.cS);
+      } else return;
+    }
+    const x = (this.time - ob.tStart) / ob.TF;
+    if (this.lastS > ob.sT + 30) {
+      for (const p of ob.parts) if (p.idx >= 0) { this._release(p.key, p.idx); p.idx = -1; }
+      ob.alive = false; return;
+    }
+    const kx = x < 0.25 ? 1 + 0.25 * Math.sin(x * 12.5) : 1;
+    this._repart(ob.head, ob.uT, 1.45 * kx, 0, 0, 0.8 * kx, 0.8 * kx, 0.8 * kx, 0, 0, 0, 0, ob.fT);
+    if (x >= 1.15) { this._repart(ob.sb, ob.u, 1, 0, 0, 0.0001, 0.0001, 0.0001); this._repart(ob.sh, ob.u, 0.04, 0, 0, 0.0001, 1, 0.0001); return; }
+    const xx = Math.min(1, x), sBall = ob.sT + (ob.cS - ob.sT) * xx, u = ob.uT + (ob.u - ob.uT) * xx, h = 1.3 - 0.4 * xx + 9 * xx * (1 - xx);
+    this._frameInto(sBall, ob.mf);
+    this._repart(ob.sb, u, h, 0, 0, 0.8, 0.8, 0.8, 0, 0, 0, 0, ob.mf);
+    const k = 1.2 + 0.2 * Math.sin(this.time * 18) + 0.6 * xx;
+    this._repart(ob.sh, ob.u, 0.05, 0, 0, k, 1, k, 0, 0, 0, 0, ob.fC);
+  },
+  hit(ob, ball, events) {
+    if (ob.state !== 1 || ob.done) return;
+    if (!ob.warned && this._cid === 'main') { ob.warned = true; const e = ev(events, 'warn'); e.kind = 'snowball'; e.lane = ob.lane; e.t = ob.TF; e.value = 0; }
+    if (this.time - ob.tStart < ob.TF) return;
+    ob.done = true;
+    if (Math.abs(ball.s - ob.cS) < 3 && Math.abs(ball.u - ob.u) < 1.05 && ball.h - ball.r < 1.3) {
+      const e = ev(events, 'snowball'); e.s = ob.cS; e.u = ob.u; e.h = 1;
+    }
+  },
+};
+
+// funnel arrows on a narrowing piece: red slanted bars on the lanes that close
+KIND.funnel = {
+  build(ob) {
+    ob.hc = 0.05; ob.tough = 0; ob.color = 0xff4a3a;
+    const keep = hwFor(3) - 1.4 + 0.01;
+    for (let l = 0; l < ob.nl; l++) {
+      const u = (l - (ob.nl - 1) / 2) * LANE_W;
+      if (Math.abs(u) <= keep) continue;
+      for (let r = 0; r < 4; r++) this._part(ob, 'box', 0xff4a3a, u, 0.04, -Math.sign(u) * 0.7, 0, 1.7, 0.05, 0.3, 0, 0, r * 3.2);
+    }
+  },
+  hit() {},
 };
 
 // conveyor patch: pushes the ball sideways. emits { type:'push', du } (du = drift speed in m/s, per frame while on it)
@@ -2598,6 +2693,48 @@ Object.assign(Obstacles.prototype, {
     const u = LANES[lane], vh = this.jumpPadV * power;
     this._mk(plan, { kind: 'spring', s, u, ext: 2, glow: this._pal(s).glow, power });
     return this._arcFlakes(plan, s + 1.2, u, vh);
+  },
+
+  _funnel(plan, piece) {
+    this._mk(plan, { kind: 'funnel', s: piece.s0 + 3, u: 0, nl: piece.n, ext: 14 });
+  },
+
+  /** bonus pieces: 'air' = big launch ramp + a line of air rings (HAVA HALKALARI), 'slalom' = alternating gates (SLALOM KAPILARI) */
+  _spawnBonus(plan, piece) {
+    const T = this.track, rng = plan.rng, s0 = piece.s0, s1 = piece.s1, pal = this._pal(s0), vs = T.speedAt(s0 + 20);
+    if (piece.bonus === 'air') {
+      const vh = AIR_G * 1.25, power = vh / this.jumpPadV, sS = s0 + 9;
+      for (let l = 0; l < NL; l++) this._mk(plan, { kind: 'spring', s: sS, u: LANES[l], ext: 2, glow: pal.glow, power });
+      const tf = (2 * vh) / AIR_G, rings = [];
+      let lane = rng.int(0, NL - 1);
+      for (let t = 0.7; t < tf - 0.4; t += 0.38) {
+        if (rings.length) {
+          const st = NL >= 5 && rng.chance(0.3) ? 2 : 1, d = rng.chance(0.5) ? 1 : -1;
+          let nl = clamp(lane + d * st, 0, NL - 1);
+          if (nl === lane) nl = clamp(lane - d * st, 0, NL - 1);
+          lane = nl;
+        }
+        rings.push({ t, lane });
+      }
+      rings.forEach((r, i) => {
+        const y = vh * r.t - 0.5 * AIR_G * r.t * r.t, s = sS + 1.2 + vs * r.t;
+        this._mk(plan, { kind: 'ring', s, u: LANES[r.lane], h: 0.75 + y, idx: i + 1, n: rings.length, grp: piece.id, ext: 4 });
+        if (i + 1 < rings.length) { const n2 = rings[i + 1], tm = (r.t + n2.t) / 2, ym = vh * tm - 0.5 * AIR_G * tm * tm; this._pickup('flake', sS + 1.2 + vs * tm, (LANES[r.lane] + LANES[n2.lane]) / 2, 0.75 + ym); }
+      });
+      this._snowGroup(plan, Math.min(s1 - 6, sS + 1.2 + vs * tf + 4), NL >> 1, 4, 0.8);
+    } else {
+      const n = 5, sp = vs * 0.85, list = [];
+      let lane = rng.int(0, NL - 1), dir = lane > (NL - 1) / 2 ? -1 : 1;
+      for (let i = 0; i < n; i++) {
+        const s = s0 + 12 + i * sp;
+        this._mk(plan, { kind: 'gate', s, u: LANES[lane], ext: 2, flagA: 0xffc83a, flagB: 0xff6a3a, grp: piece.id, idx: i + 1, n });
+        list.push({ s, u: LANES[lane] });
+        let nl = lane + dir * (NL >= 4 && rng.chance(0.4) ? 2 : 1);
+        if (nl < 0 || nl > NL - 1) { dir = -dir; nl = lane + dir; }
+        lane = clamp(nl, 0, NL - 1);
+      }
+      list.forEach((g, i) => { this._pickup('flake', g.s, g.u, 1.1); const nx = list[i + 1]; if (nx) this._pickup('flake', (g.s + nx.s) / 2, (g.u + nx.u) / 2, 1.0); });
+    }
   },
 
   _gates(plan, sA, sB) {

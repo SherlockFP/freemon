@@ -203,6 +203,7 @@ export class Track {
   _init() {
     this.rng = makeRng((this.seed ^ 0x9e3779b9) >>> 0);
     this.laneN = 3;
+    this._wideAt = 400 + ((Math.sin((this.seed || 1) + 1) * 43758.5453) % 1 + 1) % 1 * 250; this._wideEnd = 0; this._bonusAt = 800; this._bonusN = 0;
     this.sBase = 0;
     const sp0 = Math.sin(T.START_PITCH), cp0 = Math.cos(T.START_PITCH);
     // per-sample channels: position, heading (yaw/pitch, for curvature), tangent, up (incl. roll), roll
@@ -811,14 +812,25 @@ Object.assign(Track.prototype, {
     if (p.stairs) { const a = p.stairs.a; for (let k = 0; k < a.length - 1; k++) p.stairs.y[k] = this._planeY(a[k + 1]); }
   },
 
-  _widenDue(s0, bNow) {
-    return this.laneN < 5 && !this.zone && !this._bossStarted && s0 >= (this.laneN === 3 ? 1500 : 3500) && this.biomeIndexAt(s0 + 44) === bNow && !this._juncDue(s0) && bNow === this._lastBiome;
+  /** can a lane-count change / bonus piece start at s0? (not in zones / boss / junction windows / right after hazards; loops are queue pieces, never overlapped) */
+  _laneOk(s0) {
+    const L = this.level;
+    if (s0 < 400 || this.zone || this._bossStarted || this._finished || this._since < 1 || this._juncDue(s0)) return false;
+    if (L && L.length && s0 > L.length - 260) return false;
+    return true;
   },
+  /** +1 = widen now, -1 = narrow now, 0 = neither. Wide sections (4 or 5 lanes) alternate with 3-lane ones. */
+  _laneDue(s0) {
+    if (!this._laneOk(s0)) return 0;
+    if (this.laneN === 3) return s0 >= this._wideAt && !(this._nextCorner > s0 - 1 && this._nextCorner - s0 < 170) ? 1 : 0;
+    return s0 >= this._wideEnd ? -1 : 0;
+  },
+  _bonusDue(s0) { return s0 >= this._bonusAt && this._laneOk(s0) && !(this._nextCorner > s0 - 1 && this._nextCorner - s0 < 200); },
 
   _gen() {
     const s0 = this.genEnd, diff = this._diff(s0), L = this.level;
     const bNow = this.biomeIndexAt(s0);
-    let p;
+    let p, lw = 0;
     if (L && this._finished) {
       // after the finish: empty straights so the ball can coast
       p = this._spec('straight', s0, diff, bNow, true);
@@ -826,12 +838,27 @@ Object.assign(Track.prototype, {
     } else if (L && s0 >= L.length) {
       this._finished = true;
       p = this._spec('finish', s0, diff, bNow, true);
-    } else if (this._widenDue(s0, bNow)) {
-      this.laneN++;
+    } else if ((lw = this._laneDue(s0)) !== 0) {
+      const oldN = this.laneN;
+      this.laneN = lw > 0 ? (this.rng.chance(Math.min(0.8, 0.4 + s0 / 5000)) ? 5 : 4) : 3;
       p = this._spec('straight', s0, diff, bNow, false);
-      const nn = this.laneN, hA = hwFor(nn - 1), hB = hwFor(nn);
-      p.len = 44; p.s1 = s0 + 44; p.dYaw = 0; p.noObs = true; p.n = nn; p.widen = nn; p.curb = true; p.edge = 'wall';
-      p.hw = hB; p.halfWidth = hB; p.hwAt = (s) => hA + (hB - hA) * smooth((s - p.s0 - 4) / 34);
+      const nn = this.laneN, hA = hwFor(oldN), hB = hwFor(nn);
+      p.dYaw = 0; p.noObs = true; p.curb = true; p.edge = 'wall';
+      if (lw > 0) {
+        p.len = 44; p.s1 = s0 + 44; p.n = nn; p.widen = nn; p.hw = hB; p.halfWidth = hB; p.hwAt = (s) => hA + (hB - hA) * smooth((s - p.s0 - 4) / 34);
+        this._wideEnd = s0 + 44 + this.rng.range(300, 700);
+      } else {
+        // narrowing: the piece keeps the wide lanes (n = old) while the outer lanes close; funnel arrows telegraph them, the runner pushes the ball inward
+        p.len = 56; p.s1 = s0 + 56; p.n = oldN; p.narrow = oldN; p.hw = hA; p.halfWidth = hA; p.hwAt = (s) => hA + (hB - hA) * smooth((s - p.s0 - 14) / 34);
+        this._wideAt = s0 + 56 + this.rng.range(500, 900);
+      }
+    } else if (this._bonusDue(s0)) {
+      const air = this._bonusN++ % 3 === 1, vs = this.speedAt(s0 + 40);
+      p = this._spec('straight', s0, diff, bNow, false);
+      p.bonus = air ? 'air' : 'slalom';
+      p.len = air ? Math.round(10 + vs * 2.5 + 26) : Math.round(14 + 5 * vs * 0.85 + 8);
+      p.s1 = s0 + p.len; p.dYaw = 0;
+      this._bonusAt = s0 + p.len + this.rng.range(450, 800);
     } else if (bNow !== this._lastBiome) {
       this._lastBiome = bNow;
       p = this._spec('portal', s0, diff, bNow, true);

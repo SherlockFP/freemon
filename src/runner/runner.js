@@ -543,6 +543,15 @@ export class Runner {
     if (!pc || !pc.n) return;
     if (pc.n !== LANES.length) { setLanes(pc.n); this.lane = this.laneSnap(this.lane); }
     if (pc.widen && pc.s0 > (this.widenS ?? -1)) { this.widenS = pc.s0; this.float('ŞERİT AÇILDI!', 'big'); this.kick += 1.5; }
+    if (pc.narrow) {
+      if (pc.s0 > (this.narrowS ?? -1)) { this.narrowS = pc.s0; this.float('ŞERİT DARALDI', 'big'); this.kick += 1.5; }
+      // the outer lanes close: a ball in a closing lane is pushed one lane inward at a time (never killed by the narrowing)
+      if (pc.hwAt && this.lane !== 0) {
+        const lim = pc.hwAt(Math.min(pc.s1 - 0.5, b.s + 7)) - 1.4 + 0.01;
+        let g = 0;
+        while (Math.abs(this.lane * RCFG.laneW) > lim && Math.abs(this.lane) > (LANES.length % 2 ? 0.01 : 0.51) && g++ < 4) this.lane -= Math.sign(this.lane);
+      }
+    }
   }
 
   updatePlay(dt, beat) {
@@ -1778,6 +1787,16 @@ export class Runner {
       case 'critter':
         this.critter(e);
         break;
+      case 'snowball':
+        // KARTOPU SAVAŞI: a hit costs a little size (never lethal) and a stumble in speed
+        if (this.invulnT > 0 || this.ghostT > 0 || this.rocketT > 0) break;
+        this.grow -= 0.3;
+        if (this.grow < 0) { if (this.tier > 0) { this.tier--; this.grow += 1; this.onMeltDrop?.(); } else this.grow = 0; }
+        b.vs *= 0.9; this.squash = Math.max(this.squash, 0.4); this.trauma = Math.min(1, this.trauma + 0.25);
+        this.flow = Math.max(0, this.flow - 2);
+        this.float('KARTOPU!', 'bad'); audio.bump?.(0.5); platform.haptic('medium');
+        this.burst?.(12, 0xffffff, 3);
+        break;
       case 'block': {
         // Older event shape: treat head-on blocks as a toughness-5 hit, glancing ones as a nudge.
         const headOn = Math.abs(e.ds) > Math.abs(e.du);
@@ -1964,7 +1983,37 @@ export class Runner {
     const { audio, platform, ui } = this.ctx;
     const gold = this.buffs.has('altin');
     switch (e.kind) {
+      case 'ring': {
+        if (e.miss) { this.ringChain = 0; break; }
+        this.ringChain = e.value > 1 ? (this.ringChain || 0) + 1 : 1;
+        const n = this.ringChain;
+        this.score += 100 * n * this.mult;
+        this.addFlow(1.5 + 0.3 * n);
+        audio.star(Math.min(2, n - 1));
+        this.float(`HALKA x${n}!`, n >= 4 ? 'big' : '');
+        this.kick += 1.5; this.burst?.(10, 0xffd24a, 3);
+        break;
+      }
       case 'gate':
+        if (e.grp) {
+          if (e.miss) { if (this.slalom && this.slalom.grp === e.grp) this.slalom = null; break; }
+          if (!this.slalom || this.slalom.grp !== e.grp) this.slalom = { grp: e.grp, n: 0 };
+          if (e.idx !== this.slalom.n + 1) { this.slalom = null; break; }      // (skipped one: the bonus is over)
+          this.slalom.n = e.idx;
+          this.score += 80 * e.idx * this.mult;
+          audio.star(Math.min(2, e.idx - 1));
+          this.float(`KAPI ${e.idx}/${e.n}`, '');
+          if (e.idx >= e.n) {
+            this.slalom = null;
+            this.float('MÜKEMMEL SLALOM!', 'big');
+            this.score += 500 * this.mult;
+            this.addFlow(5);
+            b.vs = Math.max(b.vs, Math.min(speedAt(b.s) * 1.3, b.vs + 8));
+            this.gap = Math.min(RCFG.yetiMax, this.gap + 5);
+            this.kick += 5; platform.haptic('success');
+          }
+          break;
+        }
         this.gateChain = e.value || 1;
         this.score += 50 * this.gateChain * this.mult;
         audio.star(Math.min(2, this.gateChain - 1));
