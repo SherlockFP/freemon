@@ -452,3 +452,33 @@ Hepsi push edildi.
 - Yeni: **Yeti Pazarı**. Haftalık değişen 3 teklif.
 
 Kontrol: Rush'ta bot 2,6 km'yi hatasız koştu; tüm modlar sorunsuz.
+
+## Tur 8 — Yapılanlar
+
+Hepsi push edildi.
+
+**Ses**
+- Ritim pedleri müzikle aynı tonda (G pentatonik) ve art arda bastıkça notalar yükseliyor.
+- Rüzgâr yumuşak bir esinti sesiyle geliyor.
+- Büyük anlarda müzik hafifçe kısılıyor.
+- ÇIĞ, Arena ve menüye çok hafif bir ortam müziği eklendi.
+- Arena'da eksik olan ses türleri tamamlandı.
+
+**Rush**
+- Her mekanik ilk kez karşına çıktığında üst kısımda kısa bir ipucu görünüyor. Ezme ve rampa ipuçlarında kısa bir ağır çekim de var.
+
+**ÇIĞ**
+- Her boss'un artık kendine özgü bir dövüşü var:
+  - Yeti kartopu atıyor ve üstüne hücum ediyor.
+  - Robot lazer çizgisi çekiyor ve dron kırıntıları bırakıyor.
+  - Golem şok dalgası halkaları ve buz kayaları gönderiyor.
+- Her dövüş 2 fazlı: boss %50 canda öfkeleniyor. Özel saldırısından sonra kısa bir "AÇIK!" hasar penceresi açılıyor.
+- ÇIĞ mekaniklerine ilk karşılaşma ipuçları eklendi.
+
+**Macera**
+- Yeni: **Yıldız Fırtınası**. Her gün 3 bölüm ⭐x2 veriyor; bu ekstra yıldızlar Gizli Rota kilitlerine sayılıyor.
+
+**Menü**
+- Yeni: **BUGÜN** şeridi. Günün etkinlikleri (Kar Küresi, Yıldız Fırtınası, Yeti Pazarı, Günün Dağı) burada ve tek dokunuşla açılıyor.
+
+Kontrol: bot boss dağları 5, 10 ve 15'i kazandı, tüm modlar hatasız çalıştı.
