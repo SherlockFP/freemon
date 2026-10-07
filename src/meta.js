@@ -317,7 +317,7 @@ function fresh() {
   for (const k of SET_KEYS) sets[k] = [];
   return {
     v: 1, born: 0, xp: 0, cr: 0, boxes: 0, sleds: 0,
-    st, sets, a: {}, eggs: {}, hol: {}, sp: {},
+    st, sets, a: {}, eggs: {}, hol: {}, sp: {}, po: { day: '', open: 0 },
     d: { last: '', streak: 0, pos: 0, total: 0 },
     u: { magnet: 0, x2: 0, jump: 0, rocket: 0 },
     m: { n: 0, mult: 1, cur: [], awarded: false, skipDay: '' },
@@ -347,6 +347,7 @@ function sanitize(p) {
     }
   }
   if (isObj(p.sp)) for (const k of Object.keys(p.sp)) if (k.length < 24 && p.sp[k]) s.sp[k] = nz(p.sp[k]) || 1;
+  if (isObj(p.po)) { s.po.day = typeof p.po.day === 'string' && /^d{4}-dd-dd$/.test(p.po.day) ? p.po.day : ''; s.po.open = p.po.open ? 1 : 0; }
   if (isObj(p.eggs)) for (const e of EGGS) if (p.eggs[e.id]) s.eggs[e.id] = num(p.eggs[e.id], 1) || 1;
   if (isObj(p.hol)) for (const k of Object.keys(p.hol)) if (p.hol[k] && /^\d{4}-[a-z0-9]+$/.test(k)) s.hol[k] = 1;
   if (isObj(p.d)) {
@@ -895,6 +896,16 @@ function stampCheck(ev, d) {
   if (am >= 500) stampEarn('arena500');
 }
 
+const POST_LINES = [
+  'Dün seni kovalarken kaydım, yarın intikam! 🦶', 'Mağaram soğudu, kalbim değil. Gel de ısıt! 🔥', 'Sana bir kartopu hazırladım. Boyu 3 metre. ⛄',
+  'Bugün diyetteyim: sadece sen. Şaka şaka, ormanı da yerim! 🌲', 'Ayak izlerini takip ediyorum. Hep sağa dönüyorsun, biliyor musun? 👣',
+  'Yeni tüylerim çok güzel oldu, sormadın ama söyleyeyim. ✨', 'Dün pusuya yattım, uyuyakalmışım. Hâlâ burada mısın? 😴',
+  'Seni yakalarsam sadece selam vereceğim. Belki. 🙃', 'Kış Pasaportunu merak ediyorum. Damgam var mı? 🛂', 'Burnum buz tuttu. Kış tam bana göre! 🥶',
+  'Bir dahaki sefere daha hızlı koş, ben spor ayakkabı aldım. 👟', 'Mağarama WiFi çektirdim, hâlâ çekmiyor. 📶', 'Dün çığ yaptım, kimse görmedi. Üzüldüm. 🌨️',
+  'Postacı penguen beni kovaladı. Rolleri karıştırdık galiba. 🐧', 'Sana kartpostal yazıyorum çünkü çığlık atınca sesim çıkmıyor. 📮',
+  'Küçük bir ipucu: kıl payı kurtulmak havalı görünür. Devam! 😎', 'Bugün hava kar, yarın hava Yeti. Hazırlıklı ol! ❄️', 'Çorbanı içtin mi? Ben yedi kazan içtim. 🍲',
+  'Seni seviyorum ama yine de peşindeyim. Böyle işte. 💙', 'Bu kartı ayaklarımla yazdım, kusura bakma. 🦶✍️'];
+
 // =================================================================================================== public API
 
 export const meta = {
@@ -1102,6 +1113,21 @@ export const meta = {
     const out = grant(r);
     persistNow();
     return out;
+  },
+  // ---- YETİ POSTASI: one postcard per day with a small coin coupon ----
+  postcard() {
+    const day = dateKey();
+    const n = dayNum(day);
+    const opened = S.po.day === day && !!S.po.open;
+    return { available: !opened, opened, msg: POST_LINES[((n % POST_LINES.length) + POST_LINES.length) % POST_LINES.length], coins: 30 + (((n * 7) % 6) + 6) % 6 * 10, day };
+  },
+  openPostcard() {
+    const p = meta.postcard();
+    if (!p.available) return null;
+    S.po.day = p.day; S.po.open = 1;
+    try { wallet().addCoins(p.coins); } catch { /* ignore */ }
+    markDirty();
+    return p;
   },
   // Daily reward as a badge (never a popup).
   dailyBadge() {

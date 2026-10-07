@@ -175,7 +175,7 @@ export class AgarMode {
     this.lastLevel = 1;
     this.terrain = new Terrain(R); this.seed = 1; this.uTime = { value: 0 };
     this.storm = { on: false, x: 0, z: 0, dx: 0, dz: 0, t: 0, next: 40, r: 170 }; this.stormSndT = 0; this.rain = { st: 0, x: 0, z: 0, t: 0, next: 150 + Math.random() * 60, acc: 0 };
-    this.zn = { st: 0, t: 0, cx: 0, cz: 0, r: R, rt: R * 0.42, next: 300 }; this.sessT = 0;
+    this.zn = { st: 0, t: 0, cx: 0, cz: 0, r: R, rt: R * 0.42, next: 300 }; this.sessT = 0; this.wo = { st: 0, t: 0, next: 240 + Math.random() * 120, k: 0 }; this.dirCalm = 25;
     this.av = { st: 0, t: 0, next: 150 + Math.random() * 60, a: 0, off: 0, w: 55, id: 0, rum: 0, s: 0 }; this.tipT = 0; this.tipDone = false;
     this.titleIdx = 0; this.meZone = 0; this.lastMyMass = 0; this.botChatT = 20;
     this.chatLog = []; this.lastChat = 0;
@@ -535,7 +535,7 @@ export class AgarMode {
     this.genTerrain((Math.random() * 2147483647) | 0);
     this.zn.st = 0; this.zn.r = R; this.zn.next = 290 + Math.random() * 40;
     this.rain.st = 0; this.rain.next = 150 + Math.random() * 60; this.storm.on = false; this.storm.next = 35 + Math.random() * 25; this.stormA.visible = this.stormB.visible = false;
-    this.av.st = 0; this.av.next = 150 + Math.random() * 60; for (const f of this.forts) { f.own = -1; f.prog = 0; f.cand = -1; }
+    this.wo.st = 0; this.wo.k = 0; this.wo.next = 240 + Math.random() * 120; this.dirCalm = 25; this.av.st = 0; this.av.next = 150 + Math.random() * 60; for (const f of this.forts) { f.own = -1; f.prog = 0; f.cand = -1; }
     this.trails.clear();
     for (let i = 0; i < FT; i++) { this.gRemove(i); this.fv[i] = 0; }
     this.ghead.fill(-1); this.fin.fill(0);
@@ -847,6 +847,7 @@ export class AgarMode {
   // ------------------------------------------------------------------ simulation (single player + host)
   simulate(dt) {
     const owners = this.owners, cells = this.cells;
+    if (this.mp !== 'client') this.dirTick(dt);
     this.stormTick(dt); this.rainTick(dt);
     this.props.tick(dt);
     this.nearTick(dt);
@@ -1040,13 +1041,47 @@ export class AgarMode {
     if (id === this.me) { if (kind === 'chime') this.audio?.chime?.(); else this.snd(kind, undefined, undefined, v); } else if (o.human && o.human !== 'host') { if (this.net) this.net.sendTo(o.human, { t: 'sfx', k: kind, v }); } else if (x !== undefined) this.snd(kind, x, z, 0.5);
   }
 
+  // ------------------------------------------------------------------ event director: one big event at a time, >= 40 s calm between them
+  evBusy() { return this.av.st > 0 || this.rain.st > 0 || this.zn.st > 0 || this.storm.on || this.wo.st > 0; }
+  dirOk() { return this.dirCalm <= 0 && !this.evBusy(); }
+  dirTick(dt) { if (this.state !== 'play') return; if (this.evBusy()) this.dirCalm = 40; else if (this.dirCalm > 0) this.dirCalm -= dt; }
+  // ------------------------------------------------------------------ GORUS FIRTINASI (whiteout blizzard; host-authoritative state, local fog)
+  woTick(dt) {
+    const w = this.wo;
+    if (this.mp === 'client') { if (w.st > 0) w.t = Math.max(0, w.t - dt); }
+    else if (this.state === 'play') {
+      if (w.st === 0) {
+        w.next -= dt;
+        if (w.next <= 0 && this.dirOk()) { w.st = 1; w.t = 5; this.dirCalm = 40; this.toast('BEYAZ FIRTINA GELİYOR!'); this.pushFeed('Beyaz fırtına geliyor! Görüş düşecek, pusuya dikkat'); this.audio?.arena?.('storm', 0.8); }
+      } else {
+        w.t -= dt;
+        if (w.st === 1 && w.t <= 0) { w.st = 2; w.t = 25; this.audio?.arena?.('storm', 1); }
+        else if (w.st === 2 && w.t <= 0) { w.st = 0; w.next = 240 + Math.random() * 120; this.dirCalm = 40; this.pushFeed('Beyaz fırtına dindi'); }
+      }
+    } else if (w.st) { w.st = 0; }
+    const tgt = w.st === 2 ? (w.t < 2.5 ? Math.max(0, w.t / 2.5) : 1) : w.st === 1 ? 0.3 : 0;
+    w.k += (tgt - w.k) * Math.min(1, dt * 1.6);
+    const el = this.hud?.wo; if (!el) return;
+    const k = this.qLv === 2 ? Math.round(w.k * 10) / 10 : Math.round(w.k * 50) / 50;
+    if (k !== el._k) {
+      el._k = k; el.style.opacity = k > 0.01 ? String(k) : '0';
+      if (k > 0.01 && !el._r) { /* radius (px) set per frame below */ }
+    }
+    if (w.k > 0.01) {
+      const r = Math.round(Math.min(this.sz.x, this.sz.y) * 0.2 + 30 * (1 - w.k) * 0 + 40 * (1 - w.k));
+      if (r !== el._rr) { el._rr = r; el.style.background = 'radial-gradient(circle at 50% 50%, rgba(232,242,255,0) 0, rgba(232,242,255,0) ' + r + 'px, rgba(232,242,255,0.78) ' + Math.round(r * 1.7) + 'px, rgba(240,247,255,0.97) ' + Math.round(r * 2.6) + 'px)'; }
+    }
+  }
+  /** world radius a player can see during whiteout (0 = no limit) */
+  woVis() { return this.wo.k > 0.35 ? Math.max(40, this.camH * 0.55) / (0.4 + this.wo.k * 0.6) : 0; }
+
   // ------------------------------------------------------------------ pellet rain (PELET YAĞMURU)
   rainTick(dt) {
     const r = this.rain;
     if (this.mp === 'client' || this.state !== 'play') return;
     if (r.st === 0) {
       r.next -= dt;
-      if (r.next <= 0) { const a = Math.random() * 6.2832, d = Math.sqrt(Math.random()) * (R - 140); r.x = Math.cos(a) * d; r.z = Math.sin(a) * d; r.st = 1; r.t = 5; this.toast('PELET YAĞMURU GELİYOR!'); this.pushFeed('Pelet yağmuru geliyor! Haritadaki işarete koş'); this.audio?.milestone?.(2); }
+      if (r.next <= 0 && this.dirOk()) { const a = Math.random() * 6.2832, d = Math.sqrt(Math.random()) * (R - 140); r.x = Math.cos(a) * d; r.z = Math.sin(a) * d; r.st = 1; r.t = 5; this.toast('PELET YAĞMURU GELİYOR!'); this.pushFeed('Pelet yağmuru geliyor! Haritadaki işarete koş'); this.audio?.milestone?.(2); }
       return;
     }
     r.t -= dt;
@@ -1061,7 +1096,7 @@ export class AgarMode {
     const s = this.storm;
     if (!s.on) {
       s.next -= dt;
-      if (s.next <= 0 && this.state === 'play') {
+      if (s.next <= 0 && this.state === 'play' && this.dirOk()) {
         s.on = true; s.t = 38; s.x = rnd(-80, 80); s.z = rnd(-80, 80);
         const a = Math.random() * 6.2832; s.dx = Math.cos(a) * 16; s.dz = Math.sin(a) * 16;
         this.pushFeed('❄ Kar fırtınası başladı! Yemler savruluyor');
@@ -1090,7 +1125,7 @@ export class AgarMode {
     const z = this.zn;
     if (z.st === 0) {
       z.next -= dt;
-      if (z.next <= 0 && this.state === 'play') {
+      if (z.next <= 0 && this.state === 'play' && this.dirOk()) {
         z.st = 1; z.t = 8; z.rt = R * 0.42; const a = Math.random() * 6.2832, d = Math.random() * R * 0.3; z.cx = Math.cos(a) * d; z.cz = Math.sin(a) * d; z.r = R;
         this.pushFeed('❄ BUZ ÇEMBERİ! Çember daralıyor'); this.audio?.milestone?.(3);
       }
@@ -1134,7 +1169,7 @@ export class AgarMode {
     if (v.st === 0) {
       if (client || this.state !== 'play') return;
       v.next -= dt;
-      if (v.next <= 0) this.avStart(rnd(0, 3.1416), rnd(-R * 0.45, R * 0.45), true);
+      if (v.next <= 0 && this.dirOk()) this.avStart(rnd(0, 3.1416), rnd(-R * 0.45, R * 0.45), true);
       return;
     }
     v.t -= dt;
@@ -1925,7 +1960,7 @@ export class AgarMode {
     for (const [id, rec] of net.clients) {
       const o = this.owners.find((q) => q.human === id);
       if (!o || !rec.conn.open) continue;
-      net.sendTo(id, { t: 's', hn: net.clients.size + 1, pn: this.presentCount(), pd, st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], pr: [this.rain.st, Math.round(this.rain.x), Math.round(this.rain.z)], zn: [this.zn.st, Math.round(this.zn.cx), Math.round(this.zn.cz), Math.round(this.zn.r), Math.round(this.zn.rt), Math.round(this.zn.t * 10) / 10], fk, hd, c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
+      net.sendTo(id, { t: 's', hn: net.clients.size + 1, pn: this.presentCount(), pd, st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], pr: [this.rain.st, Math.round(this.rain.x), Math.round(this.rain.z)], wo: [this.wo.st, Math.round(this.wo.t * 10) / 10], zn: [this.zn.st, Math.round(this.zn.cx), Math.round(this.zn.cz), Math.round(this.zn.r), Math.round(this.zn.rt), Math.round(this.zn.t * 10) / 10], fk, hd, c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
     }
   }
 
@@ -1972,6 +2007,7 @@ export class AgarMode {
     this.lastSnap = this.time;
     if (m.hn) this.humans = m.hn;
     if (m.pn) this.presentN = m.pn;
+    if (m.wo) { const ow = this.wo.st; this.wo.st = m.wo[0] | 0; this.wo.t = +m.wo[1] || 0; if (this.wo.st === 1 && ow !== 1) this.toast('BEYAZ FIRTINA GELİYOR!'); }
     if (m.pr) { const pw = this.rain.st; this.rain.st = m.pr[0]; this.rain.x = m.pr[1]; this.rain.z = m.pr[2]; if (this.rain.st === 1 && pw !== 1) this.toast('PELET YAĞMURU GELİYOR!'); }
     if (m.st) { const sw = this.storm.on; this.storm.on = !!m.st[0]; this.storm.x = m.st[1]; this.storm.z = m.st[2]; if (this.storm.on && !sw) { this.pushFeed('❄ Kar fırtınası başladı!'); this.stormSndT = 0; } }
     if (m.zn) { const z = this.zn, was = z.st; z.st = m.zn[0]; z.cx = m.zn[1]; z.cz = m.zn[2]; z.r = m.zn[3]; z.rt = m.zn[4]; z.t = m.zn[5]; if (z.st === 1 && was !== 1) this.pushFeed('❄ BUZ ÇEMBERİ! Çember daralıyor'); }
@@ -2036,7 +2072,7 @@ export class AgarMode {
     if (this.mp === 'client') this.clientSmooth(dt);
     else if (this.state === 'play' || this.state === 'dead' || this.state === 'title' || this.state === 'lobby') this.simulate(dt);
     this.props.updatePulls(dt);
-    this.avTick(dt);
+    this.avTick(dt); this.woTick(dt);
     // radii
     const k = Math.min(1, dt * 9);
     for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on) c.r += (KR * Math.sqrt(c.m) - c.r) * k; }
@@ -2159,6 +2195,7 @@ export class AgarMode {
     {
       const st0 = this.storm; let heavy = 0;
       if (st0.on) { const d = Math.hypot(this.camX - st0.x, this.camZ - st0.z); heavy = clampN(1.4 - d / (st0.r * 1.2), 0, 1); }
+      if (this.wo.k > heavy) heavy = this.wo.k;
       this.snowfall.update(dt, this.time, this.camX, this.camZ, this.camH, asp, this._camera.fov, this.sz.y * this.renderer.getPixelRatio(), heavy);
     }
     if (this.vDirty) {
@@ -2222,12 +2259,14 @@ export class AgarMode {
     if (me.alive && me.shield > 0) { this.aura.visible = true; this.aura.position.set(me.lx, me.maxR, me.lz); this.aura.scale.setScalar(me.maxR * 1.18 + 0.4); } else this.aura.visible = false;
     if (me.alive && me.magnet > 0) { this.ring.visible = true; this.ring.position.set(me.lx, 0.3, me.lz); this.ring.scale.setScalar(me.maxR + 14); } else this.ring.visible = false;
     // name sprites
-    const camH = this.camH, camX = this.camX, camZ = this.camZ, king = this.king;
+    const camH = this.camH, camX = this.camX, camZ = this.camZ, king = this.king, woR = this.woVis();
     for (let i = 0; i < NOWN; i++) {
       const o = owners[i], sp = o.sprite;
       if (!o.alive || (o.hideT > 0 && i !== this.me)) { sp.visible = false; continue; }
+      const isM = i === this.me;
+      if (!isM && woR && (o.lx - me.lx) * (o.lx - me.lx) + (o.lz - me.lz) * (o.lz - me.lz) > woR * woR) { sp.visible = false; continue; }
       sp.visible = true;
-      const isM = i === this.me, w = Math.max(o.maxR * 2.2, camH * 0.1) * (isM ? 1.3 : 0.8);
+      const w = Math.max(o.maxR * 2.2, camH * 0.1) * (isM ? 1.3 : 0.8);
       sp.scale.set(w, w * 0.25, 1);
       sp.position.set(o.lx, o.maxR + 0.3 + w * 0.1 + (isM ? w * 0.08 : 0) + (o === king ? w * 0.35 : 0), o.lz + o.maxR * 0.2);
       sp.renderOrder = isM ? 12 : 10; sp.material.opacity = isM ? 1 : 0.8;
@@ -2366,6 +2405,7 @@ export class AgarMode {
       tier, root, rows, chips, feeds, mass: q('.m'), tt: q('.tt'), lv: q('.lv'), bar: q('.bar i'), online: q('.on'), room: q('.ag-room'), rank: q('.ag-rank b'), stick: q('.ag-stick'), knob: q('.ag-stick i'), toast: q('.ag-toast'), av: q('.ag-avw'), zn: q('.ag-zn'), lbBox: q('.ag-lb'), tip: q('.ag-tip'), arrow: q('.ag-arrow'),
       map: q('.ag-map'), mctx: q('.ag-map').getContext('2d'), boost: q('.boost'), cd: q('.cd'), bsplit: q('.split'),
     };
+    { const w = document.createElement('div'); w.style.cssText = 'position:absolute;inset:0;pointer-events:none;opacity:0;z-index:3;will-change:opacity'; root.appendChild(w); this.hud.wo = w; }
     q('.ag-lb .t').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); const c = this.hud.lbBox.classList.toggle('col'); q('.ag-lb .tg').textContent = c ? '▸' : '▾'; });
     const press = (el, fn) => {
       el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.audio?.init?.(); fn(); });
@@ -2531,6 +2571,8 @@ export class AgarMode {
       this._mapSeed = this.seed;
     }
     g.drawImage(this._mapBg, 0, 0);
+    const wr = this.wo.k > 0.35 && me.alive ? Math.max(6, this.woVis() * sc * 1.3) : 0;
+    if (wr) { g.save(); g.beginPath(); g.arc(c0 + me.cx * sc, c0 + me.cz * sc, wr, 0, 6.2832); g.clip(); }
     if (this.rain.st) { const rx = c0 + this.rain.x * sc, rz = c0 + this.rain.z * sc, pu = 0.6 + 0.4 * Math.sin(this.time * 8); g.strokeStyle = this.rain.st === 1 ? 'rgba(255,220,60,' + pu + ')' : '#ffd23f'; g.fillStyle = 'rgba(255,210,60,0.35)'; g.lineWidth = 2; g.beginPath(); g.arc(rx, rz, Math.max(5, 65 * sc), 0, 6.2832); g.fill(); g.stroke(); }
     if (this.storm.on) { g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1.5; g.beginPath(); g.arc(c0 + this.storm.x * sc, c0 + this.storm.z * sc, this.storm.r * sc, 0, 6.2832); g.stroke(); }
     if (this.zn.st > 0) { const z = this.zn; g.strokeStyle = z.st === 1 ? '#ff6b5e' : '#6ff2ff'; g.lineWidth = 1.5; g.beginPath(); g.arc(c0 + z.cx * sc, c0 + z.cz * sc, (z.st === 1 ? z.rt : z.r) * sc, 0, 6.2832); g.stroke(); }
@@ -2543,12 +2585,14 @@ export class AgarMode {
     for (let i = 0; i < NOWN; i++) {
       const o = this.owners[i];
       if (!o.alive || o === me || o.hideT > 0) continue;
+      if (wr && Math.hypot(o.cx - me.cx, o.cz - me.cz) * sc > wr) continue;
       g.fillStyle = o.mass > me.mass * 1.25 && me.alive ? '#ff6b6b' : '#d8ecff';
       const s = 1.2 + Math.min(2.2, Math.log10(o.mass + 1) * 0.6);
       g.fillRect(c0 + o.cx * sc - s / 2, c0 + o.cz * sc - s / 2, s, s);
     }
     if (me.alive) { g.fillStyle = '#ffe066'; g.beginPath(); g.arc(c0 + me.cx * sc, c0 + me.cz * sc, 3, 0, 6.2832); g.fill(); }
-    const kg = this.king;
+    if (wr) { g.restore(); g.fillStyle = 'rgba(225,238,255,0.55)'; g.beginPath(); g.arc(c0, c0, c0 - 1, 0, 6.2832); g.arc(c0 + me.cx * sc, c0 + me.cz * sc, wr, 0, 6.2832, true); g.fill('evenodd'); }
+    const kg = wr ? null : this.king;
     if (kg && kg.alive) { g.font = '900 11px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 3; g.strokeStyle = '#5a3a00'; g.fillStyle = '#ffd23a'; g.strokeText('\u265B', c0 + kg.cx * sc, c0 + kg.cz * sc - 4); g.fillText('\u265B', c0 + kg.cx * sc, c0 + kg.cz * sc - 4); }
   }
 }

@@ -1449,13 +1449,13 @@ const PILES_PER_TIER = 6;              // piles that heal one size tier (runner:
 const rowRate = (s) => (0.56 + 0.8 * (1 - Math.exp(-s / 1900))) * (1 + 0.26 * smooth(s / 1500)) * (0.8 + 0.2 * smooth(s / 1100));     // design rows / s (hardness 1); x1.3 compensates the structural calm (breathers, junctions, hazard run-outs): measured ~0.65 @ 0.5 km, ~1.1 @ 2 km, ~1.4 @ 4 km
 const tensionMul = (ph) => 1.22 - 0.38 * smooth(ph / BUILD_T);           // row gap multiplier over the build: calm 1.22 -> intense 0.84
 const lethalK = (d) => (d < 0.18 ? 0 : 0.4 + 1.7 * smooth((d - 0.18) / 0.62));      // multiplier of the lethal blockers' weights (<= ~30% share)
-const HARD_PAT = { double: 1, train: 1, mover: 1, rolling: 1, beat: 1, swing: 1, oncoming: 1, slide: 1, combo: 1, laser: 1, missile: 1, phrase: 1 };
+const HARD_PAT = { double: 1, train: 1, mover: 1, rolling: 1, beat: 1, swing: 1, oncoming: 1, slide: 1, combo: 1, laser: 1, missile: 1, phrase: 1, turret: 1, pensled: 1 };
 const LETHAL_KIND = { oncoming: 1, slidewall: 1, missile: 1 };
 const SINGLE_VERB = { single: 1, low: 1, duck: 1, rest: 1 };            // round sections (loop, corkscrew, helix, half-pipe, tube): one verb per row
 const TEACH = [{ s: 80, pat: 'single' }, { s: 124, pat: 'critter' }, { s: 160, pat: 'low' }, { s: 205, pat: 'pad' }, { s: 262, pat: 'parade' }, { s: 305, pat: 'duck' }];   // first minute: gentle intro, a pad jump over a flake arc (~14 s), a critter parade to stomp (~19 s)
 const TEACH_END = 320;
 // patterns that can never leave a free lane out of reach when the previous row is < 0.5 s behind (see _rows: tightRow)
-const TIGHT_OK = ['single', 'low', 'duck', 'slide', 'swing', 'ice', 'conveyor', 'rail', 'rest', 'laser', 'critter'];
+const TIGHT_OK = ['single', 'low', 'duck', 'slide', 'swing', 'ice', 'conveyor', 'rail', 'rest', 'laser', 'critter', 'icegate'];
 // a row that asks for a jump / duck (a jump needs ~0.6 s of air + landing: no jump or duck row may follow within that time)
 const vertRow = (r) => r.jump === true || r.pat === 'duck' || (r.pat === 'laser' && r.free === FULL);
 
@@ -1654,7 +1654,7 @@ Object.assign(Obstacles.prototype, {
       const hardN = (lastR && lastR.hardN) || 0;
       plan.lethalOk = !o.noLethal && !gustAt(s, 50) && diff >= 0.18 && !(lastR && lastR.lethal && s < 2500) && hardN < 2 && !(lastR && lastR.lethal && (s - lastR.s) / vs < 1.6);   // no two lethal rows in a row in the first km, none after 3 hard rows (never in round sections)
       plan.rowLethal = false; plan.rowRock = false;
-      const pats = ['single', 'double', 'low', 'train', 'mover', 'rolling', 'beat', 'swing', 'ice', 'melt', 'conveyor', 'rail', 'oncoming', 'duck', 'slide', 'combo', 'laser', 'missile', 'phrase', 'critter', 'rest'];
+      const pats = ['single', 'double', 'low', 'train', 'mover', 'rolling', 'beat', 'swing', 'ice', 'melt', 'conveyor', 'rail', 'oncoming', 'duck', 'slide', 'combo', 'laser', 'missile', 'phrase', 'critter', 'icegate', 'turret', 'pensled', 'rest'];
       const nk0 = T._q && T._q[0], forcedNext = hardEnd || nk0 === 'narrow' || nk0 === 'split' || nk0 === 'hexHoles' || nk0 === 'gapRamp' || nk0 === 'gapJump' || nk0 === 'skiJump' || nk0 === 'chasm' || nk0 === 'iceBridge' || nk0 === 'zipline' || nk0 === 'loop' || nk0 === 'finish';
       const nk1 = T._q && T._q[1], isForced = (k) => k === 'narrow' || k === 'split' || k === 'hexHoles' || k === 'gapRamp' || k === 'gapJump' || k === 'skiJump' || k === 'chasm' || k === 'iceBridge' || k === 'zipline' || k === 'loop' || k === 'finish';
       // persistent blockers (trains, missiles, rolling logs) must end before a lane-forcing piece starts: sB when it is next, the end of this piece when it is the one after
@@ -1676,9 +1676,9 @@ Object.assign(Obstacles.prototype, {
       const wfn = (p) => {
         if (onlyNow && !onlyNow[p]) return 0;
         if (HARD_PAT[p] && hardN >= 3) return 0;
-        if (split2 && p !== 'low' && p !== 'duck' && p !== 'rest' && p !== 'ice' && p !== 'melt' && p !== 'conveyor' && p !== 'rail' && p !== 'laser') return 0;
+        if (split2 && p !== 'low' && p !== 'duck' && p !== 'rest' && p !== 'ice' && p !== 'melt' && p !== 'conveyor' && p !== 'rail' && p !== 'laser' && p !== 'icegate') return 0;
         if (tightRow && TIGHT_OK.indexOf(p) < 0) return 0;
-        if (vq && (p === 'low' || p === 'duck' || p === 'laser')) return 0;
+        if (vq && (p === 'low' || p === 'duck' || p === 'laser' || p === 'icegate')) return 0;
         const dz = zown && zown.indexOf(p) >= 0 ? Math.max(diff, 0.35) : diff;
         switch (p) {
           case 'single': return free0.length >= 2 ? 3 : 0;
@@ -1704,6 +1704,10 @@ Object.assign(Obstacles.prototype, {
           case 'missile': return plan.lethalOk && T.allows('missiles') && dz >= (zone === 'missiles' ? 0.18 : 0.55) && room > 4 && tmHard === 0 && s + vs * 2.9 + 12 <= limM ? (zone === 'missiles' ? 1.0 + 1.2 * dz : 0.4 + 0.5 * dz) : 0;
           case 'phrase': return phOn && tm === 0 && hardN <= 1 && room > 8 && dz >= 0.05 ? (0.3 + 9.0 * dz) * (tn < 1 ? 1.7 : tn > 1 ? 0.6 : 1) : 0;
           case 'critter': return wantCrit ? 90 : 0;
+          // variety (from ~1.2 km, modest weights)
+          case 'icegate': return s >= 1200 && T.allows('duck') && dz >= 0.1 && room > 8 ? 0.7 : 0;
+          case 'turret': return s >= 1200 && dz >= 0.15 && !zone && room > 36 && persist.length === 0 && s + 36 <= lim && free0.length >= 2 && !tightRow ? 0.7 : 0;
+          case 'pensled': return s >= 1200 && dz >= 0.2 && !zone && room > 8 && persist.length === 0 && open3 && !tightRow ? 0.7 : 0;
           default: return 0;
         }
       };
@@ -1916,6 +1920,25 @@ Object.assign(Obstacles.prototype, {
             persist.push({ lane: l, s0: s - 3, s1: mm + vs * 0.6 + 8, mm });
           });
           free = FULL & ~lanes.reduce((a, l) => a | bit(l), 0); ext = 3;
+          break;
+        }
+        case 'icegate': {
+          this._mk(plan, { kind: 'icegate', s, u: 0, lo: 0, hi: NL - 1, per: Math.max(2.2, (diff > 0.6 ? 3 : 4) / hk), ph: rng.range(0, 1), ext: 2.4, glow: this._pal(s).glow });
+          free = FULL; ext = 2.4; rowPat = 'duck';
+          break;
+        }
+        case 'turret': {
+          const lanes = free0.filter((q) => rm & ~bit(q));
+          if (!lanes.length) { made = false; break; }
+          const l = lanes[rng.int(0, lanes.length - 1)], sg = l === 0 ? -1 : l === NL - 1 ? 1 : (rng.chance(0.5) ? -1 : 1), sT = s + 30;
+          this._mk(plan, { kind: 'turret', s: sT, u: sg * (piece.hw + 1.3), lane: l, ext: 60, glow: this._pal(s).glow });
+          persist.push({ lane: l, s0: s - 3, s1: sT });
+          free = FULL & ~bit(l); ext = 3;
+          break;
+        }
+        case 'pensled': {
+          this._mk(plan, { kind: 'pensled', s, u: 0, hw: piece.hw, v: Math.min(4, 3.2 * Math.sqrt(hk)), ph: rng.range(0, 40), ext: 2, glow: this._pal(s).glow });
+          free = FULL; ext = 2;
           break;
         }
         case 'critter': {
@@ -3675,6 +3698,129 @@ KIND.missile = {
     }
     this._pass(ob, ball, events, ob.cs, ob.u, 1.2, 0.45, 1.3);
     const H = this._aabb(ball, ob.cs - 1.3, ob.cs + 1.3, ob.u - 0.5, ob.u + 0.5, 0.25, 1.35);
+    if (H && (H.ds !== 0 || H.du !== 0)) this._hit(ob, ball, events, H.ds, H.du);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Variety obstacles (from ~1.2 km): Kartopu Topçusu (turret), Buz Kapısı (ice gate), Penguen Kızağı (penguin sled).
+// Each emits { type:'fx', kind, value } : value 0 = first sight (tip), value 1 = audio cue.
+// ---------------------------------------------------------------------------
+function fxEv(events, kind, value) { const e = ev(events, 'fx'); e.kind = kind; e.value = value; return e; }
+
+// snowman turret on the roadside: a striped lane (warning) and one slow snowball down it every 2 s while the player approaches (jump or dodge)
+KIND.turret = {
+  build(ob) {
+    ob.tough = 3; ob.color = 0xffffff; ob.hc = 0.5; ob.vm = 11; ob.tNext = 0; ob.fire = false; ob.seen = false; ob.flash = -9;
+    ob.cs = ob.s; ob.cu = LANES[ob.lane];
+    const u0 = ob.u, uL = LANES[ob.lane], P = PI / 2, gl = ob.glow || 0xff5a3a;
+    this._part(ob, 'ball', 0xf4f9ff, u0, 0.7, 0, 0, 1.5, 1.4, 1.5); this._part(ob, 'ball', 0xf4f9ff, u0, 1.7, 0, 0, 1.1, 1.1, 1.1);
+    this._part(ob, 'ball', 0xf4f9ff, u0, 2.55, 0, 0, 0.85, 0.85, 0.85);
+    this._part(ob, 'box', gl, u0, 2.15, 0, 0, 0.95, 0.18, 0.95);
+    this._part(ob, 'ball', 0xff9a2a, u0, 2.55, 0, 0, 0.14, 0.14, 0.5, 0, 0, 0.5);
+    this._part(ob, 'cyl', COL.dark, u0, 3.05, 0, 0, 0.6, 0.45, 0.6);
+    this._part(ob, 'cyl', COL.dark, u0, 1.7, P, P, 0.45, 1.5, 0.45, 0, 0, 0.9);
+    ob.muz = this._part(ob, 'lamp', 0xffd27a, u0, 1.7, 0, 0, 0.001, 0.001, 0.001, 0, 0, 1.75);
+    ob.str = [];
+    for (let i = 0; i < 6; i++) ob.str.push(this._part(ob, 'box', gl, uL, 0.04, 0, 0, 1.4, 0.06, 5.2, 0, 0, 0, this._frameOf(ob.s - 3 - 6.5 * i)));
+    ob.strHex = gl; ob.slots = [];
+    for (let i = 0; i < 3; i++) {
+      const f = new Float64Array(12);
+      ob.slots.push({ on: false, t0: 0, cs: 0, f, part: this._part(ob, 'ball', 0xffffff, uL, 0.5, 0, 0, 0.001, 0.001, 0.001, 0, 0, 0, f) });
+    }
+  },
+  anim(ob, b, pulse) {
+    const t = this.time, dist = ob.s - this.lastS, uL = LANES[ob.lane];
+    if (ob.tNext === 0 && dist < 62) ob.tNext = t + 0.9;
+    if (ob.tNext > 0 && t >= ob.tNext && dist > 16 && dist < 60) {
+      const sl = ob.slots.find((q) => !q.on);
+      if (sl) { sl.on = true; sl.t0 = t; sl.cs = ob.s; ob.fire = true; ob.flash = t; }
+      ob.tNext = t + 2;
+    }
+    const wind = ob.tNext > 0 ? ob.tNext - t : 9, k = wind > 0 && wind < 0.8 ? 1.2 : 0.45 + 0.2 * Math.sin(t * 6);
+    for (const p of ob.str) if (p.idx >= 0) this._col('box', p.idx, ob.strHex, k);
+    const mf = Math.max(0, 1 - (t - ob.flash) / 0.15);
+    this._repart(ob.muz, ob.u, 1.7, 0, 0, 0.9 * mf + 0.001, 0.9 * mf + 0.001, 0.9 * mf + 0.001, 0, 0, 1.75);
+    for (const sl of ob.slots) {
+      if (!sl.on) { this._repart(sl.part, uL, 0.5, 0, 0, 0.0001, 0.0001, 0.0001, 0, 0, 0, 0, sl.f); continue; }
+      sl.cs = ob.s - ob.vm * (t - sl.t0);
+      if (sl.cs < this.lastS - 12) { sl.on = false; continue; }
+      this._frameInto(sl.cs, sl.f);
+      this._repart(sl.part, uL, 0.5, 0, 0, 0.95, 0.95, 0.95, 0, 0, 0, 0, sl.f);
+    }
+  },
+  hit(ob, ball, events) {
+    const d = ob.s - ball.s;
+    if (!ob.seen && d > 0 && d < 50) { ob.seen = true; fxEv(events, 'turret', 0); }
+    if (ob.fire) { ob.fire = false; if (d > 0 && d < 70) fxEv(events, 'turret', 1); }
+    const uL = LANES[ob.lane];
+    for (const sl of ob.slots) {
+      if (!sl.on) continue;
+      const H = this._aabb(ball, sl.cs - 0.5, sl.cs + 0.5, uL - 0.5, uL + 0.5, 0, 1.0);
+      if (H && (H.ds !== 0 || H.du !== 0)) { ob.cs = sl.cs; ob.cu = uL; sl.on = false; this._hit(ob, ball, events, H.ds, H.du); return; }
+    }
+  },
+};
+
+// full-width gate with an ice bar that rises and falls on the beat: pass while it is up, or duck
+KIND.icegate = {
+  build(ob) {
+    ob.tough = 3; ob.color = 0xbfeaff; ob.hc = 1.6; ob.bb = 2.9; ob.seen = false; ob.low = false; ob.clang = false;
+    const u0 = LANES[0] - 1.25, u1 = LANES[ob.hi] + 1.25, w = u1 - u0, gl = ob.glow || 0x7fe0ff;
+    ob.w = w; ob.uc = (u0 + u1) / 2;
+    this._part(ob, 'box', 0x9fd8ff, u0 + 0.2, 1.75, 0, 0, 0.4, 3.5, 0.4); this._part(ob, 'box', 0x9fd8ff, u1 - 0.2, 1.75, 0, 0, 0.4, 3.5, 0.4);
+    this._part(ob, 'box', COL.dark, ob.uc, 3.55, 0, 0, w, 0.35, 0.4);
+    this._part(ob, 'lamp', gl, u0 + 0.2, 3.85, 0, 0, 0.4, 0.4, 0.4); this._part(ob, 'lamp', gl, u1 - 0.2, 3.85, 0, 0, 0.4, 0.4, 0.4);
+    ob.ch1 = this._part(ob, 'box', 0xd9eaf5, ob.uc - w * 0.3, 3.2, 0, 0, 0.06, 1, 0.06); ob.ch2 = this._part(ob, 'box', 0xd9eaf5, ob.uc + w * 0.3, 3.2, 0, 0, 0.06, 1, 0.06);
+    ob.bar = this._part(ob, 'ice', 0xcdeeff, ob.uc, 3.1, 0, 0, w - 0.7, 0.4, 0.5);
+    ob.l1 = this._part(ob, 'lamp', gl, u0 + 0.5, 3.1, 0, 0, 0.35, 0.35, 0.35); ob.l2 = this._part(ob, 'lamp', gl, u1 - 0.5, 3.1, 0, 0, 0.35, 0.35, 0.35);
+    ob.u0 = u0; ob.u1 = u1;
+  },
+  anim(ob, b) {
+    const x = 0.5 + 0.5 * Math.cos(TAU * (b / ob.per + ob.ph)), bb = 1.15 + 1.75 * x, w = ob.w, hc = bb + 0.2;
+    ob.bb = bb;
+    if (x < 0.25 && !ob.low) { ob.low = true; ob.clang = true; } else if (x > 0.5) ob.low = false;
+    this._repart(ob.bar, ob.uc, hc, 0, 0, w - 0.7, 0.4, 0.5);
+    const top = 3.4, ch = top - (bb + 0.4), mid = (top + bb + 0.4) / 2;
+    this._repart(ob.ch1, ob.uc - w * 0.3, mid, 0, 0, 0.06, ch, 0.06); this._repart(ob.ch2, ob.uc + w * 0.3, mid, 0, 0, 0.06, ch, 0.06);
+    this._repart(ob.l1, ob.u0 + 0.5, hc, 0, 0, 0.35, 0.35, 0.35); this._repart(ob.l2, ob.u1 - 0.5, hc, 0, 0, 0.35, 0.35, 0.35);
+  },
+  hit(ob, ball, events) {
+    const d = ob.s - ball.s;
+    if (!ob.seen && d > 0 && d < 45) { ob.seen = true; fxEv(events, 'icegate', 0); }
+    if (ob.clang) { ob.clang = false; if (d > -5 && d < 40) fxEv(events, 'icegate', 1); }
+    if (ob.hitDone || Math.abs(ball.s - ob.s) > 0.55 + ball.r * 0.4) return;
+    if (ball.u < ob.u0 - ball.r * 0.3 || ball.u > ob.u1 + ball.r * 0.3 || ball.duck) return;
+    if (ball.h + ball.r < ob.bb || ball.h - ball.r > ob.bb + 0.4) return;
+    this._hit(ob, ball, events, -0.6, 0);
+  },
+};
+
+// penguins on a sled gliding across the track at a steady speed (edge to edge and back): time your lane change, or jump it
+KIND.pensled = {
+  build(ob) {
+    ob.fm = new Float64Array(12); ob.tough = 2; ob.color = 0xbfeaff; ob.ht = 1.3; ob.hs = 1.0; ob.hu = 0.6; ob.hc = 0.6; ob.seen = false; ob.honk = false;
+    ob.cs = ob.s; ob.cu = ob.u; ob.W = ob.hw + 2.2;
+    const gl = ob.glow || 0x7fe0ff;
+    const mk = (key, hex, ou, h, sx, sy, sz, oz = 0) => { const p = this._part(ob, key, hex, ob.u + ou, h, 0, 0, sx, sy, sz, 0, 0, oz, ob.fm); p.du = ou; return p; };
+    mk('box', 0x4a9ad8, 0, 0.4, 1.1, 0.3, 2.2); mk('box', gl, 0, 0.6, 1.15, 0.1, 2.25); mk('box', 0xe8f4ff, -0.5, 0.1, 0.12, 0.08, 2.4); mk('box', 0xe8f4ff, 0.5, 0.1, 0.12, 0.08, 2.4);
+    for (const oz of [-0.5, 0.5]) {
+      mk('ball', 0x1a1d26, 0, 1.0, 0.62, 0.9, 0.55, oz); mk('ball', 0xffffff, 0, 0.95, 0.42, 0.62, 0.3, oz + 0.14);
+      mk('ball', 0xff9a2a, 0, 1.25, 0.12, 0.1, 0.22, oz + 0.3);
+    }
+  },
+  anim(ob) {
+    const t = this.time, W = ob.W, x = (ob.ph + t * ob.v) % (4 * W), cu = x < 2 * W ? -W + x : 3 * W - x;
+    ob.cu = cu; ob.lean = 0.12 * Math.sin(t * 5 + ob.ph);
+    this._frameInto(ob.s, ob.fm);
+    for (const p of ob.parts) if (p.idx >= 0) this._repart(p, cu + p.du, p.h, 0, ob.lean, p.sx, p.sy, p.sz, 0, 0, p.oz, 0, ob.fm);
+  },
+  hit(ob, ball, events) {
+    const d = ob.s - ball.s;
+    if (!ob.seen && d > 0 && d < 45) { ob.seen = true; fxEv(events, 'pensled', 0); }
+    if (!ob.honk && d > 0 && d < 32) { ob.honk = true; fxEv(events, 'pensled', 1); }
+    this._pass(ob, ball, events, ob.cs, ob.cu, ob.hs, ob.hu, ob.ht);
+    const H = this._aabb(ball, ob.cs - ob.hs, ob.cs + ob.hs, ob.cu - ob.hu, ob.cu + ob.hu, 0, ob.ht);
     if (H && (H.ds !== 0 || H.du !== 0)) this._hit(ob, ball, events, H.ds, H.du);
   },
 };

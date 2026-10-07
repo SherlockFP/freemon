@@ -723,6 +723,13 @@ function finishCigLevel() {
     let crystals = 0;
     if (plan.boss && !daily) { if (firstClear) crystals += 2; if (stars === 3 && prev < 3) crystals += 1; }
     save.addCoins(coins);
+    let lootChip = null;
+    if (G.lootGot && !daily) {   // BOSS GANİMETİ: boss-themed unlock the first time, else ❄️ + 💎
+      const LOOT = { yeti: ['trail', 'simsek'], robot: ['skin', 'robot'], golem: ['trail', 'fire'] }[G.lootGot];
+      if (LOOT && !save.isOwned(LOOT[0], LOOT[1])) { save.own(LOOT[0], LOOT[1]); lootChip = '✨ Ganimet: yeni ' + (LOOT[0] === 'skin' ? 'top' : 'iz') + '!'; }
+      else { crystals += 1; coins += 40; lootChip = '✨ Ganimet: +40 ❄️ +1 💎'; }
+    }
+    save.addCoins(0);
     if (crystals) save.addCrystals(crystals);
     save.recordRun(r.tons);
     if (daily) save.recordDaily(G.dailySeed, { tons: r.tons, pct: 1, stars });
@@ -732,7 +739,7 @@ function finishCigLevel() {
     menus.showLevelComplete({
       level: planAsLevel(plan), stars, goalsMet, rewards: { coins, crystals }, hasNext,
       labels: { banner: 'DAĞ TAMAM!', bossBanner: 'PATRON YENİLDİ!', next: 'SONRAKİ DAĞ ▶', map: 'DAĞLAR', retry: '↻ TEKRAR' },
-      chips: ['⚪ ' + fmtD(2 * G.finalR) + ' m', '⚖️ ' + fmtTons(r.tons), '⏱ ' + clock(st.time)],
+      chips: ['⚪ ' + fmtD(2 * G.finalR) + ' m', '⚖️ ' + fmtTons(r.tons), '⏱ ' + clock(st.time)].concat(lootChip ? [lootChip] : []),
       special: !daily && firstClear && n === 10 ? '∞ ÇIĞ SONSUZ AÇILDI!' : !daily && firstClear && n === DAG_COUNT ? '🏆 TÜM DAĞLAR TAMAM!' : null,
     }, {
       onNext: () => playCigLevel(n + 1),
@@ -992,12 +999,15 @@ function updateWaveVis(dt) {
   v.mesh.visible = true;
   v.t += dt;
   const hw = world.halfWidth(W.d);
-  const sc = (4.5 + ball.r * 0.55) * (game.L && game.L.chase && game.L.chase.ters ? 1.9 : 1);
+  const ters = !!(game.L && game.L.chase && game.L.chase.ters);
+  if (ters && (game.G.tersDone || W.d < ball.d + 4)) { clearWaveVis(); return; }
+  const sc = (4.5 + ball.r * 0.55) * (ters ? 1.9 : 1);
   for (let i = 0; i < v.N; i++) {
     const u = i / (v.N - 1);
     const x = (u - 0.5) * (2 * hw + 16) + Math.sin(v.t * 1.7 + i * 1.9) * 1.4;
-    const d = W.d - (i % 3) * sc * 0.45 + Math.sin(v.t * 2.3 + i * 1.3) * sc * 0.25;
+    let d = W.d - (i % 3) * sc * 0.45 + Math.sin(v.t * 2.3 + i * 1.3) * sc * 0.25;
     const s = sc * (0.85 + 0.35 * Math.sin(i * 2.1 + v.t * 1.3 + 1));
+    if (ters) d = Math.max(d, ball.d + ball.r + s * 0.9 + 4);   // Ters: the wall is always AHEAD of the ball
     v.p.set(x, world.groundY(x, d) + s * 0.55, -d);
     v.s.set(s, s * 0.85, s);
     v.q.setFromAxisAngle(_upY, v.t * 0.6 + i);

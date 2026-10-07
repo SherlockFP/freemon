@@ -2278,6 +2278,9 @@ export class Runner {
         if (e.enter && this.tunnelMsgT <= 0) { this.float('TÜNEL! IŞIKLARI TAKİP ET', 'big'); this.tunnelMsgT = 5; }
         audio.whoosh?.(); this.kick += e.enter ? 3 : 1;
         break;
+      case 'fx':
+        if (e.value === 1) { if (e.kind === 'turret') audio.pop?.(); else if (e.kind === 'icegate') audio.bump?.(); else if (e.kind === 'pensled') audio.chime?.(); }
+        break;
       case 'warn':
         if (!this.warned || this.warned !== e.kind + e.lane + Math.round(e.t * 10)) {
           this.warned = e.kind + e.lane + Math.round(e.t * 10);
@@ -3181,6 +3184,12 @@ export class Runner {
 
   tipFor(e) {
     switch (e.type) {
+      case 'fx':
+        if (e.value !== 0) break;
+        if (e.kind === 'turret') this.tip('turret', 'KARTOPU TOPÇUSU: çizgili şeride dikkat, zıpla ya da kaç!', false);
+        else if (e.kind === 'icegate') this.tip('icegate', 'BUZ KAPISI: çubuk yukarıdayken geç ya da eğil!', false);
+        else if (e.kind === 'pensled') this.tip('pensled', 'PENGUEN KIZAĞI: hızını kolla, doğru anda şerit değiştir!', false);
+        break;
       case 'critter': if (!e.stomp) this.tip('stomp', 'ŞİRİN YARATIK: üstüne zıpla, ez!', true); break;
       case 'slide': this.tip('ice', 'BUZ: hızlısın ama yan geçişler yavaş', false); break;
       case 'tunnel': this.tip('tunnel', 'TÜNEL: ışıkları takip et', false); break;

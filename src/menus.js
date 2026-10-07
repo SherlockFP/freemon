@@ -792,6 +792,21 @@ const CSS = `
 .fm-stamp .si { font-size: 34px; line-height: 1; filter: grayscale(1); } .fm-stamp .sn { font-size: 14px; line-height: 1.15; } .fm-stamp .sd { font-size: 11px; font-weight: 700; opacity: 0.8; line-height: 1.2; }
 .fm-stamp.got { opacity: 1; border-style: solid; border-color: var(--orange-dark); background: linear-gradient(180deg, #fff3a8, #ffcf3a); transform: rotate(-1.5deg); }
 .fm-stamp.got .si { filter: none; }
+.fm-post { position: absolute; right: 14px; top: -44px; width: 46px; height: 38px; border: 0; padding: 0; cursor: pointer; font-size: 26px; line-height: 38px; text-align: center; border-radius: 10px; background: linear-gradient(180deg, #fffdf2, #f1e2b0); box-shadow: 0 3px 0 #a98a3c, 0 5px 8px rgba(10, 30, 60, 0.35); animation: fmPostB 2.2s ease-in-out infinite; }
+.fm-post.off { display: none; }
+.fm-post .fm-bdg { top: -6px; right: -6px; }
+@keyframes fmPostB { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-4px) rotate(3deg); } }
+.fm-card { position: relative; margin: 8px 6px 12px; padding: 16px 14px 14px; border-radius: 6px; text-align: center; background: repeating-linear-gradient(180deg, #fff9e3 0 26px, #f0e4bd 26px 27px); border: 3px solid #c9a95a; box-shadow: 0 6px 0 #9b7d34, 0 10px 16px rgba(10, 30, 60, 0.3); transform: rotate(-1.2deg); color: var(--ink); }
+.fm-card .st { position: absolute; right: 8px; top: 8px; transform: rotate(8deg); border: 2px dashed #c0392b; padding: 2px 6px; border-radius: 4px; color: #c0392b; font-size: 11px; font-weight: 900; }
+.fm-card .yt { font-size: 52px; line-height: 1; } .fm-card .tx { font-size: 17px; font-weight: 800; line-height: 1.3; margin: 8px 0 10px; }
+.fm-card .cp { display: inline-block; padding: 6px 14px; border: 3px dashed var(--orange-dark); border-radius: 10px; background: #fff3a8; font-weight: 900; font-size: 18px; }
+.fm-shelf { margin: 6px 2px 12px; } .fm-shelf .hd { font-size: 13px; font-weight: 900; margin: 0 4px 4px; color: var(--ink); }
+.fm-board { display: flex; flex-wrap: wrap; gap: 6px 10px; justify-content: flex-start; align-items: flex-end; min-height: 62px; padding: 10px 10px 0; border-radius: 8px 8px 0 0; background: linear-gradient(180deg, rgba(23, 52, 92, 0.12), rgba(23, 52, 92, 0.04)); box-shadow: inset 0 6px 8px rgba(0, 0, 0, 0.12); }
+.fm-plank { height: 12px; margin-bottom: 4px; border-radius: 0 0 6px 6px; background: linear-gradient(180deg, #c58a4a, #8a5524); box-shadow: 0 4px 0 #5a3512, 0 6px 8px rgba(0, 0, 0, 0.3); }
+.fm-troph { position: relative; width: 38px; height: 46px; display: flex; align-items: center; justify-content: center; font-size: 22px; border-radius: 10px 10px 14px 14px; background: linear-gradient(135deg, #fff3a8 0%, #ffcf3a 45%, #d99a10 100%); box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.7), inset 0 -5px 0 rgba(120, 70, 0, 0.35), 0 4px 0 #8a5a10, 0 6px 6px rgba(0, 0, 0, 0.3); }
+.fm-troph.ach { background: linear-gradient(135deg, #e8f4ff 0%, #9bd1ff 45%, #3f8fe0 100%); box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.8), inset 0 -5px 0 rgba(10, 50, 120, 0.4), 0 4px 0 #1b5a9a, 0 6px 6px rgba(0, 0, 0, 0.3); }
+.fm-troph::after { content: ''; position: absolute; left: 6px; top: 5px; width: 6px; height: 16px; border-radius: 4px; background: rgba(255, 255, 255, 0.55); transform: rotate(12deg); }
+.fm-empty { font-size: 12px; font-weight: 700; opacity: 0.6; padding: 14px 4px; }
 .fm-resov.fail { background: radial-gradient(ellipse at 50% 38%, rgba(120, 30, 40, 0.82), rgba(24, 8, 16, 0.95)); }
 .fm-banner {
   position: relative; padding: 10px 28px 12px; border: 3px solid var(--ink); border-radius: 14px; font-size: clamp(26px, 8.5vw, 36px); line-height: 1; text-align: center; transform: rotate(-2deg);
@@ -1373,7 +1388,56 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     p.setSub(`${list.filter((x) => x.got).length}/${list.length} DAMGA`);
     const grid = el('div', 'fm-stamps');
     for (const x of list) grid.appendChild(add(el('div', `fm-stamp${x.got ? ' got' : ''}`), el('div', 'si', x.got ? x.icon : '❔'), el('div', 'sn', x.name), el('div', 'sd', x.desc)));
-    p.list.appendChild(grid);
+    const ach = ACHIEVEMENTS.map((d) => ({ d, pr: meta.progress(d.id) }));
+    const shelf = (title, items, cls) => {
+      const s = el('div', 'fm-shelf');
+      const bd = el('div', 'fm-board');
+      if (!items.length) bd.appendChild(el('div', 'fm-empty', 'Henüz yok...'));
+      for (const it of items) { const t = el('div', `fm-troph ${cls}`, it.icon); t.title = it.name; bd.appendChild(t); }
+      add(s, el('div', 'hd', title), bd, el('div', 'fm-plank'));
+      return s;
+    };
+    p.list.appendChild(el('div', 'fm-note', 'ROZET RAFI'));
+    const modeOf = (x) => (/^ARENA/.test(x.desc) ? 'ARENA' : /^(ÇIĞ|Gece|Günün)/.test(x.desc) ? 'ÇIĞ' : /^MACERA/.test(x.desc) ? 'MACERA' : 'YETİ RUSH');
+    const groups = {};
+    for (const x of list) if (x.got) (groups[modeOf(x)] = groups[modeOf(x)] || []).push(x);
+    for (const k of ['YETİ RUSH', 'ÇIĞ', 'MACERA', 'ARENA']) p.list.appendChild(shelf(`${k} · ${(groups[k] || []).length} damga`, groups[k] || [], 'st'));
+    const doneA = ach.filter((x) => x.pr.done).map((x) => x.d);
+    p.list.appendChild(shelf(`BAŞARIMLAR · ${doneA.length}/${ach.length}`, doneA.slice(0, 40), 'ach'));
+    const next = ach.filter((x) => !x.pr.done && !x.d.secret && x.pr.goal > 1).sort((a, b) => b.pr.value / b.pr.goal - a.pr.value / a.pr.goal).slice(0, 3);
+    if (next.length) {
+      p.list.appendChild(el('div', 'fm-note', 'AÇILMAYA EN YAKIN 3'));
+      for (const x of next) {
+        const rr = el('div', 'fm-row');
+        const bar = el('div', 'fm-abar'); const b = el('div', 'fm-bar'); const fill = el('i');
+        setCss(fill, '--p', `${Math.round((x.pr.value / x.pr.goal) * 100)}%`);
+        b.appendChild(fill);
+        add(bar, b, el('div', 'fm-bn', `${fmt(x.pr.value)}/${fmt(x.pr.goal)}`));
+        add(rr, el('div', 'fm-aico', x.d.icon), add(el('div', 'fm-amid'), el('div', 'fm-an', x.d.name), el('div', 'fm-ad', x.d.desc), bar));
+        p.list.appendChild(rr);
+      }
+    }
+    return p;
+  }
+
+  function openPostcard() {
+    sfx('click');
+    const p = openPanel({ id: 'post', title: 'YETİ POSTASI', pills: ['coins'] });
+    let c = null;
+    try { c = meta.postcard(); } catch { /* ignore */ }
+    if (!c) return p;
+    p.setSub(c.available ? 'BUGÜNKÜ KART' : 'BUGÜNÜN KARTI');
+    const card = add(el('div', 'fm-card'), el('div', 'st', 'YETİ POSTASI'), el('div', 'yt', '🦣'), el('div', 'tx', c.msg), el('div', 'cp', `🎟️ KUPON: +${c.coins} ❄️`));
+    p.list.appendChild(card);
+    if (c.available) {
+      const bt = button('fm-btn glow', 'KUPONU AL', () => {
+        let g = null;
+        try { g = meta.openPostcard(); } catch { /* ignore */ }
+        if (g) { sfx('confirm'); confetti(40); toast({ icon: '✉️', title: `+${g.coins} ❄️`, sub: 'Yeti Postası kuponu', kind: 'gold', ms: 2200 }); }
+        bt.remove(); updateMain();
+      });
+      p.list.appendChild(bt);
+    } else p.list.appendChild(el('div', 'fm-note', 'Kupon alındı. Yarın yeni kart gelecek!'));
     return p;
   }
 
@@ -2790,11 +2854,14 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const sMis = secBtn('c-mis', '📜', 'Görevler', () => openMissions());
     const sPass = secBtn('c-pass', '🛂', 'PASAPORT', () => { try { localStorage.setItem('patpat.stampsSeen', String(meta.stamps().filter((x) => x.got).length)); } catch { /* ignore */ } openPassport(); updateMain(); });
     r.passBdg = sPass.bdg;
+    r.post = button('fm-post', '✉️', () => { sfx('click'); openPostcard(); }, 'Yeti Postası');
+    r.postBdg = el('span', 'fm-bdg dot off', '!'); r.post.appendChild(r.postBdg);
     const sSet = secBtn('c-set', '⚙️', 'Ayarlar', () => openSettings());
     r.xchip = el('span', 'fm-xchip', ''); r.xchip.style.display = 'none';
     sMis.ic.appendChild(r.xchip);
     r.bMis = sMis.bdg; r.bShop = sShop.bdg;
     bot.appendChild(add(el('div', 'fm-secrow'), sCig.b, sMap.b, sShop.b, sMis.b, sPass.b, sSet.b));
+    bot.appendChild(r.post);
     root0.appendChild(bot);
 
     host.appendChild(root0);
@@ -2941,6 +3008,11 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       r.passBdg.className = `fm-bdg dot${nw ? ' pulse' : ' off'}`;
     } catch { /* ignore */ }
     try {
+      const pc = meta.postcard();
+      r.post.classList.toggle('off', !pc.available);
+      r.postBdg.className = `fm-bdg dot${pc.available ? ' pulse' : ' off'}`;
+    } catch { /* ignore */ }
+    try {
       const gr = meta.globeReady();
       r.globeBdg.className = 'fm-bdg dot gold' + (gr ? ' pulse' : ' off');
       r.globe.classList.toggle('ready', gr);
@@ -2956,7 +3028,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.bMis.className = `fm-bdg${unclaimed <= 0 ? ' off' : ''}`;
     // only ONE attention badge on the whole screen, by priority
     let shown = false;
-    for (const b of [att === 'reward' ? r.dlBdg : null, r.bMis, r.boxBdg, r.globeBdg, r.bShop, r.passBdg]) {
+    for (const b of [att === 'reward' ? r.dlBdg : null, r.bMis, r.boxBdg, r.globeBdg, r.bShop, r.passBdg, r.postBdg]) {
       if (!b) continue;
       if (b.classList.contains('off')) continue;
       if (!shown) { shown = true; continue; }
@@ -3270,6 +3342,6 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     // Mystery boxes never pop up by themselves any more: a bare openBoxes(n) call (the old post-run auto-open) is ignored, boxes stay
     // banked and open from the lobby (💎 pill). Pass { user: true } as the 3rd argument for an explicit open.
     openBoxes: (n, onDone, opts) => { if (opts && opts.user) return openBoxes(n, onDone); if (onDone) { try { onDone(); } catch { /* ignore */ } } return null; },
-    openDaily, openAchievements, openPassport, openMissions, openUpgrades, openHunt, openSettings, closePanel, destroy,
+    openDaily, openAchievements, openPassport, openPostcard, openMissions, openUpgrades, openHunt, openSettings, closePanel, destroy,
   };
 }

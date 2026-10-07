@@ -1418,6 +1418,7 @@ export class CigGame {
 
     this._melt(dt);
     this._wave(dt, target);
+    this._loot(dt);
     this._stallGuard(dt);
     this._ambient(dt);
     this._tierCheck();
@@ -2587,7 +2588,42 @@ export class CigGame {
     G.finalBroken = true; G.finalR = b.r; G.gateIdx = this.L.S;
     G.gateLog.push({ i: g.i, r: b.r, need: g.minR, ok: true });
     G.timeScale = 0.4;
+    this._spawnLoot();
     for (let k = 0; k < 8; k++) this._h('burst', b.x + (k - 3.5) * Math.min(g.hw, 40) * 0.2, b.y, g.d, 6, k % 2 ? 0xffd45a : 0xd8ecff, 8, 0.55, 7);
+  }
+
+  // BOSS GANİMETİ: the defeated boss drops a glowing orb that rolls ahead; collect it before the finish or it is lost
+  _spawnLoot() {
+    const b = this.ball, L = this.L;
+    if (this.loot || !L || !L.boss) return;
+    const geo = new THREE.IcosahedronGeometry(1, 1);
+    const core = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffe27a }));
+    const halo = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.35, depthWrite: false }));
+    const grp = new THREE.Group(); grp.add(core); halo.scale.setScalar(1.8); grp.add(halo);
+    grp.frustumCulled = false;
+    this.plus.group.add(grp);
+    this.loot = { grp, halo, d: b.d + 28, x: b.x, v: Math.max(10, b.speed * 0.95), t: 0, got: false, lost: false, boss: L.bossId };
+    this._msg(3, '✨ PATRON GANİMETİ! Küreyi yakala');
+  }
+  _loot(dt) {
+    const o = this.loot, b = this.ball, w = this.world, L = this.L;
+    if (!o || o.got || o.lost) return;
+    o.t += dt;
+    o.v += (b.speed * (o.t < 2.5 ? 0.9 : 0.62) - o.v) * Math.min(1, dt * 1.5);
+    o.d = Math.min(o.d + o.v * dt, L.length - 4);
+    const hw = w.halfWidth(o.d) * 0.6;
+    o.x = Math.sin(o.t * 0.9) * hw;
+    const r = 0.9 + b.r * 0.25, y = w.groundY(o.x, o.d) + r + 0.5 + Math.sin(o.t * 4) * 0.15;
+    o.grp.position.set(o.x, y, -o.d); o.grp.scale.setScalar(r); o.grp.rotation.y = o.t * 2;
+    o.halo.scale.setScalar(1.8 + Math.sin(o.t * 6) * 0.2);
+    if (Math.abs(o.d - b.d) < b.r + r + 0.8 && Math.abs(o.x - b.x) < b.r + r + 1.2) {
+      o.got = true; this.G.lootGot = o.boss; this.plus.group.remove(o.grp);
+      this.G.bonusTons += Math.max(30, 0.5 * this.snowTons()) * this._cm();
+      this._h('burst', o.x, y, o.d, 22, 0xffe27a, 9, 0.35, 8); this._h('flash', 'gold'); this._h('sfx', 'milestone', 2); this._h('haptic', 'success');
+      this._msg(2, '✨ GANİMET ALINDI!');
+    } else if (b.d > o.d + 8 || (b.d >= L.length - 6 && o.d >= L.length - 5)) {
+      o.lost = true; this.plus.group.remove(o.grp); this._msg(1, 'Ganimet kayboldu...');
+    }
   }
 
   // finish line crossed with the final barrier broken
