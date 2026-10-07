@@ -733,3 +733,30 @@ Her biri için ilk karşılaşmada ipucu gösteriliyor.
 - Rush 2,68 km hatasız ilerledi.
 - Boss dağları 5 ve 14 ile Ters Çığ (7) bot tarafından kazanıldı.
 - Tüm modlar hatasız.
+
+## Tur 14 — Yapılanlar
+
+**İlk deneyim (FTUE)**
+- Oyunu ilk kez açan oyuncu 2 sn'lik "DOKUN VE OYNA" ekranından doğrudan YETİ RUSH'a giriyor.
+- İlk koşudan sonra:
+  - "İLK KOŞUN!" kutlaması ve +60 ❄️ veriliyor.
+  - İlk kostüm hedefi gösteriliyor.
+  - 3 adımlık bir tanıtım turu var (atlanabilir).
+- Ana menünün ikincil sistemleri (BUGÜN, Küre, Posta, Pasaport) 2-3 koşu boyunca kademeli olarak "YENİ!" etiketiyle açılıyor.
+- Eski oyuncular bu akıştan etkilenmiyor.
+
+**ÇIĞ**
+- Yeni: **Kardan Adam Tahtı**. Yan alanda 5 bloklu bir kardan adam kulesi duruyor:
+  - Çarpınca bloklar zincirleme devriliyor.
+  - Taçlı blok düşerse "TAHT YIKILDI!" bonusu veriyor.
+  - Bu tahtı yıkmak yeni bir 3. yıldız görevi.
+
+**Arena**
+- Yeni: **Kartopu Güreşi**. Benzer boydaki iki top kafa kafaya çarpışırsa 6 sn'lik bir itişme düellosu başlıyor.
+  - Halkadan çıkan kütlesinin %30'unu kaybediyor.
+  - Oyun akışında kimin kazandığı yazıyor.
+
+**Kontrol**
+- İlk açılış ekranı çalışıyor ve Rush'ı başlatıyor.
+- Bulunan yan etki düzeltildi: açılış ekranı varken başka bir mod başlatılırsa Rush artık araya girmiyor.
+- Boss dağları ve Ters Çığ kazanıldı.
