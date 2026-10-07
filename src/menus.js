@@ -1044,7 +1044,11 @@ function injectStyle() {
 export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   injectStyle();
   const host = root || document.getElementById('app') || document.body;
-  const cb = callbacks || {};
+  const LM_KEY = 'patpat.lastMode';
+  const lastSet = (o) => { try { localStorage.setItem(LM_KEY, JSON.stringify(o)); } catch { /* ignore */ } };
+  const lastGet = () => { try { return JSON.parse(localStorage.getItem(LM_KEY) || 'null'); } catch { return null; } };
+  const LM_WRAP = { onEndless: () => ({ k: 'rush' }), onCigEndless: () => ({ k: 'cigE' }), onAgar: () => ({ k: 'arena' }), onCigLevel: (a) => ({ k: 'cigL', n: a[0] }), onPlayLevel: (a) => ({ k: 'camp', n: a[0] }) };
+  const cb = new Proxy(callbacks || {}, { get(t, k) { const f = t[k]; if (typeof f === 'function' && LM_WRAP[k]) return (...a) => { try { lastSet(LM_WRAP[k](a)); } catch { /* ignore */ } return f.apply(t, a); }; return f; } });
   const sfx = (k) => { try { if (cb.sfx) cb.sfx(k); } catch { /* audio is optional */ } };
   const toggles = () => {
     try { return { sound: true, music: true, haptics: true, visualName: 'NORMAL', ...(cb.getToggles ? cb.getToggles() : {}) }; } catch { return { sound: true, music: true, haptics: true, visualName: 'NORMAL' }; }
@@ -2780,6 +2784,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.crPill = makePill('💎', 'cr', () => { sfx('click'); if (meta.boxes > 0) openBoxes(meta.boxes); else openMissions(); }, 'fm-cur');
     r.boxBdg = el('span', 'fm-bdg dot gold off', '🎁');
     r.crPill.el.appendChild(r.boxBdg);
+    for (const [bx, tx] of [[r.dl, 'Günlük ödül'], [r.coinsPill.el, '❄️ Al'], [r.crPill.el, '💎 Al']]) { bx.style.position = 'relative'; bx.title = tx; bx.appendChild(el('span', 'fm-cl', tx)); }
     r.rwChip = button('fm-rwc off', '', () => { sfx('open'); openDailyTasks(); }, 'Hazır ödüller');
     add(top, r.av, r.dl, r.coinsPill.el, r.crPill.el, r.rwChip);
     {
@@ -2873,6 +2878,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
     // ---- bottom: OYNA (straight into YETİ RUSH) + ÇIĞ SONSUZ · MACERA · Dolap · Görevler · Ayarlar ----
     const bot = el('div', 'fm-bot');
+    r.lastChip = button('fm-lastc', '', () => { const l = lastGet(); sfx('confirm'); if (!l) return; if (l.k === 'cigL' && cb.onCigLevel) cb.onCigLevel(l.n, {}); else if (l.k === 'cigE' && cb.onCigEndless) cb.onCigEndless(); else if (l.k === 'arena' && cb.onAgar) cb.onAgar(); else if (l.k === 'camp' && cb.onPlayLevel) cb.onPlayLevel(l.n); else playMode('endless'); }, 'Son oynanan');
+    r.lastChip.style.display = 'none';
+    bot.appendChild(r.lastChip);
     r.play = button('fm-play', 'OYNA', () => { sfx('confirm'); playMode('endless'); }, 'Oyna: Yeti Rush');
     r.play.appendChild(el('small', '', 'YETİ RUSH'));
     add(bot, add(el('div', 'fm-playw'), r.play));
@@ -3067,6 +3075,12 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       b.classList.add('off');
     }
     try { applyFtue(r); } catch { /* ignore */ }
+    try {
+      const l = lastGet();
+      const nm = !l ? '' : l.k === 'rush' ? 'YETİ RUSH' : l.k === 'cigE' ? 'ÇIĞ SONSUZ' : l.k === 'cigL' ? 'ÇIĞ Sv ' + l.n : l.k === 'arena' ? 'KARTOPU ARENA' : 'MACERA ' + l.n;
+      r.lastChip.textContent = nm ? '↻ SON OYNANAN: ' + nm : '';
+      r.lastChip.style.display = nm ? '' : 'none';
+    } catch { /* ignore */ }
   }
 
   // ============================================================================================ first-time user experience
@@ -3079,9 +3093,13 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const runs = ftueRuns();
     if (runs >= 4) lsSet('patpat.ftueGate', 'off');
     const on = runs < 4;
+    const need0 = { today: 2, globe: 3, post: 3, pass: 3 };
     const sh = (node, ok, key) => {
       if (!node) return;
-      node.style.display = on && !ok ? 'none' : '';
+      node.style.display = '';
+      const lock = on && !ok;
+      node.classList.toggle('fm-lock', lock);
+      if (lock) { const need = Math.max(1, (need0[key] || 3) - runs); node.setAttribute('data-lock', '🔒 ' + need + ' koşu'); try { if (getComputedStyle(node).position === 'static') node.style.position = 'relative'; } catch { /* ignore */ } } else node.removeAttribute('data-lock');
       node.classList.remove('fm-new');
       if (ok && on && lsGet('patpat.new.' + key) !== '1') {
         node.classList.add('fm-new');

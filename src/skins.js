@@ -77,6 +77,19 @@ export const SKINS = [
   { id: 'galaksi', name: 'Galaksi', rarity: 'legendary', price: 0, unlock: { secret: 'galaksi' }, preview: { a: '#0b0b3a', b: '#6a2aa8', c: '#ffffff', pattern: 'stars', glow: true } },
 ];
 
+// KARAKTER snowballs: one small passive Rush ability each (endless Rush only; read by runner.js).
+export const ABILITIES = {
+  kofte: { icon: '🧲', text: 'Mıknatıs %30 daha uzun sürer' },
+  simit: { icon: '🥯', text: 'Her koşuda ilk çarpma affedilir' },
+  nazar: { icon: '🧿', text: 'Yeti 3 m daha uzak başlar' },
+  cini: { icon: '🪙', text: '+%10 bozuk para' },
+  kizilkaos: { icon: '🔥', text: 'Öfke ölçeri %20 hızlı dolar' },
+  buzejder: { icon: '🧊', text: 'Buz kaydırağı çifte hız verir' },
+  kirpi: { icon: '🦔', text: 'Ezme sıçraması yüksek, kombo +1' },
+  altin: { icon: '💎', text: 'Elmaslar daha sık çıkar' },
+  penguen: { icon: '🐧', text: 'Penguen takipçisiyle başla (x1)' },
+};
+
 export const TRAILS = [
   // ---- SIRADAN
   { id: 'classic', name: 'Kar İzi', rarity: 'common', price: 0, preview: { a: '#e8f2ff', b: '#bcd3ee', pattern: 'solid' } },

@@ -511,6 +511,11 @@ export class AgarMode {
     if (!me.alive) return;
     const early = this.time - me.t0 < 90;
     if (early && (this.strT = !this.strT)) { const ux = me.ldx || 0, uz = me.ldz || 1, hex = FOOD_PAL[(Math.random() * FOOD_PAL.length) | 0]; for (let k = 0; k < 6; k++) { const px = me.lx + ux * (16 + k * 3.2) - uz * Math.sin(k * 0.7) * 3, pz = me.lz + uz * (16 + k * 3.2) + ux * Math.sin(k * 0.7) * 3; if (px * px + pz * pz < (R - 4) * (R - 4)) this.spawnPellet(px, pz, 2, hex); } }
+    if (!early && this.time - me.t0 > 60 && (this.bigT = (this.bigT || 0) + 2.5) >= 30) { // büyük lokma: rare big pellet cluster near the player
+      this.bigT = 0; const ca = Math.random() * 6.2832, cd = 30 + Math.random() * 40, qx = me.lx + Math.cos(ca) * cd, qz = me.lz + Math.sin(ca) * cd, n = 5 + ((Math.random() * 3) | 0);
+      for (let k = 0; k < n; k++) { const a2 = Math.random() * 6.2832, d2 = Math.random() * 9, px = qx + Math.cos(a2) * d2, pz = qz + Math.sin(a2) * d2; if (px * px + pz * pz < (R - 4) * (R - 4)) this.spawnPellet(px, pz, 20 + ((Math.random() * 21) | 0), 0xffd24a); }
+      this.toast('BÜYÜK LOKMA! 🍖', 1800);
+    }
     let near = 0, far = null;
     for (let k = 1; k < NOWN; k++) {
       const o = this.owners[k];
@@ -518,7 +523,7 @@ export class AgarMode {
       const d = Math.hypot(o.lx - me.lx, o.lz - me.lz);
       if (d < 90) near++; else if (d > 160 && o.cellN === 1 && (!far || Math.random() < 0.3)) far = o;
     }
-    if (near >= (early ? 5 : 3) || !far) return;
+    if (near >= (early ? 5 : this.time - me.t0 > 60 ? 4 : 3) || !far) return;
     const a = Math.random() * 6.2832, d = 55 + Math.random() * 30, m = me.mass * (early ? 0.4 + Math.random() * 0.45 : near === 0 ? 0.6 : 0.5 + Math.random() * 0.8);
     this.placeBot(far, me.lx + Math.cos(a) * d, me.lz + Math.sin(a) * d, Math.max(12, m));
   }
@@ -631,7 +636,7 @@ export class AgarMode {
     if (!o.bot && this.state !== 'title') this.seedAround(p.x, p.z, m);
     if (o.id === this.me && this.mp !== 'client' && this.state !== 'title') { this.sessT = this.time; for (let k = 4; k < NOWN; k++) { const b = this.owners[k]; if (!b.alive || !b.bot || b.human || b.cellN !== 1 || b.mass < 60 || Math.random() < 0.4) continue; const nm = 14 * Math.exp(Math.random() * 3.2); for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.o === b.id) { c.m = nm; c.r = KR * Math.sqrt(nm); } } b.mass = nm; } }
     if (o.id === this.me && this.mp !== 'client' && this.state !== 'title') this.spawnPrey(o);
-    if (o.id === this.me) { this.firstEat = false; this.lastRankToast = 0; this.rankBest = 99; }
+    if (o.id === this.me) { this.firstEat = false; this.lastRankToast = 0; this.msDone = null; this.bigT = 0; this.rankBest = 99; }
   }
 
   startMass() { return 24; } // everybody starts equal (XP / level is cosmetic only)
@@ -2697,6 +2702,8 @@ export class AgarMode {
       if (myRank >= 0 && this.state === 'play' && myRank + 1 < me.bestRank) me.bestRank = myRank + 1;
       if (myRank >= 0 && this.state === 'play' && me.alive) {
         const rk = myRank + 1, rb = this.rankBest === undefined ? 99 : this.rankBest;
+        const ms = rk <= 1 ? 1 : rk <= 5 ? 5 : rk <= 10 ? 10 : 0; this.msDone = this.msDone || {};
+        if (ms && !this.msDone[ms] && this.time - me.t0 > 15) { for (const q of [1, 5, 10]) if (q >= ms) this.msDone[q] = 1; this.toast(ms === 1 ? '#1! 👑 +bonus' : 'TOP ' + ms + '! +bonus', 2200); this.audio?.milestone?.(ms === 1 ? 4 : 2); if (this.mp !== 'client') for (let i = 0; i < CAP; i++) { const cc = this.cells[i]; if (cc.on && cc.o === this.me) { cc.m = Math.min(MAXM, cc.m + (ms === 1 ? 30 : ms === 5 ? 20 : 12)); break; } } }
         if (rk < rb) { if (rb < 99 && this.time - (this.lastRankToast || 0) > 3) { this.toast('SIRA ' + rb + ' → ' + rk + '!'); this.lastRankToast = this.time; this.audio?.milestone?.(2); } this.rankBest = rk; }
       }
     }

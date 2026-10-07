@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Track, flightDist, LANES, setLanes } from './track.js';
 import { Obstacles } from './obstacles.js';
+import { ABILITIES } from '../skins.js';
 import { Environment, biomeAt, trackPalette, musicStyleAt } from './biomes.js';
 import * as Biomes from './biomes.js';
 import { BuffSet, rollBuff, BUFF_LEN, DESTRUCTION, destructionTier } from './perks.js';
@@ -403,6 +404,12 @@ export class Runner {
     this.makeShadow();
     this.obstacles.markSmashable?.(this.sizeNow() - 1);
     this.markedSize = this.sizeNow();
+    // KARAKTER ability (endless Rush only)
+    { let id = null; try { id = this.level ? null : this.ctx.save.selected?.('skin'); } catch (e) { id = null; }
+      this.abil = ABILITIES[id] ? id : null; this.simitUsed = false; this.gapBonus = 0; this._gemNext = 0;
+      if (this.abil === 'nazar') { this.gapBonus = 3; this.gap += 3; }
+      if (this.abil === 'penguen') this.penN = 1;
+      if (this.abil) this.ctx.ui.toastSoft?.(ABILITIES[this.abil].icon + ' ' + ABILITIES[this.abil].text); }
     this.ctx.meta?.track?.('run_start', { mode: 'endless' });
     this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.()?.nextLetter ?? null);
     this.yetiN = 0; this.dblT = 0; this.turboN = 0; this.turboT = 0;
@@ -616,7 +623,7 @@ export class Runner {
     this.duckT -= dt;
 
     // ---- speed: downhill pace + size bonus; rocket overrides ----
-    const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1) * (this.riskT > 0 ? 1.45 : 1) * (this.slideT > 0 ? 1.2 : 1) * (this.rhythm ? this.rhythm.speedK : 1);
+    const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1) * (this.riskT > 0 ? 1.45 : 1) * (this.slideT > 0 ? (this.abil === 'buzejder' ? 1.4 : 1.2) : 1) * (this.rhythm ? this.rhythm.speedK : 1);
     if (b.vs < top) b.vs = Math.min(top, b.vs + RCFG.accel * dt);
     else b.vs = Math.max(top, b.vs - RCFG.accel * 0.6 * dt);
     this.invulnT -= dt;
@@ -624,6 +631,7 @@ export class Runner {
     this.iceT -= dt;
     this.slideT -= dt; this.slideMsgT -= dt; this.tunnelMsgT -= dt;
     if (this.magnetT > 0) this.magnetT -= dt;
+    if (this.abil === 'altin') { const n = this.obstacles.next; if (n) { if (this._gemNext && n.gem > this._gemNext) n.gem -= 200; this._gemNext = n.gem; } }
     if (this.x2T > 0) this.x2T -= dt;
     if (this.superT > 0) this.superT -= dt;
     if (this.helmetT > 0) { this.helmetT -= dt; if (this.helmetT <= 0 && this.helmet) { this.helmet = false; this.float('KASK GİTTİ', ''); } }
@@ -712,7 +720,7 @@ export class Runner {
   // YETİ ÖFKESİ meter: near misses + stomp chains fill it (~8 near misses); full -> 5 s of snowball rain, invulnerable, score x2.
   addFury(a) {
     if (this.furyT > 0 || this.state !== 'play') return;
-    this.fury = Math.min(1, this.fury + a);
+    this.fury = Math.min(1, this.fury + a * (this.abil === 'kizilkaos' ? 1.2 : 1));
     if (this.fury < 1) return;
     this.fury = 1; this.furyT = 5; this.furyCd = 0;
     const { audio, platform } = this.ctx;
@@ -1088,7 +1096,7 @@ export class Runner {
       this.gap = Math.min(RCFG.yetiMax, this.gap + 6 * dt);
     } else if (this.yetiHoldT > 0) {
       this.yetiHoldT -= dt;
-      this.gap = Math.min(this.gap, RCFG.yetiStart);
+      this.gap = Math.min(this.gap, RCFG.yetiStart + (this.gapBonus || 0));
     } else if (this.stumbleT > 0) {
       this.stumbleT -= dt;
       this.gap += ((this.stumbleHits >= 2 ? RCFG.yetiStumbleGap - 2.2 : RCFG.yetiStumbleGap) - this.gap) * Math.min(1, dt * 4);
@@ -1797,7 +1805,7 @@ export class Runner {
     // Lateral: player spring (heavier when big, slippery on ice) + external knocks / curve drift.
     // Once the ball has dropped off the track it can no longer steer (no sliding back "through" the ground).
     const mass = 1 + this.tier * 0.06;
-    const grip = this.slideT > 0 ? 0.4 : this.iceT > 0 ? 0.5 : 1;   // BUZ KAYDIRAĞI: fast but lane changes are slow
+    const grip = this.slideT > 0 ? (this.abil === 'buzejder' ? 0.55 : 0.4) : this.iceT > 0 ? 0.5 : 1;   // BUZ KAYDIRAĞI: fast but lane changes are slow
     const k = (RCFG.laneStiff * grip) / mass;
     const locked = this.fallLock || this.wallRun !== null;
     const tgtU = locked ? b.u : this.targetU;
@@ -2157,6 +2165,7 @@ export class Runner {
   hurt(e) {
     if (this.invulnT > 0 || this.ghostT > 0) return false;
     if (this.absorbShield(e)) { this.invulnT = RCFG.invulnAfterCrash; return false; }
+    if (this.abil === 'simit' && !this.simitUsed) { this.simitUsed = true; this.invulnT = RCFG.invulnAfterCrash; this.float('SİMİT KURTARDI!', 'big'); this.ctx.audio.chime?.(); return false; }
     if (this.isLethal(e)) { this.lethalHit(e); return true; }
     this.crash(e);
     return true;
@@ -2694,7 +2703,7 @@ export class Runner {
         }
         break;
       case 'magnet':
-        this.magnetT = this.dur('magnet');
+        this.magnetT = this.dur('magnet') * (this.abil === 'kofte' ? 1.3 : 1);
         this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'magnet' });
         audio.milestone(3);
         this.float('MIKNATIS!', 'big');
@@ -2723,7 +2732,7 @@ export class Runner {
 
   // Flakes (coins). The gold card doubles them; permanent upgrades add a little. Whole coins only.
   addFlakes(v) {
-    this.coinsF += v * (this.buffs.has('altin') ? 2 : 1) * (1 + 0.08 * Math.min(5, this.perm.coin || 0));
+    this.coinsF += v * (this.abil === 'cini' ? 1.1 : 1) * (this.buffs.has('altin') ? 2 : 1) * (1 + 0.08 * Math.min(5, this.perm.coin || 0));
     const whole = Math.floor(this.coinsF);
     this.coins += whole;
     this.coinsF -= whole;
@@ -2738,7 +2747,7 @@ export class Runner {
     if (e.stomp) {
       obs.killCritter?.(e.id);
       if (e.kind === 'penguin') this.addPenguin();
-      this.stompN++;
+      this.stompN += this.abil === 'kirpi' ? 2 : 1;
       if (this.stompN >= 2) this.addFury(0.06);
       this.stompTotal++;
       this.groundT = 0;
@@ -2746,7 +2755,7 @@ export class Runner {
       this.holeAir = false;
       this.coyoteT = 0;
       this.duckT = 0;
-      b.vh = this.jumpBufT > 0 ? RCFG.stompV + 3 : RCFG.stompV;      // a jump pressed just before = a higher bounce (Mario)
+      b.vh = (this.jumpBufT > 0 ? RCFG.stompV + 3 : RCFG.stompV) + (this.abil === 'kirpi' ? 2 : 0);      // a jump pressed just before = a higher bounce (Mario)
       this.jumpBufT = 0;
       const n = this.stompN;
       this.addFlakes(n);

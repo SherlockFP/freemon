@@ -1322,6 +1322,8 @@ if (DEBUG) {
         cigFrame(step);
         if (G.state === 'result' && i > 0) break;
       }
+      // end -> result is intentional (end animation, then finishCig); settle it so a finished run always reports 'result'
+      for (let k = 0; k < 400 && G.state === 'end' && G.mode === 'cig'; k++) cigFrame(step);
       post.render(scene, camera);
       return cigSummary();
     },

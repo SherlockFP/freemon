@@ -2297,6 +2297,11 @@ export class CigGame {
       const g = gs[i];
       if (g.broken) continue;
       const front = b.d + b.r * 0.8;
+      // a locked boss gate is a hard wall: the ball can never slip through it during the bump cooldown
+      if (L && g.locked && front > g.d - g.T * 0.5 && b.d < g.d + g.T) {
+        if (g.cd > 0) { b.d = Math.min(b.d, g.d - g.T * 0.5 - b.r * 0.8); if (b.speed > 0) b.speed = 0; }
+        else { this._hitGate(g); continue; }
+      }
       if (!L) {
         if (g.hit) continue;
         if (front >= g.d - g.T * 0.5 && b.d < g.d + g.T) this._hitGate(g);
@@ -2731,6 +2736,20 @@ export class CigGame {
       const left = ng.d - b.d;
       if (left > 0 && left < 0.15 * Math.max(200, ng.d - pd) && b.r >= 0.7 * ng.minR) rate *= 0.5;
     }
+    // boss fight: much gentler melt + periodic snow drops so a player who keeps moving sustains; warn when shrunk below 70 %
+    const bf = this.L && this._inArena() && this.plus.bossFx && !this.plus.bossFx.dead;
+    if (bf) {
+      rate *= 0.35;
+      if (!this._bossR0) { this._bossR0 = b.r; this._bossDrop = 2; this._bossWarnT = 0; }
+      this._bossDrop -= dt;
+      if (this._bossDrop <= 0) {
+        this._bossDrop = 1.8;
+        const hwB = w.halfWidth(b.d), cr = clamp(b.r * 0.32, 0.5, 3.4);
+        for (let k = 0; k < 3; k++) w.spawnChunk(clamp(b.x + (k - 1) * (2 + b.r), -hwB + 1, hwB - 1), Math.min(b.d + b.r * 1.6 + 5 + k * 2.5, (this._next && this._next.locked ? this._next.d - 3 : 1e9)), cr);
+      }
+      this._bossWarnT -= dt;
+      if (b.r < 0.7 * this._bossR0 && this._bossWarnT <= 0) { this._bossWarnT = 4; this._msg(3, 'ERİYORSUN — KAR TOPLA!'); this._h('haptic', 'warning'); }
+    } else if (this._bossR0 && !this._inArena()) this._bossR0 = 0;
     if (b.airborne || M.noMelt) rate = 0;
     let onPatch = false;
     if (!b.airborne && !M.noMelt && w.inPatch(b.x, b.d)) { rate += CFG.patchMelt; onPatch = true; }

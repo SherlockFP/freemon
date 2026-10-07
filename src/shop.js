@@ -6,7 +6,7 @@
 // Buying: save.spend(price) -> save.own(kind,id) -> save.select(kind,id) -> onSelect(kind,id).
 // Items are sorted by rarity (SIRADAN -> NADİR -> EPİK -> EFSANE), then price. Items with unlock.secret stay
 // hidden ("GİZLİ", name and look concealed) until save.isOwned(kind, id) becomes true.
-import { SKINS, TRAILS, RARITY, sortCatalog } from './skins.js';
+import { SKINS, ABILITIES, TRAILS, RARITY, sortCatalog } from './skins.js';
 import { meta, UPGRADES as POWER_UPGRADES, SLED_PACK } from './meta.js';
 import * as Perks from './runner/perks.js';
 
@@ -194,6 +194,8 @@ const CSS = `
 .cs-card.r-epic { --rc: #a855f7; --rg: rgba(168, 85, 247, 0.5); }
 .cs-card.r-legendary { --rc: #ffb400; --rg: rgba(255, 180, 0, 0.62); }
 .cs-card.sel { box-shadow: 0 5px 0 var(--ink), 0 0 0 4px var(--gold), 0 0 20px 4px rgba(255, 207, 58, 0.55); }
+.cs-abil-b { display:inline-block; font-size:9px; font-weight:800; letter-spacing:.08em; padding:1px 6px; border-radius:6px; background:#ffb400; color:#2a1a00; margin-top:3px; }
+.cs-abil { font-size:11px; line-height:1.25; opacity:.9; margin-top:2px; }
 .cs-rar {
   position: absolute; top: 6px; left: 7px; z-index: 2; padding: 3px 6px 2px; border-radius: 8px; pointer-events: none;
   font-size: 9px; line-height: 1; letter-spacing: 0.06em; color: #fff; background: var(--rc);
@@ -924,6 +926,8 @@ export function openShop({ save, onClose, onSelect } = {}) {
     card.appendChild(buildPreview(kind, st.secret ? HIDDEN : it.preview, st.secret));
     card.appendChild(h('span', 'cs-rar', RARITY[rar].label));
     card.appendChild(h('div', 'cs-name', st.secret ? '???' : it.name));
+    const ab = kind === 'skin' && !st.secret ? ABILITIES[it.id] : null;
+    if (ab) { card.appendChild(h('span', 'cs-abil-b', 'ABİLİTE')); card.appendChild(h('div', 'cs-abil', ab.icon + ' ' + ab.text)); }
     if (st.locked) {
       card.appendChild(h('div', 'cs-note', st.secret ? 'Gizli ödül' : `⭐ ${Math.min(st.stars, st.need)}/${st.need}`));
       card.appendChild(h('span', 'cs-lockbadge', '🔒'));

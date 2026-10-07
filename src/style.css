@@ -932,5 +932,9 @@ html, body {
 .ftc-row{display:flex;gap:10px;justify-content:center}
 .ftc-go,.ftc-skip{border:0;border-radius:30px;padding:13px 26px;font-size:18px;font-weight:900;font-family:inherit}
 .ftc-go{background:#ff7a2f;color:#fff;box-shadow:0 4px 0 #c55414}.ftc-skip{background:#e6eef8;color:var(--ink,#17345c)}
+.fm-cl{position:absolute;left:50%;top:100%;transform:translateX(-50%);margin-top:1px;font-size:9px;font-weight:900;color:#fff;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.6);pointer-events:none;opacity:.9}
+.fm-lock{filter:grayscale(1) brightness(.85);opacity:.5;pointer-events:none}
+.fm-lock::after{content:attr(data-lock);position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(20,30,50,.85);color:#fff;font-size:10px;font-weight:900;padding:2px 7px;border-radius:9px;white-space:nowrap;z-index:5;filter:none}
+.fm-lastc{display:block;margin:0 auto 6px;padding:5px 12px;border-radius:14px;border:0;background:rgba(255,255,255,.88);color:#17345c;font-size:11px;font-weight:900;letter-spacing:.04em;box-shadow:0 2px 6px rgba(0,0,0,.2);cursor:pointer}
 .fm-new{position:relative}
 .fm-new::after{content:'YENİ!';position:absolute;top:-6px;right:-6px;background:#ff3d6e;color:#fff;font-size:10px;font-weight:900;padding:2px 6px;border-radius:9px;animation:ftpulse .9s ease-in-out infinite;pointer-events:none;z-index:5}
