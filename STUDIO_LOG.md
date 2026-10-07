@@ -1068,3 +1068,9 @@ Genel 7.4 · Rush 7.5 · ÇIĞ 7.1 · Arena 6.8 · Menü 7.2
 - Boşluk 2: ilk oturum ekonomisi hedefsiz — ❄0, ilk skin ~1600 ❄, günlük 1. gün 50 ❄; 1-3 oturumda ilk alım imkânsız.
 - Boşluk 3: 7 paralel meta yüzey, "sıradaki tek şey" yok; menüde sezon görünmüyor, sezon sonu aciliyeti yok.
 - Şimdi: yerel bildirimler (2. koşudan sonra izin); İLK ADIMLAR hediye yolu + menüde tek "SIRADAKİ HEDEF" çipi; Sezon çipi + son 3 gün geri sayımı; ÖDÜLLER gruplaması.
+
+### Döngü 26 — sonuçlar
+- İLK ADIMLAR: 1. koşu bedava skin (Tenis Topu), 2. ❄150, 3. 💎1+❄100, 5. ❄300 — tek altın toast (görüntüyle doğrulandı). Günlük 1./2. gün 200/250 ❄. ~1.200 ❄ 2-3. oturumda.
+- Menü: "SIRADAKİ HEDEF" çipi (önce alınabilir ödül "AL: …", yoksa en ucuz eşya ❄ ilerlemesi); Sezon çipi hep görünür + son 3 gün kırmızı geri sayım; Görevler'de birleşik rozet.
+- HATA DÜZELTİLDİ: sezon skin/iz ödülleri yanlış anahtarla verildiği için hiç sahiplenilmiyordu.
+- Bildirimler (yalnız native): seri tehlikede (20 sa), Günün Rush'ı (ertesi gün 10:00), sezon bitiyor; izin 2. koşudan sonra. Android için `npx cap sync` gerekli.
