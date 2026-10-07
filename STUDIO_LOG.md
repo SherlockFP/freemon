@@ -760,3 +760,25 @@ Her biri için ilk karşılaşmada ipucu gösteriliyor.
 - İlk açılış ekranı çalışıyor ve Rush'ı başlatıyor.
 - Bulunan yan etki düzeltildi: açılış ekranı varken başka bir mod başlatılırsa Rush artık araya girmiyor.
 - Boss dağları ve Ters Çığ kazanıldı.
+
+## Tur 15 — Değerlendirme ve acil düzeltme
+
+| Mod | Puan |
+|---|---|
+| İlk deneyim | 7.8 |
+| Rush | 7.9 |
+| ÇIĞ | 7.4 |
+| Arena | 6.8 |
+| Menü | 7.3 |
+| **Genel** | **7.4** |
+
+**Acil düzeltme (push edildi)**
+- ÇIĞ'da ilk buff alındığında oyun çöküyordu. Tur 9'daki kuyruk değişikliğinden kalan, artık var olmayan bir fonksiyon çağrılıyordu. Düzeltildi; Dağ 3, 4 ve 9 hatasız kazanıldı.
+- Rush'taki çarpan çipinde "x3.4500000000000006" yazıyordu, artık "x3.5" gösteriliyor.
+
+**Gelişmeli**
+- Boss etiketi HP çubuğunun üstüne biniyor.
+- Arena'da ÇIĞ'a ait "YENİ BÖLGE" bandı ortada çıkıyor.
+- Tahtın silüeti okunmuyor.
+- Arena'da kütle kaybettikten sonra toparlanma hissi zayıf.
+- Dönen oyuncunun rekor satırında "—" görünüyor.
