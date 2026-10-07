@@ -97,7 +97,7 @@ export class World {
     this.gates = [];
     this.arches = [];
     this.events = [];
-    this.zones = [];
+    this.zones = []; this.forks = [];
     this.specialQueue = [];
     this.secrets = [];   // cracked-ice walls (glow when you are big enough)
     this.boxItems = [];
@@ -221,6 +221,341 @@ export class World {
       this.groundY(p.x, p.d + e), this.groundY(p.x, p.d - e),
       this.groundY(p.x + e, p.d), this.groundY(p.x - e, p.d),
     );
+  }
+
+  // SICAK NOKTA: warm zone (ellipse) - melts the ball faster, holds the rich food
+  inHeat(x, d) {
+    for (let i = 0; i < this.heats.length; i++) {
+      const p = this.heats[i];
+      const a = (x - p.x) / p.rx, b = (d - p.d) / p.rd;
+      if (a * a + b * b < 1) return p;
+    }
+    return null;
+  }
+
+  inPatch(x, d) {
+    for (let i = 0; i < this.patches.length; i++) {
+      const p = this.patches[i];
+      const a = (x - p.x) / p.rx, b = (d - p.d) / p.rd;
+      if (a * a + b * b < 1) return true;
+    }
+    return false;
+  }
+
+  // ===================================================================== catalog
+  buildCatalog() {
+    const lib = this.lib;
+    const FOOD = new Set(['static', 'walker', 'skier', 'car', 'building', 'rock', 'tree']);
+    const houses = [], food = [], obst = [], town = [], walkers = [], trees = [], decorAll = [];
+    for (const name in lib) {
+      if (name === 'chunk') continue;
+      const def = lib[name];
+      if (!def || !def.geometry || !(def.radius > 0.2)) continue;
+      const kind = def.kind;
+      if (!FOOD.has(kind)) continue;
+      const e = { type: name, r: def.radius, h: def.height, kind, w: 1 };
+      const isRockTree = kind === 'rock' || kind === 'tree';
+      food.push({ ...e, w: isRockTree ? 0.35 : (kind === 'building' || STRUCT.has(name)) ? 2.2 : 1 });
+      if (isRockTree || STRUCT.has(name) || kind === 'building') obst.push({ ...e, w: kind === 'rock' ? 1.2 : kind === 'building' ? 1.6 : 1 });
+      if (kind === 'building' && !STRUCT.has(name)) houses.push(e);
+      if (!isRockTree && e.r > 0.3) town.push(e);
+      if (kind === 'walker' || kind === 'skier') walkers.push(e);
+      if (isRockTree) decorAll.push({ ...e, w: kind === 'tree' ? 3 : 1 });
+    }
+    const byR = (a, b) => a.r - b.r;
+    food.sort(byR); obst.sort(byR); town.sort(byR); walkers.sort(byR); decorAll.sort(byR); trees.sort(byR);
+    houses.sort(byR); this.landmarks = ['snowman', 'fence', 'kiosk', 'boulder', 'bench', 'sled'].filter((n) => lib[n] && lib[n].geometry).map((n) => ({ type: n, r: lib[n].radius }));
+    this.houses = houses; this.food = food; this.obst = obst; this.town = town; this.walkers = walkers; this.decorPool = decorAll;
+    // late-game themed models: tier 6 city, tier 7 mountain, tier 8 planet (cumulative)
+    const TH = [['skyscraper', 'stadium', 'radio_tower', 'ferris_wheel'], ['castle', 'ship', 'airplane', 'wind_turbine'], ['rocket_pad', 'rock_big', 'hotel']];
+    this.themed = [];
+    for (let k = 0; k < TH.length; k++) {
+      const names = TH[k].concat(k ? this.themed[k - 1].names : []);
+      const list = obst.filter((o) => names.includes(o.type)).map((o) => ({ ...o, w: 1 }));
+      this.themed.push({ names, list });
+    }
+    this.snackNames = ['pebble', 'gift', 'traffic_cone', 'penguin', 'bush_small', 'rabbit'].filter((n) => lib[n]);
+    if (!this.snackNames.length) this.snackNames = food.slice(0, 4).map((e) => e.type);
+  }
+
+  // Pick a library entry whose natural radius lets a scale in [sLo, sHi] reach `tr`; nearest entry when none does.
+  pick(list, tr, sLo = 0.6, sHi = 1.6) {
+    const n = list.length;
+    if (!n) return null;
+    let lo = 0, hi = n;
+    const a = tr / sHi;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (list[m].r < a) lo = m + 1; else hi = m; }
+    const i0 = lo;
+    lo = i0; hi = n;
+    const b = tr / sLo;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (list[m].r <= b) lo = m + 1; else hi = m; }
+    const i1 = lo;
+    if (i1 <= i0) {
+      let i = clamp(i0, 0, n - 1);
+      if (i > 0 && Math.abs(list[i - 1].r - tr) < Math.abs(list[i].r - tr)) i--;
+      return list[i];
+    }
+    let tot = 0;
+    for (let i = i0; i < i1; i++) tot += list[i].w;
+    let roll = this.rng.next() * tot;
+    for (let i = i0; i < i1; i++) { roll -= list[i].w; if (roll <= 0) return list[i]; }
+    return list[i1 - 1];
+  }
+
+  rollQ(T) {
+    const mix = Q_MIX[Math.min(T, Q_MIX.length - 1)];
+    let roll = this.rng.next();
+    for (let i = 0; i < mix.length; i++) {
+      roll -= mix[i][0];
+      if (roll <= 0 || i === mix.length - 1) return this.rng.range(mix[i][1], mix[i][2]);
+    }
+    return 0.3;
+  }
+
+  colorOf(type) {
+    const def = this.lib[type];
+    if (!def) return _c.setHex(0xcccccc);
+    if (!def._avg) def._avg = averageColor(def.geometry);
+    return def._avg;
+  }
+
+  // ===================================================================== props
+  add(type, x, d, opts = {}) {
+    const def = this.lib[type];
+    if (!def) return null;
+    const s = clamp(opts.s ?? 0.9 + this.rng.next() * 0.25, 0.2, 24);
+    const p = {
+      type, def, x, d,
+      y: 0,
+      rot: opts.rot ?? this.rng.range(0, Math.PI * 2),
+      s,
+      r: def.radius * s,
+      h: def.height * s,
+      tier: def.tier,
+      kind: def.kind,
+      mass: (MASS[type] ?? fallbackMass(def.radius)) * s * s * s,
+      alive: true,
+      decor: !!opts.decor,
+      move: opts.move ?? MOVE_NONE,
+      m: null,
+      ox: x, od: d, vx: opts.vx ?? 0, vd: opts.vd ?? 0, phase: Math.random() * 6.28,
+      tonK: opts.tonK ?? 1,
+      id: 0,
+    };
+    p.y = this.footY(p) - 0.05;
+    if (p.move === MOVE_NONE) {
+      p.m = new Float32Array(16);
+      _p.set(p.x, p.y, -p.d);
+      _q.setFromAxisAngle(_up, p.rot);
+      _s.setScalar(p.s);
+      _m.compose(_p, _q, _s);
+      _m.toArray(p.m);
+      if (p.decor) insertSorted(this.decor, p);
+      else {
+        insertSorted(this.statics, p);
+        if (p.r > this.maxPropR) this.maxPropR = p.r;
+      }
+    } else {
+      this.movers.push(p);
+      if (p.r > this.maxPropR) this.maxPropR = p.r;
+    }
+    return p;
+  }
+
+  // Place with overlap rejection against recently placed things (a few retries). Returns the prop or null.
+  place(type, x, d, hw, opts = {}) {
+    const def = this.lib[type];
+    if (!def) return null;
+    const s = clamp(opts.s ?? 1, 0.2, 24);
+    const rad = def.radius * s * 0.8;
+    const rec = this.recent;
+    const pad = opts.pad ?? 0.4;
+    for (let k = 0; k < 6; k++) {
+      let ok = true;
+      for (let i = rec.length - 1; i >= 0; i--) {
+        const c = rec[i];
+        if (Math.abs(c.d - d) > rad + c.r + 1) continue;
+        if (Math.hypot(c.x - x, c.d - d) < (rad + c.r) * 0.95 + pad) { ok = false; break; }
+      }
+      if (ok) {
+        const p = this.add(type, x, d, opts);
+        if (p) { rec.push({ x, d, r: rad }); if (rec.length > 260) rec.splice(0, 100); }
+        return p;
+      }
+      x = clamp(x + this.rng.range(-1, 1) * (rad * 2 + 1), -hw, hw);
+      d += this.rng.range(-0.5, 1) * (rad + 0.6);
+    }
+    return null;
+  }
+
+  // Food piece at relative size q (prop radius / ball radius) near (x, d). Returns its radius^3 (volume units) or 0.
+  // From ~120 m on, food keeps out of the centre line (the ball's suction reach): an idle ball starves, a steering one feeds.
+  offCenter(x, d, gr, hw) {
+    if (d < 120) return x;
+    const gap = Math.min(hw * 0.6, (gr * 1.35 * CFG.suctionK + CFG.suctionC) * 1.15);
+    if (Math.abs(x) >= gap) return x;
+    const side = x === 0 ? this.rng.sign() : Math.sign(x);
+    return side * (gap + Math.pow(this.rng.next(), 1.4) * Math.max(0, hw - gap - 1));
+  }
+
+  food1(q, gr, x, d, hw, opts = {}) {
+    x = this.offCenter(x, d, gr, hw);
+    // early mountains: chunkier food (still edible) so the slope reads as full of things, not tiny dots
+    if (this.lvl && this.lvl.n <= 5 && !opts.list) q = Math.min(0.86, q * (this.lvl.n <= 2 ? 1.9 : 1.6));
+    const tr = Math.max(0.12, q * gr);
+    const list = opts.list || this.food;
+    const e = this.pick(list, tr, opts.sLo ?? 0.62, opts.sHi ?? 1.6);
+    if (!e) return 0;
+    const s = clamp(tr / e.r * this.rng.range(0.94, 1.06), 0.22, 22);
+    const pad = Math.min(0.5 + tr * 0.5, hw * 0.3);
+    const p = this.place(e.type, clamp(x, -hw + pad, hw - pad), d, hw, { s, tonK: opts.tonK, rot: opts.rot, pad: opts.spacing });
+    if (!p) return 0;
+    const v = p.r ** 3;
+    this.spent += v;
+    return v;
+  }
+
+  // ===================================================================== generation
+  genRad() { return Math.max(CFG.startR, this.ballR); }
+
+  breadcrumbs() {
+    const R = this.rng;
+    const names = this.snackNames;
+    // (scaled so every crumb is edible for the starting ball whatever the library's natural size is)
+    const cap = (type, k) => Math.min(1, (CFG.startR * CFG.eatRatio * k) / Math.max(0.05, this.lib[type].radius));
+    for (let i = 0; i < 9; i++) {
+      const type = names[i % names.length];
+      const x = Math.sin(i * 0.55) * 1.6;
+      this.add(type, x, 6 + i * 2.8, { s: R.range(0.85, 1.05) * cap(type, 0.9) });
+    }
+    // a second, wider breadcrumb wave so the first seconds are one satisfying combo
+    for (let i = 0; i < 12; i++) {
+      const type = names[(i + 2) % names.length];
+      this.add(type, Math.cos(i * 0.7) * (3 + i * 0.35), 36 + i * 3.4, { s: R.range(0.7, 1.0) * cap(type, 0.9) });
+    }
+  }
+
+  // the first seconds of a mountain: a ring of crumbs sized for the plan's starting ball
+  levelOpening() {
+    const R = this.rng, P = this.lvl;
+    const gr = P.r0, sk = clamp(gr * 0.7, 1, 3);
+    for (let i = 0; i < 9; i++) {
+      const d = (6 + i * 2.8) * sk, hw = this.halfWidth(d);
+      this.food1(R.range(0.3, 0.55), gr, Math.sin(i * 0.55) * 1.6 * sk, d, hw, { spacing: 0.1 });
+    }
+    for (let i = 0; i < 12; i++) {
+      const d = (36 + i * 3.4) * sk, hw = this.halfWidth(d);
+      this.food1(R.range(0.3, 0.55), gr, Math.cos(i * 0.7) * (3 + i * 0.35) * sk, d, hw, { spacing: 0.1 });
+    }
+    // food lanes: arcs of small props leading the eye down the first 300 m (off the centre line, so an idle ball misses them)
+    if (P.n <= 8) {
+      for (let k = 0; k < 6; k++) {
+        const sgn = k % 2 ? 1 : -1, d0 = 70 + k * 40;
+        this.patLane(d0, 38, gr, this.halfWidth(d0 + 20), sgn, 0.4 + 0.1 * (k % 3));
+      }
+    }
+  }
+
+  // A lane: an arc of small props across `len` m at side*frac*hw - the eye follows it. Never on the centre line.
+  patLane(d, len, gr, hw, side, frac) {
+    const R = this.rng, T = tierOf(gr);
+    const q0 = clamp(this.rollQ(T) * 0.8, 0.14, 0.6);
+    const sp = Math.max(1.9, q0 * gr * 2.1 + 0.7);
+    const n = clamp(Math.floor(len / sp), 4, 12);
+    const ph = R.range(0, 6.28), amp = hw * 0.12;
+    let used = 0;
+    for (let i = 0; i < n; i++) {
+      const x = side * hw * frac + Math.sin(ph + i * 0.55) * amp;
+      used += this.food1(clamp(q0 * R.range(0.9, 1.1), 0.12, 0.7), gr, x, d + i * sp, hw, { spacing: 0.1 });
+    }
+    return used;
+  }
+
+  // a landmark prop (snowman / fence / kiosk / rock) near the edge: too big now, edible a bit later
+  placeLandmark(d, gr, hw) {
+    const R = this.rng, L = this.landmarks;
+    if (!L || !L.length) return;
+    const e = L[R.int(0, L.length - 1)];
+    const q = R.range(0.8, 1.7);
+    const s = clamp(q * gr / e.r, 0.3, 14);
+    const rad = e.r * s;
+    const x = R.sign() * R.range(hw * 0.5, Math.max(hw * 0.52, hw - rad * 0.8 - 0.8));
+    const p = this.place(e.type, x, d, hw, { s, pad: 0.6 });
+    if (p && q > 1.05) p.obstacle = true;
+  }
+
+  placeCluster(d, gr, T, hw) {
+    const R = this.rng;
+    const side = R.sign();
+    for (let i = 0; i < 2; i++) this.placeLandmark(d + i * 7 + R.range(0, 4), gr, hw);
+    if (this.houses && this.houses.length) this.placeHouse(d + 10, gr, Math.max(1, T), hw);
+    const cx = -side * hw * R.range(0.15, 0.4);
+    for (let i = 0; i < 6; i++) this.food1(clamp(this.rollQ(T) * 0.85, 0.12, 0.6), gr, clamp(cx + Math.sin(i * 1.2) * 1.8, -hw, hw), d + 2 + i * 3.2, hw, { spacing: 0.1 });
+    this.placeObstacle(d + 14, gr, T, hw);
+  }
+
+  _forkSign(p, text, col) {
+    if (!p) return;
+    const l = this.makeLabel(text, col);
+    if (!l) return;
+    p.tag = l;
+    l.scale.set(8, 2.4, 1);
+    l.position.set(p.x, p.y + p.h + 2.6, -p.d);
+    this.group.add(l);
+    this.labels.push(p);
+  }
+
+  // YOL AYRIMI (DAG 3+, once per mountain, ~124 m): a rock ridge splits the slope in two corridors. GÜVENLİ (wide): lots of
+  // small food, calm. RİSKLİ (narrow, KISA YOL ⚡): extra obstacles, a double speed strip, 4 gold + 2 plain crates, fat food.
+  // Deterministic per level seed (this.rng); the plan decides the risky side. world.forks lets the game warn the player.
+  placeFork(it, gr, T, hw) {
+    const R = this.rng, P = this.lvl;
+    const d0 = it.start, d1 = it.start + it.len;
+    const hwL = this.halfWidth(d0 + it.len * 0.5);
+    const risk = it.side || 1, safe = -risk;
+    const rx = risk * hwL * 0.3;   // ridge line: risky corridor ~0.7 hw wide, safe ~1.3 hw
+    this.forks = this.forks || [];
+    this.forks.push({ d0, d1, risk });
+    const tr = clamp(gr * 1.4, 1, hwL * 0.15);
+    const e = this.pick(this.obst, tr, 0.6, 1.7);
+    if (e) {
+      const sc = clamp(tr / e.r, 0.3, 22);
+      for (let d = d0 + 6; d <= d1 - 6; d += tr * 1.4) {
+        const taper = Math.min(1, (d - d0) / 14, (d1 - d) / 14);
+        const p = this.place(e.type, rx, d, hwL, { s: sc * R.range(0.95, 1.08) * (0.55 + 0.45 * taper), pad: 0.1 });
+        if (p) p.obstacle = true;
+      }
+    }
+    const sg = this.pick(this.decorPool, 3.4, 0.6, 1.7);
+    if (sg) {
+      const ss = clamp(3.4 / sg.r, 0.3, 8);
+      this._forkSign(this.add(sg.type, safe * hwL * 0.55, d0 + 4, { s: ss, decor: true }), 'GÜVENLİ', '#2fd36b');
+      this._forkSign(this.add(sg.type, risk * hwL * 0.7, d0 + 4, { s: ss, decor: true }), 'KISA YOL ⚡ RİSKLİ', '#ff7a1a');
+    }
+    for (let i = 0; i < 24; i++) {
+      this.food1(R.range(0.22, 0.5), gr, safe * hwL * R.range(0.3, 0.8), d0 + 14 + i * ((it.len - 28) / 24), hwL, { spacing: 0.1 });
+    }
+    const pr = planAt(P, d0 + 40), ct = crateRadius(pr);
+    const lim = Math.max(1, hwL - ct - 1.5);
+    for (let i = 0; i < 4; i++) {
+      const q = gr * R.range(1.4, 2);
+      const oe = this.pick(this.obst, q, 0.6, 1.7);
+      if (!oe) break;
+      const p = this.place(oe.type, risk * hwL * (i % 2 ? 0.8 : 0.62), d0 + 26 + i * 20, hwL, { s: clamp(q / oe.r, 0.3, 22), pad: 0.8 });
+      if (p) p.obstacle = true;
+    }
+    this.specialQueue.push({ kind: 'strip', at: d0 + 14, xf: risk * 0.68 });
+    this.specialQueue.push({ kind: 'strip', at: d0 + 74, xf: risk * 0.68 });
+    for (let i = 0; i < 8; i++) this.food1(R.range(0.6, 0.8), gr, risk * hwL * R.range(0.6, 0.82), d0 + 20 + i * 12, hwL, { spacing: 0.1 });
+    const cx = (f) => clamp(risk * hwL * f, -lim, lim);
+    this.crateAt(cx(0.7), d0 + 30, ct * 1.15, 'gold', pr);
+    this.crateAt(cx(0.78), d0 + 48, ct * 1.15, 'gold', pr);
+    this.crateAt(cx(0.64), d0 + 66, ct, 'plain', pr);
+    this.crateAt(cx(0.76), d0 + 84, ct * 1.15, 'gold', pr);
+    this.crateAt(cx(0.66), d0 + 100, ct * 1.15, 'gold', pr);
+    this.crateAt(cx(0.72), d0 + 112, ct, 'plain', pr);
+    this.zones.push({ d0: d0 - 4, d1: d1 + 6, kind: 'crates' });
+    return it.len;
   }
 
   // SICAK NOKTA: warm zone (ellipse) - melts the ball faster, holds the rich food

@@ -125,7 +125,7 @@ export class UI {
 
   // Clears every v2 HUD widget (buffs, hunger, turn arrow, stomp text, ÇIĞ block, banners, tutor, revive).
   resetHud() {
-    this._sc = this._co = this._di = this._mu = null; // HUD number caches: the next frame rewrites everything
+    this._sc = this._co = this._di = this._mu = null; this._rg = 0; // HUD number caches: the next frame rewrites everything
     this._prog = -1;
     this.lastVitals = '';
     this.el.hud.classList.remove('rush');
@@ -182,12 +182,24 @@ export class UI {
     this.lastBiome = biomeName;
   }
 
+  _coinsRender() {
+    const el = this.el.coins;
+    el.textContent = `❄️ ${this._co}
+${this._di} m`;
+    if (this._rg > 0) {
+      const sp = document.createElement('span');
+      sp.className = 'rec-gap';
+      sp.textContent = `
+REKOR −${this._rg} m`;
+      el.appendChild(sp);
+    }
+  }
+
   runnerStats(score, coins, mult, biomeT, dist, biomeName) {
     // numbers are compared first: no string building / Intl formatting on frames where nothing visible changed
     const sc = Math.round(score);
     if (sc !== this._sc) this.scoreTo(sc);
-    if (coins !== this._co || dist !== this._di) { this._co = coins; this._di = dist; this.el.coins.textContent = `❄️ ${coins}
-${dist} m`; }
+    if (coins !== this._co || dist !== this._di) { this._co = coins; this._di = dist; this._coinsRender(); }
     if (biomeName && biomeName !== this.lastBiome) { this.el.level.textContent = String(biomeName).toLocaleUpperCase('tr-TR'); this.lastBiome = biomeName; }
     const mm = mult > 1 ? mult : 0;
     if (mm !== (this._mu || 0)) { this._mu = mm; this._cmRender(); }
@@ -659,6 +671,8 @@ ${dist} m`; }
       return;
     }
     const over = dist > best;
+    const rg = !over && best >= 50 && best - dist <= 150 ? Math.max(1, Math.ceil(best - dist)) : 0;
+    if (rg !== (this._rg || 0)) { this._rg = rg; if (this._co != null) this._coinsRender(); }
     const km = over ? Math.floor(dist / 1000) : -1;
     const bq = Math.round(best);
     if (bq === this._rb && km === this._rk && this.lastRec === 'd') return;

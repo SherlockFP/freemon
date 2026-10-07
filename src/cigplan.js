@@ -51,7 +51,7 @@ export const INTRO = {
 const STAR3 = { 1: 'nobounce', 2: 'crates', 3: 'nobounce', 4: 'secret', 5: 'nohit', 6: 'chain', 7: 'rival', 8: 'nohit', 9: 'gold', 10: 'time', 11: 'crates', 12: 'chain' };
 
 // metres of track a part needs (everything the part places stays inside [start, start + len])
-const RES = { crateLine: 44, crateWall: 64, iceWall: 48, ramp: 95, mush: 90, army: 60, town: 90, golden: 50, patch: 100, rival: 70, cannon: 90, bridge: 130, fork: 92, pickup: 14, strip: 14, gate: 84, arena: 170, statues: 66, secret: 92, domino: 40, throne: 58 };
+const RES = { crateLine: 44, crateWall: 64, iceWall: 48, ramp: 95, mush: 90, army: 60, town: 90, golden: 50, patch: 100, rival: 70, cannon: 90, bridge: 130, fork: 124, pickup: 14, strip: 14, gate: 84, arena: 170, statues: 66, secret: 92, domino: 40, throne: 58 };
 const GAP = 25;
 
 // hand-made stage lists for the first ten mountains (CL crate line, CW crate wall, IW ice wall, RMP ramp, MSH mushrooms,
@@ -269,8 +269,6 @@ function build(n, daily, assist, opts) {
     if (!arenaStage && n >= 4 && i === Math.min(1, S - 1)) parts.unshift({ kind: 'secret', len: RES.secret });
     if (!arenaStage) {
       // a power-up after the first part, an extra strip in the middle of later stages
-      // DECISIONS: a fork in stage 1 (DAG 2+), and another in stage 2 from DAG 8
-      if (n >= 2 && (i === 0 || (i === 1 && n >= 8))) parts.splice(Math.min(1, parts.length), 0, { kind: 'fork', len: RES.fork });
       if (n >= 2 && parts.length) parts.splice(Math.min(1, parts.length), 0, { kind: 'pickup', len: RES.pickup, power: power() });
       if (n >= 9 && parts.length > 2) parts.splice(Math.ceil(parts.length / 2), 0, { kind: 'strip', len: RES.strip, extra: 1 });
       // pack them one after the other inside [a, b]; what does not fit is dropped (power-up / strip first, then from the end)
@@ -288,6 +286,23 @@ function build(n, daily, assist, opts) {
       for (const p of parts) { p.start = Math.round(cur); cur += p.len + gap; }
     }
     for (const p of parts) { p.stage = i; items.push(p); }
+  }
+
+  // YOL AYRIMI (DAG 3+, once per mountain): one route fork at 40-60% of the course, in the first free slot
+  if (n >= 3 && !daily && !boss) {
+    const fl = RES.fork, mid = dF * 0.5;
+    const free = (s0) => s0 > 130 && s0 + fl < dF - 60 && !items.some((p) => s0 < p.start + p.len + 14 && p.start < s0 + fl + 14)
+      && !P.gates.some((g) => s0 < g.d + 30 && g.d - L.gatePre - 40 < s0 + fl);
+    let at = -1;
+    for (let o = 0; o <= 0.1 * dF && at < 0; o += 6) {
+      const c1 = Math.round(mid - fl / 2 - o), c2 = Math.round(mid - fl / 2 + o);
+      if (free(c1)) at = c1; else if (free(c2)) at = c2;
+    }
+    if (at >= 0) {
+      let st = 0;
+      for (const g of P.gates) if (g.d < at) st = g.i + 1;
+      items.push({ kind: 'fork', len: fl, start: at, stage: Math.min(st, S - 1) });
+    }
   }
 
   // golden crates: spread over the crate parts (hand-made lists already mark theirs)
@@ -319,8 +334,8 @@ function build(n, daily, assist, opts) {
       P.crates.gold += Math.min(p.gold, p.rows * p.cols);
     } else if (p.kind === 'fork') {
       p.side = rng.sign();
-      P.crates.total += 3;
-      P.crates.gold += 2;
+      P.crates.total += 6;
+      P.crates.gold += 4;
     } else if (p.kind === 'iceWall') {
       p.cover = rng.range(0.6, 0.75);
       p.side = rng.sign();

@@ -2626,6 +2626,15 @@ export class CigGame {
       if (rdy === 2 && !g._kick && !g.locked && g.d - b.d < 40 && g.d - b.d > 0) { g._kick = true; this._h('kick', 0.1, 3); }
     }
     this._next = nx;
+    // YOL AYRIMI: warn once when the fork is ~90 m ahead
+    const fk = w.forks;
+    if (fk) for (let i = 0; i < fk.length; i++) {
+      const f = fk[i];
+      if (!f.warned && b.d > f.d0 - 90 && b.d < f.d0 + 20) {
+        f.warned = true;
+        this._msg(2, 'YOL AYRIMI! ' + (f.risk > 0 ? 'Sağ' : 'Sol') + ': riskli kısa yol');
+      }
+    }
   }
 
   // 'kar yağışı' rescue patch 120-200 m before a barrier + a hint when you are far too small 300 m out

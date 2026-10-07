@@ -220,7 +220,7 @@ export class AgarMode {
     this.fd = new Uint8Array(FT); this.fdl = new Int32Array(FT);
     this.ghead = new Int32Array(GN * GN).fill(-1);
     // viruses + pickups
-    this.vx = new Float32Array(NVIR); this.vz = new Float32Array(NVIR); this.von = new Uint8Array(NVIR); this.vt = new Float32Array(NVIR);
+    this.vx = new Float32Array(NVIR); this.vz = new Float32Array(NVIR); this.vf = new Uint8Array(NVIR); this.von = new Uint8Array(NVIR); this.vt = new Float32Array(NVIR);
     this.px = new Float32Array(NPUP); this.pz = new Float32Array(NPUP); this.pon = new Uint8Array(NPUP); this.ptype = new Uint8Array(NPUP); this.pt = new Float32Array(NPUP);
     this.forts = FORT_POS.map(([x, z]) => ({ x, z, own: -1, prog: 0, cand: -1, list: [], lbl: '#' }));
     // feed
@@ -764,6 +764,7 @@ export class AgarMode {
         case 'KeyD': case 'ArrowRight': this.keys.r = dn; break;
         case 'KeyW': case 'ArrowUp': this.keys.u = dn; break;
         case 'KeyS': case 'ArrowDown': this.keys.d = dn; break;
+        case 'KeyQ': case 'KeyF': if (dn && !e.repeat) this.doEject(); break;
         case 'Space': if (dn && !e.repeat) this.doSplit(); e.preventDefault(); break;
         case 'ShiftLeft': case 'ShiftRight': case 'KeyE': if (dn && !e.repeat) this.doBoost(); break;
         default: break;
@@ -799,6 +800,42 @@ export class AgarMode {
     if (this.state !== 'play') return;
     if (this.mp === 'client') { this.net && this.net.send({ t: 'b' }); return; }
     this.boost(this.owners[this.me]);
+  }
+  doEject() {
+    if (this.state !== 'play') return;
+    if (this.mp === 'client') { this.net && this.net.send({ t: 'e' }); return; }
+    this.eject(this.owners[this.me]);
+  }
+  /** FIRLAT: each cell >= 40 mass spits a 12-mass snowball (costs 16); a pellet that hits an ice spike feeds it, 6 feeds shoot a new spike */
+  eject(o) {
+    if (!o.alive || o.hideT > 0 || (o.ejCd || 0) > 0) return false;
+    o.ejCd = 0.12;
+    const L = Math.hypot(o.ldx, o.ldz) || 1, ux = o.ldx / L, uz = o.ldz / L;
+    let did = false;
+    for (let i = 0; i < CAP; i++) {
+      const c = this.cells[i];
+      if (!c.on || c.o !== o.id || c.m < 40) continue;
+      c.m -= 16; did = true;
+      const d = c.r + 4, px = c.x + ux * d, pz = c.z + uz * d;
+      let hit = -1;
+      for (let v = 0; v < NVIR; v++) {
+        if (!this.von[v]) continue;
+        const rx = this.vx[v] - c.x, rz = this.vz[v] - c.z, t = rx * ux + rz * uz;
+        if (t > c.r && t < c.r + 40 && Math.abs(rx * uz - rz * ux) < VIRR + 1.5) { hit = v; break; }
+      }
+      if (hit < 0) { if (px * px + pz * pz < (R - 3) * (R - 3)) this.spawnPellet(px, pz, 12, o.col); continue; }
+      this.vf[hit]++;
+      if (this.vf[hit] >= 6) {
+        this.vf[hit] = 0;
+        for (let v = 0; v < NVIR; v++) if (!this.von[v]) {
+          const nx = this.vx[hit] + ux * 16, nz = this.vz[hit] + uz * 16;
+          if (nx * nx + nz * nz < (R - 6) * (R - 6)) { this.vx[v] = nx; this.vz[v] = nz; this.von[v] = 1; this.vDirty = true; }
+          break;
+        }
+      }
+    }
+    if (did && (o.id === this.me || o.human === 'host')) this.audio?.pop?.(0.4, 1);
+    return did;
   }
   doSplit() {
     if (this.state !== 'play') return;
@@ -894,6 +931,7 @@ export class AgarMode {
       if (o.boostT > 0) o.boostT -= dt;
       if (o.boostCd > 0) o.boostCd -= dt;
       if (o.splitCd > 0) o.splitCd -= dt;
+      if (o.ejCd > 0) o.ejCd -= dt;
       if (o.shield > 0) o.shield -= dt;
       if (o.magnet > 0) o.magnet -= dt;
       if (o.speed > 0) o.speed -= dt;
@@ -2212,6 +2250,7 @@ export class AgarMode {
       if (m > 0) { o.ldx = dx; o.ldz = dz; }
     } else if (msg.t === 'b') this.boost(o);
     else if (msg.t === 's') this.split(o);
+    else if (msg.t === 'e') this.eject(o);
     else if (msg.t === 'chat') this.hostChat(o, msg.x);
     else if (msg.t === 'respawn') { if (!o.alive) this.spawnOwner(o, 24); }
   }
@@ -2709,6 +2748,7 @@ export class AgarMode {
       '<div class="ag-tr"><div class="ag-lb"><div class="t"><span>LİDERLER</span><span class="ag-online">🟢<span class="on">0</span></span><span class="tg">▾</span></div><div class="rows"></div></div><canvas class="ag-map" width="84" height="84"></canvas></div><div class="ag-zn"></div>' +
       '<div class="ag-stick"><i></i></div><div class="ag-toast" style="top:64px;font-size:15px;text-shadow:0 2px 0 #0a2a4a;pointer-events:none"></div><div class="ag-avw" style="position:absolute;left:0;right:0;top:12%;text-align:center;font-size:34px;font-weight:900;color:#ff5a4d;text-shadow:0 3px 0 #3a0a0a,2px 2px 0 #3a0a0a,-2px 2px 0 #3a0a0a;pointer-events:none;opacity:0;transition:opacity .2s"></div><div class="ag-tip" style="position:absolute;left:8%;right:8%;bottom:26%;text-align:center;font-size:17px;color:#fff;background:rgba(10,42,74,.7);border-radius:14px;padding:10px 14px;pointer-events:none;opacity:0;transition:opacity .4s"></div><div class="ag-arrow" style="position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;opacity:0;transition:opacity .4s"><div style="position:absolute;left:-14px;top:-150px;font-size:34px;color:#ffe066;opacity:.7">▲</div></div>' +
       '<div class="ag-btns"><button type="button" class="ag-act split"><span>✂️</span><small>BÖL</small></button>' +
+      '<button type="button" class="ag-act eject" style="width:58px;height:58px;background:linear-gradient(180deg,#9fe3ff,#3a8fd8);box-shadow:0 4px 0 #1b5a96"><span style="font-size:20px">❄️</span><small style="font-size:9px">FIRLAT</small></button>' +
       '<button type="button" class="ag-act boost"><span>🚀</span><small>HIZLAN</small><i class="cd"></i></button></div>';
     const st = document.createElement('style');
     st.textContent = '#ag-root .ag-tl{width:130px}#ag-root .ag-mass{padding:4px 9px 5px}#ag-root .ag-mass .r1{display:flex;align-items:baseline;justify-content:space-between;gap:6px}#ag-root .ag-mass b.m{font-size:26px}#ag-root .ag-rank{background:none;border:0;box-shadow:none;padding:0;font-size:13px;font-weight:900;color:#bfe6ff}#ag-root .ag-rank b{font-size:14px;color:#bfe6ff}#ag-root .ag-mass .tt{display:block;font-size:10px;margin:0}#ag-root .ag-lvl{background:none;border:0;box-shadow:none;padding:0;margin-top:2px;font-size:10px}#ag-root .ag-lb{width:126px;padding:3px 6px}#ag-root .ag-lb .t{display:flex;justify-content:space-between;align-items:center;cursor:pointer;pointer-events:auto;font-size:10px}#ag-root .ag-online{background:none;border:0;box-shadow:none;padding:0;font-size:8px;opacity:.75;letter-spacing:0}#ag-root .ag-lb.col .rows{display:none}#ag-root .ag-map{width:62px;height:62px}#ag-root .ag-zn{position:absolute;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 52px);text-align:center;font:900 16px inherit;font-family:inherit;color:#8ff4ff;text-shadow:0 2px 0 #0a2a4a,1px 1px 0 #0a2a4a,-1px 1px 0 #0a2a4a;pointer-events:none;opacity:0;transition:opacity .3s}';
@@ -2728,7 +2768,7 @@ export class AgarMode {
     root.appendChild(tier);
     this.hud = {
       tier, root, rows, chips, feeds, mass: q('.m'), tt: q('.tt'), rg: q('.rg'), lv: q('.lv'), bar: q('.bar i'), online: q('.on'), room: q('.ag-room'), rank: q('.ag-rank b'), stick: q('.ag-stick'), knob: q('.ag-stick i'), toast: q('.ag-toast'), av: q('.ag-avw'), zn: q('.ag-zn'), lbBox: q('.ag-lb'), tip: q('.ag-tip'), arrow: q('.ag-arrow'),
-      map: q('.ag-map'), mctx: q('.ag-map').getContext('2d'), boost: q('.boost'), cd: q('.cd'), bsplit: q('.split'),
+      map: q('.ag-map'), mctx: q('.ag-map').getContext('2d'), boost: q('.boost'), cd: q('.cd'), bsplit: q('.split'), beject: q('.eject'),
     };
     { const w = document.createElement('div'); w.style.cssText = 'position:absolute;inset:0;pointer-events:none;opacity:0;z-index:3;will-change:opacity'; root.appendChild(w); this.hud.wo = w; }
     { const w = document.createElement('div'); w.style.cssText = 'position:absolute;left:50%;top:46px;transform:translateX(-50%);width:min(300px,56vw);pointer-events:none;z-index:4;display:none;text-align:center;font:900 13px "Trebuchet MS",system-ui,sans-serif;color:#ffe9a8;text-shadow:0 1px 3px #000'; w.innerHTML = '<span>BOSS TOPU</span><div style="height:11px;margin-top:3px;border-radius:6px;background:rgba(20,10,40,.7);border:2px solid #ffd35a;overflow:hidden"><i style="display:block;height:100%;width:100%;background:linear-gradient(90deg,#b13cff,#ff4f86)"></i></div>'; root.appendChild(w); this.hud.bb = w; }
@@ -2773,6 +2813,7 @@ export class AgarMode {
     window.addEventListener('keydown', this._escKey);
     press(this.hud.boost, () => this.doBoost());
     press(this.hud.bsplit, () => this.doSplit());
+    press(this.hud.beject, () => this.doEject());
   }
 
   duelHud() {
@@ -2800,7 +2841,7 @@ export class AgarMode {
     if (this.state === 'play' && !this.tipDone) {
       if (this.tipT === 0 && lsGet(TIP_KEY, '') === '1') this.tipDone = true;
       else {
-        if (this.tipT === 0) { h.tip.textContent = 'Sürükle: yön · HIZLAN: atıl · BÖL: ikiye bölün · küçükleri ye, büyüklerden kaç'; lsSet(TIP_KEY, '1'); }
+        if (this.tipT === 0) { h.tip.textContent = 'Sürükle: yön · HIZLAN: atıl · BÖL: ikiye bölün · küçükleri ye, büyüklerden kaç'; lsSet(TIP_KEY, '1'); if (lsGet(TIP_KEY + '.v', '') !== '1') { lsSet(TIP_KEY + '.v', '1'); this.toast('❄ Buz dikeni büyükleri böler — arkasına saklan!', 3200); } }
         this.tipT += dt;
         h.tip.style.opacity = this.tipT < 5 ? '1' : '0';
         if (false) {

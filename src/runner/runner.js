@@ -4,7 +4,7 @@ import { Obstacles } from './obstacles.js';
 import { ABILITIES, SKINS } from '../skins.js';
 import { Environment, biomeAt, trackPalette, musicStyleAt } from './biomes.js';
 import * as Biomes from './biomes.js';
-import { BuffSet, rollBuff, BUFF_LEN, DESTRUCTION, destructionTier } from './perks.js';
+import { BuffSet, BUFFS, rollBuff, BUFF_LEN, DESTRUCTION, destructionTier } from './perks.js';
 import { music } from './music.js';
 import { RhythmLane } from './rhythm.js';
 import { patchMaterial } from '../shaders.js';
@@ -349,6 +349,8 @@ export class Runner {
     this.buffT = level ? Infinity : rand(RCFG.buffFirst[0], RCFG.buffFirst[1]);   // campaign levels have no auto cards
     this.lastBuff = '';
     this.buffTickT = 0;
+    this.cardRiskT = 0;
+    this.killGate?.();
 
     // ---- critters ----
     this.stompN = 0;
@@ -651,7 +653,7 @@ export class Runner {
     this.duckT -= dt;
 
     // ---- speed: downhill pace + size bonus; rocket overrides ----
-    const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1) * (this.riskT > 0 ? 1.45 : 1) * (this.slideT > 0 ? (this.abil === 'buzejder' ? 1.4 : 1.2) : 1) * (this.rhythm ? this.rhythm.speedK : 1);
+    const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1) * (this.riskT > 0 ? 1.45 : 1) * (this.cardRiskT > 0 ? 1.08 : 1) * (this.slideT > 0 ? (this.abil === 'buzejder' ? 1.4 : 1.2) : 1) * (this.rhythm ? this.rhythm.speedK : 1);
     if (b.vs < top) b.vs = Math.min(top, b.vs + RCFG.accel * dt);
     else b.vs = Math.max(top, b.vs - RCFG.accel * 0.6 * dt);
     this.invulnT -= dt;
@@ -1073,22 +1075,106 @@ export class Runner {
       this.buffT -= dt;
       if (this.buffT <= 0) {
         if (this.jnNear || this.zip || this.rocketT > 0) this.buffT = 1.5;     // not in the middle of a corner approach
-        else this.grantBuff();
+        else if (this.tut) this.grantBuff();
+        else if (this.gate) this.buffT = 2;                       // the very first run keeps the old auto card
+        else { this.spawnGate(); this.buffT = rand(RCFG.buffEvery[0], RCFG.buffEvery[1]); }
       }
     }
+    if (this.cardRiskT > 0) this.cardRiskT -= dt;
+    if (this.gate) this.gateTick(dt);
+  }
+
+  // KART KAPISI: ~60 m ahead two card billboards across the outer lanes (left / right): one SAFE, one RİSKLİ (longer card, but
+  // the Yeti closes in and you run +8% for a while). Rolling through one grants it; missing both grants nothing.
+  spawnGate() {
+    const b = this.b, tr = this.track;
+    const a = rollBuff(this.buffs, Math.random, this.lastBuff);
+    let r = rollBuff(this.buffs, Math.random, a.id), k = 0;
+    while (r.id === a.id && k++ < 6) r = rollBuff(this.buffs, Math.random, a.id);
+    if (r.id === a.id) r = BUFFS.find((x) => x.id !== a.id);
+    const flip = Math.random() < 0.5;
+    const cards = [{ def: a, risky: false, secs: BUFF_LEN }, { def: r, risky: true, secs: Math.round(BUFF_LEN * 1.6) }];
+    if (flip) cards.reverse();
+    const gs = b.s + 60;
+    const g = new THREE.Group();
+    const n = LANES.length, us = [LANES[0], LANES[n - 1]];
+    const poleG = this._gatePoleG || (this._gatePoleG = new THREE.CylinderGeometry(0.07, 0.07, 3.6, 5).translate(0, 1.8, 0));
+    const poleM = this._gatePoleM || (this._gatePoleM = new THREE.MeshLambertMaterial({ color: 0xffffff }));
+    const planeG = this._gatePlaneG || (this._gatePlaneG = new THREE.PlaneGeometry(2.8, 2.1));
+    g.userData.mats = [];
+    for (let i = 0; i < 2; i++) {
+      const c = cards[i], x = us[i];
+      let mat;
+      if (typeof document !== 'undefined') {
+        const cv = document.createElement('canvas');
+        cv.width = 256; cv.height = 192;
+        const cx = cv.getContext('2d');
+        cx.fillStyle = c.risky ? '#d8352a' : '#2a9d5c'; cx.fillRect(0, 0, 256, 192);
+        cx.strokeStyle = '#17345c'; cx.lineWidth = 10; cx.strokeRect(5, 5, 246, 182);
+        cx.textAlign = 'center'; cx.textBaseline = 'middle';
+        cx.font = '72px system-ui, sans-serif'; cx.fillStyle = '#fff'; cx.fillText(c.def.icon, 128, 70);
+        cx.font = '900 30px system-ui, sans-serif'; cx.lineWidth = 6; cx.strokeStyle = '#17345c';
+        const nm = c.def.name.toLocaleUpperCase('tr-TR');
+        cx.strokeText(nm, 128, 128); cx.fillText(nm, 128, 128);
+        cx.font = '900 20px system-ui, sans-serif'; cx.fillStyle = c.risky ? '#ffe066' : '#d6ffe4';
+        cx.fillText(c.risky ? 'RİSKLİ · UZUN' : 'GÜVENLİ', 128, 164);
+        mat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), side: THREE.DoubleSide });
+      } else mat = new THREE.MeshBasicMaterial({ color: c.risky ? 0xd8352a : 0x2a9d5c, side: THREE.DoubleSide });
+      g.userData.mats.push(mat);
+      const m = new THREE.Mesh(planeG, mat);
+      m.position.set(x, 3.9, 0);
+      g.add(m);
+      for (const dx of [-1.3, 1.3]) { const p = new THREE.Mesh(poleG, poleM); p.position.set(x + dx, 0, 0); g.add(p); }
+    }
+    tr.frame(gs, _f);
+    tr.toWorld(gs, 0, 0, _v);
+    g.position.copy(_v);
+    _x.copy(_f.right).negate();
+    _m.makeBasis(_f.right, _f.up, _x.crossVectors(_f.right, _f.up));
+    g.quaternion.setFromRotationMatrix(_m);
+    this.ctx.scene.add(g);
+    this.gate = { s: gs, g, cards, us, done: false, clrT: 0 };
+    this.obstacles.clearRange?.(gs - 15, gs + 15);
+  }
+
+  gateTick(dt) {
+    const G = this.gate, b = this.b;
+    if (!G.done) {
+      G.clrT -= dt;
+      if (G.clrT <= 0) { G.clrT = 0.4; this.obstacles.clearRange?.(G.s - 15, G.s + 15); }
+      if (b.s >= G.s) {
+        G.done = true;
+        const w = RCFG.laneW * 0.6;
+        const i = Math.abs(b.u - G.us[0]) < w ? 0 : Math.abs(b.u - G.us[1]) < w ? 1 : -1;
+        if (i >= 0) {
+          const c = G.cards[i];
+          this.grantBuff(c.def, c.secs);
+          if (c.risky) { this.cardRiskT = 30; this.gap = Math.max(3, this.gap - 3); }
+          G.g.visible = false;
+        }
+      }
+    } else if (b.s > G.s + 25) this.killGate();
+  }
+
+  killGate() {
+    const G = this.gate;
+    if (!G) return;
+    this.ctx.scene.remove(G.g);
+    for (const m of G.g.userData.mats) { m.map?.dispose(); m.dispose(); }
+    this.gate = null;
   }
 
   // A random temporary card (90 s). Max 3 active: a new one replaces the one with the least time left; the same card
   // just refreshes. The game never pauses — ui.buffAdd plays the card animation at the top edge.
-  grantBuff() {
+  grantBuff(forced, secs = BUFF_LEN) {
     const { ui, audio, platform } = this.ctx;
-    const def = rollBuff(this.buffs, Math.random, this.lastBuff);
+    const def = forced || rollBuff(this.buffs, Math.random, this.lastBuff);
     this.lastBuff = def.id;
-    const res = this.buffs.add(def.id, BUFF_LEN);
+    const res = this.buffs.add(def.id, secs);
     if (!res) return;
     if (res.replaced) ui.buffRemove?.(res.replaced.id);
     this.buffT = rand(RCFG.buffEvery[0], RCFG.buffEvery[1]);
-    if (ui.buffAdd) ui.buffAdd(def.id, def.icon, def.name, BUFF_LEN);
+    if (ui.buffAdd) ui.buffAdd(def.id, def.icon, def.name, secs);
     else this.float(`${def.icon} ${def.name.toLocaleUpperCase('tr-TR')}`, 'big');
     if (def.id === 'akis') this.flow = Math.min(100, this.flow + 25);
     if (def.id === 'yetikov') this.stumbleT = 0;
