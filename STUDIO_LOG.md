@@ -982,3 +982,10 @@ Genel 6.9 · Rush 6.5 · ÇIĞ 7.5 · Arena 6.5 · Menü 7.0
 - Menü: kilit rozetleri köşe etiketi; Sezon çipi kısaltıldı.
 - Arena: kaçak bot tavanı (3× oyuncu), yakında her zaman 0.5–0.8× av; 2 seed'de 90 sn'de oyuncu #4/#8.
 - Smoke: Rush/ÇIĞ L1+L6/Arena/boss L5-7-14 hatasız.
+
+## Döngü 20 — değerlendirme
+Genel 7.0 · Rush 7.0 · ÇIĞ 8.0 → yeniden çapalandı (Candy Crush / Hill Climb 2 seviyesine göre ≈6) · Arena 6.5 · Menü 7.0
+- İyi: hata yok; Rush duyuruları tek şerit; ÇIĞ L20 atmosferik (boss barı, heykel hedefi).
+- Gelişmeli: Arena'da oyuncu topu beyaz zeminde kayboluyor, büyüme hissi zayıf; Rush'ta "kıl payı" ödülü/hız hissi yok; menüde iki büyük CTA yarışıyor, ölü alanlar; ÇIĞ HUD'u kalabalık, 3 yıldız görünmüyor.
+- Fikirler: arena lider tacı + "lideri devir" bonusu; Rush near-miss kombo + hız çizgileri; ÇIĞ 3-yıldız par süresi.
+- Şimdi: arena okunabilirlik + taç; Rush near-miss/juice; menü odak; ÇIĞ HUD sadeleştirme + yıldızlar.
