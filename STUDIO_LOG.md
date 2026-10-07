@@ -617,3 +617,35 @@ Hiçbir modda hata yok. Arena botu 60 saniyede kütle 34'ten 91'e çıktı ve s�
 - Arena: Görüş Fırtınası, Takım Bayrağı.
 - Macera: Yeti Postası.
 - Menü: Mevsim Teması, Rozet Rafı.
+
+## Tur 11 — Yapılanlar
+
+**ÇIĞ**
+- Boss artık daha küçük ve kenara kayıyor; boss dövüşünde kamera geri çekiliyor.
+- Tuzaklar büyüdü ve nabız gibi atan halkalarla, 🧊/🪞/❄ ikonlarıyla işaretlendi.
+- Yeti hücum ederken buza çıkıyor. Testte tuzak, Yeti'nin 169 canının 42'sini götürdü.
+- Ters Çığ'da "🏔 ÇIĞ: N m ↑" çipi gösteriliyor.
+- Boss dövüşü sırasında ipucu satırı gizleniyor.
+
+**Rush**
+- Ölüm anı yeniden yapıldı: önce donma ve zoom, ardından ölüm nedeni kartı geliyor.
+- Koşu özeti şeridi büyütüldü.
+- Yeni: **Yeti Radyosu**. Her km'de gökyüzünün tonu değişiyor ve istasyon adı çıkıyor ("📻 Gün Batımı FM").
+
+**Arena**
+- "KORUMA BİTTİ" gibi bildirimler artık üstte.
+- Yuva, kale, kristal ve kral ilk kez göründüğünde açıklama etiketi çıkıyor.
+- Kralın üstünde altın bir ışın var; kral ekran dışındaysa kenarda ok gösteriliyor.
+- Botlar sohbette laf atıyor.
+
+**Macera ve Menü**
+- Günlük butonu artık hap şeklinde.
+- Fırtına bandı okunur hale geldi.
+- Kilitli bölümler gri ad ve 🔒 ile gösteriliyor.
+- Kilitli günlük sayfaları için önizleme var.
+- Görev kartı başlangıçta kapalı geliyor.
+- Ekranda tek rozet gösteriliyor.
+- Yeni: **Mevsim Teması**. Ay'a göre menü rengi ve parçacıklar değişiyor.
+
+**Tur 12 için not**
+- Ters Çığ'da büyük beyaz çığ şekilleri kameranın önünde, sol altta görünüyor. Çığ topun önünde olmalı.
