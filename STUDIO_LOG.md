@@ -1017,3 +1017,10 @@ Genel 7.2 · Rush 7.1 · ÇIĞ 6.8 · Arena 6.6 · Menü 7.1 — çökme yok.
 - İyi: 547 m gündüz → 856 m gün batımı geçişi okunuyor; ÇIĞ "DAĞ TAMAM!" ekranı cilalı; arena yakın kamera okunurluğu düzeltti; menüde BUGÜN 2 satır.
 - Gelişmeli: Rush ölüm kamerası yetinin içine giriyor; hızda ekran kalabalık (öğretici toast + çipler); ÇIĞ sonuç istatistikleri satır kayıyor; arena'da tehdit işareti yok, başta #45/47 moral bozuyor, zemin parlaması; menüde çok fazla öğe (5 çip + ipucu satırı).
 - Şimdi: ölüm kamerası geri çekilme + slow-mo; öğretici toast kombo>3'te gizle; ÇIĞ istatistik ızgarası + eksik yıldız teaser; arena tehdit okları + "sonraki sıraya X kütle"; menü BUGÜN en fazla 3 çip.
+
+### Döngü 22 — sonuçlar
+- Rush: yakalanınca slow-mo + kamera geri/yukarı çekiliyor (yetinin içine girmiyor); kombo>3'te ve deneyimli oyuncuda 400 m sonrası ipucu yok; sonuçta rekor ilerleme barı; dokunulmazlıkta erime durur.
+- ÇIĞ: sonuç istatistikleri ızgara; eksik yıldız hedefi TEKRAR üstünde; "YILDIZA AZ KALDI!" uyarısı.
+- Menü: BUGÜN en fazla 3 çip + "+N" açıcı (ekran görüntüsüyle doğrulandı, temiz).
+- Arena: tehdit (kırmızı) / av (yeşil) halkaları + kenar okları; "Sonraki sıra: +X kütle"; korumada sıra yerine KORUMA; zemin parlaması azaltıldı + doku. Ben: oyuncu artık büyük hücrelerin yanında doğmuyor (lider dibinde doğma görüldü), taç ışını oyuncuya yakınken soluyor.
+- Smoke: tüm modlar hatasız.
