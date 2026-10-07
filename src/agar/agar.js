@@ -529,6 +529,7 @@ export class AgarMode {
     if (this.disposed) return;
     this.disposed = true;
     clearInterval(this._brT); clearTimeout(this._tbT);
+    if (this._escKey) window.removeEventListener("keydown", this._escKey);
     if (this.net) { try { this.net.close(); } catch { /* ignore */ } this.net = null; }
     this.stopPresence();
     this.unbindInput();
@@ -1887,6 +1888,22 @@ export class AgarMode {
     }
     cbtn.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('click'); cpanel.classList.toggle('on'); if (cpanel.classList.contains('on')) { try { cin.focus(); } catch { /* ignore */ } } });
     this.hud.chat = { root: chat, els: cels, btn: cbtn, panel: cpanel };
+    // exit to the main menu: first tap arms, second tap (within 2.5 s) leaves
+    const quit = document.createElement('button');
+    quit.type = 'button'; quit.className = 'ag-quit'; quit.textContent = '✕ MENÜ';
+    quit.style.cssText = 'position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);z-index:5;padding:7px 14px;border-radius:14px;border:3px solid #0a2a4a;background:#ff5a5f;color:#fff;font:900 14px inherit;font-family:inherit;box-shadow:0 4px 0 #0a2a4a;pointer-events:auto;cursor:pointer;';
+    let armT = 0;
+    quit.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation(); this.audio?.init?.();
+      const now = performance.now();
+      if (now - armT < 2500) { this.audio?.ui?.('back'); this.exit(); return; }
+      armT = now; quit.textContent = 'EMİN MİSİN? TEKRAR BAS'; this.audio?.ui?.('click');
+      setTimeout(() => { if (performance.now() - armT >= 2400) quit.textContent = '✕ MENÜ'; }, 2500);
+    });
+    root.appendChild(quit);
+    this.hud.quit = quit;
+    this._escKey = (e) => { if (e.key === 'Escape' && !this.disposed) { e.preventDefault(); this.exit(); } };
+    window.addEventListener('keydown', this._escKey);
     press(this.hud.boost, () => this.doBoost());
     press(this.hud.bsplit, () => this.doSplit());
   }
