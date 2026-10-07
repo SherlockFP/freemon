@@ -291,12 +291,32 @@ function build(n, daily, assist, opts) {
   // YOL AYRIMI (DAG 3+, once per mountain): one route fork at 40-60% of the course, in the first free slot
   if (n >= 3 && !daily && !boss) {
     const fl = RES.fork, mid = dF * 0.5;
-    const free = (s0) => s0 > 130 && s0 + fl < dF - 60 && !items.some((p) => s0 < p.start + p.len + 14 && p.start < s0 + fl + 14)
-      && !P.gates.some((g) => s0 < g.d + 30 && g.d - L.gatePre - 40 < s0 + fl);
+    const SOFT1 = ['pickup', 'strip', 'crateLine'], SOFT2 = [...SOFT1, 'crateWall', 'iceWall', 'army', 'statues', 'domino', 'secret', 'throne', 'mush', 'cannon'];
+    const free = (s0, pad, gm, soft) => s0 > 130 && s0 + fl < dF - 60
+      && !items.some((p) => (soft ? !soft.includes(p.kind) : true) && s0 < p.start + p.len + pad && p.start < s0 + fl + pad)
+      && !P.gates.some((g) => s0 < g.d + 30 && g.d - gm < s0 + fl);
     let at = -1;
-    for (let o = 0; o <= 0.1 * dF && at < 0; o += 6) {
-      const c1 = Math.round(mid - fl / 2 - o), c2 = Math.round(mid - fl / 2 + o);
-      if (free(c1)) at = c1; else if (free(c2)) at = c2;
+    const tiers = [[14, L.gatePre + 40, 0.1], [8, L.gatePre + 20, 0.3], [4, 24, 0.3], [2, 12, 0.45]];
+    for (const [pad, gm, span] of tiers) {
+      for (let o = 0; o <= span * dF && at < 0; o += 5) {
+        const c1 = Math.round(mid - fl / 2 - o), c2 = Math.round(mid - fl / 2 + o);
+        if (free(c1, pad, gm, false)) at = c1; else if (free(c2, pad, gm, false)) at = c2;
+      }
+      if (at >= 0) break;
+    }
+    let soft = null;
+    for (const sf of [SOFT1, SOFT2]) {
+      for (let o = 0; o <= 0.45 * dF && at < 0; o += 5) {
+        const c1 = Math.round(mid - fl / 2 - o), c2 = Math.round(mid - fl / 2 + o);
+        if (free(c1, 2, 12, sf)) at = c1; else if (free(c2, 2, 12, sf)) at = c2;
+      }
+      if (at >= 0) { soft = sf; break; }
+    }
+    if (at >= 0 && soft) {
+      for (let q = items.length - 1; q >= 0; q--) {
+        const p = items[q];
+        if (soft.includes(p.kind) && at < p.start + p.len + 2 && p.start < at + fl + 2) items.splice(q, 1);
+      }
     }
     if (at >= 0) {
       let st = 0;

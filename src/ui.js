@@ -1141,6 +1141,11 @@ REKOR −${this._rg} m`;
       D.set(k, now);
       if (D.size > 40) for (const [kk, v] of D) if (now - v > 3000) D.delete(kk);
     }
+    if (ch === 'c' && this._hold && r.prio < 3 && !r.count) {
+      const H = this._heldQ || (this._heldQ = []);
+      if (!r.drop && H.length < 3) H.push(r);
+      return;
+    }
     const st = (this._chs || (this._chs = {}))[ch] || (this._chs[ch] = { cur: null, q: [], t: null, last: -1e9 });
     r.at = now;
     r.gap = ch === 'c' && !r.count ? 1200 : 0;
@@ -1152,6 +1157,14 @@ REKOR −${this._rg} m`;
     if (st.q.length >= 4) { const i = st.q.reduce((m, x, j) => (x.prio < st.q[m].prio ? j : m), 0); st.q.splice(i, 1); }
     st.q.push(r);
     this._annSched(st, ch);
+  }
+  /** runner sets true while a card gate is ahead: low/mid centre messages wait (info is dropped) until released */
+  holdCentre(on) {
+    this._hold = !!on;
+    if (on) return;
+    const H = this._heldQ || [];
+    this._heldQ = [];
+    for (const r of H) this._say('c', r);
   }
   /** true while the centre or top announcement lane is showing something */
   annBusy() {
@@ -1185,6 +1198,7 @@ REKOR −${this._rg} m`;
     if (st.q.length) this._annSched(st, ch);
   }
   _annReset() {
+    this._hold = false; this._heldQ = [];
     for (const k in (this._chs || {})) {
       const st = this._chs[k];
       clearTimeout(st.t);

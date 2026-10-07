@@ -1095,13 +1095,14 @@ export class Runner {
     const flip = Math.random() < 0.5;
     const cards = [{ def: a, risky: false, secs: BUFF_LEN }, { def: r, risky: true, secs: Math.round(BUFF_LEN * 1.6) }];
     if (flip) cards.reverse();
-    const gs = b.s + 60;
+    const gs = b.s + 75;
     const g = new THREE.Group();
     const n = LANES.length, us = [LANES[0], LANES[n - 1]];
     const poleG = this._gatePoleG || (this._gatePoleG = new THREE.CylinderGeometry(0.07, 0.07, 3.6, 5).translate(0, 1.8, 0));
     const poleM = this._gatePoleM || (this._gatePoleM = new THREE.MeshLambertMaterial({ color: 0xffffff }));
     const planeG = this._gatePlaneG || (this._gatePlaneG = new THREE.PlaneGeometry(2.8, 2.1));
-    g.userData.mats = [];
+    g.userData.mats = []; g.userData.cards = []; g.userData.strips = [];
+    const stripG = this._gateStripG || (this._gateStripG = new THREE.PlaneGeometry(RCFG.laneW * 0.9, 12).rotateX(-Math.PI / 2));
     for (let i = 0; i < 2; i++) {
       const c = cards[i], x = us[i];
       let mat;
@@ -1122,9 +1123,12 @@ export class Runner {
       } else mat = new THREE.MeshBasicMaterial({ color: c.risky ? 0xd8352a : 0x2a9d5c, side: THREE.DoubleSide });
       g.userData.mats.push(mat);
       const m = new THREE.Mesh(planeG, mat);
-      m.position.set(x, 3.9, 0);
-      g.add(m);
-      for (const dx of [-1.3, 1.3]) { const p = new THREE.Mesh(poleG, poleM); p.position.set(x + dx, 0, 0); g.add(p); }
+      m.position.set(x, 4.7, 0); m.scale.setScalar(1.4);
+      g.add(m); g.userData.cards.push(m);
+      const sm = new THREE.MeshBasicMaterial({ color: c.risky ? 0xff3b30 : 0x2fd36b, transparent: true, opacity: 0.4, depthWrite: false });
+      g.userData.mats.push(sm);
+      const st = new THREE.Mesh(stripG, sm); st.position.set(x, 0.07, 6); g.add(st); g.userData.strips.push(st);
+      for (const dx of [-2.0, 2.0]) { const p = new THREE.Mesh(poleG, poleM); p.position.set(x + dx, 0, 0); p.scale.y = 1.35; g.add(p); }
     }
     tr.frame(gs, _f);
     tr.toWorld(gs, 0, 0, _v);
@@ -1133,12 +1137,18 @@ export class Runner {
     _m.makeBasis(_f.right, _f.up, _x.crossVectors(_f.right, _f.up));
     g.quaternion.setFromRotationMatrix(_m);
     this.ctx.scene.add(g);
-    this.gate = { s: gs, g, cards, us, done: false, clrT: 0 };
+    this.gate = { s: gs, g, cards, us, done: false, clrT: 0, t: 0 };
+    const ui = this.ctx.ui, sd = (k) => (cards[k].risky ? 'RİSKLİ' : 'GÜVENLİ');
+    ui.holdCentre?.(true);
+    ui.toastSoft?.(`◀ ${sd(0)} · ${sd(1)} ▶`, { prio: 3, drop: true });
     this.obstacles.clearRange?.(gs - 15, gs + 15);
   }
 
   gateTick(dt) {
     const G = this.gate, b = this.b;
+    G.t += dt;
+    const cs = G.g.userData.cards, pu = 1 + 0.03 + 0.03 * Math.sin(G.t * 5);
+    for (let k = 0; k < cs.length; k++) { cs[k].position.y = 4.7 + 0.12 * Math.sin(G.t * 2.2 + k * 1.7); cs[k].scale.setScalar(1.4 * pu); }
     if (!G.done) {
       G.clrT -= dt;
       if (G.clrT <= 0) { G.clrT = 0.4; this.obstacles.clearRange?.(G.s - 15, G.s + 15); }
@@ -1149,16 +1159,26 @@ export class Runner {
         if (i >= 0) {
           const c = G.cards[i];
           this.grantBuff(c.def, c.secs);
+          this.ctx.ui.banner?.(`${c.risky ? 'RİSKLİ KART' : 'KART'}: ${c.def.name.toLocaleUpperCase('tr-TR')}${c.risky ? '!' : ''}`, 4);
+          this.ctx.ui.flash?.(c.risky ? 'hit' : 'gold');
+          this.burst(18, c.risky ? 0xff5040 : 0xffe066, 6);
           if (c.risky) { this.cardRiskT = 30; this.gap = Math.max(3, this.gap - 3); }
           G.g.visible = false;
         }
+        this.gateRelease();
       }
     } else if (b.s > G.s + 25) this.killGate();
+  }
+
+  gateRelease() {
+    this.ctx.ui.holdCentre?.(false);
+    if (this._recPend) { this._recPend = false; this.queueBanner('YENİ REKOR!', 5, 1.6, true); }
   }
 
   killGate() {
     const G = this.gate;
     if (!G) return;
+    if (!G.done) { G.done = true; this.gateRelease(); }
     this.ctx.scene.remove(G.g);
     for (const m of G.g.userData.mats) { m.map?.dispose(); m.dispose(); }
     this.gate = null;
@@ -1351,7 +1371,7 @@ export class Runner {
     if (!this.passedDist && b.s > this.bestDist) {
       this.passedDist = true;
       this.rcpAdd('rec');
-      this.queueBanner('YENİ REKOR!', 5, 1.6, true);
+      if (this.gate && !this.gate.done) this._recPend = true; else this.queueBanner('YENİ REKOR!', 5, 1.6, true);
       ui.flash?.('gold');
       audio.win();
       platform.haptic('success');

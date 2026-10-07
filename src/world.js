@@ -499,8 +499,8 @@ export class World {
     const l = this.makeLabel(text, col);
     if (!l) return;
     p.tag = l;
-    l.scale.set(8, 2.4, 1);
-    l.position.set(p.x, p.y + p.h + 2.6, -p.d);
+    l.scale.set(12, 3.6, 1);
+    l.position.set(p.x, p.y + p.h + 3.4, -p.d);
     this.group.add(l);
     this.labels.push(p);
   }
@@ -827,58 +827,6 @@ export class World {
     const cx = -side * hw * R.range(0.15, 0.4);
     for (let i = 0; i < 6; i++) this.food1(clamp(this.rollQ(T) * 0.85, 0.12, 0.6), gr, clamp(cx + Math.sin(i * 1.2) * 1.8, -hw, hw), d + 2 + i * 3.2, hw, { spacing: 0.1 });
     this.placeObstacle(d + 14, gr, T, hw);
-  }
-
-  _forkSign(p, text, col) {
-    if (!p) return;
-    const l = this.makeLabel(text, col);
-    if (!l) return;
-    p.tag = l;
-    l.scale.set(8, 2.4, 1);
-    l.position.set(p.x, p.y + p.h + 2.6, -p.d);
-    this.group.add(l);
-    this.labels.push(p);
-  }
-
-  // FORK (DAG 2+): a rock divider splits the slope. SAFE lane: lots of small food, no extras. RISKY lane: obstacles,
-  // a hot spot (DAG 4+), gold crates and fat food, and a speed strip. Signs hang over both entrances.
-  placeFork(it, gr, T, hw) {
-    const R = this.rng, P = this.lvl;
-    const d0 = it.start, d1 = it.start + it.len;
-    const hwL = this.halfWidth(d0 + it.len * 0.5);
-    const risk = it.side || 1, safe = -risk;
-    const tr = clamp(gr * 1.4, 1, hwL * 0.26);
-    const e = this.pick(this.obst, tr, 0.6, 1.7);
-    if (e) {
-      const sc = clamp(tr / e.r, 0.3, 22);
-      for (let d = d0 + 14; d <= d1 - 6; d += tr * 1.7) { const p = this.place(e.type, R.range(-0.3, 0.3), d, hwL, { s: sc * R.range(0.95, 1.08), pad: 0.2 }); if (p) p.obstacle = true; }
-    }
-    const sg = this.pick(this.decorPool, 3.4, 0.6, 1.7);
-    if (sg) {
-      const ss = clamp(3.4 / sg.r, 0.3, 8);
-      this._forkSign(this.add(sg.type, safe * hwL * 0.5, d0 + 6, { s: ss, decor: true }), 'GÜVENLİ', '#2fd36b');
-      this._forkSign(this.add(sg.type, risk * hwL * 0.5, d0 + 6, { s: ss, decor: true }), 'RİSKLİ ✦', '#ff7a1a');
-    }
-    for (let i = 0; i < 20; i++) {
-      this.food1(R.range(0.22, 0.5), gr, safe * hwL * R.range(0.3, 0.8), d0 + 16 + i * ((it.len - 24) / 20), hwL, { spacing: 0.1 });
-    }
-    const pr = planAt(P, d0 + 40), ct = crateRadius(pr);
-    const lim = Math.max(1, hwL - ct - 1.5);
-    for (let i = 0; i < 2; i++) {
-      const q = gr * R.range(1.4, 2);
-      const oe = this.pick(this.obst, q, 0.6, 1.7);
-      if (!oe) break;
-      const p = this.place(oe.type, risk * hwL * (i ? 0.72 : 0.38), d0 + 30 + i * 28, hwL, { s: clamp(q / oe.r, 0.3, 22), pad: 0.8 });
-      if (p) p.obstacle = true;
-    }
-    this.specialQueue.push({ kind: 'strip', at: d0 + 20, xf: risk * 0.5 });
-    if (P.n >= 4) this.placeHeat(d0 + 28, gr, T, hwL, risk);
-    else for (let i = 0; i < 4; i++) this.food1(R.range(0.6, 0.8), gr, risk * hwL * R.range(0.35, 0.75), d0 + 28 + i * 14, hwL, { spacing: 0.1 });
-    this.crateAt(clamp(risk * hwL * 0.55, -lim, lim), d0 + 36, ct * 1.15, 'gold', pr);
-    this.crateAt(clamp(risk * hwL * 0.7, -lim, lim), d0 + 62, ct * 1.15, 'gold', pr);
-    this.crateAt(clamp(risk * hwL * 0.45, -lim, lim), d0 + 78, ct, 'plain', pr);
-    this.zones.push({ d0: d0 - 4, d1: d1 + 6, kind: 'crates' });
-    return it.len;
   }
 
   // SICAK NOKTA (DAG 6+): a glowing hot patch with gold crates and fat food inside. Melts you while you are in it.
