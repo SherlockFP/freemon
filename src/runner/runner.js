@@ -508,7 +508,7 @@ export class Runner {
     if (this.hitStop > 0) { this.hitStop -= rdt; dt *= 0.06; }
     if (this.warpT > 0) { this.warpT -= rdt; dt *= 0.5; }
     // The first moments of a death run in slow motion so the read-out lands.
-    if (this.state === 'dying' && this.deadT < 0.45) dt *= 0.25;
+    if (this.state === 'dying') { if (this.deadT < 0.12) dt *= 0.02; else if (this.deadT < 0.4) dt *= 0.2; }
     // Countdown before the chase starts (2 s the first time, 1 s on retries): the world is frozen.
     if (this.countT > 0) {
       const before = Math.ceil(this.countT);
@@ -1459,6 +1459,14 @@ export class Runner {
   }
 
   // FIRTINA TÜNELİ: the last 100 m before every 1 km: snow-storm vignette + streaks; pass it without a hit = combo x2 + bonus.
+  // YETİ RADYOSU: every km the sky/fog palette gets a subtle remix + a station toast (cosmetic only).
+  radioTune(km) {
+    const ST = [['Gün Batımı FM', 0xff9a6a], ['Kutup Işığı FM', 0x6affc8], ['Buz Lo-Fi', 0x8fb4ff], ['Pembe Kar FM', 0xff9ad0], ['Gece Vardiyası', 0x5a4cff], ['Altın Saat FM', 0xffd36a], ['Nane Esintisi', 0x9affb0]];
+    const st = ST[(km - 1) % ST.length];
+    this.env?.setRadio?.(st[1], 0.22);
+    this.ctx.ui.toastSoft?.('📻 ' + st[0]);
+  }
+
   stormTick(dt) {
     if (this.cmbT > 0) { this.cmbT -= dt; if (this.cmbT <= 0 && this.cmbN) { const h = this.stormHit; this.breakCombo(); this.stormHit = h; } }
     if (this.level) return;
@@ -1466,6 +1474,7 @@ export class Runner {
     if (this.stormKm === undefined) this.stormKm = km;
     if (km > this.stormKm) {                       // crossed a milestone
       this.stormKm = km;
+      if (km > 0) this.radioTune(km);
       if (this.stormOn && !this.stormHit) {
         this.cmbN = Math.max(2, (this.cmbN || 0) * 2); this.cmbAt = this.time; this.cmbT = 2;
         this.ctx.ui?.combo?.(this.cmbN);
@@ -2756,6 +2765,8 @@ export class Runner {
     this.cause = cause;
     if (cause !== 'smash' && cause !== 'wall') this.killKind = null;       // (killKind only names what a head-on hit / the barrier was)
     this.deadT = 0;
+    this.deathZoom = 0;
+    this.deathCard();
     music.stinger('death');
     music.duck(true);
     audio.setRoll(0, 0);
@@ -2764,9 +2775,18 @@ export class Runner {
     this.trauma = Math.min(1, this.trauma + 0.5);
   }
 
+  // Death read-out: cause icon + text + big distance, through the shared announcement scheduler.
+  deathCard() {
+    const ICON = { wall: '🧱', fall: '🕳️', melt: '💧', yeti: '👹', smash: '💥', explode: '💣' };
+    const TXT = { wall: 'DUVARA ÇARPTIN', fall: 'DÜŞTÜN', melt: 'ERİDİN', yeti: 'YETİ YAKALADI', smash: 'ÇARPTIN', explode: 'PATLADIN' };
+    const d = Math.round(this.b.s);
+    this.ctx.ui.float?.((ICON[this.cause] || '💀') + ' ' + (TXT[this.cause] || 'BİTTİ') + ' · ' + d.toLocaleString('tr-TR') + ' m', window.innerWidth * 0.5, window.innerHeight * 0.3, 'bad');
+  }
+
   updateDying(dt, rdt) {
     const b = this.b;
     this.deadT += rdt;
+    if (this.deadT < 0.6) this.deathZoom = Math.min(1, this.deadT / 0.4);
     let T = 1.4;
     if (this.cause === 'fall') {
       b.vh -= RCFG.gravity * dt;
@@ -2854,14 +2874,15 @@ export class Runner {
     const ev = this.rcp.slice();
     if (this.rcpN >= 4) ev.push({ s: this.rcpS, k: 'combo', n: this.rcpN });
     ev.push({ s: this.b.s, k: 'death' });
+    const LB = { rec: 'REKOR', boss: 'BOSS', combo: 'KOMBO', wall: 'DUVAR', fall: 'DÜŞÜŞ', melt: 'ERİME', yeti: 'YETİ', smash: 'ÇARPMA', explode: 'PATLAMA' };
     const IC = { rec: '🏆', boss: '🧌', combo: '🔥', wall: '🧱', fall: '🕳️', melt: '💧', yeti: '👹', smash: '💥', explode: '💣' };
     const el = this._rcpEl = document.createElement('div');
-    el.style.cssText = 'position:fixed;left:7%;right:7%;top:36%;z-index:60;padding:8px 10px 6px;border-radius:14px;background:rgba(15,30,55,.78);color:#fff;font:700 12px system-ui,sans-serif;text-align:center;touch-action:manipulation;opacity:0;transition:opacity .15s';
-    let h = '<div style="letter-spacing:.12em;opacity:.8">BÖLÜM ÖZETİ · ' + dist.toLocaleString('tr-TR') + ' m</div><div style="position:relative;height:34px;margin:6px 6px 0"><div style="position:absolute;left:0;right:0;top:22px;height:5px;border-radius:3px;background:rgba(255,255,255,.2)"></div><div class="rf" style="position:absolute;left:0;top:22px;height:5px;width:0;border-radius:3px;background:#7fd0ff;transition:width .8s linear"></div>';
+    el.style.cssText = 'position:fixed;left:4%;right:4%;top:24%;z-index:60;padding:14px 12px 10px;border-radius:18px;background:rgba(15,30,55,.88);color:#fff;font:800 16px system-ui,sans-serif;text-align:center;touch-action:manipulation;opacity:0;transition:opacity .15s';
+    let h = '<div style="letter-spacing:.12em;opacity:.85">BÖLÜM ÖZETİ</div><div style="font-size:34px;line-height:1.1">' + dist.toLocaleString('tr-TR') + ' m</div><div style="position:relative;height:62px;margin:8px 10px 0"><div style="position:absolute;left:0;right:0;top:30px;height:6px;border-radius:3px;background:rgba(255,255,255,.2)"></div><div class="rf" style="position:absolute;left:0;top:30px;height:6px;width:0;border-radius:3px;background:#7fd0ff;transition:width 1s linear"></div>';
     for (const e of ev) {
       const f = Math.min(1, Math.max(0, e.s / dist));
       const ic = e.k === 'death' ? (IC[this.cause] || '💀') : IC[e.k];
-      h += '<div class="ri" style="position:absolute;left:' + (f * 100).toFixed(1) + '%;top:0;transform:translateX(-50%) scale(0);font-size:17px;line-height:20px;transition:transform .18s cubic-bezier(.3,1.8,.5,1);transition-delay:' + (f * 0.8).toFixed(2) + 's">' + ic + (e.n ? '<span style="font-size:10px">' + e.n + '</span>' : '') + '</div>';
+      h += '<div class="ri" style="position:absolute;left:' + (f * 100).toFixed(1) + '%;top:0;transform:translateX(-50%) scale(0);font-size:26px;line-height:28px;transition:transform .18s cubic-bezier(.3,1.8,.5,1);transition-delay:' + (f * 0.8).toFixed(2) + 's">' + ic + (e.n ? '<span style="font-size:13px">' + e.n + '</span>' : '') + '<div style="font-size:10px;line-height:12px;opacity:.85">' + (LB[e.k === 'death' ? this.cause : e.k] || '') + '</div></div>';
     }
     el.innerHTML = h + '</div>';
     document.body.appendChild(el);
@@ -2874,7 +2895,7 @@ export class Runner {
       el.querySelector('.rf').style.width = '100%';
       el.querySelectorAll('.ri').forEach((n) => { n.style.transform = 'translateX(-50%) scale(1)'; });
     }));
-    this._rcpTm = setTimeout(end, 1150);
+    this._rcpTm = setTimeout(end, 1500);
   }
 
   // The result screen. While a revive is possible the run is NOT recorded yet (a revive continues the same run).
@@ -3417,7 +3438,7 @@ export class Runner {
     ud.fovKick = this.kick;
     // main.js low-passes fovBoost at 4/s, which keeps only ~27% of a short pulse: until it applies fovKick itself (and sets
     // fovKickOk) the pulse is sent through fovBoost with a gain that survives that filter (a smash or near miss: ~1.5 degrees).
-    ud.fovBoost = -2 + speedK * 5 + (this.rocketT > 0 ? 6 : 0) + (this.riskT > 0 ? 4 : 0) + (ud.fovKickOk ? 0 : this.kick * 1.6);
+    ud.fovBoost = -2 + speedK * 5 + (this.rocketT > 0 ? 6 : 0) + (this.riskT > 0 ? 4 : 0) + (ud.fovKickOk ? 0 : this.kick * 1.6) - (this.state === 'dying' ? 5 * (this.deathZoom || 0) : 0);
   }
 
   dispose() {

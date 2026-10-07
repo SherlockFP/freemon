@@ -354,10 +354,12 @@ export class AgarMode {
       const mound = mk(new THREE.SphereGeometry(1, 14, 8, 0, 6.2832, 0, 1.5708), new THREE.MeshLambertMaterial({ color: 0xf2f8ff }), NBUR, false);
       const hole = mk(new THREE.CircleGeometry(1, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x14203a }), NBUR, false);
       const ma = mound.instanceMatrix.array, ha = hole.instanceMatrix.array;
-      for (let b = 0; b < NBUR; b++) { wm(ma, b * 16, BUR[b].x, 0, BUR[b].z, BUR_R); ma[b * 16 + 5] = BUR_R * 0.5; wm(ha, b * 16, BUR[b].x, BUR_R * 0.5 + 0.08, BUR[b].z, BUR_IN * 0.8); }
+      for (let b = 0; b < NBUR; b++) { wm(ma, b * 16, BUR[b].x, 0, BUR[b].z, BUR_R); wm(ma, b * 16, BUR[b].x, 0, BUR[b].z, BUR_R * 1.4); ma[b * 16 + 5] = BUR_R * 0.7; wm(ha, b * 16, BUR[b].x, BUR_R * 0.7 + 0.08, BUR[b].z, BUR_IN * 1.05); }
       mound.count = hole.count = NBUR; mound.instanceMatrix.needsUpdate = hole.instanceMatrix.needsUpdate = true;
       mound.instanceMatrix.setUsage(THREE.StaticDrawUsage); hole.instanceMatrix.setUsage(THREE.StaticDrawUsage); hole.renderOrder = 3;
     }
+    this.burRingM = new THREE.MeshBasicMaterial({ color: 0x7fe9ff, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false });
+    { const rg = new THREE.RingGeometry(0.82, 1, 40).rotateX(-Math.PI / 2); for (let b = 0; b < NBUR; b++) { const m = new THREE.Mesh(rg, this.burRingM); m.position.set(BUR[b].x, 0.35, BUR[b].z); m.scale.setScalar(BUR_R * 1.9); m.renderOrder = 4; m.frustumCulled = false; sc.add(m); } }
     this.aura = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), new THREE.MeshBasicMaterial({ color: 0x66bbff, transparent: true, opacity: 0.28, depthWrite: false }));
     this.aura.visible = false; this.aura.frustumCulled = false;
     sc.add(this.aura);
@@ -384,6 +386,8 @@ export class AgarMode {
       const band = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.55, 0.38, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0xffc400, side: THREE.DoubleSide, fog: false })); band.position.y = 0.19; cg.add(band);
       for (let k = 0; k < 5; k++) { const an = k * 1.2566, sp = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.6, 5), gm); sp.position.set(Math.cos(an) * 0.58, 0.66, Math.sin(an) * 0.58); cg.add(sp); const jb = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 6), new THREE.MeshBasicMaterial({ color: k % 2 ? 0xff4d6d : 0x4dd2ff, fog: false })); jb.position.set(Math.cos(an) * 0.58, 1.02, Math.sin(an) * 0.58); cg.add(jb); }
       cg.visible = false; cg.frustumCulled = false; cg.renderOrder = 11; sc.add(cg); this.crown = cg; this.king = null; this.kingId = -1;
+      const bm = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.6, 1, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false }));
+      bm.visible = false; bm.frustumCulled = false; bm.renderOrder = 9; sc.add(bm); this.beam = bm;
     }
   }
 
@@ -1402,7 +1406,8 @@ export class AgarMode {
       if (!(o.wasAlive && !o.alive)) { if (o.alive) o.wasAlive = true; continue; }
       o.wasAlive = false;
       const killer = o.killer >= 0 ? this.owners[o.killer] : null;
-      if (killer && killer !== o) { killer.kills++; this.pushFeed(killer.name + ', ' + o.name + accSuffix(o.name) + ' yuttu!'); }
+      if (killer && killer !== o) { killer.kills++; this.pushFeed(killer.name + ', ' + o.name + accSuffix(o.name) + ' yuttu!');
+        if (killer.bot && this.time > (this._quipT || 0) && Math.random() < 0.4) { this._quipT = this.time + 9 + Math.random() * 8; const Q = ['yummy 😋', 'kaç kaç!', 'bu benim kalem!', 'ez gg', 'bir tane daha 😎', 'kar tanesi gibi eridin', 'sıradaki kim?', 'oha büyüdüm 🤩']; this.pushFeed(killer.name + ': ' + Q[(Math.random() * Q.length) | 0]); } }
       if (o.bot && !o.human) o.respawnT = 3 + Math.random() * 3;
       else if (k === this.me) this.onMeDead(killer);
       else if (o.human && o.human !== 'host') this.net && this.net.sendTo(o.human, { t: 'dead', k: killer ? killer.name : '' });
@@ -2231,7 +2236,9 @@ export class AgarMode {
     const mr = this.meRing, pls = 0.5 + 0.5 * Math.sin(this.time * 6);
     if (me.alive) { mr.visible = true; mr.position.set(me.lx, 0.6, me.lz); mr.scale.setScalar(me.maxR * (1.12 + 0.08 * pls) + 0.8); mr.material.color.setHex(me.col); mr.material.opacity = 0.65 + 0.35 * pls; } else mr.visible = false;
     const cr = this.crown;
-    if (king && king.alive) { const cs = Math.max(king.maxR * 0.7, camH * 0.035); cr.visible = true; cr.position.set(king.lx, king.maxR * 2 + cs * 0.5, king.lz); cr.scale.setScalar(cs); if (this.qLv < 2) cr.rotation.y = this.time * 1.6; } else cr.visible = false;
+    if (king && king.alive) { const cs = Math.max(king.maxR * 1.1, camH * 0.06); { const bm = this.beam, bh = camH * 1.6, bw = Math.max(king.maxR * 0.5, camH * 0.012); bm.visible = true; bm.position.set(king.lx, bh * 0.5, king.lz); bm.scale.set(bw, bh, bw); bm.material.opacity = 0.26 + 0.1 * Math.sin(this.time * 4); } cr.visible = true; cr.position.set(king.lx, king.maxR * 2 + cs * 0.5, king.lz); cr.scale.setScalar(cs); if (this.qLv < 2) cr.rotation.y = this.time * 1.6; } else { cr.visible = false; if (this.beam) this.beam.visible = false; }
+    this.burRingM.opacity = 0.45 + 0.25 * Math.sin(this.time * 3);
+    this.discover(me, king, camH);
     {
       const cs = this.cones, cmesh = this.coneMesh;
       if (cs) {
@@ -2255,6 +2262,41 @@ export class AgarMode {
         if (f.wallM.opacity !== op) { f.wallM.transparent = f.twM.transparent = near; f.wallM.opacity = f.twM.opacity = op; f.wallM.depthWrite = f.twM.depthWrite = !near; f.wallM.needsUpdate = f.twM.needsUpdate = true; }
       }
     }
+  }
+
+  discover(me, king, camH) {
+    const hud = this.hud, cam = this._camera, W = this.sz.x || 1, H = this.sz.y || 1;
+    if (!cam) return;
+    let L = this._lbls; if (!L) { L = this._lbls = []; try { this._seen = JSON.parse(localStorage.getItem('patpat.agar.seen') || '{}') || {}; } catch (e) { this._seen = {}; } this._pv3 = new THREE.Vector3(); this._dT = 0; }
+    const v = this._pv3, play = this.state === 'play';
+    let ar = this._kArrow;
+    if (!ar) { ar = this._kArrow = document.createElement('div'); ar.style.cssText = 'position:absolute;left:0;top:0;font-size:26px;color:#ffd23a;text-shadow:0 2px 0 #3a2a00,0 0 8px #ffb400;pointer-events:none;opacity:0;font-weight:900;z-index:3'; hud.root.appendChild(ar); }
+    let showAr = false;
+    if (play && king && king.alive && king.id !== this.me) {
+      v.set(king.lx, 0, king.lz).project(cam);
+      const off = v.z > 1 || Math.abs(v.x) > 0.92 || Math.abs(v.y) > 0.88;
+      if (off) {
+        let dx = v.x, dy = v.y; if (v.z > 1) { dx = -dx; dy = -dy; }
+        const k = Math.max(Math.abs(dx) / 0.9, Math.abs(dy) / 0.8, 1e-4), px = (dx / k * 0.5 + 0.5) * W, py = (-dy / k * 0.5 + 0.5) * H;
+        ar.style.transform = 'translate(' + (px - 16) + 'px,' + (py - 16) + 'px) rotate(' + Math.atan2(-dy, dx) * 57.3 + 'deg)'; ar.textContent = '➤'; showAr = true;
+      }
+    }
+    ar.style.opacity = showAr ? '1' : '0';
+    for (let i = L.length - 1; i >= 0; i--) { const l = L[i]; if (this.time > l.until || !play) { l.el.remove(); L.splice(i, 1); continue; }
+      v.set(l.x, l.y, l.z).project(cam); const vis = v.z < 1 && Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05;
+      l.el.style.opacity = vis ? '1' : '0'; if (vis) l.el.style.transform = 'translate(' + ((v.x * 0.5 + 0.5) * W) + 'px,' + ((-v.y * 0.5 + 0.5) * H) + 'px) translate(-50%,-100%)'; }
+    if (!play || this.time < this._dT) return;
+    this._dT = this.time + 0.3;
+    const seen = this._seen, inV = (x, y, z) => { v.set(x, y, z).project(cam); return v.z < 1 && Math.abs(v.x) < 0.8 && Math.abs(v.y) < 0.8; };
+    const add = (key, txt, x, y, z) => {
+      seen[key] = 1; try { localStorage.setItem('patpat.agar.seen', JSON.stringify(seen)); } catch (e) { /* ignore */ }
+      const el = document.createElement('div'); el.style.cssText = 'position:absolute;left:0;top:0;padding:3px 9px;border-radius:10px;font:900 14px "Trebuchet MS",system-ui,sans-serif;color:#fff;background:rgba(10,42,74,.78);border:2px solid #ffe066;white-space:nowrap;pointer-events:none;z-index:3;transition:opacity .3s';
+      el.textContent = txt; hud.root.appendChild(el); L.push({ el, x, y, z, until: this.time + 3 });
+    };
+    if (!seen.king && king && king.alive && king.id !== this.me && inV(king.lx, 0, king.lz)) add('king', 'KRAL ♛', king.lx, king.maxR * 2 + camH * 0.12, king.lz);
+    if (!seen.bur) for (let b = 0; b < NBUR; b++) if (inV(BUR[b].x, 0, BUR[b].z)) { add('bur', 'YUVA: saklan!', BUR[b].x, BUR_R * 1.2, BUR[b].z); break; }
+    if (!seen.fort) for (const f of this.forts) if (inV(f.x, 0, f.z)) { add('fort', 'KALE: ele geçir', f.x, 14, f.z); break; }
+    if (!seen.crys) for (let q = 0; q < NVIR; q++) if (this.von[q] && inV(this.vx[q], 0, this.vz[q])) { add('crys', 'KRİSTAL: büyükleri patlatır', this.vx[q], 5, this.vz[q]); break; }
   }
 
   tierBanner(t) {
@@ -2301,7 +2343,7 @@ export class AgarMode {
       '<div class="ag-tl"><div class="ag-mass"><div class="r1"><b class="m">0</b><span class="ag-rank"><b>-</b></span></div><small class="tt"></small><div class="ag-lvl"><span class="lv">Sv 1</span><div class="bar"><i></i></div></div></div>' +
       '<div class="ag-room"></div><div class="ag-feed"></div><div class="ag-chips"></div></div>' +
       '<div class="ag-tr"><div class="ag-lb"><div class="t"><span>LİDERLER</span><span class="ag-online">🟢<span class="on">0</span></span><span class="tg">▾</span></div><div class="rows"></div></div><canvas class="ag-map" width="84" height="84"></canvas></div><div class="ag-zn"></div>' +
-      '<div class="ag-stick"><i></i></div><div class="ag-toast"></div><div class="ag-avw" style="position:absolute;left:0;right:0;top:12%;text-align:center;font-size:34px;font-weight:900;color:#ff5a4d;text-shadow:0 3px 0 #3a0a0a,2px 2px 0 #3a0a0a,-2px 2px 0 #3a0a0a;pointer-events:none;opacity:0;transition:opacity .2s"></div><div class="ag-tip" style="position:absolute;left:8%;right:8%;bottom:26%;text-align:center;font-size:17px;color:#fff;background:rgba(10,42,74,.7);border-radius:14px;padding:10px 14px;pointer-events:none;opacity:0;transition:opacity .4s"></div><div class="ag-arrow" style="position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;opacity:0;transition:opacity .4s"><div style="position:absolute;left:-14px;top:-150px;font-size:34px;color:#ffe066;opacity:.7">▲</div></div>' +
+      '<div class="ag-stick"><i></i></div><div class="ag-toast" style="top:64px;font-size:15px;text-shadow:0 2px 0 #0a2a4a;pointer-events:none"></div><div class="ag-avw" style="position:absolute;left:0;right:0;top:12%;text-align:center;font-size:34px;font-weight:900;color:#ff5a4d;text-shadow:0 3px 0 #3a0a0a,2px 2px 0 #3a0a0a,-2px 2px 0 #3a0a0a;pointer-events:none;opacity:0;transition:opacity .2s"></div><div class="ag-tip" style="position:absolute;left:8%;right:8%;bottom:26%;text-align:center;font-size:17px;color:#fff;background:rgba(10,42,74,.7);border-radius:14px;padding:10px 14px;pointer-events:none;opacity:0;transition:opacity .4s"></div><div class="ag-arrow" style="position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;opacity:0;transition:opacity .4s"><div style="position:absolute;left:-14px;top:-150px;font-size:34px;color:#ffe066;opacity:.7">▲</div></div>' +
       '<div class="ag-btns"><button type="button" class="ag-act split"><span>✂️</span><small>BÖL</small></button>' +
       '<button type="button" class="ag-act boost"><span>🚀</span><small>HIZLAN</small><i class="cd"></i></button></div>';
     const st = document.createElement('style');

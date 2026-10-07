@@ -615,7 +615,7 @@ function updateLevelHud(V) {
   if (r !== h.r) { h.r = r; h.gc.className = 'cgl gc r' + r; }
   if (V.gateI !== h.gi) { h.gi = V.gateI; for (let i = 0; i < h.marks.length; i++) h.marks[i].classList.toggle('passed', i < V.gateI); }
   h.sz.style.display = 'none';   // the size/speed pill lives in the ETAP strip now
-  const c = V.chainMul >= 2 ? 'ZİNCİR x' + V.chainMul : '';
+  const c = V.ters > 0 ? '🏔 ÇIĞ: ' + Math.round(V.ters) + ' m ↑' : V.chainMul >= 2 ? 'ZİNCİR x' + V.chainMul : '';
   if (c !== h.c) { h.c = c; h.ch.textContent = c; h.ch.style.display = c ? '' : 'none'; }
   // the avalanche is close: red edge pulse
   const cl = ui.el.hud.classList;
@@ -992,7 +992,7 @@ function updateWaveVis(dt) {
   v.mesh.visible = true;
   v.t += dt;
   const hw = world.halfWidth(W.d);
-  const sc = 4.5 + ball.r * 0.55;
+  const sc = (4.5 + ball.r * 0.55) * (game.L && game.L.chase && game.L.chase.ters ? 1.9 : 1);
   for (let i = 0; i < v.N; i++) {
     const u = i / (v.N - 1);
     const x = (u - 0.5) * (2 * hw + 16) + Math.sin(v.t * 1.7 + i * 1.9) * 1.4;
@@ -1042,6 +1042,7 @@ function updateCamera(dt, snap = false) {
   let back = (6.8 + r * 2.5) * z * near;
   let up = (8.5 + r * 4.2) * z * near;
   let ox = b.x * 0.7;
+  if (plus && plus.bossFx && !plus.bossFx.dead) { back *= 1.1; up *= 1.28; }   // boss fight: higher camera keeps the ball and the traps readable
   const menu = G.state === 'menu';
   if (menu) {
     // Lobby: the ball is the hero — close, centred, slowly orbited, spinning on the snow.
@@ -1123,6 +1124,7 @@ function hideEnemyBars() {
   barRoot.style.display = 'none';
   for (const b of barPool) { b.on = false; b.el.style.display = 'none'; }
   bossEl.style.display = 'none';
+  for (const e of trapEls) e.style.display = 'none';
 }
 function updateEnemyBars() {
   if (G.mode !== 'cig' || G.state !== 'play' || !world || !world.enemies.length) { if (barRoot && barRoot.style.display !== 'none') hideEnemyBars(); return; }
@@ -1155,8 +1157,23 @@ function updateEnemyBars() {
     bossEl.style.display = 'block'; bossEl.style.top = G.lv ? 'calc(env(safe-area-inset-top,0px) + 152px)' : 'calc(env(safe-area-inset-top,0px) + 78px)';
     bossEl._nm.textContent = boss.enemy.name + '  ' + Math.max(0, Math.ceil(boss.enemy.hp)) + ' / ' + Math.ceil(boss.enemy.max);
     bossEl._bf.style.transform = 'scaleX(' + clamp(boss.enemy.hp / boss.enemy.max, 0, 1).toFixed(3) + ')';
+    ui.el.hint.classList.add('hidden');   // boss HP bar up: no generic hint line
   } else bossEl.style.display = 'none';
+  // trap icons (pooled DOM): 🧊 / 🪞 / ❄ floating above each ready trap
+  const TR = boss && plus && plus.bossFx && !plus.bossFx.dead ? plus.bossFx.traps : null;
+  for (let i = 0; i < 3; i++) {
+    let el = trapEls[i];
+    const T = TR && TR[i];
+    if (!T || T.cd > 0) { if (el && el.style.display !== 'none') el.style.display = 'none'; continue; }
+    if (!el) { el = trapEls[i] = document.createElement('div'); el.style.cssText = 'position:absolute;left:0;top:0;font-size:34px;line-height:1;pointer-events:none;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6));'; barRoot.appendChild(el); }
+    _v.set(T.x, world.groundY(T.x, T.d) + 6, -T.d).project(camera);
+    if (_v.z > 1 || Math.abs(_v.x) > 1.1 || _v.y < -1.1 || _v.y > 1.2) { el.style.display = 'none'; continue; }
+    el.textContent = T.k === 'ice' ? '🧊' : T.k === 'mirror' ? '🪞' : '❄';
+    el.style.display = 'block';
+    el.style.transform = 'translate(' + ((_v.x * 0.5 + 0.5) * W - 17).toFixed(1) + 'px,' + ((-_v.y * 0.5 + 0.5) * H - 17).toFixed(1) + 'px) scale(' + (1 + 0.15 * Math.sin(performance.now() * 0.008)).toFixed(2) + ')';
+  }
 }
+const trapEls = [];
 
 // ---------- loop ----------
 let last = performance.now();

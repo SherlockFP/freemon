@@ -3189,10 +3189,22 @@ export class Environment {
     this._lookDirty = true;
   }
 
+  /** YETİ RADYOSU: a cosmetic sky/fog remix (colour + 0..1 strength), eased in update(). */
+  setRadio(hex, k) {
+    if (!this._rdC) { this._rdC = new THREE.Color(); this._rdT = new THREE.Color(); this._rdK = 0; this._rdKT = 0; this._rdS = new THREE.Color(); this._rdC.set(hex); }
+    this._rdT.set(hex); this._rdKT = k;
+  }
+
   _applyLook() {
     const c = this.cCur;
-    this.fog.color.copy(c[3]);
-    this.bg.copy(c[2]);
+    const rk = this._rdK || 0, rc = this._rdC, sc = this._rdS;
+    if (rk > 0.002) {
+      this.fog.color.copy(sc.copy(c[3]).lerp(rc, rk));
+      this.bg.copy(sc.copy(c[2]).lerp(rc, rk));
+    } else {
+      this.fog.color.copy(c[3]);
+      this.bg.copy(c[2]);
+    }
     this.hemi.color.copy(c[4]);
     this.hemi.groundColor.copy(c[5]);
     this.sunL.color.copy(c[6]);
@@ -3201,7 +3213,11 @@ export class Environment {
     this.cloudMat.emissive.copy(c[8]).multiplyScalar(0.36);
     // sky gradient
     const col = this.sky.geometry.attributes.color, a = col.array, w = this._skyW;
-    const t = c[0], m = c[1], h = c[2];
+    let t = c[0], m = c[1], h = c[2];
+    if (rk > 0.002) {
+      if (!this._rdA) this._rdA = [new THREE.Color(), new THREE.Color(), new THREE.Color()];
+      t = this._rdA[0].copy(t).lerp(rc, rk); m = this._rdA[1].copy(m).lerp(rc, rk); h = this._rdA[2].copy(h).lerp(rc, rk);
+    }
     for (let i = 0, n = col.count; i < n; i++) {
       const j = i * 3;
       a[j] = w[j] * h.r + w[j + 1] * m.r + w[j + 2] * t.r;
@@ -3514,6 +3530,10 @@ export class Environment {
   // public
   // ------------------------------------------------------------------------------------------
   update(dt, camera, ball, beat) {
+    if (this._rdC && (Math.abs(this._rdKT - this._rdK) > 0.001 || this._rdC.getHex() !== this._rdT.getHex())) {
+      const e = Math.min(1, dt * 0.6);
+      this._rdC.lerp(this._rdT, e); this._rdK += (this._rdKT - this._rdK) * e; this._lookDirty = true;
+    }
     if (this._disposed) return;
     dt = dt > 0.1 ? 0.1 : dt < 0 || dt !== dt ? 0 : dt;
     this.time += dt;

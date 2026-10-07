@@ -173,10 +173,10 @@ function build(n, daily, assist, opts) {
   const fg = P.gates[S - 1];
   P.finale = { kind: bossArena ? 'boss' : (n % 2 ? 'wall' : 'gate'), d: dF, minR: fg.minR };
   if (bossArena) P.finale.hp = P.bossHits * CFG.ramDmg * rEnd * L.bossHpK;
-  P.bossR = 2.2 * rEnd + 1;
+  P.bossR = 1.7 * rEnd + 1;
 
   // ---- pace: chase, twist, mechanics, intro
-  if (ters) P.chase = { ters: true, t0: 3, gap0: 90, k: 0.82, clamp: 1 };
+  if (ters) P.chase = { ters: true, t0: 3, gap0: 55, k: 0.82, clamp: 1 };
   else if (n >= 3) {
     let k = Math.min(0.78, 0.42 + 0.012 * (n - 3)), gap0 = Math.max(70, 120 - 1.5 * (n - 3));
     if (n >= 26) { k += 0.08; gap0 -= 15; }

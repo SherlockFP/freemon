@@ -1117,17 +1117,20 @@ export class CigPlus {
       if (!m.ghost) S.emit(m.boulder ? TP.ice : TP.shot, m.x, gy + h, -m.d, t * 4, sc, sc, sc, 0, 0, 1, 1, 1, 1);
     }
     for (const T of B.traps || []) {
-      const gy = w.groundY(T.x, T.d), rdy = T.cd <= 0, pu = 0.5 + 0.5 * Math.sin(t * 6 + T.x), al = rdy ? 0.55 + 0.35 * pu : 0.15;
+      const gy = w.groundY(T.x, T.d), rdy = T.cd <= 0, pu = 0.5 + 0.5 * Math.sin(t * 6 + T.x), al = rdy ? 0.7 + 0.3 * pu : 0.2, pk = 1 + 0.12 * pu;
       const col = T.k === 'ice' ? [0.5, 0.9, 1] : T.k === 'mirror' ? [1, 0.95, 0.5] : [1, 0.6, 0.4];
       if (T.k === 'ice') {
-        Gl.emit(TP.ring, T.x, gy + 0.3, -T.d, 0, T.r, T.r, T.r, Math.PI / 2, 0, col[0], col[1], col[2], al);
+        Gl.emit(TP.ring, T.x, gy + 0.3, -T.d, 0, T.r * pk, T.r * pk, T.r * pk, Math.PI / 2, 0, col[0], col[1], col[2], al);
         Gl.emit(TP.ring, T.x, gy + 0.3, -T.d, 0, T.r * 0.6, T.r * 0.6, T.r * 0.6, Math.PI / 2, t, 0.8, 1, 1, al);
         Gl.emit(TP.lane, T.x, gy + 0.26, -T.d, 0, T.r * 1.5, 1, T.r * 1.5, 0, 0, 0.55, 0.9, 1, al * 0.6);
       } else {
         Gl.emit(TP.ice, T.x, gy + 2.2, -T.d, 0, 1.1, 2.6, 1.1, 0, 0, col[0], col[1], col[2], rdy ? 0.9 : 0.3);
-        Gl.emit(TP.ring, T.x, gy + 0.3, -T.d, 0, 3, 3, 3, Math.PI / 2, 0, col[0], col[1], col[2], al);
+        const R2 = Math.max(4.5, T.r) * pk;
+        Gl.emit(TP.ring, T.x, gy + 0.3, -T.d, 0, R2, R2, R2, Math.PI / 2, 0, col[0], col[1], col[2], al);
+        Gl.emit(TP.ring, T.x, gy + 0.32, -T.d, 0, R2 * 0.6, R2 * 0.6, R2 * 0.6, Math.PI / 2, 0, col[0], col[1], col[2], al);
+        Gl.emit(TP.lane, T.x, gy + 0.26, -T.d, 0, R2 * 1.4, 1, R2 * 1.4, 0, 0, col[0], col[1], col[2], al * 0.5);
       }
-      if (rdy) S.emit(TP.shot, T.x, gy + 6.2 + pu * 0.6, -T.d, t * 3, 0.7, 0.7, 0.7, 0, 0, col[0], col[1], col[2], 1);   // floating icon
+      if (rdy) S.emit(TP.shot, T.x, gy + 7 + pu * 0.8, -T.d, t * 3, 1.3, 1.3, 1.3, 0, 0, col[0], col[1], col[2], 1);   // floating icon
       if (T.drop != null) {
         const k = clamp(T.drop / 0.9, 0, 1);
         for (let i = -4; i <= 4; i++) { const ix = i * (hwOf(w, T.zd) / 4.5); Gl.emit(TP.ice, ix, w.groundY(ix, T.zd) + (1 - k) * (1 - k) * 22 + 1.2, -T.zd, 0, 0.7, 2.4, 0.7, Math.PI, 0, 0.7, 0.95, 1, 0.95); Gl.emit(TP.ring, ix, w.groundY(ix, T.zd) + 0.3, -T.zd, 0, 1.5 * k, 1.5 * k, 1.5 * k, Math.PI / 2, 0, 1, 0.3, 0.2, 0.5 * k); }
@@ -1964,9 +1967,9 @@ export class CigGame {
   _bossTraps(B, A, hw) {
     const mk = (k, x, d, r) => ({ k, x, d, r, cd: 0, drop: null, zd: 0 });
     const sx = hw * 0.5;
-    if (B.id === 'yeti') B.traps = [mk('ice', -sx, A.d1 - 34, 5.5), mk('ice', sx, A.d1 - 46, 5.5)];
-    else if (B.id === 'robot') B.traps = [mk('mirror', -sx, A.d0 + 38, 2), mk('mirror', sx, A.d0 + 66, 2)];
-    else B.traps = [mk('icicle', -sx, A.d0 + 30, 2.5), mk('icicle', sx, A.d0 + 55, 2.5)];
+    if (B.id === 'yeti') B.traps = [mk('ice', -sx * 0.6, A.d1 - 34, 8), mk('ice', sx * 0.6, A.d1 - 46, 8)];
+    else if (B.id === 'robot') B.traps = [mk('mirror', -sx * 0.6, A.d0 + 38, 3), mk('mirror', sx * 0.6, A.d0 + 66, 3)];
+    else B.traps = [mk('icicle', -sx * 0.5, A.d0 + 30, 6), mk('icicle', sx * 0.5, A.d0 + 55, 6)];
     this._msg(2, B.id === 'yeti' ? "TUZAK: Yeti'yi buza çek!" : B.id === 'robot' ? 'TUZAK: Lazeri aynaya yönlendir!' : 'TUZAK: Sütuna çarp, buz sarkıtları düşsün!');
   }
   _bossChunks(x, d, n, spread) {
@@ -2001,6 +2004,7 @@ export class CigGame {
       this._h('sfx', 'rumble');
       this._h('haptic', 'warning');
       this._bossTraps(B, A, hw);
+      if (B.id === 'yeti') B.t2 = Math.min(B.t2, 0.6);   // opens with a charge across the ice patch
     }
     if (!e.woke) return;
     // phase 2: enrage
@@ -2014,7 +2018,11 @@ export class CigGame {
     if (B.stun > 0) B.stun -= dt;
     const win = B.stun > 0;
     p.tint = win ? (Math.sin(G.t * 16) > 0 ? [1.5, 1.4, 0.5] : [1.2, 1.1, 0.6]) : B.dash === 1 || B.slam ? [1.6, 1.3, 1.3] : B.rage ? [1, 0.2, 0.12] : B.base;
-    if (dd > -b.r && B.dash === 0) p.x = clamp(p.x + clamp(b.x - p.x, -e.spd * dt, e.spd * dt), -hw, hw);
+    if (dd > -b.r && B.dash === 0) {
+      // stays off-centre (never between camera and ball): flips side every few seconds
+      const side = Math.sin(G.t * 0.45) >= 0 ? 1 : -1, off = side * Math.min(p.r * 0.55, hw * 0.3);
+      p.x = clamp(p.x + clamp(b.x + off - p.x, -e.spd * dt, e.spd * dt), -hw, hw);
+    }
     if (B.dash === 0) p.rot = Math.atan2(b.x - p.x, 16) * 0.8;
     const ready = !win && B.dash === 0 && !B.slam && !B.laser;
     if (ready) { B.t1 -= dt; B.t2 -= dt; }
@@ -2049,7 +2057,10 @@ export class CigGame {
         if (!locked) p.x = clamp(p.x + clamp(b.x - p.x, -13 * dt, 13 * dt), -hw, hw);
         p.rot = 0;
         B.lane = { x0: p.x, d0: p.d - p.r, x1: p.x, d1: p.d - 70, w: 2 * (b.r + p.r * 0.8), solid: locked };
-        if (B.dt >= dur) { B.dash = 2; B.dt = 0; this._h('sfx', 'rumble'); G.shake += 0.5; }
+        if (B.dt >= dur) {
+          const IT = B.traps.find(q => q.k === 'ice' && q.cd <= 0);
+          if (IT) { IT.x = p.x; IT.d = p.d - 26; }   // the ice patch lies on the charge lane
+          B.dash = 2; B.dt = 0; this._h('sfx', 'rumble'); G.shake += 0.5; }
       } else if (B.dash === 2) {
         B.dt += dt;
         p.d -= (B.rage ? 54 : 44) * dt; p.rot = 0;
@@ -2173,7 +2184,7 @@ export class CigGame {
   }
   _tip(key, text) {
     const S = this._tipSeen();
-    if (S[key]) return;
+    if (S[key] || (this.L && this._inArena())) return;
     S[key] = 1;
     try { localStorage.setItem('patpat.cig.tips', JSON.stringify(S)); } catch { /* ignore */ }
     this._msg(2, '💡 ' + text);
@@ -2907,7 +2918,7 @@ export class CigGame {
   // the level HUD payload (one reused object, read synchronously by main.js)
   _fillLv(I) {
     const L = this.L, G = this.G, b = this.ball, g = this._next;
-    const V = I.lv || (I.lv = { n: 0, label: '', S: 0, gateI: 0, gateD: 0, left: 0, need: 0, have: 0, ready: 0, kmh: 0, chainMul: 1, chain: 0, prog: 0, gap: 999, final: false, boss: false, locked: false, finalBroken: false });
+    const V = I.lv || (I.lv = { n: 0, label: '', S: 0, gateI: 0, gateD: 0, left: 0, need: 0, have: 0, ready: 0, kmh: 0, chainMul: 1, chain: 0, prog: 0, gap: 999, ters: 0, final: false, boss: false, locked: false, finalBroken: false });
     V.n = L.n; V.label = L.label; V.S = L.S;
     V.gateI = g ? g.i : L.S - 1;
     V.gateD = g ? g.d : L.length;
@@ -2919,6 +2930,7 @@ export class CigGame {
     V.chainMul = G.chainMul || 1; V.chain = G.chain;
     V.prog = clamp(b.d / L.length, 0, 1);
     V.gap = this.wave.on && !L.ters ? b.d - this.wave.d : 999;
+    V.ters = L.chase && L.chase.ters && this.wave.on ? Math.max(0, this.wave.d - b.d) : 0;
     V.final = !!g && (g.kind === 'final' || g.kind === 'boss');
     V.boss = L.boss; V.locked = !!g && g.locked; V.finalBroken = G.finalBroken;
   }

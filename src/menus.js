@@ -545,7 +545,7 @@ const CSS = `
 @keyframes fmBonusGlow { from { box-shadow: 0 5px 0 var(--nsh), 0 0 6px 1px rgba(200, 120, 255, 0.5); } to { box-shadow: 0 5px 0 var(--nsh), 0 0 18px 6px rgba(220, 150, 255, 0.95); } }
 .fm-path .bbr { stroke: #d89bff; stroke-width: 4px; stroke-dasharray: 2 9; opacity: 0.9; }
 .fm-bonushd { flex: none; margin: 0 auto 4px; padding: 4px 12px; border-radius: 12px; border: 2.5px solid var(--ink); background: linear-gradient(180deg, #b36bff, #7a35d6); color: #fff; font-size: 12.5px; text-shadow: var(--ol-sm); text-align: center; white-space: nowrap; }
-.fm-stormhd { flex: none; margin: 0 auto 4px; padding: 3px 12px; border-radius: 12px; border: 2.5px solid var(--ink); background: linear-gradient(180deg, #ffe27a, #ff9d1a); color: var(--ink); font-size: 12px; text-align: center; white-space: nowrap; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; }
+.fm-stormhd { flex: none; margin: 0 auto 4px; padding: 4px 14px; border-radius: 14px; border: 2.5px solid #ff9d1a; background: rgba(14, 22, 48, 0.88); color: #fff; font-weight: 900; text-shadow: 0 1px 0 rgba(0,0,0,0.5); font-size: 14px; text-align: center; white-space: nowrap; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; }
 .fm-node.storm .sx { position: absolute; right: -14px; top: -10px; padding: 0 4px; border-radius: 8px; border: 2px solid var(--ink); background: linear-gradient(180deg, #ffe27a, #ff9d1a); color: var(--ink); font-size: 10px; line-height: 14px; text-shadow: none; pointer-events: none; z-index: 3; animation: fmDlWob 1.6s ease-in-out infinite; }
 .fm-todaywrap { flex: none; width: min(calc(100% - 24px), 380px); margin: -4px auto 12px; position: relative; }
 .fm-todaywrap::before, .fm-todaywrap::after { content: ""; position: absolute; top: 0; bottom: 8px; width: 18px; z-index: 2; pointer-events: none; opacity: 0; transition: opacity 0.2s; }
@@ -567,13 +567,27 @@ const CSS = `
 .fm-main[data-att="reward"] .fm-globe .fm-bdg, .fm-main[data-att="first"] .fm-globe .fm-bdg { display: none; }
 .fm-main[data-att="reward"] .fm-globe.ready, .fm-main[data-att="first"] .fm-globe.ready { animation: none; }
 .fm-main:not([data-att="reward"]) .fm-dl .fm-bdg, .fm-main:not([data-att="reward"]) .fm-rwc { display: none; }
-.fm-diarybtn { flex: none; margin: 0 auto 4px; height: 28px; padding: 0 12px; border-radius: 14px; border: 2.5px solid var(--ink); background: #fff3d6; color: var(--ink); font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+.fm-diarybtn { position: absolute; right: 52px; top: 8px; z-index: 5; display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 12px 0 9px; border-radius: 15px; border: 2.5px solid var(--ink); background: linear-gradient(180deg, #fff3d6, #ffd98a); color: var(--ink); box-shadow: 0 3px 0 var(--ink2); font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; width: auto; }
+.fm-diarybtn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink2); }
+.fm-book.lk .art.sil { font-size: 56px; filter: blur(5px) grayscale(1) brightness(0.35); opacity: 0.6; }
+.fm-book.lk .pt { opacity: 0.9; }
+.fm-book .hint { margin-top: 8px; padding: 5px 10px; border-radius: 10px; background: rgba(10, 25, 55, 0.08); font-size: 12.5px; font-weight: 700; }
+.fm-node.far .n { filter: grayscale(1); opacity: 0.75; }
+.fm-node .nm.gr { background: rgba(70, 76, 90, 0.7); color: #d3d8e2; }
+.fm-season { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none !important; }
+.fm-season i { position: absolute; top: -8%; font-style: normal; font-size: 16px; opacity: 0.75; animation: fmSeasonFall linear infinite; }
+@keyframes fmSeasonFall { 0% { transform: translate3d(0, 0, 0) rotate(0deg); } 100% { transform: translate3d(28px, 112vh, 0) rotate(300deg); } }
+.fm-main[data-season="spring"] { box-shadow: inset 0 0 90px rgba(255, 170, 205, 0.22); }
+.fm-main[data-season="summer"] { box-shadow: inset 0 0 90px rgba(255, 224, 120, 0.2); filter: saturate(1.08) brightness(1.04); }
+.fm-main[data-season="autumn"] { box-shadow: inset 0 0 90px rgba(255, 140, 40, 0.24); }
+.fm-main[data-season="winter"] { box-shadow: inset 0 0 90px rgba(190, 225, 255, 0.16); }
+@media (prefers-reduced-motion: reduce) { .fm-season i { animation: none; top: 20%; } }
 .fm-book { margin: 4px auto 10px; max-width: 340px; padding: 18px 18px 14px; border-radius: 14px; border: 3px solid var(--ink); background: #fff8e4; color: var(--ink); text-align: center; box-shadow: 0 4px 0 var(--ink2); text-shadow: none; }
 .fm-book .art { font-size: 44px; line-height: 1.2; margin-bottom: 6px; }
 .fm-book .pt { font-size: 16px; font-weight: 800; margin-bottom: 8px; }
 .fm-book .tx { font-size: 14px; line-height: 1.45; font-weight: 600; }
 .fm-book .pg { margin-top: 10px; font-size: 12px; opacity: 0.7; }
-.fm-book.lk .art { filter: grayscale(1); opacity: 0.5; }
+.fm-book.lk .art { opacity: 0.5; }
 .fm-dnav { display: flex; justify-content: center; align-items: center; gap: 14px; margin-bottom: 8px; }
 .fm-today::-webkit-scrollbar { display: none; }
 .fm-today .tl { flex: none; font-size: 10px; letter-spacing: 0.06em; color: #cfe2ff; text-shadow: var(--ol-sm); }
@@ -2114,8 +2128,8 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       const ahead = lv.id - camp.unlocked;
       const near = locked && ahead >= 1 && ahead <= 3;
       if (near) n.classList.add('near'); else if (locked) n.classList.add('far');
-      add(n, el('span', 'n', near ? (lv.boss ? '👹' : ((ACTS[lv.act - 1] || {}).icon || '🔒')) : locked ? '?' : lv.boss ? '👹' : String(lv.id)));
-      if (near) n.appendChild(el('span', 'nm', lv.name));
+      add(n, el('span', 'n', near ? (lv.boss ? '👹' : ((ACTS[lv.act - 1] || {}).icon || '🔒')) : locked ? (lv.boss ? '👹' : '🔒') : lv.boss ? '👹' : String(lv.id)));
+      if (near) n.appendChild(el('span', 'nm', lv.name)); else if (locked) n.appendChild(el('span', 'nm gr', lv.name));
       if (lv.id === camp.unlocked && state === 'cur') n.appendChild(el('span', 'yav', '🧊'));
       if (lv.boss && !locked) n.appendChild(el('span', 'bn', String(lv.id)));
       if (!locked && sm.ids.includes(lv.id) && !sm.got[lv.id]) { n.classList.add('storm'); n.appendChild(el('span', 'sx', '⭐x2')); }
@@ -2174,7 +2188,8 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       const d = DIARY[cur], ok = diaryOpen(cur);
       book.className = 'fm-book' + (ok ? '' : ' lk');
       clear(book);
-      add(book, el('div', 'art', ok ? d.a : '🔒'), el('div', 'pt', ok ? d.t : '???'), el('div', 'tx', ok ? d.x : (d.u[0] === 'a' ? `MACERA ${d.u.slice(1)}. Dağı'nı bitirince açılır.` : `ÇIĞ DAĞ ${d.u.slice(1)}'i geçince açılır.`)), el('div', 'pg', `Sayfa ${cur + 1}/${DIARY.length}`));
+      const hint = d.u[0] === 'a' ? `🔒 MACERA ${d.u.slice(1)}. Dağı'nı bitirince açılır.` : `🔒 ÇIĞ DAĞ ${d.u.slice(1)}'i geçince açılır.`;
+      add(book, el('div', ok ? 'art' : 'art sil', d.a), el('div', 'pt', d.t), ok ? el('div', 'tx', d.x) : el('div', 'hint', hint), el('div', 'pg', `Sayfa ${cur + 1}/${DIARY.length}`));
       pgl.textContent = `${cur + 1}/${DIARY.length}`;
       prev.classList.toggle('off', cur <= 0); next.classList.toggle('off', cur >= DIARY.length - 1);
     }
@@ -2210,8 +2225,10 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     vp.appendChild(track);
     const bhd = el('div', 'fm-bonushd');
     const shd = el('div', 'fm-stormhd');
-    const dbtn = button('fm-diarybtn', '📖 GÜNLÜK', () => openDiary(), 'Yeti Günlüğü');
-    add(body, dbtn, shd, bhd, nav, vp);
+    const dbtn = button('fm-diarybtn', '', () => openDiary(), 'Yeti Günlüğü');
+    add(dbtn, el('span', '', '📖'), el('span', '', 'GÜNLÜK'));
+    add(body, shd, bhd, nav, vp);
+    try { const hd = p.el.querySelector('.fm-head'); hd.style.position = 'relative'; hd.appendChild(dbtn); } catch { body.insertBefore(dbtn, body.firstChild); }
 
     function updStorm() {
       const sm = stormOf();
@@ -2670,6 +2687,17 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.crPill.el.appendChild(r.boxBdg);
     r.rwChip = button('fm-rwc off', '', () => { sfx('open'); openDailyTasks(); }, 'Hazır ödüller');
     add(top, r.av, r.dl, r.coinsPill.el, r.crPill.el, r.rwChip);
+    {
+      const mo = new Date().getMonth();
+      const season = mo >= 2 && mo <= 4 ? 'spring' : mo >= 5 && mo <= 7 ? 'summer' : mo >= 8 && mo <= 10 ? 'autumn' : 'winter';
+      root0.setAttribute('data-season', season);
+      const em = { spring: '🌸', summer: '☀️', autumn: '🍂', winter: '' }[season];
+      if (em) {
+        const sl = el('div', 'fm-season');
+        for (let k = 0; k < 7; k++) { const q = el('i', '', em); q.style.left = `${6 + k * 14}%`; q.style.animationDuration = `${9 + (k * 37 % 7)}s`; q.style.animationDelay = `-${(k * 53 % 9)}s`; q.style.fontSize = `${13 + (k % 3) * 4}px`; sl.appendChild(q); }
+        root0.appendChild(sl);
+      }
+    }
     root0.appendChild(top);
 
     // ---- logo (7 taps = rainbow secret); the snowball mascot rides along ----
@@ -2860,7 +2888,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       const nT = dtl.tasks.length, nDone = dtl.tasks.filter((m) => m.claimed).length;
       const allDone = nT > 0 && dtl.tasks.every((m) => m.claimed || m.done);
       let shortScr = false; try { shortScr = window.innerHeight < 760; } catch { /* ignore */ }
-      const cmp = (allDone || shortScr) && !r.expanded;
+      const cmp = !r.expanded;
       r.info.classList.toggle('cmp', cmp);
       const rdy = !!(dtl.claimable || db.available);
       r.info.classList.toggle('hot', cmp && rdy);
@@ -2926,6 +2954,14 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const unclaimed = meta.unclaimedCount();
     r.bMis.textContent = String(unclaimed);
     r.bMis.className = `fm-bdg${unclaimed <= 0 ? ' off' : ''}`;
+    // only ONE attention badge on the whole screen, by priority
+    let shown = false;
+    for (const b of [att === 'reward' ? r.dlBdg : null, r.bMis, r.boxBdg, r.globeBdg, r.bShop, r.passBdg]) {
+      if (!b) continue;
+      if (b.classList.contains('off')) continue;
+      if (!shown) { shown = true; continue; }
+      b.classList.add('off');
+    }
   }
 
   // ============================================================================================ easter eggs (UI side)
