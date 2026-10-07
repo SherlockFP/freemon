@@ -383,6 +383,10 @@ export class AgarMode {
     }
     this.meRing = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 56).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, fog: false }));
     this.meRing.visible = false; this.meRing.frustumCulled = false; this.meRing.renderOrder = 6; sc.add(this.meRing);
+    this.meShadow = new THREE.Mesh(new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0a2a4a, transparent: true, opacity: 0.28, depthWrite: false, fog: false }));
+    this.meShadow.visible = false; this.meShadow.frustumCulled = false; this.meShadow.renderOrder = 5; sc.add(this.meShadow);
+    this.pulseRing = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 56).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+    this.pulseRing.visible = false; this.pulseRing.frustumCulled = false; this.pulseRing.renderOrder = 7; sc.add(this.pulseRing); this.pulseT = -1; this.msIdx = 0;
     {
       const gm = new THREE.MeshBasicMaterial({ color: 0xffd23a, fog: false }), cg = new THREE.Group();
       const band = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.55, 0.38, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0xffc400, side: THREE.DoubleSide, fog: false })); band.position.y = 0.19; cg.add(band);
@@ -628,7 +632,7 @@ export class AgarMode {
     if (!o.bot && o.id === this.me && this.state !== 'title' && this.mp !== 'client') { const f = this.forts[(Math.random() * this.forts.length) | 0], a0 = Math.atan2(-f.z, -f.x) + (Math.random() - 0.5) * 1.2, dd = FR + 34; p.x = f.x + Math.cos(a0) * dd; p.z = f.z + Math.sin(a0) * dd; }
     this.newCell(o, p.x, p.z, m);
     this.props.clearStuck(o.id);
-    if (o.id === this.me) this.titleIdx = 0;
+    if (o.id === this.me) { this.titleIdx = 0; this.msIdx = 0; }
     o.away = false; o.alive = true; o.wasAlive = true; o.cellN = 1; o.mass = m; o.cx = p.x; o.cz = p.z; o.lx = p.x; o.lz = p.z;
     o.boostT = o.boostCd = o.splitCd = o.magnet = o.speed = 0; o.hideT = o.burCd = o.fleeT = 0; o.shield = o.bot ? 0 : (o.id === this.me ? 60 : 6); o.prot = !o.bot && o.id === this.me;
     o.kills = 0; o.xpRun = 0; o.t0 = this.time; o.bestRank = 99; o.maxMass = m; o.killer = -1;
@@ -666,7 +670,7 @@ export class AgarMode {
 
   respawnMe() {
     this.closeResult();
-    if (this.mp === 'client') { this.net && this.net.send({ t: 'respawn' }); this.titleIdx = 0; this.lastMyMass = 0; this.state = 'play'; this.owners[this.me].t0 = this.time; this.owners[this.me].maxMass = 0; this.owners[this.me].bestRank = 99; return; }
+    if (this.mp === 'client') { this.net && this.net.send({ t: 'respawn' }); this.titleIdx = 0; this.msIdx = 0; this.lastMyMass = 0; this.state = 'play'; this.owners[this.me].t0 = this.time; this.owners[this.me].maxMass = 0; this.owners[this.me].bestRank = 99; return; }
     const o = this.owners[this.me];
     o.bot = false;
     this.spawnOwner(o, this.startMass());
@@ -1416,7 +1420,7 @@ export class AgarMode {
     const po = this.owners[prey.o];
     if (po.shield > 0) return;
     let kb = 0;
-    if (this.kingId === prey.o && pred.o !== prey.o && prey.m > po.mass * 0.4) { kb = prey.m * 0.25; this.pushFeed('KRAL DÜŞTÜ! ' + this.owners[pred.o].name + ', ' + po.name + accSuffix(po.name) + ' devirdi'); if (pred.o === this.me) { this.toast('KRAL DÜŞTÜ! +%25 bonus'); this.audio?.milestone?.(4); } this.kingId = -1; this.king = null; }
+    if (this.kingId === prey.o && pred.o !== prey.o && prey.m > po.mass * 0.4) { kb = prey.m * 0.25; this.pushFeed('KRAL DÜŞTÜ! ' + this.owners[pred.o].name + ', ' + po.name + accSuffix(po.name) + ' devirdi'); if (pred.o === this.me) { this.toast('LİDERİ DEVİRDİN! +%25 kütle', 2400); this.audio?.milestone?.(4); this.pulseT = 0; this.camKick = Math.max(this.camKick, 0.2); } this.kingId = -1; this.king = null; }
     pred.m = Math.min(MAXM, pred.m + prey.m + kb);
     { const pw = this.owners[pred.o]; if (pw.prot && pw.shield > 0) { pw.shield = 0; pw.prot = false; if (pred.o === this.me) this.toast('KORUMA BİTTİ'); } }
     this.owners[pred.o].xpRun += prey.m;
@@ -2375,12 +2379,14 @@ export class AgarMode {
     this.fs = fs;
     const fa = this.foodMesh.instanceMatrix.array, fcc = this.foodMesh.instanceColor.array;
     let fn = 0;
+    const fmx = me.lx, fmz = me.lz, fr2 = me.alive ? Math.pow(me.maxR * 1.5 + 6, 2) : 0;
     for (let gx = gx0; gx <= gx1; gx++) {
       for (let gz = gz0; gz <= gz1; gz++) {
         for (let i = this.ghead[gx * GN + gz]; i !== -1; i = this.fnext[i]) {
           const v = this.fv[i];
           if (v <= 0 || (this.fmask && (i & this.fmask) !== 0 && v < 2)) continue;
-          const sz = this.foodSize(v);
+          let sz = this.foodSize(v);
+          if (fr2 > 0) { const ddx = this.fx[i] - fmx, ddz = this.fz[i] - fmz, d2 = ddx * ddx + ddz * ddz; if (d2 < fr2) sz *= 0.4 + 0.6 * d2 / fr2; } // calmer ground right around the player
           wm(fa, fn * 16, this.fx[i], sz, this.fz[i], sz);
           fcc[fn * 3] = this.fcr[i]; fcc[fn * 3 + 1] = this.fcg[i]; fcc[fn * 3 + 2] = this.fcb[i];
           fn++;
@@ -2504,7 +2510,9 @@ export class AgarMode {
     }
     // local player ring + crown + height caps / occlusion fade
     const mr = this.meRing, pls = 0.5 + 0.5 * Math.sin(this.time * 6);
-    if (me.alive) { mr.visible = true; mr.position.set(me.lx, 0.6, me.lz); mr.scale.setScalar(me.maxR * (1.12 + 0.08 * pls) + 0.8); mr.material.color.setHex(me.col); mr.material.opacity = 0.65 + 0.35 * pls; } else mr.visible = false;
+    if (me.alive) { mr.visible = true; mr.position.set(me.lx, 0.6, me.lz); mr.scale.setScalar(me.maxR * (1.12 + 0.08 * pls) + 0.8); mr.material.color.setHex(me.col); mr.material.opacity = 0.85 + 0.15 * pls; } else mr.visible = false;
+    { const sh = this.meShadow; if (me.alive) { sh.visible = true; sh.position.set(me.lx + me.maxR * 0.08, 0.4, me.lz + me.maxR * 0.14); sh.scale.setScalar(me.maxR * 1.32 + 1); } else sh.visible = false;
+      const pr = this.pulseRing; if (this.pulseT >= 0 && me.alive) { this.pulseT += 0.016; const q = this.pulseT / 1.1; if (q >= 1) { this.pulseT = -1; pr.visible = false; } else { pr.visible = true; pr.position.set(me.lx, 0.7, me.lz); pr.scale.setScalar(me.maxR * (1.2 + q * 3.5) + 2); pr.material.opacity = 0.9 * (1 - q); } } else pr.visible = false; }
     const cr = this.crown;
     if (king && king.alive) { const cs = Math.max(king.maxR * 1.1, camH * 0.06); { const bm = this.beam, bh = camH * 1.6, bw = Math.max(king.maxR * 0.5, camH * 0.012); bm.visible = true; bm.position.set(king.lx, bh * 0.5, king.lz); bm.scale.set(bw, bh, bw); bm.material.opacity = 0.26 + 0.1 * Math.sin(this.time * 4); } cr.visible = true; cr.position.set(king.lx, king.maxR * 2 + cs * 0.5, king.lz); cr.scale.setScalar(cs); if (this.qLv < 2) cr.rotation.y = this.time * 1.6; } else { cr.visible = false; if (this.beam) this.beam.visible = false; }
     this.burRingM.opacity = 0.45 + 0.25 * Math.sin(this.time * 3);
@@ -2594,6 +2602,7 @@ export class AgarMode {
         this.toast('TOPARLAN! 🛡️', 2000);
       }
       this._pm = me.mass;
+      { const MS = [100, 250, 500, 1000]; while (this.msIdx < MS.length && me.mass >= MS[this.msIdx]) { this.toast('KÜTLE ' + MS[this.msIdx] + '! 🔥', 2000); this.pulseT = 0; this.camKick = Math.max(this.camKick, 0.28); this.audio?.milestone?.(Math.min(6, 2 + this.msIdx)); this.msIdx++; } }
       const ct = tierOfM(me.mass);
       if (ct > this.cigTier) { this.cigTier = ct; this.tierBanner(ct); }
       const ti = titleOf(me.mass);
@@ -2773,6 +2782,7 @@ export class AgarMode {
     }
     if (this.hudT <= 0) {
       this.hudT = 0.1;
+      { const mv = me.alive ? me.mass : 0; if (mv > (this._lm || 0) + 0.9) { h.mass.style.transition = 'none'; h.mass.style.transform = 'scale(1.25)'; h.mass.style.color = '#ffe066'; void h.mass.offsetWidth; h.mass.style.transition = 'transform .35s,color .5s'; h.mass.style.transform = ''; h.mass.style.color = ''; } this._lm = mv; }
       h.mass.textContent = me.alive ? fmtM(me.mass) : '0';
       h.tt.textContent = TITLES[titleOf(me.alive ? me.mass : 0)][1] + ' · ' + TIER_NAMES[tierOfM(me.alive ? me.mass : 0)];
       const ch = h.chat;

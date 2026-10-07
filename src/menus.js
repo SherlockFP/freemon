@@ -954,6 +954,19 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) {
   .fm-main *, .fm-ov *, .fm-modal *, .fm-boxov *, .fm-plov *, .fm-resov *, .fm-toast { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+/* home focus: ARENA secondary, GÜNLÜK progress card */
+.fm-main .fm-arena { width: min(100%, 300px); padding: 4px 12px; gap: 8px; margin: 0 auto; background: transparent !important; box-shadow: none !important; border: 2px solid rgba(255, 255, 255, 0.55); border-radius: 16px; }
+.fm-main .fm-arena .ico { font-size: 18px; }
+.fm-main .fm-arena b { font-size: 14px; text-shadow: none; letter-spacing: 0.06em; }
+.fm-main .fm-arena small { display: none; }
+.fm-main .fm-arena:active { transform: translateY(2px); }
+.fm-sum { gap: 8px; border-radius: 12px; cursor: pointer; }
+.fm-sum .sl { font-size: 12px; letter-spacing: 0.08em; color: #cfe2ff; }
+.fm-sum .sp { display: flex; gap: 4px; }
+.fm-sum .sp i { width: 18px; height: 9px; border-radius: 5px; background: rgba(255, 255, 255, 0.22); }
+.fm-sum .sp i.on { background: linear-gradient(90deg, #ffe066, #ff9a3a); }
+.fm-sum .sr { font-size: 15px; line-height: 1; }
+.fm-sum .sr.rdy { color: var(--gold); font-size: 11px; background: #ff7a2f; padding: 3px 7px; border-radius: 9px; }
 `;
 
 // ================================================================================================================ helpers
@@ -3056,7 +3069,10 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       r.info.classList.toggle('cmp', cmp);
       const rdy = !!(dtl.claimable || db.available);
       r.info.classList.toggle('hot', cmp && rdy);
-      r.sum.textContent = `GÜNLÜK: ${nDone}/${nT}${rdy ? ' · 🎁 AL' : ''}`;
+      clear(r.sum);
+      const pips = el('span', 'sp');
+      for (let k = 0; k < Math.max(nT, 1); k++) pips.appendChild(el('i', k < nDone ? 'on' : ''));
+      add(r.sum, el('span', 'sl', `GÜNLÜK ${nDone}/${nT}`), pips, rdy ? el('span', 'sr rdy', 'AL') : el('span', 'sr', '🎁'));
     }
     // BUGÜN strip: live events, each chip is a shortcut
     try {

@@ -1281,6 +1281,7 @@ export class Runner {
     }
     ui.runnerRecord?.(this.bestDist, b.s);
     this.placeRecordFlag();
+    this.landmarkTick();
     this.ghostTick();
     this.bossIntroTick();
     this.patchScene();
@@ -1595,6 +1596,57 @@ export class Runner {
     }
     el.style.opacity = '1';
     this._stormShown = true;
+  }
+
+  // Distance landmark: one reusable gate across the track, re-labelled for the next 500 m milestone (endless only).
+  landmarkTick() {
+    if (this.level) return;
+    const s = this.b.s;
+    let next = this.lmNext;
+    if (next === undefined || s > next + 25) next = this.lmNext = (Math.floor(s / 500) + 1) * 500;
+    const ds = next - s;
+    let g = this.lmGate;
+    if (ds > 260 || ds < -25) { if (g) g.visible = false; return; }
+    if (!g) {
+      g = this.lmGate = new THREE.Group();
+      const m = new THREE.MeshLambertMaterial({ color: 0xffffff });
+      const pl = new THREE.CylinderGeometry(0.22, 0.22, 8, 6).translate(0, 4, 0);
+      g.add(new THREE.Mesh(pl, m));
+      this.lmPr = new THREE.Mesh(pl, m); g.add(this.lmPr);
+      this.lmBeam = new THREE.Mesh(new THREE.BoxGeometry(1, 0.5, 0.5).translate(0.5, 8, 0), new THREE.MeshLambertMaterial({ color: 0xe8322a }));
+      g.add(this.lmBeam);
+      const cv = this.lmCv = document.createElement('canvas'); cv.width = 256; cv.height = 96;
+      this.lmTex = new THREE.CanvasTexture(cv);
+      this.lmBan = new THREE.Mesh(new THREE.PlaneGeometry(5, 1.9).translate(0, 6.9, 0), new THREE.MeshBasicMaterial({ map: this.lmTex, side: THREE.DoubleSide }));
+      g.add(this.lmBan);
+      this.ctx.scene.add(g);
+    }
+    if (this.lmLabel !== next) {
+      this.lmLabel = next;
+      const c = this.lmCv.getContext('2d');
+      c.fillStyle = '#17345c'; c.fillRect(0, 0, 256, 96);
+      c.lineWidth = 6; c.strokeStyle = '#ffd23a'; c.strokeRect(3, 3, 250, 90);
+      c.fillStyle = '#fff'; c.font = '900 58px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText(next % 1000 ? next + ' m' : next / 1000 + ' km', 128, 50);
+      this.lmTex.needsUpdate = true;
+      this.lmPassed = false;
+    }
+    g.visible = true;
+    const tr = this.track, hw = (tr.halfWidth(next) || 3.8) + 0.8;
+    tr.frame(next, _f);
+    tr.toWorld(next, -hw, 0, _v);
+    g.position.copy(_v);
+    _x.copy(_f.right).negate();
+    _m.makeBasis(_f.right, _f.up, _x.crossVectors(_f.right, _f.up));
+    g.quaternion.setFromRotationMatrix(_m);
+    this.lmPr.position.x = hw * 2;
+    this.lmBeam.scale.x = hw * 2;
+    this.lmBan.position.x = hw;
+    if (ds <= 0 && !this.lmPassed) {
+      this.lmPassed = true;
+      this.kick += 1.5; this.ctx.audio.milestone?.(2);
+      this.ctx.ui.flash?.('milestone');
+    }
   }
 
   makeRecordFlag() {
@@ -2497,7 +2549,12 @@ export class Runner {
         this.score += bonus;
         const cm = this.chainBonus();
         if (this.stumbleT > 0) this.ctx.meta?.track?.('close_call', {});
-        if (cm > 0) this.float(`KIL PAYI +${bonus}`, 'big');
+        if (this.time - (this._nmAt ?? -9) >= 1.2) {            // juicy extras, rate-limited
+          this._nmAt = this.time;
+          this.float(`KIL PAYI +${bonus}`, 'big');             // float() drops it when the centre lane is busy
+          this.ctx.ui.flash?.('white');
+          this.kick += 2.5;
+        }
         this.punch = Math.min(1.5, this.punch + 0.6);
         this.kick += 3;
         this.mistBurst(6, 0xbfe6ff, 4, 0.9);
@@ -3657,6 +3714,7 @@ export class Runner {
     this.penMeshes = [];
     this._rcpKill();
     this.stormEl?.remove(); this.stormEl = null;
+    if (this.lmGate) { this.ctx.scene.remove(this.lmGate); this.lmGate.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.map?.dispose(); o.material.dispose(); } }); this.lmGate = null; }
     document.getElementById('rcol')?.remove(); this._baitEl = this._scarfEl = this._cannonEl = this._breadEl = null;
     this.introEl?.remove(); this.introEl = null; this._introPend = false; this.accGroup?.parent?.remove(this.accGroup); this.accGroup = null;
     this.closeOut();

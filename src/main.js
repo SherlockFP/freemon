@@ -596,7 +596,7 @@ function showSizeReadout(info) {
   const el = ui.el.tons;
   if (!el) return;
   lastHave = info.lv.have;
-  const main = 'Ø ' + fmtD(info.lv.have) + ' m', sub = tonsCompact(info.tons || 0);
+  const main = '⚪ ' + fmtD(info.lv.have) + ' m', sub = tonsCompact(info.tons || 0);
   const c = el.firstChild;
   if (c && c.nodeType === 3 && c.nodeValue === main && el.childElementCount === 1 && el.lastChild.textContent === sub) return;
   el.textContent = main;
@@ -1214,7 +1214,7 @@ function updateEnemyBars() {
   if (boss) {
     bossEl.style.display = 'block';
     ui.el.hud.classList.add('bossfight');
-    const nmT = boss.enemy.name + (G.lv && lastHave ? '  ·  Ø ' + fmtD(lastHave) + ' m' : '');
+    const nmT = boss.enemy.name + (G.lv && lastHave ? '  ·  ⚪ ' + fmtD(lastHave) + ' m' : '');
     if (bossEl._nmT !== nmT) { bossEl._nmT = nmT; bossEl._nm.textContent = nmT; }
     const gz = game && game.shieldGauge ? game.shieldGauge() : null;
     if (gz) {
