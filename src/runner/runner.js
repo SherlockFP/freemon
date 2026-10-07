@@ -90,7 +90,7 @@ export const RCFG = {
   recCoins: 50,          // one-off payout for passing your record distance
   rageLen: 130,          // "YETİ ÖFKESİ": the Yeti throws boulders over the last N m of a layer (from layer 2 on) ...
   rageSecs: 7,           // ... or the last N seconds of running, whichever is longer (so fast runs still get 2+ boulders)
-  rageEvery: [7.0, 9.0], // seconds between boulders (× 0.93 per layer, floor 0.7)
+  rageEvery: [14.0, 18.0], // seconds between boulders (× 0.93 per layer, floor 0.7)
   rageBack: 4,           // the Yeti drops back this far when you survive a barrage
   multCap: 6,            // + layer, at most 12
   closeCall: 4,
@@ -1228,7 +1228,7 @@ export class Runner {
     r.t -= dt;
     if (r.t > 0) return;
     if (!this.rageOk() || this.stumbleT > 0) { r.t = 0.6; return; }   // never pile a boulder onto a stumble / a corner
-    const sLand = b.s + b.vs * 1.5 + 9;             // lands ~9 m ahead of where you will be
+    const sLand = b.s + b.vs * 1.8 + 9;             // lands ~9 m ahead of where you will be
     if (sLand > B - 6) { r.t = 1; return; }          // the last boulder lands before the boundary
     if (this.rageCount === 0 && r.n >= 2) { r.t = 2; return; }      // the first barrage of a run is just two boulders
     const NLn = LANES.length, pl = Math.round(this.lane + (NLn - 1) / 2);
@@ -1667,6 +1667,7 @@ export class Runner {
     const b = this.b;
     const { audio, platform } = this.ctx;
     const tough = e.toughness ?? 5;
+    if ((e.kind === 'rock' || e.kind === 'stone') && !e.headOn) { this.obstacles.resolve?.(e.id, false); b.ve += Math.sign(e.du || 1) * 2; return; }   // glancing side contact with a rock: no damage
     const giant = this.buffs.has('dev');
     const cn = this.cannonN > 0 && tough <= 5;     // KAR KANONU: a blocker that slips through is smashed by the next shot
     if (cn && this.rocketT <= 0) { this.cannonN--; if (this.cannonN <= 0) this.cannonT = 0; }
@@ -1766,13 +1767,13 @@ export class Runner {
     const b = this.b, NLn = LANES.length, hk = this.obstacles.hk?.() ?? 1;
     let ahead = 0;
     for (const d of (this.obstacles.dyn || [])) if (d.s > b.s - 3) ahead++;
-    if (ahead >= (NLn >= 4 ? 2 : 1) || this.stumbleT > 0 || this.zip || this.jnNear) { B.throwT = 0.4; return; }
+    if (ahead >= 1 || this.stumbleT > 0 || this.zip || this.jnNear) { B.throwT = 0.4; return; }
     const T = 2.0, sLand = b.s + b.vs * T + 10;
     const pl = Math.round(this.lane + (NLn - 1) / 2);
     const lane = Math.random() < 0.6 ? pl : (pl + 1 + ((Math.random() * (NLn - 1)) | 0)) % NLn;
     if (this.obstacles.throwBoulder(lane, sLand, false, { soft: true, T, sStart: b.s + B.off }) < 0) { B.throwT = 0.7; return; }
     B.n++;
-    B.throwT = (1.3 + Math.random() * 0.9) / Math.min(1.6, hk);
+    B.throwT = (2.6 + Math.random() * 1.8) / Math.min(1.6, hk);
     this.ctx.audio.bump?.(0.7); this.ctx.platform.haptic('warning');
   }
 
@@ -1815,6 +1816,7 @@ export class Runner {
   isLethal(e) {
     const k = e.kind;
     if (!k || !e.headOn || e.nonLethal) return false;
+    if (k === 'rock' && this.b.s < 1500) return false;       // big boulders only kill head-on after 1.5 km (before: a stumble)
     const on = this.lethalOn;
     if (!(LETHAL_BASE.has(k) ? on.base : LETHAL_CAR.has(k) ? on.car : LETHAL_WALL.has(k) ? on.wall : false)) return false;
     const b = this.b;

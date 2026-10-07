@@ -1507,13 +1507,14 @@ Object.assign(Obstacles.prototype, {
   _static(plan, type, s, u, extra = {}) {
     const d = DEFS[type];
     if (d.lethal) plan.rowLethal = true;
+    if (type === 'rock' || type === 'stone') plan.rowRock = true;
     return this._mk(plan, Object.assign({ kind: 'static', type, s, u, ext: d.ext, skin: plan.skin }, extra));
   },
   /** weighted blocker type for this row: biome family set, budget gates, lethal share (lethalK) and the "no lethal back to back" rule (plan.lethalOk) */
   _pickStatic(plan, allowedFn) {
     const d = plan.d ?? plan.diff, fam = plan.skin, lk = plan.lethalOk === false ? 0 : lethalK(d) * Math.min(2.2, 1 + 0.3 * (this.tierBias || 0));
     const e = wpick(plan.rng, STATIC_W, (x) => {
-      if (d < x[2] || (x[0] === 'rock' && plan.piece && plan.piece.s0 < 500) || !allowedFn(x[0]) || (x[3] && !x[3][fam])) return 0;
+      if (d < x[2] || ((x[0] === 'rock' || x[0] === 'stone') && plan.rockOk === false) || (x[0] === 'rock' && plan.piece && plan.piece.s0 < 500) || !allowedFn(x[0]) || (x[3] && !x[3][fam])) return 0;
       return DEFS[x[0]].lethal ? x[1] * lk : x[1];
     });
     return (e || STATIC_W[0])[0];
@@ -1553,7 +1554,7 @@ Object.assign(Obstacles.prototype, {
       case 'wall': case 'hurdle': {
         const f = st.t === 'wall' ? st.free : st.lane, lanes = ALLL.filter((l) => l !== f);
         if (!(c.rm & bit(f)) || !lanes.every(open)) return false;
-        for (const l of lanes) this._scaled(plan, this._pickStatic(plan, (t) => t !== 'cabin' && t !== 'rock'), s + rng.range(-0.6, 0.6), l);
+        for (const l of lanes) this._scaled(plan, this._pickStatic(plan, (t) => t !== 'cabin' && t !== 'rock' && t !== 'stone'), s + rng.range(-0.6, 0.6), l);
         if (st.t === 'hurdle') { this._static(plan, rng.chance(0.65) ? 'fallenLog' : 'fence', s, 0, { uMin: LANES[f] - 1.2, uMax: LANES[f] + 1.2 }); c.jump = true; }
         c.free = bit(f); c.ext = 2;
         return true;
@@ -1651,7 +1652,7 @@ Object.assign(Obstacles.prototype, {
       const tightRow = rm !== f0m, vq = lastR && vertRow(lastR) && (s - lastR.s) / vs < 0.62;
       const hardN = (lastR && lastR.hardN) || 0;
       plan.lethalOk = !o.noLethal && diff >= 0.18 && !(lastR && lastR.lethal && s < 2500) && hardN < 2 && !(lastR && lastR.lethal && (s - lastR.s) / vs < 1.6);   // no two lethal rows in a row in the first km, none after 3 hard rows (never in round sections)
-      plan.rowLethal = false;
+      plan.rowLethal = false; plan.rowRock = false;
       const pats = ['single', 'double', 'low', 'train', 'mover', 'rolling', 'beat', 'swing', 'ice', 'melt', 'conveyor', 'rail', 'oncoming', 'duck', 'slide', 'combo', 'laser', 'missile', 'phrase', 'critter', 'rest'];
       const nk0 = T._q && T._q[0], forcedNext = hardEnd || nk0 === 'narrow' || nk0 === 'split' || nk0 === 'hexHoles' || nk0 === 'gapRamp' || nk0 === 'gapJump' || nk0 === 'skiJump' || nk0 === 'chasm' || nk0 === 'iceBridge' || nk0 === 'zipline' || nk0 === 'loop' || nk0 === 'finish';
       const nk1 = T._q && T._q[1], isForced = (k) => k === 'narrow' || k === 'split' || k === 'hexHoles' || k === 'gapRamp' || k === 'gapJump' || k === 'skiJump' || k === 'chasm' || k === 'iceBridge' || k === 'zipline' || k === 'loop' || k === 'finish';
@@ -1660,6 +1661,11 @@ Object.assign(Obstacles.prototype, {
       // missiles: the volley (contact ~2 s ahead) must be over before the run-in of a lane-forcing piece (~40 m per piece)
       const limM = forcedNext ? sB : isForced(nk1) ? piece.s1 : isForced(T._q && T._q[2]) ? piece.s1 + 40 : Infinity;
       const adj = free0.length === NL || (free0.length === 2 && Math.abs(free0[0] - free0[1]) === 1);
+      // ROCKS (small stone / big boulder): one lane only, never in consecutive rows, >= 2.5 s apart, never near hard / slide / ice / junction / forced pieces
+      const RK_BAN = { oncoming: 1, slide: 1, combo: 1, ice: 1, melt: 1, conveyor: 1, rail: 1, missile: 1, laser: 1 };
+      const rockNear = !!(lastR && (lastR.rock || RK_BAN[lastR.pat]) && (s - lastR.s) / vs < 2.0);
+      plan.rockOk = s >= 500 && !hardEnd && !forcedNext && !o.firstOnly && !o.noLethal && !plan.zone && free0.length >= 2 && !tightRow && !rockNear && !(lastR && lastR.hard && (s - lastR.s) / vs < 2.0)
+        && (s - (this._lastRockS === undefined ? -1e9 : this._lastRockS)) / vs >= 2.5 && !this._forcedStretch(s - vs * 2, s + vs * 2);
       const zone = plan.zone, zmap = zone ? ZONE_M[zone] : null, zown = zone ? ZONE_OWN[zone] : null;
       const split2 = (tm & bit(NL >> 1)) !== 0;            // a persistent blocker in the middle lane splits the track: only jump / duck / floor patterns then
       const wantCrit = s >= this._nextCrit && !only && F.critters !== false && T.allows('critters') && this.critters && room > 30 && free0.length >= 2 && !tightRow && !zone;
@@ -1701,7 +1707,7 @@ Object.assign(Obstacles.prototype, {
         }
       };
       c.s = s; c.vs = vs; c.free0 = free0; c.rm = rm; c.room = room; c.lim = lim; c.prevRoute = prevRoute; c.open3 = open3; c.plain = !hardEnd && (nk0 === 'straight' || nk0 === 'curve'); c.vq = vq;
-      const pat = ph ? 'phrase' : wpick(rng, pats, (p) => wfn(p) * (zmap ? (zmap[p] !== undefined ? zmap[p] : zmap._) : 1));
+      const pat = ph ? 'phrase' : wpick(rng, pats, (p) => wfn(p) * (rockNear && RK_BAN[p] ? 0 : 1) * (zmap ? (zmap[p] !== undefined ? zmap[p] : zmap._) : 1));
       let free = FULL, ext = 1.5, jump = false, advanceExtra = 0, made = true, phK = 0, phI = 0, rowPat = pat, rext = -1;     // rext: extent the route / snow trails / gems see (a critter group never blocks the route lane: it keeps only the full `ext` in rowsLog)
       switch (pat) {
         case 'single': {
@@ -1717,7 +1723,7 @@ Object.assign(Obstacles.prototype, {
         case 'double': {
           const la = rng.int(0, NL - 1); let lb; do { lb = rng.int(0, NL - 1); } while (lb === la);
           const lanes = [la, lb];
-          for (const l of lanes) this._scaled(plan, this._pickStatic(plan, (t) => t !== 'cabin' && t !== 'rock'), s + rng.range(-1, 1), l);
+          for (const l of lanes) this._scaled(plan, this._pickStatic(plan, (t) => t !== 'cabin' && t !== 'rock' && t !== 'stone'), s + rng.range(-1, 1), l);
           free = FULL & ~(bit(lanes[0]) | bit(lanes[1]));
           ext = 2;
           break;
@@ -1951,9 +1957,10 @@ Object.assign(Obstacles.prototype, {
         for (const l of cand) { const d = Math.abs(l - prevRoute) + rng.next() * 0.3; if (d < bd) { bd = d; best = l; } }
         prevRoute = best;
         const lethal = !!plan.rowLethal, hard = !!HARD_PAT[rowPat] || lethal, vert = jump || rowPat === 'duck' || (rowPat === 'laser' && free === FULL);
-        const row = { s, ext: rext >= 0 ? rext : ext, free, jump, route: best, pat: rowPat, tm, ph: phK, pi: phI, lethal, hard, hardN: pat === 'rest' ? 0 : hard ? hardN + 1 : 0, vert };
+        const row = { s, ext: rext >= 0 ? rext : ext, free, jump, route: best, pat: rowPat, tm, ph: phK, pi: phI, lethal, hard, rock: !!plan.rowRock, hardN: pat === 'rest' ? 0 : hard ? hardN + 1 : 0, vert };
         rows.push(row);
-        this.rowsLog.push({ s, ext: Math.max(ext, 2), free, jump, lethal, hard, pat: rowPat, vert, route: best });
+        this.rowsLog.push({ s, ext: Math.max(ext, 2), free, jump, lethal, hard, pat: rowPat, vert, route: best, rock: !!plan.rowRock });
+        if (plan.rowRock) this._lastRockS = s;
         if (ph) {
           // next phrase row: its planned gap, raised to the lane-swap time (0.25 s per lane + the obstacle depth) of the swap it asks for
           const nx = ph.steps[ph.i], dl = nx.free !== undefined ? Math.abs(nx.free - best) : nx.t === 'hurdle' ? Math.abs(nx.lane - best) : 1;
@@ -1964,7 +1971,7 @@ Object.assign(Obstacles.prototype, {
       const gapSec = Math.max(0.65, (1 / (rowRate(s) * Math.pow(hk, 0.3) * dens)) * tn * rng.range(0.88, 1.12) * (late ? 0.92 : 1) * (NL > 3 ? 0.78 : 1));   // wide bursts: a denser dodge-fest
       s += (made && ph ? vs * ph.g + Math.min(ext, 3) : made ? Math.max(vs * gapSec, 0.4 * vd + Math.min(ext, 3) + 1.2) : vs * gapSec) + advanceExtra;
     }
-    if (rows.length) { const r = rows[rows.length - 1]; this._carry = { s: r.s, ext: r.ext, route: r.route, free: r.free, jump: r.jump, pat: r.pat, lethal: r.lethal, hardN: r.hardN, persist: persist.slice(), ph }; }
+    if (rows.length) { const r = rows[rows.length - 1]; this._carry = { s: r.s, ext: r.ext, route: r.route, free: r.free, jump: r.jump, pat: r.pat, lethal: r.lethal, rock: r.rock, hardN: r.hardN, persist: persist.slice(), ph }; }
     this._clock = Math.max(this._clock || 0, s);
   },
 
@@ -1977,7 +1984,7 @@ Object.assign(Obstacles.prototype, {
       if (t.s < piece.s0) continue;
       const rng = plan.rng, s = t.s, tut = !!this.tutorial;
       let ext = 1.5, free = FULL, jump = false, route = 1, pat = t.pat;
-      plan.diff = 0; plan.d = 0; plan.lethalOk = false;
+      plan.diff = 0; plan.d = 0; plan.lethalOk = false; plan.rockOk = true;
       if (pat === 'single') {
         const lane = tut || rng.chance(0.6) ? NL >> 1 : rng.int(0, NL - 1);
         const type = tut ? 'crate' : this._pickStatic(plan, (x) => x === 'crate' || x === 'snowman' || x === 'stone' || x === 'sign');
@@ -2218,7 +2225,7 @@ Object.assign(Obstacles.prototype, {
     AIR_G = T.gravity ? T.gravity(piece.s0 + 10) : 28;
     const bid = biomeId || BIOME_IDS[((biomeIndex ?? piece.biome ?? 0) % BIOME_IDS.length + BIOME_IDS.length) % BIOME_IDS.length];
     const plan = { rng, piece, diff: clamp(difficulty ?? piece.diff ?? 0, 0, 1), d: 0, biome: biomeIndex ?? piece.biome, biomeId: bid, skin: FAMILY[bid] || 'snow',
-      rows: [], batch: [], zone: T.zoneAt ? T.zoneAt(piece.s0 + piece.len / 2) : null, lethalOk: true, rowLethal: false };
+      rows: [], batch: [], zone: T.zoneAt ? T.zoneAt(piece.s0 + piece.len / 2) : null, lethalOk: true, rowLethal: false, rowRock: false, rockOk: false };
     const n0 = this.picks.length;
     const kind = piece.kind, s0 = piece.s0, s1 = piece.s1, F = T.features || {};
     if (kind === 'finish') {
@@ -2383,7 +2390,7 @@ Object.assign(Obstacles.prototype, {
     // BUZ KAYDIRAĞI strips and TÜNEL sections on plain pieces (never in zones, junction windows or next to hazards)
     if (!piece.noObs && !plan.zone && (kind === 'straight' || kind === 'curve') && piece.len >= 56) {
       let tun = false;
-      if (s0 >= 700 && s0 >= this.next.tunnel && T.allows('fog') && piece.len >= 64) {
+      if (s0 >= 700 && s0 >= this.next.tunnel && T.allows('fog') && piece.len >= 64 && !plan.rows.some((r) => r.rock) && !(this._lastRockS > s0 - 40)) {
         const l = Math.min(piece.len - 10, rng.range(60, 84)), sc = s0 + piece.len / 2;
         this._mk(plan, { kind: 'tunnel', s: sc, u: 0, len: l, ext: l / 2 + 10, n: NL, maxD: rng.range(0.55, 0.7), rowL: plan.rows.filter((r) => r.s > sc - l / 2 + 4 && r.s < sc + l / 2 - 2).map((r) => ({ s: r.s, free: r.free })) });
         this.next.tunnel = s0 + piece.len + rng.range(750, 1100); tun = true;
@@ -2898,7 +2905,7 @@ Object.assign(Obstacles.prototype, {
     const T = this.track, rng = plan.rng, bl = rng.chance(0.5) ? 0 : NL - 1, ol = NL - 1 - bl;
     let s = p.holeS0 + 2;
     while (s < p.holeS1 - 3) {
-      const type = this._pickStatic(plan, (n) => n !== 'cabin');
+      const type = this._pickStatic(plan, (n) => n !== 'cabin' && n !== 'rock' && n !== 'stone');
       this._scaled(plan, type, s, bl);
       plan.rows.push({ s, ext: DEFS[type].ext, free: bit(ol), jump: false, route: ol, pat: 'single' });
       s += T.speedAt(s) * rng.range(1.2, 1.9) + 3;
@@ -3074,7 +3081,7 @@ Object.assign(Obstacles.prototype, {
     this.picks.length = 0;
     for (const b of this.dyn.slice()) this._freeDyn(b);
     for (const d of this.deb) if (d.on) { d.on = false; this._release('box', d.idx); d.idx = -1; }
-    this.pending.length = 0; this.platforms.length = 0; this.rowsLog.length = 0; this.warnQ.length = 0; this.byId.clear();
+    this.pending.length = 0; this.platforms.length = 0; this.rowsLog.length = 0; this._lastRockS = undefined; this.warnQ.length = 0; this.byId.clear();
     this.maxExt = 4.6; this.gateChain = 0; this.nextBoulder = 1e9; this._bArmed = false;
     this.next = { power: 260, gem: 520, box: 340, letter: 300, chain: 420, yeti: 330, plow: 1000, tunnel: 900, slide: 380 };
     this._carry = null; this._clock = 0; this._nextCrit = this.track.level ? 130 : 160; this._teach = 0; this._breath = null; this._snowOwed = 0; this.tierBias = 0;
@@ -3167,7 +3174,8 @@ Object.assign(Obstacles.prototype, {
   throwBoulder(lane, s, force = false, opt = null) {
     let l = clamp(lane | 0, 0, NL - 1);
     if (!force) {
-      if (!opt && this.lastS < 2000 && this.dyn.length) return -1;      // max one boulder (flying or rolling) at a time in the first 2 km
+      if (this.dyn.length) return -1;      // max one thrown boulder (flying or rolling) at a time
+      for (const r of this.rowsLog) if (Math.abs(r.s - s) < 15 + r.ext) return -1;      // never lands on / next to an obstacle row (>= 15 m clear)
       if (this._forcedStretch(s - 6, s + 100)) return -1;
       const bad = this._trapMask(s - 8, s + 100);
       if (bad & bit6(l)) {
@@ -3180,7 +3188,7 @@ Object.assign(Obstacles.prototype, {
     if (idx < 0) return -1;
     const dIdx = this._alloc('disc');
     const sStart = opt && opt.sStart !== undefined ? opt.sStart : this.lastS - 24;
-    const b = { id: this._id++, lane: l, u: LANES[l], sLand: s, t0: this.time, T: (opt && opt.T) || 1.5, soft: !!(opt && opt.soft), sStart, phase: 0, s: sStart, h: 6, idx, dIdx, f: new Float64Array(12), fL: this._frameOf(s),
+    const b = { id: this._id++, lane: l, u: LANES[l], sLand: s, t0: this.time, T: Math.max(1.8, (opt && opt.T) || 1.8), soft: !!(opt && opt.soft), sStart, phase: 0, s: sStart, h: 6, idx, dIdx, f: new Float64Array(12), fL: this._frameOf(s),
       warned: false, hits: {}, vr: Math.max(13, this.ballVs * 0.75), rot: 0, tRoll: 0 };
     this._col('ball', idx, COL.rock, 1);
     this._col('disc', dIdx, 0xff2a1a, 1);
@@ -3204,14 +3212,14 @@ Object.assign(Obstacles.prototype, {
     if (T.allows('boulder') && ball.s >= start && !(T.finishS < Infinity && ball.s > T.finishS - 90)) {
       if (!this._bArmed) { this._bArmed = true; this.nextBoulder = this.time + 5 + this.rng.next() * 6; }
       else if (this.time >= this.nextBoulder) {
-        const rng = this.rng, vs = ball.vs || this.ballVs, sLand = ball.s + vs * 1.5 + 9;
+        const rng = this.rng, vs = ball.vs || this.ballVs, sLand = ball.s + vs * 1.8 + 9;
         let busy = false;      // never stack a rage boulder on a hard / lethal row
         for (let i = this.rowsLog.length - 1; i >= 0 && this.rowsLog[i].s > sLand - 40; i--) { const rl = this.rowsLog[i]; if ((rl.hard || rl.lethal) && Math.abs(rl.s - sLand) < 40) { busy = true; break; } }
         if (busy) { this.nextBoulder = this.time + 1.0; } else {
         const pl = laneOf(ball.u);
         const got = this.throwBoulder(rng.chance(0.5) ? pl : rng.int(0, NL - 1), sLand);
         const diff = T._diff ? T._diff(ball.s) : 0.5;
-        this.nextBoulder = this.time + (got < 0 ? 1.2 : (boss ? rng.range(5, 9) : rng.range(55, 95) / (0.8 + 0.6 * diff)) / hk);
+        this.nextBoulder = this.time + (got < 0 ? 1.2 : (boss ? rng.range(10, 18) : rng.range(110, 190) / (0.8 + 0.6 * diff)) / hk);
         }
       }
     }
