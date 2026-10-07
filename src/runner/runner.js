@@ -5,6 +5,7 @@ import { Environment, biomeAt, trackPalette, musicStyleAt } from './biomes.js';
 import * as Biomes from './biomes.js';
 import { BuffSet, rollBuff, BUFF_LEN, DESTRUCTION, destructionTier } from './perks.js';
 import { music } from './music.js';
+import { RhythmLane } from './rhythm.js';
 import { patchMaterial } from '../shaders.js';
 import { scoreMult, chainBonus, dangerBonus, checkpointReward, rageScale, goalFor, meltRate } from './goals.js';
 
@@ -176,6 +177,8 @@ export class Runner {
       junctionOk: (s) => Biomes.junctionOkAt?.(s) ?? true,
       tutorial: this.tut,
     });
+    this.rhythm?.dispose();
+    this.rhythm = new RhythmLane(this);
     this.obstacles = new Obstacles(scene, this.track, { seed: seed ^ 0x9e3779b9, jumpPadV: RCFG.jumpPadV, vGen: (s) => 1.1 * speedAt(s), tutorial: this.tut, endless: !level });
     this.track.onPiece = (piece) => {
       const bi = biomeAt(piece.s0, _bi);
@@ -507,7 +510,7 @@ export class Runner {
       if (after !== before) {
         if (after > 0) { if (!this.countQuiet) { this.ctx.ui.banner(String(after), 3); this.ctx.audio.ui('select'); } }
         else if (this.countQuiet) this.ctx.audio.whoosh();       // retry / revive: no banner, no roar — just go
-        else { this.ctx.ui.banner('KAÇ!', 5); this.roar(true); }
+        else { this.topMsg('KAÇ!', 'big'); this.roar(true); }
       }
       dt = 0;
     }
@@ -528,6 +531,7 @@ export class Runner {
     this.track.trim(this.b.s - 70);
     this.obstacles.trim(this.b.s - 70);
     this.obstacles.update(dt, beat, this.b);
+    if (play) this.rhythm?.update(dt, beat);
     this.env.fogPress = this.fogK;
     this.env.ballVs = this.b.vs;
     this.env.update(dt, this.ctx.camera, this.b, beat);
@@ -541,6 +545,7 @@ export class Runner {
   }
 
   // lane count of the piece under the ball (3 -> 4 -> 5 as the track widens); lane = signed lane offset (half lanes when even)
+  laneW() { return RCFG.laneW; }
   laneMax() { return (LANES.length - 1) / 2; }
   laneSnap(l) { const n = LANES.length, m = (n - 1) / 2; return clamp(n % 2 ? Math.round(l) : Math.floor(l) + 0.5, -m, m); }
   syncLanes() {
@@ -598,7 +603,7 @@ export class Runner {
     this.duckT -= dt;
 
     // ---- speed: downhill pace + size bonus; rocket overrides ----
-    const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1) * (this.riskT > 0 ? 1.45 : 1) * (this.slideT > 0 ? 1.2 : 1);
+    const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1) * (this.riskT > 0 ? 1.45 : 1) * (this.slideT > 0 ? 1.2 : 1) * (this.rhythm ? this.rhythm.speedK : 1);
     if (b.vs < top) b.vs = Math.min(top, b.vs + RCFG.accel * dt);
     else b.vs = Math.max(top, b.vs - RCFG.accel * 0.6 * dt);
     this.invulnT -= dt;
@@ -1415,8 +1420,8 @@ export class Runner {
     this.mistBurst(30, 0xffd060, 6, 1.4);
     this.ctx.menus?.confetti?.(140);
     this.ctx.audio.milestone?.(5);
-    this.ctx.ui.banner('BOSS YENİLDİ!', 5);
-    this.ctx.ui.float('+' + bonus.toLocaleString('tr-TR') + ' · +' + coins + ' ❄️', window.innerWidth * 0.5, window.innerHeight * 0.7, 'big');
+    this.topMsg('BOSS YENİLDİ!', 'big');
+    this.ctx.ui.float('+' + bonus.toLocaleString('tr-TR') + ' · +' + coins + ' ❄️', window.innerWidth * 0.5, window.innerHeight * 0.21, 'big');
   }
 
   // ---------- KAR YANKISI: ghost of your best Rush run (lane/height every 5 m, up to 5 km) ----------
@@ -1794,7 +1799,6 @@ export class Runner {
         this.ctx.meta?.track?.('tier_up', { tier: this.tier });
         this.ctx.audio.milestone(this.tier + 1);
         this.ctx.platform.haptic('success');
-        this.float(`BÜYÜDÜN! x${this.mult}`, 'big');
         this.kick += 2;
         this.squash = Math.max(this.squash, 0.35);
       }
@@ -2546,7 +2550,7 @@ export class Runner {
     this.state = 'finished';
     this.finishT = 0;
     this.ctx.ui.turnCue?.(0, 0);
-    this.ctx.ui.banner('BİTİŞ!', 5);
+    this.topMsg('BİTİŞ!', 'big');
     this.ctx.ui.flash?.('gold');
     this.ctx.audio.win();
     this.ctx.platform.haptic('success');
@@ -2965,8 +2969,13 @@ export class Runner {
     this.floatSeen.set(text, this.time);
     if (this.floatSeen.size > 40) this.floatSeen.clear();
     const H = window.innerHeight;
-    const y = clamp((-_v2.y * 0.5 + 0.5 + 0.1) * H, H * 0.62, H * 0.82);
-    this.ctx.ui.float(text, (_v2.x * 0.5 + 0.5) * window.innerWidth, y, cls);
+    if (pri === 1) { this.ctx.ui.float(text, (_v2.x * 0.5 + 0.5) * window.innerWidth, H * 0.86, cls); return; }   // tiny info: below the ball, off the road
+    this.topMsg(text, cls);
+  }
+
+  // centre messages live just under the HUD (~21% of the screen height), never on the road
+  topMsg(text, cls) {
+    this.ctx.ui.float(text, window.innerWidth * 0.5, window.innerHeight * 0.21, cls || 'big');
   }
 
   tickFloatQ() {
@@ -3176,6 +3185,7 @@ export class Runner {
 
   dispose() {
     this.closeOut();
+    this.rhythm?.dispose(); this.rhythm = null;
     this.track?.dispose();
     this.obstacles?.dispose();
     this.env?.dispose();

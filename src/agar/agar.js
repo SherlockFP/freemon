@@ -15,6 +15,8 @@ const CAP = 260; // max live cells
 const NOWN = 52; // owners (players + bots): up to 8 humans, the rest are bots
 const FOOD = 24000, SPARE = 800, FT = FOOD + SPARE; // permanent pellets + slots for boost-trail pellets
 const NVIR = 90, NPUP = 40;
+const FR = 26; // kar kalesi radius
+const FORT_POS = [[0, -520], [450, 260], [-450, 260]];
 const GS = 40, GN = 55; // food grid (GN * GS >= 2 * R)
 const KR = 0.3; // radius = KR * sqrt(mass)
 const MAXM = 60000;
@@ -175,8 +177,10 @@ export class AgarMode {
     this.resultEl = null; this.screenEl = null;
     this._lbCmp = (a, b) => b.mass - a.mass;
 
+    this.sumT = 0; this.prevRank = 99;
     this.initData();
     this.buildScene();
+    this.buildForts();
     this.buildHud();
     this.bindInput();
     this.initWorld();
@@ -209,6 +213,7 @@ export class AgarMode {
     // viruses + pickups
     this.vx = new Float32Array(NVIR); this.vz = new Float32Array(NVIR); this.von = new Uint8Array(NVIR); this.vt = new Float32Array(NVIR);
     this.px = new Float32Array(NPUP); this.pz = new Float32Array(NPUP); this.pon = new Uint8Array(NPUP); this.ptype = new Uint8Array(NPUP); this.pt = new Float32Array(NPUP);
+    this.forts = FORT_POS.map(([x, z]) => ({ x, z, own: -1, prog: 0, cand: -1, list: [], lbl: '#' }));
     // feed
     this.feed = [{ t: '', until: 0 }, { t: '', until: 0 }, { t: '', until: 0 }, { t: '', until: 0 }];
   }
@@ -480,7 +485,7 @@ export class AgarMode {
     this.fs = 1;
     this.genTerrain((Math.random() * 2147483647) | 0);
     this.storm.on = false; this.storm.next = 35 + Math.random() * 25; this.stormA.visible = this.stormB.visible = false;
-    this.av.st = 0; this.av.next = 150 + Math.random() * 60;
+    this.av.st = 0; this.av.next = 150 + Math.random() * 60; for (const f of this.forts) { f.own = -1; f.prog = 0; f.cand = -1; }
     this.trails.clear();
     for (let i = 0; i < FT; i++) { this.gRemove(i); this.fv[i] = 0; }
     this.ghead.fill(-1); this.fin.fill(0);
@@ -793,6 +798,7 @@ export class AgarMode {
     this.props.tick(dt);
     this.nearTick(dt);
     this.botChatTick(dt);
+    if (this.mp !== 'client') this.fortTick(dt);
     if (this.mp !== 'client' && this.state === 'play') this.popTick(dt);
     // local player input
     const me = owners[this.me];
@@ -1117,6 +1123,8 @@ export class AgarMode {
         if (o.boostCd <= 0 && om > 60 && Math.random() < 0.4) this.boost(o);
         else if (om > prey.m * 2.6 && om > 120 && o.cellN < 3 && o.splitCd <= 0 && Math.random() < 0.25) { o.ldx = (tx - cx) / (preyD + 0.01); o.ldz = (tz - cz) / (preyD + 0.01); this.split(o); }
       }
+    } else if (om > 50 && o.id % 3 === 0 && this.fortGoal(o)) {
+      mode = 3; tx = this.tmpF.x; tz = this.tmpF.z;
     } else {
       // food
       let best = -1, bd = 1e9;
@@ -1170,6 +1178,60 @@ export class AgarMode {
   }
 
   // ------------------------------------------------------------------ accumulate owner stats
+  buildForts() {
+    const sc = this._scene, mat = (c, o) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false, fog: false });
+    for (const f of this.forts) {
+      const g = new THREE.Group(); g.position.set(f.x, 0, f.z);
+      const wall = new THREE.Mesh(new THREE.TorusGeometry(FR, 1.8, 6, 36).rotateX(Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0xeaf6ff })); wall.position.y = 1.2; wall.scale.y = 1.6;
+      const base = new THREE.Mesh(new THREE.CircleGeometry(FR, 36).rotateX(-Math.PI / 2), mat(0xbfe6ff, 0.18)); base.position.y = 0.2; base.renderOrder = 3;
+      const fill = new THREE.Mesh(new THREE.CircleGeometry(FR, 36).rotateX(-Math.PI / 2), mat(0xffffff, 0.35)); fill.position.y = 0.3; fill.renderOrder = 4;
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 18, 6), new THREE.MeshLambertMaterial({ color: 0xdddddd })); pole.position.y = 9;
+      const flag = new THREE.Mesh(new THREE.BoxGeometry(9, 5, 0.4), new THREE.MeshLambertMaterial({ color: 0xffffff })); flag.position.set(4.5, 15, 0);
+      const cvs = document.createElement('canvas'); cvs.width = 512; cvs.height = 64;
+      const tex = new THREE.CanvasTexture(cvs);
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false })); sp.position.y = 24; sp.scale.set(44, 5.5, 1); sp.visible = false;
+      g.add(wall, base, fill, pole, flag, sp); sc.add(g);
+      f.fill = fill; f.flag = flag; f.sp = sp; f.tex = tex;
+    }
+  }
+
+  fortTick(dt) {
+    const F = this.forts, ow = this.owners, cells = this.cells;
+    for (const f of F) f.list.length = 0;
+    for (let i = 0; i < CAP; i++) {
+      const c = cells[i];
+      if (!c.on) continue;
+      for (const f of F) if (Math.hypot(c.x - f.x, c.z - f.z) < FR && !f.list.includes(c.o)) f.list.push(c.o);
+    }
+    for (const f of F) {
+      const L = f.list;
+      if (f.own >= 0 && !ow[f.own].alive) { f.own = -1; f.prog = 0; }
+      if (L.length === 0) { if (f.own < 0 && f.prog > 0) f.prog = Math.max(0, f.prog - dt * 0.1); }
+      else if (L.length === 1) {
+        const x = L[0];
+        if (x === f.own) f.prog = Math.min(1, f.prog + dt / 2);
+        else if (f.own >= 0) { f.prog -= dt / 5; if (f.prog <= 0) { f.own = -1; f.prog = 0; f.cand = x; } }
+        else { if (f.cand !== x) { f.cand = x; f.prog = 0; } f.prog += dt / 5; if (f.prog >= 1) { f.own = x; f.prog = 1; this.fortTaken(x); } }
+      } else if (f.own >= 0) {
+        let big = L[0]; for (const x of L) if (ow[x].mass > ow[big].mass) big = x;
+        if (big !== f.own) { f.prog -= dt / 5; if (f.prog <= 0) { f.own = -1; f.prog = 0; f.cand = -1; } } else f.prog = Math.min(1, f.prog + dt / 2);
+      }
+      if (f.own >= 0 && f.prog >= 1) { const o = ow[f.own], c = cells[o.bc]; if (c && c.on && c.o === o.id && c.m < MAXM) c.m += 2.5 * dt; }
+    }
+  }
+
+  fortTaken(id) {
+    const o = this.owners[id];
+    if (id === this.me) { this.toast('KAR KALESİ senin! +kütle'); this.audio?.milestone?.(2); } else this.pushFeed(o.name + ' bir kaleyi ele geçirdi');
+  }
+
+  fortGoal(o) {
+    let bd = 1e9, bf = null;
+    for (const f of this.forts) { if (f.own === o.id && f.prog >= 1) continue; const d = Math.hypot(f.x - o.lx, f.z - o.lz); if (d < bd) { bd = d; bf = f; } }
+    if (!bf || bd > 700) return false;
+    const t = this.tmpF || (this.tmpF = { x: 0, z: 0 }); t.x = bf.x; t.z = bf.z; return true;
+  }
+
   accumulate() {
     const owners = this.owners, cells = this.cells;
     for (let k = 0; k < NOWN; k++) { const o = owners[k]; o.mass = 0; o.cellN = 0; o.cx = 0; o.cz = 0; o.maxM = 0; o.maxR = 0; o.ext = 0; }
@@ -1706,6 +1768,8 @@ export class AgarMode {
     const fd = [];
     for (let k = 0; k < this.fdn; k++) { const i = this.fdl[k]; fd.push(i, Math.round(this.fx[i] * 10), Math.round(this.fz[i] * 10), this.fv[i], this.fcol[i]); this.fd[i] = 0; }
     this.fdn = 0;
+    const fk = [];
+    for (const f of this.forts) fk.push(f.own, Math.round(f.prog * 100));
     const v = [];
     for (let i = 0; i < NVIR; i++) v.push(this.von[i] ? Math.round(this.vx[i] * 10) : 99999, Math.round(this.vz[i] * 10));
     const p = [];
@@ -1713,7 +1777,7 @@ export class AgarMode {
     for (const [id, rec] of net.clients) {
       const o = this.owners.find((q) => q.human === id);
       if (!o || !rec.conn.open) continue;
-      net.sendTo(id, { t: 's', hn: net.clients.size + 1, pn: this.presentCount(), pd, st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
+      net.sendTo(id, { t: 's', hn: net.clients.size + 1, pn: this.presentCount(), pd, st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], fk, c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
     }
   }
 
@@ -1761,6 +1825,7 @@ export class AgarMode {
     if (m.hn) this.humans = m.hn;
     if (m.pn) this.presentN = m.pn;
     if (m.st) { const sw = this.storm.on; this.storm.on = !!m.st[0]; this.storm.x = m.st[1]; this.storm.z = m.st[2]; if (this.storm.on && !sw) { this.pushFeed('❄ Kar fırtınası başladı!'); this.stormSndT = 0; } }
+    if (m.fk) this.forts.forEach((f, i) => { const ow = m.fk[i * 2]; if (ow !== f.own && ow >= 0) this.fortTaken(ow); f.own = ow; f.prog = m.fk[i * 2 + 1] / 100; });
     const cells = this.cells;
     for (let i = 0; i < CAP; i++) cells[i].killer = 0; // 0 = not seen this snapshot
     const c = m.c;
@@ -1973,6 +2038,18 @@ export class AgarMode {
       const el = this.hud.av;
       if (v.st === 1) { el.style.opacity = '1'; el.textContent = 'ÇIĞ GELİYOR! ' + Math.max(1, Math.ceil(v.t)); } else el.style.opacity = '0';
     }
+    for (const f of this.forts) {
+      const ho = f.own >= 0 ? owners[f.own] : null, col = ho ? ho.col : 0xffffff, k = Math.max(0.01, f.prog);
+      f.fill.scale.set(k, 1, k); f.fill.material.color.setHex(ho ? col : 0xdff3ff);
+      f.flag.material.color.setHex(col); f.flag.position.y = 6 + 9 * (ho ? f.prog : 0);
+      const a = ho ? accSuffix(ho.name) : '', txt = ho ? ho.name + (a.includes("'y") ? a.replace("'y", "'n") : a) + 'n KALESİ' : '';
+      if (txt !== f.lbl) {
+        f.lbl = txt; const g = f.tex.image.getContext('2d'); g.clearRect(0, 0, 512, 64);
+        if (txt) { g.font = '900 40px "Trebuchet MS", system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round'; g.lineWidth = 9; g.strokeStyle = 'rgba(10,30,60,0.92)'; g.strokeText(txt, 256, 34, 500); g.fillStyle = '#' + ('000000' + col.toString(16)).slice(-6); g.fillText(txt, 256, 34, 500); }
+        f.tex.needsUpdate = true;
+      }
+      f.sp.visible = !!txt;
+    }
     // auras (local player)
     if (me.alive && me.shield > 0) { this.aura.visible = true; this.aura.position.set(me.lx, me.maxR, me.lz); this.aura.scale.setScalar(me.maxR * 1.18 + 0.4); } else this.aura.visible = false;
     if (me.alive && me.magnet > 0) { this.ring.visible = true; this.ring.position.set(me.lx, 0.3, me.lz); this.ring.scale.setScalar(me.maxR + 14); } else this.ring.visible = false;
@@ -2134,6 +2211,11 @@ export class AgarMode {
       }
       const yr = h.rows[10];
       if (myRank >= 10) { yr.style.display = 'flex'; yr.classList.add('me'); yr.children[0].textContent = (myRank + 1) + '. ' + me.name; yr.children[1].textContent = fmtM(me.mass); } else yr.style.display = 'none';
+      if (myRank >= 0 && this.state === 'play') {
+        if (myRank < this.prevRank && this.prevRank < 99) { const row = myRank < 10 ? h.rows[myRank] : yr; if (row.animate) row.animate([{ background: 'rgba(255,224,102,0.9)' }, { background: 'rgba(255,224,102,0)' }], { duration: 900 }); }
+        this.prevRank = myRank;
+      } else this.prevRank = 99;
+      if (this.state === 'play' && this.lb[0]) { this.sumT += 0.25; if (this.sumT >= 300) { this.sumT = 0; this.toast('En büyük: ' + this.lb[0].name + ' · Sen: ' + (myRank >= 0 ? '#' + (myRank + 1) : '-')); } }
       h.rank.textContent = myRank >= 0 ? '#' + (myRank + 1) + ' / ' + n : '-';
       h.online.textContent = String(this.mp === 'client' && this.presentN ? this.presentN : this.presentCount());
       if (myRank >= 0 && this.state === 'play' && myRank + 1 < me.bestRank) me.bestRank = myRank + 1;
@@ -2186,6 +2268,11 @@ export class AgarMode {
     g.fillStyle = 'rgba(255,255,255,0.22)';
     for (let i = 0; i < NDEEP; i++) { g.beginPath(); g.arc(c0 + T.deep[i * 3] * sc, c0 + T.deep[i * 3 + 1] * sc, Math.max(1, T.deep[i * 3 + 2] * sc), 0, 6.2832); g.fill(); }
     if (this.storm.on) { g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1.5; g.beginPath(); g.arc(c0 + this.storm.x * sc, c0 + this.storm.z * sc, this.storm.r * sc, 0, 6.2832); g.stroke(); }
+    for (const f of this.forts) {
+      const fo = f.own >= 0 ? this.owners[f.own] : null;
+      g.fillStyle = fo ? '#' + ('000000' + fo.col.toString(16)).slice(-6) : 'rgba(255,255,255,0.5)'; g.strokeStyle = '#fff'; g.lineWidth = 1;
+      g.beginPath(); g.rect(c0 + f.x * sc - 3, c0 + f.z * sc - 3, 6, 6); g.fill(); g.stroke();
+    }
     for (let i = 0; i < NOWN; i++) {
       const o = this.owners[i];
       if (!o.alive || o === me) continue;

@@ -645,6 +645,7 @@ export class World {
       case 'crateLine': return this.placeCrateLine(it, gr, hw);
       case 'crateWall': return this.placeCrateWall(it, gr, hw);
       case 'iceWall': return this.placeIceWall(it, gr, hw);
+      case 'statues': return this.placeStatues(it, gr, hw);
       case 'ramp': return this.placeRamp(d, gr, T, hw);
       case 'patch': return this.placePatch(d, gr, T, hw);
       case 'town': return this.placeTown(d, gr, T, hw);
@@ -1251,6 +1252,29 @@ export class World {
   }
 
   // half-width ice wall (a mini gate): break it when big enough, slide around it through the open side otherwise
+  // HEYKEL YIKIMI: giant snow statues staggered down the slope; smash each (size label) for growth, the whole set pays a bonus.
+  // Too big for you = you glance off (the normal deflect), never stopped.
+  placeStatues(it, gr, hw) {
+    const kinds = [['snowman', 'KARDAN ADAM'], ['yeti', 'YETİ'], ['snowman', 'DEV KARDAN ADAM'], ['yeti', 'YETİ KRALI'], ['boulder', 'KAYA HEYKEL']];
+    const n = it.count, set = { total: n, got: 0, done: false };
+    for (let i = 0; i < n; i++) {
+      const [type, name] = kinds[i % kinds.length];
+      const def = this.lib[type] || this.lib.snowman;
+      if (!def) continue;
+      const t = n === 1 ? 0.5 : i / (n - 1);
+      const tr = gr * (0.7 + 0.85 * t);
+      const s = clamp(tr / def.radius, 0.3, 24);
+      const hwL = this.halfWidth(it.start + 10 + i * 12);
+      const x = clamp((i % 2 ? 1 : -1) * it.side * hwL * 0.42, -hwL + 1, hwL - 1);
+      const p = this.add(this.lib[type] ? type : 'snowman', x, it.start + 8 + i * (it.len - 16) / Math.max(1, n - 1), { s, rot: Math.PI, tonK: 2 });
+      if (!p) continue;
+      p.statue = { name, set };
+      this.tagObstacle(p, '🗿 ' + name + ' · ' + fmtDiam(p.r / CFG.smashRatio * 2) + ' m');
+    }
+    this.zones.push({ d0: it.start - 4, d1: it.start + it.len + 6, kind: 'plus' });
+    return it.len;
+  }
+
   placeIceWall(it, gr, hw) {
     const gd = it.start + 24;
     const hwL = Math.max(hw, this.halfWidth(gd));
@@ -1813,6 +1837,7 @@ export class World {
   }
 
   render(ballD) {
+    if (this.camBack === undefined) { this.camBack = 12; this.camXlo = -2; this.camXhi = 2; }
     const meshes = this.meshList;
     for (let i = 0; i < meshes.length; i++) { meshes[i].userData.prev = meshes[i].count; meshes[i].count = 0; }
     const d0 = ballD - this.behind, d1 = ballD + this.ahead;
@@ -1821,6 +1846,8 @@ export class World {
     for (let i = lbD(st, d0), n = lbD(st, d1); i < n; i++) {
       const p = st[i];
       if (!p.alive) continue;
+      // keep decor out of the camera corridor (between camera and ball / bottom of the view)
+      if (p.d < ballD - 0.3 && p.d > ballD - this.camBack * 1.7 - 3 && p.r > 0.5 && p.x > this.camXlo - 4 - p.r && p.x < this.camXhi + 4 + p.r) continue;
       const mesh = this.getMesh(p.type);
       if (mesh.count >= MESH_CAP) continue;
       mesh.instanceMatrix.array.set(p.m, mesh.count * 16);

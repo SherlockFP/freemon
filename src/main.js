@@ -607,9 +607,9 @@ function updateLevelHud(V) {
   if (!h) return;
   const m5 = Math.round(V.left / 5) * 5;
   const s = V.finalBroken ? 'BİTİŞ' : V.final ? 'FİNAL' : 'ETAP ' + (V.gateI + 1) + '/' + V.S;
-  const t = V.finalBroken ? '🏁 ' + m5 + ' m' : (V.locked ? '🔒 PATRON' : '⛔ ' + fmtD(V.need) + ' m') + ' · ' + m5 + ' m';
+  const t = V.finalBroken ? '🏁 ' + m5 + ' m' : (V.locked ? '🔒 PATRON · ' : V.need > 0 ? '⛔ ' + fmtD(V.need) + ' m · ' : '') + m5 + ' m';
   const r = V.finalBroken ? 2 : V.ready;
-  const z = fmtD(V.have) + ' m · ' + (Math.round(V.kmh / 5) * 5) + ' km/s';
+  const z = fmtD(V.have) + ' m · ' + (Math.round(V.kmh / 5) * 5) + ' km/sa';
   const sf = s + ' · ' + z;
   if (sf !== h.s) { h.s = sf; h.gs.textContent = sf; }
   if (t !== h.t) { h.t = t; h.gt.textContent = t; }
@@ -709,7 +709,7 @@ function finishCigLevel() {
   if (!sim) { ui.buffClear?.(); ui.hungerHide?.(); ui.cigReset?.(); ui.speedLines?.(0); ui.el.hud.classList.add('hidden'); }   // (the menu card replaces the HUD)
   G.state = 'result';
   if (win) {
-    const goalsMet = evalStars(plan, { finished: true, finalR: G.finalR, bounces: st.bounces, hits: st.hits, crates: st.crates, gold: st.gold, maxMul: st.maxMul, time: st.time, rivalEaten: st.rivalEaten });
+    const goalsMet = evalStars(plan, { finished: true, finalR: G.finalR, bounces: st.bounces, hits: st.hits, crates: st.crates, gold: st.gold, maxMul: st.maxMul, time: st.time, rivalEaten: st.rivalEaten, statues: st.statues });
     const stars = Math.max(1, goalsMet.filter(Boolean).length);
     G.lastEval = { win, stars, goalsMet };
     if (sim) return;
@@ -1054,6 +1054,7 @@ function updateCamera(dt, snap = false) {
     up = 7 + r * 3.2 + et * 0.6;
   }
   camBack = Math.abs(back);
+  world.camBack = camBack; world.camXlo = Math.min(camera.position.x, b.x); world.camXhi = Math.max(camera.position.x, b.x);
   camPos.set(ox, b.y + up, -(b.d - back));
   camPos.y = Math.max(camPos.y, world.groundY(camPos.x, -camPos.z) + 3 + r);
   const k = snap ? 1 : 1 - Math.exp(-dt * 6);

@@ -1045,7 +1045,7 @@ ${dist} m`; }
   _annReset() { clearTimeout(this._annT); this._annQ = []; this._annBusy = false; }
 
   cigTier(name) {
-    this._ann(() => this._cigTierNow(name), 1300);
+    this._ann(() => this._cigTierNow(name), 1350);
   }
   _cigTierNow(name) {
     const el = this.el.cigBanner;
@@ -1054,7 +1054,7 @@ ${dist} m`; }
     void el.offsetWidth;
     el.classList.add('on');
     clearTimeout(this._cbT);
-    this._cbT = setTimeout(() => { el.classList.remove('on'); el.classList.add('hidden'); }, 1250);
+    this._cbT = setTimeout(() => { el.classList.remove('on'); el.classList.add('hidden'); }, 1300);
     this.flash('gold');
     try { meta.track('cig_tier', { name: String(name || '') }); } catch { /* ignore */ }
   }
@@ -1065,7 +1065,7 @@ ${dist} m`; }
     const now = performance.now();
     if (text === this._tsLast && now - this._tsAt < 2500) return;
     this._tsLast = text; this._tsAt = now;
-    this._ann(() => this._toastNow(text, opts), 1500);
+    this._ann(() => this._toastNow(text, opts), 1250);
   }
   _toastNow(text, opts) {
     const box = this.el.toastSoft;

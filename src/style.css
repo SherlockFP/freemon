@@ -99,9 +99,9 @@ html, body {
 #banner .b.l3 { color: var(--gold); }
 #banner .b.l4, #banner .b.l5 { color: #ff8a5c; font-size: 62px; }
 /* runner: banners sit up in the open track, clear of the HUD (top) and the ball + swipe hint (bottom) */
-#banner.runner { top: 30%; }
-#banner.runner .b { font-size: 44px; }
-#banner.runner .b.l4, #banner.runner .b.l5 { font-size: 50px; }
+#banner.runner { top: max(30%, calc(var(--sat) + 190px)); }
+#banner.runner .b { font-size: 38px; }
+#banner.runner .b.l4, #banner.runner .b.l5 { font-size: 40px; }
 @keyframes bannerPop {
   0% { opacity: 0; transform: scale(0.3) rotate(-8deg); }
   20% { opacity: 1; transform: scale(1.1) rotate(2deg); }
@@ -458,18 +458,18 @@ html, body {
 #hud.cig-endless .hud-coins { display: none; }
 
 #cig-banner {
-  position: absolute; left: 0; right: 0; top: calc(var(--sat) + 150px); text-align: center; pointer-events: none; z-index: 14;
+  position: absolute; left: 0; right: 0; top: max(29%, calc(var(--sat) + 180px)); text-align: center; pointer-events: none; z-index: 14;
 }
-#cig-banner .cb-k { font-weight: 900; font-size: 18px; letter-spacing: 0.14em; color: var(--gold); text-shadow: 0 3px 0 var(--ink), 2px 2px 0 var(--ink), -2px 2px 0 var(--ink), 2px -2px 0 var(--ink), -2px -2px 0 var(--ink); }
-#cig-banner .cb-n { font-weight: 900; font-size: 40px; line-height: 1.05; color: #fff; text-shadow: 0 4px 0 var(--ink), 3px 3px 0 var(--ink), -3px 3px 0 var(--ink), 3px -3px 0 var(--ink), -3px -3px 0 var(--ink), 0 8px 14px rgba(10, 30, 60, 0.4); }
-#cig-banner.on { animation: cigBan 1.2s cubic-bezier(.2, 1.5, .4, 1) forwards; }
+#cig-banner .cb-k { font-weight: 900; font-size: 15px; letter-spacing: 0.14em; color: var(--gold); text-shadow: 0 3px 0 var(--ink), 2px 2px 0 var(--ink), -2px 2px 0 var(--ink), 2px -2px 0 var(--ink), -2px -2px 0 var(--ink); }
+#cig-banner .cb-n { font-weight: 900; font-size: 34px; line-height: 1.05; color: #fff; text-shadow: 0 4px 0 var(--ink), 3px 3px 0 var(--ink), -3px 3px 0 var(--ink), 3px -3px 0 var(--ink), -3px -3px 0 var(--ink), 0 8px 14px rgba(10, 30, 60, 0.4); }
+#cig-banner.on { animation: cigBan 1.3s cubic-bezier(.2, 1.5, .4, 1) forwards; }
 @keyframes cigBan { 0% { opacity: 0; transform: scale(0.4); } 16% { opacity: 1; transform: scale(1.12); } 28% { transform: scale(1); } 78% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); } }
 
 #toast-soft { position: absolute; left: 0; right: 0; top: calc(var(--sat) + 188px); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; z-index: 60; }
 #toast-soft.res { top: calc(var(--sat) + 250px); }
 #toast-soft .ts {
   display: flex; align-items: center; gap: 7px; max-width: 86vw; padding: 6px 14px 7px 10px; border-radius: 999px; border: 2.5px solid var(--ink); background: rgba(23, 52, 92, 0.9); color: #fff; font-weight: 900; font-size: 14px; letter-spacing: 0.02em;
-  box-shadow: 0 3px 0 rgba(10, 25, 55, 0.7); animation: tsIn 1.7s ease forwards; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+  box-shadow: 0 3px 0 rgba(10, 25, 55, 0.7); animation: tsIn 1.45s ease forwards; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 #toast-soft .ts .ti { font-size: 18px; line-height: 1; }
 @keyframes tsIn { 0% { opacity: 0; transform: translateY(-10px) scale(0.9); } 12% { opacity: 1; transform: none; } 82% { opacity: 1; } 100% { opacity: 0; transform: translateY(-6px); } }

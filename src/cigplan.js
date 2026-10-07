@@ -51,7 +51,7 @@ export const INTRO = {
 const STAR3 = { 1: 'nobounce', 2: 'crates', 3: 'nobounce', 4: 'time', 5: 'nohit', 6: 'chain', 7: 'rival', 8: 'nohit', 9: 'gold', 10: 'time', 11: 'crates', 12: 'chain' };
 
 // metres of track a part needs (everything the part places stays inside [start, start + len])
-const RES = { crateLine: 44, crateWall: 64, iceWall: 48, ramp: 95, mush: 90, army: 60, town: 90, golden: 50, patch: 100, rival: 70, cannon: 90, bridge: 130, fork: 92, pickup: 14, strip: 14, gate: 84, arena: 170 };
+const RES = { crateLine: 44, crateWall: 64, iceWall: 48, ramp: 95, mush: 90, army: 60, town: 90, golden: 50, patch: 100, rival: 70, cannon: 90, bridge: 130, fork: 92, pickup: 14, strip: 14, gate: 84, arena: 170, statues: 66 };
 const GAP = 25;
 
 // hand-made stage lists for the first ten mountains (CL crate line, CW crate wall, IW ice wall, RMP ramp, MSH mushrooms,
@@ -258,6 +258,7 @@ function build(n, daily, assist, opts) {
         parts.push({ kind, len: RES[kind], gold: 0 });
       }
     }
+    if (!arenaStage && !daily && n >= 3 && i === Math.min(1, S - 1)) parts.unshift({ kind: 'statues', len: RES.statues });
     if (!arenaStage) {
       // a power-up after the first part, an extra strip in the middle of later stages
       // DECISIONS: a fork in stage 1 (DAG 2+), and another in stage 2 from DAG 8
@@ -316,6 +317,10 @@ function build(n, daily, assist, opts) {
       p.cover = rng.range(0.6, 0.75);
       p.side = rng.sign();
       p.minR = 0.62 * pr;
+    } else if (p.kind === 'statues') {
+      p.count = n < 6 ? 3 : n < 15 ? 4 : 5;
+      p.side = rng.sign();
+      P.hasStatues = p.count;
     } else if (p.kind === 'mush') {
       p.count = rng.chance(0.5) ? 3 : 2;
     } else if (p.kind === 'cannon') {
@@ -383,12 +388,14 @@ function makeStars(P, n, daily, boss, items) {
     if (P.crates.gold > 0) pool.push('gold');
     if (P.crates.total >= 4) pool.push('crates');
     if (hasRival) pool.push('rival');
+    if (P.hasStatues) pool.push('statues');
     kind = pool[(5 * n + Math.floor(n / 3)) % pool.length];
   }
   // (kinds that need a part this mountain does not have fall back to something that always works)
   if (kind === 'gold' && P.crates.gold < 1) kind = 'nobounce';
   if (kind === 'crates' && P.crates.total < 4) kind = 'nobounce';
   if (kind === 'rival' && !hasRival) kind = 'nohit';
+  if (kind === 'statues' && !P.hasStatues) kind = 'nobounce';
   const s3 = { star: 3, kind };
   switch (kind) {
     case 'nobounce': s3.text = 'Kapıdan hiç geri sekme'; break;
@@ -398,6 +405,7 @@ function makeStars(P, n, daily, boss, items) {
     case 'crates': s3.count = Math.min(P.crates.total, P.crates.target3); s3.text = `${s3.count} kasa kır`; break;
     case 'gold': s3.count = P.crates.gold; s3.text = `Tüm altın kasaları kır (${s3.count})`; break;
     case 'rival': s3.text = 'Rakip kartopunu yut'; break;
+    case 'statues': s3.count = P.hasStatues; s3.text = `HEYKEL SERİSİ: ${s3.count} heykelin hepsini yık`; break;
     default: s3.text = 'Dağı bitir';
   }
   st.push(s3);
@@ -420,6 +428,7 @@ export function evalStars(P, st) {
       case 'crates': b3 = (st.crates | 0) >= s3.count; break;
       case 'gold': b3 = (st.gold | 0) >= s3.count; break;
       case 'rival': b3 = (st.rivalEaten | 0) > 0; break;
+      case 'statues': b3 = (st.statues | 0) >= s3.count; break;
       default: b3 = true;
     }
   }

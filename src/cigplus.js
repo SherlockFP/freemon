@@ -1368,7 +1368,7 @@ export class CigGame {
     let best = null, bestD = 1e9;
     for (let i = 0; i < _near.length; i++) {
       const p = _near[i];
-      if (!p.alive || p.tag || p.move !== MOVE_NONE || p.kind === 'chunk' || p.decor || p.enemy || p.crate || p.r <= b.r * CFG.smashRatio || this._edible(p)) continue;
+      if (!p.alive || p.tag || p.move !== MOVE_NONE || p.kind === 'chunk' || p.decor || p.enemy || p.crate || p.statue || p.r <= b.r * CFG.smashRatio || this._edible(p)) continue;
       const dd = p.d - b.d;
       if (dd < 8 || dd > look) continue;
       if (Math.abs(p.x - b.x) > b.r + p.r * CFG.contactK + 4) continue;
@@ -1435,7 +1435,7 @@ export class CigGame {
   }
 
   _edible(p) {
-    if (p.enemy || p.crate) return false;
+    if (p.enemy || p.crate || p.statue) return false;
     return p.kind === 'chunk' || p.r <= this.ball.r * CFG.eatRatio * this.plus.eatMulFor(p);
   }
 
@@ -1547,7 +1547,25 @@ export class CigGame {
     G.shake += 0.12;
     if (grow && p.r > b.r * 0.9 && LABEL[p.type]) this._text(LABEL[p.type] + ' EZİLDİ!', p, '');
     this._h('track', 'smash', {});
+    if (p.statue) this._statueBroken(p);
     if (grow) this._tierCheck();
+  }
+
+  _statueBroken(p) {
+    const b = this.ball, set = p.statue.set;
+    this.stats.statues = (this.stats.statues | 0) + 1;
+    set.got++;
+    const gain = CFG.growK * 0.07 * b.r ** 3 * this._band();
+    if (gain > 0) { this._grow(b.r ** 3 + gain); b.punch(0.05); }
+    this._text('HEYKEL YIKILDI ' + set.got + '/' + set.total, p, 'big', true);
+    if (set.got >= set.total && !set.done) {
+      set.done = true;
+      this._grow(b.r ** 3 * 1.12);
+      this.G.destroyed += 5;
+      this._h('toast', 'HEYKEL SERİSİ! Tüm heykeller yıkıldı');
+      this._h('sfx', 'crash', 0.6);
+      this.G.shake += 0.4;
+    }
   }
 
   // Too big to smash: the ball glances off and slides around it, never stopping (circle push along the lateral axis).
@@ -2568,7 +2586,7 @@ export class CigGame {
 
 function newStats() {
   return { eats: 0, bumps: 0, gates: 0, gatesBroken: 0, maxCombo: 0, goldens: 0, waves: 0, tierT: [], stalls: 0, chunksEaten: 0, kills: 0, bosses: 0, smashes: 0,
-    bounces: 0, hits: 0, crates: 0, gold: 0, maxChain: 0, maxMul: 1, rivalEaten: 0, time: 0 };
+    bounces: 0, hits: 0, crates: 0, gold: 0, maxChain: 0, maxMul: 1, rivalEaten: 0, time: 0, statues: 0 };
 }
 
 const _stickPos = new THREE.Vector3();
