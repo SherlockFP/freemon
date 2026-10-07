@@ -847,3 +847,38 @@ Bu oyunlarda olup bizde eksik olanlar:
 - Menü:
   - "+" ve "🎁!" ikonları ne işe yaradığı belli olmayan, açıklamasız ikonlar.
   - Kilitli özellikler hiç görünmüyor.
+
+## Tur 16 — Yapılanlar
+
+**Rush** (çıtayı yükseltmenin 1. adımı)
+- **Karakter Yetenekleri**: 9 kostüm artık birer karakter ve her birinin pasif bir yeteneği var:
+  - **Köfte**: mıknatıs %30 daha uzun sürüyor.
+  - **Simit**: ilk çarpışmayı affediyor.
+  - **Nazar**: Yeti 3 m geriden başlıyor.
+  - **Çini**: +%10 jeton kazandırıyor.
+  - **Kızıl Kaos**: Öfke %20 daha hızlı doluyor.
+  - **Buz Ejderi**: buz kaydırağında daha hızlı gidiyor.
+  - **Kirpi**: ezme zıplaması daha güçlü.
+  - **Altın**: daha sık mücevher çıkıyor.
+  - **Penguen**: koşuya 1 penguenle başlıyor.
+- Mağazada her yetenek kostümünde "ABİLİTE" rozeti görünüyor.
+
+**ÇIĞ**
+- Dağ 20, 25 ve 30'daki "erime" ölümlerinin asıl nedeni bulundu: top kilitli boss kapısından kayıp geçiyordu. Kapı artık topu tutuyor.
+- Boss dövüşünde erime ×0,35'e indi ve sahaya kar düşüyor.
+- Topa "ERİYORSUN" uyarısı eklendi.
+- Otomatik pilot artık bu dağların 4 denemesinin 3'ünü kazanıyor.
+
+**Arena**
+- 60 sn'den sonra "BÜYÜK LOKMA" kümeleri çıkıyor.
+- Orta oyunda daha fazla bot var.
+- TOP 10, TOP 5 ve #1 kilometre taşı ödülleri eklendi.
+
+**Menü**
+- Para ve hediye butonlarına etiket eklendi.
+- Kilitli özellikler gri silüetle ve "🔒 N koşu" yazısıyla gösteriliyor.
+- **SON OYNANAN**: son oynanan moda tek dokunuşla dönülüyor.
+
+**Tur 17 notları**
+- Alttaki "Daha fazlası…" ipucu, menü etiketlerinin üstüne biniyor.
+- Kilitli BUGÜN çipleri okunmuyor.
