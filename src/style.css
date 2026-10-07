@@ -806,3 +806,47 @@ html, body {
 .hud-goal.fury { border-color: #ff6a1a; box-shadow: 0 0 10px rgba(255, 106, 26, 0.7); }
 .hud-goal.fury .goal-fill { background: linear-gradient(90deg, #ff3a2a, #ffb02a); }
 @media (max-height: 640px) { .res-extra .rx-goal .rg-row { display: none; } .res-extra .rx-goal { display: flex; } .res-mid { padding: 6px; } }
+
+/* =====================================================================================================================
+   STRICT RUSH TOP HUD (fixed boxes, nothing below ~22 % of the screen):
+   row1 score 42-76 · row2 chips 78-98 · row3 meters 102-118 (2 slim rows) · toast lane 122+ · buff slot top-right 74+
+   ===================================================================================================================== */
+.cmb-n { display: flex; justify-content: center; align-items: center; gap: 5px; font-size: 12px; }
+.cmb .ch { display: inline-block; height: 20px; line-height: 20px; padding: 0 8px; border-radius: 10px; border: 2px solid var(--ink); font-weight: 900; font-size: 12px; letter-spacing: 0.02em; color: #fff; background: rgba(23, 52, 92, 0.85); text-shadow: 0 1px 0 var(--ink); white-space: nowrap; }
+.cmb .ch.m { background: #2a5a99; }
+.cmb .ch.m.m2 { background: #b8861a; color: #fff6c8; }
+.cmb .ch.m.m3, .cmb .ch.m.m4 { background: #c0392b; }
+.cmb.t1 .ch.k { background: #b8861a; color: #fff6c8; }
+.cmb.t2 .ch.k { background: #d9701a; }
+.cmb.t3 .ch.k { background: #c0392b; }
+.cmb.t4 .ch.k { background: #7b3fc4; box-shadow: 0 0 8px #b46bff; }
+.cmb.broke .ch.k { background: #6b2a2a; color: #ff9a9a; font-size: 11px; }
+.cmb .cmb-n, .cmb.t1 .cmb-n, .cmb.t2 .cmb-n, .cmb.t3 .cmb-n, .cmb.t4 .cmb-n, .cmb.broke .cmb-n { animation: none; font-size: 12px; text-shadow: none; }
+.cmb.hit, .cmb.tierup { animation: cmbFlash 0.3s ease-out; }
+@keyframes cmbFlash { 0% { filter: brightness(1.8); } 100% { filter: none; } }
+.cmb-bar { position: absolute; left: 50%; top: 100%; margin: 1px 0 0 -40px; width: 80px; height: 3px; border: 0; border-radius: 2px; }
+.cmb.t1 .cmb-bar, .cmb.t2 .cmb-bar, .cmb.t3 .cmb-bar, .cmb.t4 .cmb-bar { width: 80px; }
+
+#hud.rush.rush.rush .hud-tons { top: calc(var(--sat) + 42px); font-size: 32px; line-height: 1.05; left: 0; right: 0; text-align: center; }
+#hud.rush.rush.rush .hud-coins { top: calc(var(--sat) + 46px); right: 10px; font-size: 14px; }
+#hud.rush.rush.rush .hud-combo { display: none; }
+#hud.rush.rush.rush .cmb { top: calc(var(--sat) + 78px); height: 24px; }
+#hud.rush.rush.rush .hud-flow { top: calc(var(--sat) + 102px); width: 170px; height: 7px; gap: 5px; }
+#hud.rush.rush.rush .hud-flow .flow-lbl { font-size: 9px; width: 42px; text-align: right; line-height: 7px; }
+#hud.rush.rush.rush .hud-flow .flowbar { flex: 1; width: auto; height: 5px; }
+#hud.rush.rush.rush .hunger, #hud.rush.rush.rush.cig-endless .hunger { left: 50%; transform: translateX(-50%); top: calc(var(--sat) + 111px); height: 7px; width: 170px; }
+#hud.rush.rush.rush .hunger .hg-ico { display: none; }
+#hud.rush.rush.rush .hunger .hg-bar, #hud.rush.rush.rush.cig-endless .hunger .hg-bar { width: 170px; height: 5px; border-width: 2px; }
+#hud.rush.rush.rush .hud-goal { top: calc(var(--sat) + 111px); width: 170px; height: 7px; border-width: 2px; }
+#hud.rush.rush.rush .hud-goal .goal-lbl { display: none; }
+#hud.rush.rush.rush .hud-record { display: none; }
+#hud.rush.rush.rush .hud-vitals { top: calc(var(--sat) + 44px); left: 8px; transform: scale(0.8); transform-origin: top left; }
+#hud.rush.rush.rush .buffs { top: calc(var(--sat) + 72px); right: 10px; width: 22px; height: 22px; max-width: none; overflow: visible; }
+#hud.rush.rush.rush .buffs .buff { position: absolute; right: 0; top: 0; width: 22px; height: 22px; }
+#hud.rush.rush.rush .buffs .buff:not(:first-child) { display: none; }
+#hud.rush.rush.rush .buffs .buff::before { inset: 2px; }
+#hud.rush.rush.rush .buffs .buff .bi { font-size: 11px; }
+#hud.rush.rush.rush ~ #buff-fly { display: none; }
+#hud.rush.rush.rush ~ #toast-soft:not(.res) { top: calc(var(--sat) + 122px); gap: 0; }
+#hud.rush.rush.rush ~ #toast-soft:not(.res) .ts { font-size: 12px; padding: 3px 11px 4px 8px; }
+#hud.rush.rush.rush ~ #toast-soft:not(.res) .ts .ti { font-size: 14px; }

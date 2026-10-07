@@ -480,6 +480,16 @@ export class World {
     if (p && q > 1.05) p.obstacle = true;
   }
 
+  placeCluster(d, gr, T, hw) {
+    const R = this.rng;
+    const side = R.sign();
+    for (let i = 0; i < 2; i++) this.placeLandmark(d + i * 7 + R.range(0, 4), gr, hw);
+    if (this.houses && this.houses.length) this.placeHouse(d + 10, gr, Math.max(1, T), hw);
+    const cx = -side * hw * R.range(0.15, 0.4);
+    for (let i = 0; i < 6; i++) this.food1(clamp(this.rollQ(T) * 0.85, 0.12, 0.6), gr, clamp(cx + Math.sin(i * 1.2) * 1.8, -hw, hw), d + 2 + i * 3.2, hw, { spacing: 0.1 });
+    this.placeObstacle(d + 14, gr, T, hw);
+  }
+
   _forkSign(p, text, col) {
     if (!p) return;
     const l = this.makeLabel(text, col);
@@ -632,6 +642,11 @@ export class World {
     }
     const seg = Math.max(4, Math.min(segLen(gr), lim - d));
     if (d > 36) this.regular(d, seg, gr, T, this.halfWidth(d + 10), 0);
+    // a landmark cluster (village corner / picnic / lift base) about every 150 m: food + something to smash
+    if (d > 90 && d >= (this.nextClusterD || 0) && lim - d > 30 && this.zoneFree(d - 4, d + 30, null)) {
+      this.nextClusterD = d + this.rng.range(130, 170);
+      this.placeCluster(d + 6, gr, T, this.halfWidth(d + 16));
+    }
     this.genD = d + seg;
     const rec = this.recent;
     if (rec.length && rec[0].d < d - 60) { let k = 0; while (k < rec.length && rec[k].d < d - 60) k++; rec.splice(0, k); }
@@ -1130,8 +1145,8 @@ export class World {
     g.label = this.makeLabel('', '#ff5a4a');
     if (g.label) {
       const cx = (x0 + x1) / 2;
-      g.label.position.set(cx, this.groundY(cx, gd) + H + Math.max(2.4, H * 0.6), -gd);
-      const lw = mini ? clamp((x1 - x0) * 0.6, 7, 30) : clamp(hwG * 0.9, 10, 60);
+      g.label.position.set(cx, this.groundY(cx, gd) + H + Math.max(1.4, H * 0.35), -gd);
+      const lw = mini ? clamp((x1 - x0) * 0.35, 4, 9) : clamp(2.6 + minR * 1.1, 5, 11);
       g.label.scale.set(lw, lw * 0.3, 1);
       this.group.add(g.label);
     }
@@ -1143,7 +1158,7 @@ export class World {
 
   setGateLabel(g) {
     if (!g.label) return;
-    const txt = g.locked ? '🔒 PATRON' : (g.kind === 'final' ? '🏁 ' : '') + '⛔ ' + fmtDiam(g.minR * 2) + ' m';
+    const txt = g.locked ? '🔒 PATRON' : '⛔ ' + fmtDiam(g.minR * 2) + ' m';
     const col = g.ready === 2 ? '#2fd36b' : g.ready === 1 ? '#ffb03a' : '#ff5a4a';
     g.labelText = txt;
     if (col === g.labelCol && g._lt === txt) return;

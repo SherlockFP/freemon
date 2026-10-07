@@ -87,7 +87,7 @@ export class UI {
       toastSoft: $('toast-soft'), tutor: $('tutor'), revive: $('revive-panel'), rvTitle: $('rv-title'), rvDist: $('rv-dist'), btnRevive: $('btn-revive'), btnReviveEnd: $('btn-revive-end'),
     };
     this.floatCount = 0;
-    try { meta.onStamp((d) => this.toastSoft(`🛂 YENİ DAMGA! ${d.name}`, { icon: d.icon })); } catch { /* ignore */ }
+    try { meta.onStamp((d) => this.toastSoft(`Yeni damga: ${d.name}!`, { icon: d.icon })); } catch { /* ignore */ }
     this.lastTonsText = '';
     this.pulseT = 0;
     this.timers = [];
@@ -689,6 +689,9 @@ ${dist} m`; }
     const c = document.createElement('div');
     c.className = 'cmb';
     c.innerHTML = '<span class="cmb-n"></span><i class="cmb-bar"><b></b></i>';
+    this._cmK = document.createElement('b'); this._cmK.className = 'ch k';
+    this._cmM = document.createElement('b'); this._cmM.className = 'ch m';
+    c.firstChild.appendChild(this._cmK); c.firstChild.appendChild(this._cmM);
     this.el.hud.appendChild(c);
     this._cmb = c; this._cmn = c.firstChild; this._cmbar = c.lastChild.firstChild;
     return c;
@@ -700,10 +703,11 @@ ${dist} m`; }
     if (c.classList.contains('broke')) return;
     const n = this._cmN >= 3 ? this._cmN : 0, mu = this._mu || 0;
     if (!n && !mu) { if (c.classList.contains('on')) c.className = 'cmb'; return; }
-    const parts = [];
-    if (n) parts.push(`${this._cmT >= 3 ? '\u{1F525} ' : ''}KOMBO x${n}`);
-    if (mu > 1) parts.push(`x${mu} SKOR`);
-    this._cmn.textContent = parts.join(' · ');
+    this._cmK.textContent = n ? `${this._cmT >= 3 ? '🔥 ' : ''}KOMBO x${n}` : '';
+    this._cmK.style.display = n ? '' : 'none';
+    this._cmM.textContent = mu > 1 ? `x${mu}` : '';
+    this._cmM.style.display = mu > 1 ? '' : 'none';
+    this._cmM.className = `ch m m${Math.min(4, Math.max(0, mu - 1))}`;
     if (!n) { const lv = mu >= 6 ? 3 : mu >= 4 ? 2 : mu >= 3 ? 1 : 0; c.className = `cmb on t${lv} nobar`; }
   }
 
@@ -730,7 +734,7 @@ ${dist} m`; }
       }
     } else if (this._cmN >= 3) {
       this._cmN = 0; this._cmT = 0;
-      this._cmn.textContent = 'KOMBO KIRILDI';
+      this._cmK.textContent = 'KOMBO KIRILDI'; this._cmK.style.display = ''; this._cmM.style.display = 'none';
       c.className = 'cmb broke';
       clearTimeout(this._cmBk);
       this._cmBk = setTimeout(() => { if (c.classList.contains('broke')) { c.className = 'cmb'; this._cmRender(); } }, 1150);
@@ -799,12 +803,8 @@ ${dist} m`; }
   }
 
   recRibbon() {
-    const r = document.createElement('div');
-    r.className = 'rec-ribbon';
-    r.textContent = '★ YENİ REKOR! ★';
-    this.el.hud.appendChild(r);
     snd('chime');
-    setTimeout(() => r.remove(), 2000);
+    this.toastSoft('★ YENİ REKOR!');
   }
 
   // no combo data from the runner: a big score chunk is a combo hit, 2.2 s without one breaks it
@@ -820,6 +820,7 @@ ${dist} m`; }
   float(text, x, y, cls = '') {
     const now = performance.now();
     const prio = cls === 'big' || cls === 'bad';
+    if (this.el.hud.classList.contains('rush') && y < window.innerHeight * 0.27) y = window.innerHeight * 0.27;   // never into the top HUD block
     if (now - this._lastFloat < (prio ? 650 : 1000) || this.floatCount > 2) return;
     this._lastFloat = now;
     const d = document.createElement('div');
@@ -869,7 +870,7 @@ ${dist} m`; }
     try { meta.track('buff', { id }); } catch { /* ignore */ }
     snd('chime');
     // fly-in card
-    this._ann(() => this._buffCardNow(b, icon, name, secs), 1000);
+    if (!this.el.hud.classList.contains('rush')) this._ann(() => this._buffCardNow(b, icon, name, secs), 1000);
   }
 
   _buffCardNow(b, icon, name, secs) {
@@ -1069,7 +1070,7 @@ ${dist} m`; }
   }
   _toastNow(text, opts) {
     const box = this.el.toastSoft;
-    while (box.children.length >= 2) box.firstChild.remove();
+    while (box.children.length >= 1) box.firstChild.remove();   // ONE visible toast in-run
     const d = document.createElement('div');
     d.className = 'ts';
     const ico = opts && opts.icon;

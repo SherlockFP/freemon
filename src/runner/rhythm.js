@@ -31,10 +31,25 @@ export class RhythmLane {
       tr.toWorld(s, u + HALF, 0.07, _v); pos.set([_v.x, _v.y, _v.z], i * 6 + 3);
       if (i < n - 1) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     }
+    // bright glow lines along both lane edges
+    const EW = 0.22, epos = new Float32Array(n * 12), eidx = [];
+    for (let i = 0; i < n; i++) {
+      const s = s0 + i * SEG;
+      tr.toWorld(s, u - HALF - EW, 0.1, _v); epos.set([_v.x, _v.y, _v.z], i * 12);
+      tr.toWorld(s, u - HALF + EW, 0.1, _v); epos.set([_v.x, _v.y, _v.z], i * 12 + 3);
+      tr.toWorld(s, u + HALF - EW, 0.1, _v); epos.set([_v.x, _v.y, _v.z], i * 12 + 6);
+      tr.toWorld(s, u + HALF + EW, 0.1, _v); epos.set([_v.x, _v.y, _v.z], i * 12 + 9);
+      if (i < n - 1) { const a = i * 4, b2 = a + 4; eidx.push(a, a + 1, b2, a + 1, b2 + 1, b2, a + 2, a + 3, b2 + 2, a + 3, b2 + 3, b2 + 2); }
+    }
+    const egeo = new THREE.BufferGeometry();
+    egeo.setAttribute('position', new THREE.BufferAttribute(epos, 3)); egeo.setIndex(eidx);
+    const emesh = new THREE.Mesh(egeo, new THREE.MeshBasicMaterial({ color: 0xfff2a8, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    emesh.frustumCulled = false;
+    run.ctx.scene.add(emesh);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setIndex(idx);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffc83a, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffc83a, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
     run.ctx.scene.add(mesh);
@@ -48,11 +63,11 @@ export class RhythmLane {
       const pm = new THREE.MeshBasicMaterial({ color: 0xfff0a0, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
       const m = new THREE.Mesh(PAD_GEO, pm);
       tr.toWorld(s, u, 0.14, _v); m.position.copy(_v);
-      m.scale.set(1.8, 0.2, 1.8);
+      m.scale.set(2.3, 0.25, 2.3);
       run.ctx.scene.add(m);
       pads.push({ s, mesh: m, hit: false });
     }
-    this.strip = { s0, s1, u, mesh, pads, swept: -1e9 };
+    this.strip = { s0, s1, u, mesh, emesh, pads, swept: -1e9 };
     this._sweep(true);
   }
 
@@ -78,12 +93,12 @@ export class RhythmLane {
     if (!st) return;
     const sc = this.run.ctx.scene;
     sc.remove(st.mesh); st.mesh.geometry.dispose(); st.mesh.material.dispose();
+    sc.remove(st.emesh); st.emesh.geometry.dispose(); st.emesh.material.dispose();
     for (const p of st.pads) { sc.remove(p.mesh); p.mesh.material.dispose(); }
     this.strip = null;
   }
 
   _end(msg) {
-    if (this.chain >= 2 && msg) this.run.ctx.ui.toastSoft?.(`${msg} x${this.chain}`);
     this.chain = 0;
     this.on = false;
   }
@@ -110,22 +125,23 @@ export class RhythmLane {
     if (this.sweepT <= 0) { this.sweepT = 0.4; this._sweep(false); }
     // look: pulse with the beat (pads breathe, strip glows)
     const ph = beat.phase, pulse = Math.pow(1 - ph, 3);
-    st.mesh.material.opacity = 0.3 + 0.22 * pulse + 0.25 * this.flash;
+    st.mesh.material.opacity = 0.4 + 0.25 * pulse + 0.25 * this.flash;
+    st.emesh.material.opacity = 0.65 + 0.35 * pulse;
     const spb = 60 / (beat.bpm || 100);
     for (const p of st.pads) {
       const near = Math.abs(p.s - b.s) < 90;
       p.mesh.visible = near && !p.hit;
       if (!p.mesh.visible) continue;
-      const k = 1 + 0.45 * pulse;
-      p.mesh.scale.set(1.8 * k, 0.2 + 0.25 * pulse, 1.8 * k);
-      p.mesh.material.opacity = 0.55 + 0.4 * pulse;
+      const k = 1 + 0.5 * pulse;
+      p.mesh.scale.set(2.3 * k, 0.25 + 0.3 * pulse, 2.3 * k);
+      p.mesh.material.opacity = 0.7 + 0.3 * pulse;
     }
     // ball on the strip?
     const inside = b.s >= st.s0 && b.s <= st.s1;
     const lat = Math.abs(b.u - st.u);
     if (inside && b.s > st.s0 + 0.5) {
       if (lat < HALF + 0.35) {
-        if (!this.on) { this.on = true; run.ctx.ui.toastSoft?.('RİTİM HATTI'); }
+        if (!this.on) this.on = true;
       } else if (this.on) this._end('RİTİM BİTTİ');
       if (this.on) {
         for (const p of st.pads) {

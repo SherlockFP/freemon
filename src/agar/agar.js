@@ -251,11 +251,21 @@ export class AgarMode {
     // zone patches (ice blue / deep snow / pale violet) + crystal landmarks, visible from afar
     {
       const pr = (() => { let a = 20241; return () => ((a = (a * 16807) % 2147483647) / 2147483647); })();
-      const cols = [0x9fd4ff, 0x7fc0f5, 0xd6e6ff, 0xc9b8f5, 0xffffff];
-      for (let i = 0; i < 46; i++) {
+      const cols = [0x9fd4ff, 0xffb8d1, 0xb8f0c8, 0xffe9a0, 0xd6c4ff, 0xffcfa6, 0x8fe3f0, 0xc9f2a8];
+      this.patches = [];
+      for (let i = 0; i < 90; i++) {
         const a = pr() * 6.2832, d = Math.sqrt(pr()) * (R - 120), r = 40 + pr() * 90, col = cols[i % cols.length];
-        const m = new THREE.Mesh(new THREE.CircleGeometry(r, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: col === 0xffffff ? 0.55 : 0.4, depthWrite: false }));
-        m.position.set(Math.cos(a) * d, 0.04, Math.sin(a) * d); sc.add(m);
+        const m = new THREE.Mesh(new THREE.CircleGeometry(r, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, depthWrite: false }));
+        m.position.set(Math.cos(a) * d, 0.04, Math.sin(a) * d); sc.add(m); this.patches.push([m.position.x, m.position.z, r, col]);
+      }
+      // coloured fort plazas + paths between the forts
+      const pc = [0xffc2d9, 0xbde8ff, 0xc9f5c4], FP = FORT_POS;
+      FP.forEach(([x, z], i) => { const m = new THREE.Mesh(new THREE.CircleGeometry(FR + 34, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: pc[i % 3], transparent: true, opacity: 0.6, depthWrite: false })); m.position.set(x, 0.06, z); sc.add(m); });
+      for (let i = 0; i < FP.length; i++) {
+        const A = FP[i], B = FP[(i + 1) % FP.length], len = Math.hypot(B[0] - A[0], B[1] - A[1]);
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(len, 22).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xfff1c9, transparent: true, opacity: 0.6, depthWrite: false }));
+        m.position.set((A[0] + B[0]) / 2, 0.05, (A[1] + B[1]) / 2); m.rotation.y = -Math.atan2(B[1] - A[1], B[0] - A[0]); sc.add(m);
+        const m2 = m.clone(); m2.scale.set(1, 1, 1); m2.position.set(A[0] / 2, 0.05, A[1] / 2); const l2 = Math.hypot(A[0], A[1]); m2.geometry = new THREE.PlaneGeometry(l2, 16).rotateX(-Math.PI / 2); m2.rotation.y = -Math.atan2(A[1], A[0]); sc.add(m2);
       }
       const NC = 70, cm = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 5), new THREE.MeshBasicMaterial({ color: 0xffffff }), NC);
       const mt = new THREE.Matrix4(), q = new THREE.Quaternion(), pv = new THREE.Vector3(), sv = new THREE.Vector3(), cc = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
@@ -443,11 +453,12 @@ export class AgarMode {
       if (px * px + pz * pz > (R - 4) * (R - 4)) continue;
       this.foodMove(i, px, pz); n++;
     }
-    const sp = [0.55, 0.7, 1.4]; let j = 0;
-    for (let k = 1; k < NOWN && j < 3; k++) {
+    const sp = [0.55, 0.7, 1.0, 0.8]; let j = 0;
+    for (let k = 0; k < 40; k++) { const a = k * 0.157 + Math.random() * 0.1, d = 7 + Math.random() * 9, px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d; if (px * px + pz * pz < (R - 4) * (R - 4)) this.spawnPellet(px, pz, 3, [0xff7aa8, 0xffd84a, 0x6ee7a0, 0x7ac8ff, 0xc89bff][k % 5]); }
+    for (let k = 1; k < NOWN && j < 4; k++) {
       const o = this.owners[k];
       if (!o.alive || !o.bot || o.human || o.cellN !== 1) continue;
-      const a = Math.random() * 6.2832, d = 28 + j * 12 + Math.random() * 10;
+      const a = Math.random() * 6.2832, d = 24 + j * 7 + Math.random() * 8;
       this.placeBot(o, x + Math.cos(a) * d, z + Math.sin(a) * d, m * sp[j]); j++;
     }
     this.nearT = 3;
@@ -567,11 +578,12 @@ export class AgarMode {
       for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.m > m * 0.8 && (c.x - p.x) * (c.x - p.x) + (c.z - p.z) * (c.z - p.z) < 900) { ok = false; break; } }
       if (ok) break;
     }
+    if (!o.bot && o.id === this.me && this.state !== 'title' && this.mp !== 'client') { const f = this.forts[(Math.random() * this.forts.length) | 0], a0 = Math.atan2(-f.z, -f.x) + (Math.random() - 0.5) * 1.2, dd = FR + 34; p.x = f.x + Math.cos(a0) * dd; p.z = f.z + Math.sin(a0) * dd; }
     this.newCell(o, p.x, p.z, m);
     this.props.clearStuck(o.id);
     if (o.id === this.me) this.titleIdx = 0;
     o.away = false; o.alive = true; o.wasAlive = true; o.cellN = 1; o.mass = m; o.cx = p.x; o.cz = p.z; o.lx = p.x; o.lz = p.z;
-    o.boostT = o.boostCd = o.splitCd = o.magnet = o.speed = 0; o.shield = o.bot ? 0 : (o.id === this.me ? 30 : 6);
+    o.boostT = o.boostCd = o.splitCd = o.magnet = o.speed = 0; o.shield = o.bot ? 0 : (o.id === this.me ? 60 : 6); o.prot = !o.bot && o.id === this.me;
     o.kills = 0; o.xpRun = 0; o.t0 = this.time; o.bestRank = 99; o.maxMass = m; o.killer = -1;
     o.tx = p.x; o.tz = p.z; o.wanderT = 0; o.mag = 0;
     o.dx = Math.cos(Math.random() * 6.28); o.dz = Math.sin(Math.random() * 6.28);
@@ -785,7 +797,7 @@ export class AgarMode {
 
   applyPickup(o, type) {
     const t = PUP_TYPES[type];
-    if (type === 0) o.magnet = t.t; else if (type === 1) o.shield = t.t; else if (type === 2) o.speed = t.t;
+    if (type === 0) o.magnet = t.t; else if (type === 1) o.shield = Math.max(o.shield, t.t); else if (type === 2) o.speed = t.t;
     else if (type === 4) { for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.o === o.id) c.m = Math.min(MAXM, c.m + 80 + c.m * 0.2); } this.pushFeed(o.name + ' altın kar tanesi aldı!'); }
     else for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.o === o.id) c.m = Math.min(MAXM, c.m * 1.3 + 10); }
     this.sfxTo(o.id, type === 4 ? 'golden' : 'chime', 1);
@@ -1083,6 +1095,7 @@ export class AgarMode {
     const po = this.owners[prey.o];
     if (po.shield > 0) return;
     pred.m = Math.min(MAXM, pred.m + prey.m);
+    { const pw = this.owners[pred.o]; if (pw.prot && pw.shield > 0) { pw.shield = 0; pw.prot = false; if (pred.o === this.me) this.toast('KORUMA BİTTİ'); } }
     this.owners[pred.o].xpRun += prey.m;
     prey.on = false;
     po.killer = pred.o;
@@ -1936,7 +1949,7 @@ export class AgarMode {
     let ht = 120 * zf;
     if (fo) {
       const rEff = Math.max(KR * Math.sqrt(fo.mass), fo.ext * 0.8);
-      ht = me.alive ? (16 + 7.5 * rEff) * zf : Math.max(120 * zf, (16 + 7.5 * rEff) * zf);
+      ht = me.alive ? (16 + 7.5 * rEff) * zf * (0.78 + 0.22 * Math.min(1, (this.time - me.t0) / 50)) : Math.max(120 * zf, (16 + 7.5 * rEff) * zf);
       const kk = Math.min(1, dt * (me.alive ? 6 : 1.5));
       this.camX += (fo.cx + (me.alive ? this.inp.dx * this.inp.mag * rEff * 0.5 : 0) - this.camX) * kk;
       this.camZ += (fo.cz + (me.alive ? this.inp.dz * this.inp.mag * rEff * 0.5 : 0) - this.camZ) * kk;
@@ -2248,7 +2261,7 @@ export class AgarMode {
       const eff = [[me.magnet, PUP_TYPES[0]], [me.shield, PUP_TYPES[1]], [me.speed, PUP_TYPES[2]]];
       for (let i = 0; i < 3; i++) {
         const [t, d] = eff[i];
-        if (t > 0) { const c = h.chips[ci++]; c.style.display = 'block'; c.textContent = d.emoji + ' ' + Math.ceil(t) + 's'; }
+        if (t > 0) { const c = h.chips[ci++]; c.style.display = 'block'; if (i === 1 && me.prot) { const q = Math.ceil(t); c.textContent = '🛡 KORUMA ' + Math.floor(q / 60) + ':' + ('0' + (q % 60)).slice(-2); c.style.fontSize = '11px'; } else { c.textContent = d.emoji + ' ' + Math.ceil(t) + 's'; c.style.fontSize = ''; } }
       }
       for (; ci < 3; ci++) h.chips[ci].style.display = 'none';
       const cd = me.boostCd > 0 ? me.boostCd / 2.4 : 0;
@@ -2267,11 +2280,13 @@ export class AgarMode {
     for (let i = 0; i < NICE; i++) { g.beginPath(); g.arc(c0 + T.ice[i * 3] * sc, c0 + T.ice[i * 3 + 1] * sc, Math.max(1, T.ice[i * 3 + 2] * sc), 0, 6.2832); g.fill(); }
     g.fillStyle = 'rgba(255,255,255,0.22)';
     for (let i = 0; i < NDEEP; i++) { g.beginPath(); g.arc(c0 + T.deep[i * 3] * sc, c0 + T.deep[i * 3 + 1] * sc, Math.max(1, T.deep[i * 3 + 2] * sc), 0, 6.2832); g.fill(); }
+    if (this.patches) for (const p of this.patches) { g.fillStyle = '#' + ('000000' + p[3].toString(16)).slice(-6); g.globalAlpha = 0.28; g.beginPath(); g.arc(c0 + p[0] * sc, c0 + p[1] * sc, Math.max(1, p[2] * sc), 0, 6.2832); g.fill(); }
+    g.globalAlpha = 1;
     if (this.storm.on) { g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1.5; g.beginPath(); g.arc(c0 + this.storm.x * sc, c0 + this.storm.z * sc, this.storm.r * sc, 0, 6.2832); g.stroke(); }
     for (const f of this.forts) {
       const fo = f.own >= 0 ? this.owners[f.own] : null;
       g.fillStyle = fo ? '#' + ('000000' + fo.col.toString(16)).slice(-6) : 'rgba(255,255,255,0.5)'; g.strokeStyle = '#fff'; g.lineWidth = 1;
-      g.beginPath(); g.rect(c0 + f.x * sc - 3, c0 + f.z * sc - 3, 6, 6); g.fill(); g.stroke();
+      g.beginPath(); g.rect(c0 + f.x * sc - 4, c0 + f.z * sc - 4, 8, 8); g.fill(); g.stroke(); g.strokeStyle = 'rgba(255,255,255,0.45)'; g.beginPath(); g.arc(c0 + f.x * sc, c0 + f.z * sc, 7, 0, 6.2832); g.stroke();
     }
     for (let i = 0; i < NOWN; i++) {
       const o = this.owners[i];

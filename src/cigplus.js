@@ -2099,12 +2099,31 @@ export class CigGame {
       const g = gs[i];
       if (g.broken || b.d > g.d + 4) continue;
       if (g.kind !== 'mini' && (!nx || g.d < nx.d)) nx = g;
-      if (b.d < g.d - 140) continue;
+      if (b.d < g.d - 300) continue;
+      if (b.d < g.d - 140) { this._gateAid(g); continue; }
       const rdy = this._readyOf(g);
       w.setGateReady(g, rdy);
+      this._gateAid(g);
       if (rdy === 2 && !g._kick && !g.locked && g.d - b.d < 40 && g.d - b.d > 0) { g._kick = true; this._h('kick', 0.1, 3); }
     }
     this._next = nx;
+  }
+
+  // 'kar yağışı' rescue patch 120-200 m before a barrier + a hint when you are far too small 300 m out
+  _gateAid(g) {
+    const b = this.ball, w = this.world;
+    if (g.locked || g.kind === 'mini' || !this.L) return;
+    const left = g.d - b.d;
+    if (left < 0 || left > 300) return;
+    if (!g._hint && b.r < 0.8 * g.minR) { g._hint = true; this._h('toast', 'BÜYÜMEN LAZIM! Kapıya kadar ye ve büyü'); }
+    if (!g._rain && left <= 200 && left > 125) {
+      g._rain = true;
+      const target = 0.85 * g.minR, R3 = target ** 3 - b.r ** 3;
+      if (R3 > 0) {
+        w.supplyChunks(b.x * 0.5, g.d - 195, g.d - 125, R3 / CFG.growK / CFG.chunkGain, 14);
+        this._h('toast', '❄️ Kar yağışı! Önündeki karı topla');
+      }
+    }
   }
 
   _levelTick(dt) {
@@ -2200,6 +2219,14 @@ export class CigGame {
     // only real input activity counts (touch / drag / key): holding a lane with a still finger is not AFK
     this._afkT = this._afkAcc;
     rate += 0.1 * clamp((this._afkAcc - 12) / 6, 0, 1);
+    // soft landing before a barrier: the last 15 % of a stage melts half as fast when you are close to the requirement
+    const ng = this._next;
+    if (ng && this.L && !ng.locked) {
+      let pd = 0;
+      for (const q of w.gates) if (q.d < ng.d - 1 && q.d > pd) pd = q.d;
+      const left = ng.d - b.d;
+      if (left > 0 && left < 0.15 * Math.max(200, ng.d - pd) && b.r >= 0.7 * ng.minR) rate *= 0.5;
+    }
     if (b.airborne || M.noMelt) rate = 0;
     let onPatch = false;
     if (!b.airborne && !M.noMelt && w.inPatch(b.x, b.d)) { rate += CFG.patchMelt; onPatch = true; }

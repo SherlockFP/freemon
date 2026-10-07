@@ -654,7 +654,7 @@ Object.assign(Track.prototype, {
         if (rng.chance(0.4)) p.dYaw = this._turn(yaw0, rng.range(8, 28) * DEG);
         break;
       case 'gapRamp': {
-        const lead = 8, rampLen = 8, rampH = 2.0, land = 10;
+        const rampLen = 8, rampH = 2.0, land = 10, lead = Math.max(8, Math.ceil(1.0 * this.speedAt(s0)) - rampLen);
         const lipS = s0 + lead + rampLen;
         const vs = this.speedAt(lipS), slope = rampH / rampLen;
         const vh = Math.max(T.RAMP_MIN_VH, vs * slope * T.RAMP_BOOST);
@@ -665,7 +665,7 @@ Object.assign(Track.prototype, {
         break;
       }
       case 'gapJump': {
-        const lead = 10, land = 10;
+        const lead = Math.max(10, Math.ceil(1.1 * this.speedAt(s0))), land = 10;
         const gS0 = s0 + lead, vs = this.speedAt(gS0);
         const fl = flightDist(vs, T.JUMP_VH, 0, this.gravity(gS0));
         const gap = Math.max(3, Math.floor(fl * rng.range(0.38, 0.5 + 0.16 * diff)));
@@ -676,7 +676,7 @@ Object.assign(Track.prototype, {
       }
       case 'split': {
         // centre lane missing for a stretch; left + right lanes stay
-        const vs = this.speedAt(s0), lead = Math.max(10, Math.ceil(0.8 * vs)), hole = rng.int(14, 24), tail = 8;
+        const vs = this.speedAt(s0), lead = Math.max(12, Math.ceil(1.3 * vs)), hole = rng.int(14, 24), tail = 8;
         p.len = lead + hole + tail; p.hw = hwFor(p.n);
         const hc = hexCols(p.hw - trim);
         const g = (p.grid = gridParams(s0, s0 + p.len, hc.nc, hc.w));
@@ -695,7 +695,7 @@ Object.assign(Track.prototype, {
       }
       case 'hexHoles': {
         // platform with whole lane-segments missing; always >= 1 free lane, reachable from the previous segment
-        const vs = this.speedAt(s0), segLen = Math.max(8, Math.round(vs * 1.0)), lead = Math.max(10, Math.ceil(0.9 * vs)), tail = 7;
+        const vs = this.speedAt(s0), segLen = Math.max(8, Math.round(vs * 1.0)), lead = Math.max(14, Math.ceil(1.5 * vs)), tail = 7;
         const nSeg = Math.max(3, Math.min(rng.int(3, 5), Math.floor(90 / segLen)));
         p.len = lead + nSeg * segLen + tail; p.hw = hwFor(p.n);
         const hc = hexCols(p.hw - trim);
@@ -707,7 +707,8 @@ Object.assign(Track.prototype, {
           const opts = [route - 1, route, route + 1].filter((x) => x >= 0 && x < NL);
           route = opts[rng.int(0, opts.length - 1)];
           const free = [route];
-          if (!(diff > 0.15 && rng.chance(0.35 + 0.5 * diff))) { let o; do { o = rng.int(0, NL - 1); } while (o === route); free.push(o); }
+          if (k === 0 && route !== (NL >> 1)) free.push(NL >> 1);   // the entry always keeps the centre lane solid too
+          else if (!(diff > 0.15 && rng.chance(0.35 + 0.5 * diff))) { let o; do { o = rng.int(0, NL - 1); } while (o === route); free.push(o); }
           segs.push({ s0: s0 + lead + k * segLen, s1: s0 + lead + (k + 1) * segLen, route, free });
         }
         p.laneSegs = segs;
@@ -1154,6 +1155,8 @@ Object.assign(Track.prototype, {
         const g = p.grid, hf = hwf(p.s0, p.s1);
         this._slab(mb, { a: p.s0, b: p.s1, hwf: hf, hTop: zero, curb: p.curb, C, rng, top: null, underside: false });
         this._hexGrid(mb, { g, hwf: () => g.ext, C, rng, grout: true, walls: true, present: (r, c) => g.holes[r * (g.nc + 1) + c] === 0 });
+        { const hs = p.kind === 'split' ? p.holeS0 : p.laneSegs[0].s0;   // warning chevrons across the road ahead of the first hole
+          for (let k = 1; k <= 3; k++) this._bandU(mb, hs - 4 * k - 0.8, hs - 4 * k, p.hw, C); }
         break;
       }
       case 'stairs': {

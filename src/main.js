@@ -607,11 +607,10 @@ function updateLevelHud(V) {
   if (!h) return;
   const m5 = Math.round(V.left / 5) * 5;
   const s = V.finalBroken ? 'BİTİŞ' : V.final ? 'FİNAL' : 'ETAP ' + (V.gateI + 1) + '/' + V.S;
-  const t = V.finalBroken ? '🏁 ' + m5 + ' m' : (V.locked ? '🔒 PATRON · ' : V.need > 0 ? '⛔ ' + fmtD(V.need) + ' m · ' : '') + m5 + ' m';
+  const t0 = V.finalBroken ? '🏁 ' + m5 + ' m' : (V.locked ? '🔒 PATRON · ' : V.need > 0 ? '⛔ ' + fmtD(V.need) + ' m · ' : '') + m5 + ' m';
+  const t = s + ' · ' + t0;
   const r = V.finalBroken ? 2 : V.ready;
-  const z = fmtD(V.have) + ' m · ' + (Math.round(V.kmh / 5) * 5) + ' km/sa';
-  const sf = s + ' · ' + z;
-  if (sf !== h.s) { h.s = sf; h.gs.textContent = sf; }
+  if (h.s !== '-') { h.s = '-'; h.gs.textContent = ''; h.gs.style.display = 'none'; }
   if (t !== h.t) { h.t = t; h.gt.textContent = t; }
   if (r !== h.r) { h.r = r; h.gc.className = 'cgl gc r' + r; }
   if (V.gateI !== h.gi) { h.gi = V.gateI; for (let i = 0; i < h.marks.length; i++) h.marks[i].classList.toggle('passed', i < V.gateI); }
@@ -1035,8 +1034,9 @@ function updateCamera(dt, snap = false) {
   // pull back as the ball grows so it keeps ~20-25% of the screen height instead of half
   const z = (1 + camZoom) * (1 + 0.4 * clamp((r - 1) / 8, 0, 1));
   // steep enough that <= ~20-25% of the portrait screen is sky and the path stays visible over a big ball
-  let back = (6.8 + r * 2.5) * z;
-  let up = (8.5 + r * 4.2) * z;
+  const near = G.lv && G.lv.n <= 5 ? 0.88 : 1;   // Dağ 1-5: the ball gets more screen presence
+  let back = (6.8 + r * 2.5) * z * near;
+  let up = (8.5 + r * 4.2) * z * near;
   let ox = b.x * 0.7;
   const menu = G.state === 'menu';
   if (menu) {

@@ -1442,7 +1442,7 @@ export class Runner {
       c.font = '900 44px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
       c.lineWidth = 7; c.strokeStyle = '#17345c'; c.strokeText('REKOR', 128, 34); c.fillStyle = '#bff0ff'; c.fillText('REKOR', 128, 34);
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false, depthTest: false }));
-      sp.scale.set(2.4, 0.6, 1); sp.position.y = 1.9;
+      sp.scale.set(3, 0.75, 1); sp.position.y = 1.9; sp.renderOrder = 10;
       m.add(sp);
     }
     this.ctx.scene.add(m);
@@ -1470,7 +1470,6 @@ export class Runner {
     const ds = gs - b.s;
     if (!this.ghostPassed && ds < -2 && b.s > 30) {
       this.ghostPassed = true;
-      this.queueBanner('REKORU GEÇTİN!', 4, 1.4, true);
       const bonus = 300; this.score += bonus; this.coins += 25;
       this.after(0.35, () => this.float('+' + bonus + ' · +25 ❄️', 'big'));
       this.ctx.audio.win?.(); this.ctx.platform.haptic('success');

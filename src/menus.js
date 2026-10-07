@@ -205,6 +205,13 @@ const CSS = `
   border-radius: 20px; border: 3px solid var(--ink); background: linear-gradient(180deg, rgba(36, 70, 128, 0.9), rgba(14, 30, 64, 0.92)); box-shadow: 0 4px 0 var(--ink2), 0 8px 14px rgba(10, 30, 60, 0.3);
 }
 .fm-info:active { transform: translateY(2px); }
+.fm-info { margin-bottom: 16px; position: relative; z-index: 0; }
+.fm-bot { position: relative; z-index: 1; padding-top: 4px; }
+.fm-secrow { padding-top: 6px; }
+.fm-passb { position: absolute; right: 12px; top: calc(var(--sat, env(safe-area-inset-top, 0px)) + 62px); z-index: 3; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; border: 3px solid var(--ink); background: linear-gradient(180deg, #7fe0ff, #2f8fe0); box-shadow: 0 4px 0 var(--ink2); font-size: 22px; line-height: 1; cursor: pointer; padding: 0; text-shadow: none; }
+.fm-passb:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink2); }
+.fm-passb .fm-bdg { top: -6px; right: -6px; }
+.fm-toast.tap { pointer-events: auto; cursor: pointer; }
 .fm-ihead { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; letter-spacing: 0.12em; color: #cfe2ff; text-shadow: var(--ol-sm); }
 .fm-chips { display: flex; gap: 5px; }
 .fm-ichip { display: flex; align-items: center; gap: 3px; height: 21px; padding: 0 8px; border-radius: 11px; border: 2.5px solid var(--ink); background: rgba(255, 255, 255, 0.14); font-size: 12.5px; line-height: 1; letter-spacing: 0; color: #fff; text-shadow: none; white-space: nowrap; }
@@ -307,6 +314,8 @@ const CSS = `
   .fm-best .bv { font-size: 21px; }
 }
 @media (max-height: 680px) {
+  .fm-info { margin-bottom: 14px; padding: 5px 8px 6px; }
+  .fm-goal { display: none; }
   .fm-mrows .fm-mr:nth-child(n+3) { display: none; }
   .fm-ihead { display: none; }
   .fm-sb .lb { display: none; }
@@ -1040,10 +1049,11 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     add(box, el('div', 'ti', t.icon || '🏆'), body);
     toastLayer.appendChild(box);
     void box.offsetWidth;
+    if (t.onTap) { box.classList.add('tap'); box.addEventListener('click', () => { try { t.onTap(); } catch { /* ignore */ } box.remove(); toastBusy = false; pumpToast(); }); }
     box.classList.add('on');
     setTimeout(() => {
       box.classList.remove('on');
-      setTimeout(() => { box.remove(); toastBusy = false; pumpToast(); }, 380);
+      setTimeout(() => { if (!box.isConnected) return; box.remove(); toastBusy = false; pumpToast(); }, 380);
     }, t.ms || 2700);
   }
   function toast(t) {
@@ -1390,11 +1400,11 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
     const vr = el('div', 'fm-row');
     const vlabel = el('div', 'fm-tgl', 'GÖRÜNÜM');
-    const vbtn = button('fm-btn blue', `🎨 ${toggles().visualName}`, () => {
+    const vbtn = button('fm-btn blue', `Görünüm: ${toggles().visualName}`, () => {
       let name;
       try { name = cb.onVisualCycle ? cb.onVisualCycle() : null; } catch { name = null; }
       sfx('toggle');
-      vbtn.textContent = `🎨 ${name || toggles().visualName}`;
+      vbtn.textContent = `Görünüm: ${name || toggles().visualName}`;
     });
     add(vr, el('div', 'fm-aico', '🖼️'), vlabel, vbtn);
     p.list.appendChild(vr);
@@ -2507,6 +2517,10 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     root0.appendChild(top);
 
     // ---- logo (7 taps = rainbow secret); the snowball mascot rides along ----
+    r.passB = button('fm-passb', '🛂', () => { sfx('open'); try { localStorage.setItem('patpat.stampsSeen', String(meta.stamps().filter((x) => x.got).length)); } catch { /* ignore */ } openPassport(); updateMain(); }, 'Kış Pasaportu');
+    r.passBdg = el('span', 'fm-bdg dot off', '');
+    r.passB.appendChild(r.passBdg);
+    root0.appendChild(r.passB);
     const logo = el('div', 'fm-logo');
     logo.setAttribute('role', 'img');
     logo.setAttribute('aria-label', 'PATPAT');
@@ -2651,6 +2665,14 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       r.bShop.textContent = '!';
     } else r.bShop.className = 'fm-bdg off';
 
+    try {
+      const got = meta.stamps().filter((x) => x.got).length;
+      let seen = 0;
+      try { seen = parseInt(localStorage.getItem('patpat.stampsSeen') || '0', 10) || 0; } catch { /* ignore */ }
+      const nw = Math.max(0, got - seen);
+      r.passBdg.textContent = nw ? String(nw) : '';
+      r.passBdg.className = `fm-bdg dot${nw ? ' pulse' : ' off'}`;
+    } catch { /* ignore */ }
     const nb = meta.boxes | 0;
     r.boxBdg.textContent = nb > 1 ? String(nb) : '🎁';
     r.boxBdg.className = `fm-bdg dot gold${nb > 0 ? ' pulse' : ' off'}`;
@@ -2885,7 +2907,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   // Nothing is toasted during a run: meta.js queues mission / achievement / letter notices and the result screen shows them.
   // Only while the lobby is on screen (secrets found in the menu, items bought in the shop) a small toast is fine.
   offs.push(meta.onUnlock((a, extra) => { if (mainOpen && !activePanel) toastAchievement(a, extra); else if (mainOpen) updateMain(); }));
-  offs.push(meta.on('stamp', (d) => { if (mainOpen) { toast({ icon: d.icon, title: 'YENİ DAMGA!', sub: d.name, kind: 'gold', ms: 2200 }); updateMain(); } }));
+  offs.push(meta.on('stamp', (d) => { if (mainOpen) { toast({ icon: d.icon, title: `Yeni damga: ${d.name}!`, sub: 'Pasaportu görmek için dokun', kind: 'gold', ms: 3200, onTap: () => openPassport() }); updateMain(); } }));
   offs.push(meta.on('levelup', () => { if (mainOpen) updateMain(); }));
   offs.push(meta.on('mission', () => { if (mainOpen) updateMain(); }));
   offs.push(meta.on('missionset', (s) => {
