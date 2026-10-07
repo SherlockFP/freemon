@@ -5,6 +5,8 @@ import * as THREE from 'three';
 import { VERSION, MAX_HUMANS } from './proto.js';
 import { Terrain, NICE, NDEEP, NRAMP } from './terrain.js';
 import { generateNames, BOT_CHAT } from './names.js';
+import { Trails, Snowfall } from './snowfx.js';
+import { SKINS } from '../skins.js';
 
 // ------------------------------------------------------------------ constants
 const R = 1100; // arena radius (m) - a big agar.io-like map (2.2 km across)
@@ -15,7 +17,6 @@ const NVIR = 90, NPUP = 40;
 const GS = 40, GN = 55; // food grid (GN * GS >= 2 * R)
 const KR = 0.3; // radius = KR * sqrt(mass)
 const MAXM = 60000;
-const TRAIL_N = 2000, TRAIL_LIFE = 7.5; // groove stamps (ring buffer)
 const TITLES = [[0, 'Çömez'], [60, 'Kar Tanesi'], [150, 'Kartopu'], [400, 'Dev Kartopu'], [1000, 'Çığ'], [2500, 'Buzul'], [6000, 'Kış Kralı'], [15000, 'Efsane Yeti'], [35000, 'Kartopu Tanrısı']];
 const titleOf = (m) => { let k = 0; for (let i = 1; i < TITLES.length; i++) if (m >= TITLES[i][0]) k = i; return k; };
 const VIRR = 3, VIR_MIN = 130; // ice crystal radius / smallest mass that gets shattered
@@ -190,7 +191,7 @@ export class AgarMode {
     for (let i = 0; i < NOWN; i++) {
       const o = {
         id: i, name: '', col: 0xffffff, cr: 1, cg: 1, cb: 1, bot: true, human: null, alive: false, wasAlive: false, cellN: 0, mass: 0, cx: 0, cz: 0, lx: 0, lz: 0, maxR: 1, maxM: 0, ext: 0,
-        dx: 0, dz: 1, mag: 0, ldx: 0, ldz: 1, boostT: 0, boostCd: 0, trailT: 0, splitCd: 0, shield: 0, magnet: 0, speed: 0, respawnT: 0, aiT: Math.random(), tx: 0, tz: 0, wanderT: 0,
+        dx: 0, dz: 1, mag: 0, ldx: 0, ldz: 1, boostT: 0, boostCd: 0, trailT: 0, splitCd: 0, shield: 0, magnet: 0, speed: 0, away: false, respawnT: 0, aiT: Math.random(), tx: 0, tz: 0, wanderT: 0,
         kills: 0, xpRun: 0, t0: 0, bestRank: 99, maxMass: 0, seen: 0, killer: -1, sprite: null, tex: null, spriteName: '',
       };
       this.owners.push(o);
@@ -280,9 +281,9 @@ export class AgarMode {
     this.stormB = new THREE.Mesh(new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2), decal({ map: stormTex, opacity: 0.6 }));
     this.stormA.position.y = 0.5; this.stormB.position.y = 1.4; this.stormA.visible = this.stormB.visible = false; this.stormA.renderOrder = this.stormB.renderOrder = 6;
     sc.add(this.stormA); sc.add(this.stormB);
-    // trail grooves (ring buffer of faint stamps)
-    this.trX = new Float32Array(TRAIL_N); this.trZ = new Float32Array(TRAIL_N); this.trR = new Float32Array(TRAIL_N); this.trT = new Float32Array(TRAIL_N).fill(-99);
-    this.trailMesh = mk(new THREE.CircleGeometry(1, 12).rotateX(-Math.PI / 2), decal({ opacity: 0.5 }), TRAIL_N, true); this.trailMesh.position.y = 0.17; this.trailMesh.renderOrder = 3;
+    // continuous snow grooves + snowfall
+    this.trails = new Trails(sc, CAP);
+    this.snowfall = new Snowfall(sc, 2400);
     // cells (+ soft blob shadows)
     const shTex = canvasTex(64, 64, (g, W, H) => { const gr = g.createRadialGradient(W / 2, H / 2, 2, W / 2, H / 2, W / 2); gr.addColorStop(0, 'rgba(25,55,100,0.55)'); gr.addColorStop(0.6, 'rgba(25,55,100,0.28)'); gr.addColorStop(1, 'rgba(25,55,100,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, H); });
     this.shadowMesh = mk(flat(), decal({ map: shTex }), CAP, false);
@@ -389,7 +390,7 @@ export class AgarMode {
     this.fs = 1;
     this.genTerrain((Math.random() * 2147483647) | 0);
     this.storm.on = false; this.storm.next = 35 + Math.random() * 25; this.stormA.visible = this.stormB.visible = false;
-    this.trT.fill(-99); this.trN = 0;
+    this.trails.clear();
     for (let i = 0; i < FT; i++) { this.gRemove(i); this.fv[i] = 0; }
     this.ghead.fill(-1); this.fin.fill(0);
     for (let i = 0; i < FOOD; i++) {
@@ -407,7 +408,7 @@ export class AgarMode {
     const names = generateNames(NOWN, [this.nick]);
     for (let i = 0; i < NOWN; i++) {
       const o = this.owners[i];
-      o.bot = i !== 0; o.human = null; o.alive = false; o.wasAlive = false; o.respawnT = 0; o.shield = o.magnet = o.speed = o.boostT = o.boostCd = 0;
+      o.bot = i !== 0; o.human = null; o.away = false; o.alive = false; o.wasAlive = false; o.respawnT = 0; o.shield = o.magnet = o.speed = o.boostT = o.boostCd = 0;
       if (i === 0) { this.setColor(o, 0xbfeaff); this.setName(o, this.nick || 'Sen', true); } else {
         this.tmpC.setHSL((i * 0.6180339) % 1, 0.72, 0.56);
         this.setColor(o, this.tmpC.getHex());
@@ -422,6 +423,11 @@ export class AgarMode {
         if (i <= 3) m = rnd(900, 2600);
         this.spawnOwner(this.owners[i], m);
       }
+      this.popTarget = this.popCenter(); this.popT = rnd(4, 9);
+      const want = Math.round(this.popTarget);
+      const cand = [];
+      for (let i = 4; i < NOWN; i++) cand.push(i);
+      for (let n = NOWN - want; n > 0 && cand.length; n--) { const j = (Math.random() * cand.length) | 0; this.removeBot(this.owners[cand[j]], false); cand.splice(j, 1); }
     }
   }
 
@@ -466,7 +472,7 @@ export class AgarMode {
     }
     this.newCell(o, p.x, p.z, m);
     if (o.id === this.me) this.titleIdx = 0;
-    o.alive = true; o.wasAlive = true; o.cellN = 1; o.mass = m; o.cx = p.x; o.cz = p.z; o.lx = p.x; o.lz = p.z;
+    o.away = false; o.alive = true; o.wasAlive = true; o.cellN = 1; o.mass = m; o.cx = p.x; o.cz = p.z; o.lx = p.x; o.lz = p.z;
     o.boostT = o.boostCd = o.splitCd = o.magnet = o.speed = 0; o.shield = o.bot ? 0 : 3;
     o.kills = 0; o.xpRun = 0; o.t0 = this.time; o.bestRank = 99; o.maxMass = m; o.killer = -1;
     o.tx = p.x; o.tz = p.z; o.wanderT = 0; o.mag = 0;
@@ -688,6 +694,7 @@ export class AgarMode {
     const owners = this.owners, cells = this.cells;
     this.stormTick(dt);
     this.botChatTick(dt);
+    if (this.mp !== 'client' && this.state === 'play') this.popTick(dt);
     // local player input
     const me = owners[this.me];
     if (me.alive && this.state === 'play') {
@@ -705,7 +712,7 @@ export class AgarMode {
       if (o.magnet > 0) o.magnet -= dt;
       if (o.speed > 0) o.speed -= dt;
       if (!o.alive) {
-        if (o.bot && !o.human) { o.respawnT -= dt; if (o.respawnT <= 0 && o.wasAlive === false) this.spawnOwner(o, rnd(20, 45)); }
+        if (o.bot && !o.human && !o.away) { o.respawnT -= dt; if (o.respawnT <= 0 && o.wasAlive === false) this.spawnOwner(o, rnd(20, 45)); }
         continue;
       }
       if (o.bot) { o.aiT -= dt; if (o.aiT <= 0) { o.aiT = 0.18 + Math.random() * 0.1; this.think(o); } }
@@ -1043,14 +1050,62 @@ export class AgarMode {
     }
   }
 
+  // ---- population: bots 'join' and 'leave' like real players (slow random walk of the player count)
+  popCenter() {
+    const d = new Date(), hr = d.getHours() + d.getMinutes() / 60;
+    const ev = Math.cos(((hr - 21) / 24) * Math.PI * 2); // 1 at 21:00, -1 at 09:00
+    return 45 + ev * 4.5;
+  }
+  presentCount() { let n = 0; for (let i = 0; i < NOWN; i++) if (!this.owners[i].away) n++; return n; }
+  /** take a bot out of the game: its balls dissolve into pellets, the slot stays free for a later 'join' */
+  removeBot(o, announce) {
+    for (let i = 0; i < CAP; i++) {
+      const c = this.cells[i];
+      if (c.on && c.o === o.id) { c.on = false; for (let k = 0; k < Math.min(8, c.m / 8); k++) this.spawnPellet(c.x + rnd(-c.r, c.r), c.z + rnd(-c.r, c.r), 1, o.col); }
+    }
+    o.alive = false; o.wasAlive = false; o.away = true; o.cellN = 0; o.mass = 0; o.respawnT = 0;
+    if (announce) this.pushFeed(o.name + ' oyundan ayrıldı');
+  }
+  joinBot() {
+    const free = [];
+    for (let i = 1; i < NOWN; i++) { const o = this.owners[i]; if (o.away && o.bot && !o.human) free.push(o); }
+    if (!free.length) return;
+    const o = free[(Math.random() * free.length) | 0];
+    const used = this.owners.filter((q) => !q.away).map((q) => q.name);
+    const nm = generateNames(1, used)[0];
+    this.tmpC.setHSL(Math.random(), 0.72, 0.56);
+    this.setColor(o, this.tmpC.getHex());
+    this.setName(o, nm, false);
+    this.spawnOwner(o, rnd(18, 32));
+    this.pushFeed(nm + ' oyuna katıldı');
+    if (this.net) this.net.broadcast({ t: 'own', i: o.id, n: o.name, c: o.col, h: 0 });
+  }
+  leaveBot() {
+    let best = null, bs = 1e18;
+    for (let i = 4; i < NOWN; i++) {
+      const o = this.owners[i];
+      if (o.away || !o.bot || o.human || i === this.me) continue;
+      const sc = (o.alive ? o.mass : 0) * (0.6 + Math.random() * 0.8); // dead / small ones go first
+      if (sc < bs) { bs = sc; best = o; }
+    }
+    if (best) this.removeBot(best, true);
+  }
+  popTick(dt) {
+    this.popT -= dt;
+    if (this.popT > 0) return;
+    this.popT = rnd(5, 16);
+    const ctr = this.popCenter();
+    this.popTarget = clampN(this.popTarget + (ctr - this.popTarget) * 0.12 + rnd(-2.2, 2.2), 38, 52);
+    const want = Math.round(this.popTarget), have = this.presentCount();
+    if (have < want) this.joinBot(); else if (have > want) this.leaveBot();
+  }
+
   dropHuman(id) {
     for (let k = 1; k < NOWN; k++) {
       const o = this.owners[k];
       if (o.human === id) {
-        this.pushFeed(o.name + ' odadan ayrıldı');
-        o.human = null; o.bot = true; o.respawnT = 2; if (!o.alive) o.wasAlive = false;
-        const used = this.owners.map((q) => q.name); // a bot takes the slot back under a fresh, player-like name
-        this.setName(o, generateNames(1, used)[0], false);
+        o.human = null; o.bot = true;
+        this.removeBot(o, true); // slot freed; the population walk may refill it with a new 'player' later
         if (this.net) this.net.broadcast({ t: 'own', i: o.id, n: o.name, c: o.col, h: 0 });
       }
     }
@@ -1072,6 +1127,9 @@ export class AgarMode {
     if (o.maxMass > this.best) { this.best = o.maxMass; lsSet(BEST_KEY, Math.floor(this.best)); this.newBest = true; } else this.newBest = false;
     this.xp += o.xpRun; lsSet(XP_KEY, Math.floor(this.xp));
     o.xpRun = 0;
+    // ties into the main game's economy: snowflakes (coins) for the run
+    this.earned = Math.max(0, Math.floor(Math.sqrt(Math.max(0, o.maxMass)) * 1.2 + o.kills * 3));
+    try { if (this.earned > 0 && this.save && typeof this.save.addCoins === 'function') this.save.addCoins(this.earned); } catch { /* ignore */ }
   }
 
   showResult() {
@@ -1080,9 +1138,10 @@ export class AgarMode {
     const el = document.createElement('div');
     el.className = 'ag-screen';
     const card = document.createElement('div');
-    card.className = 'ag-card';
+    card.className = 'ag-card ag-result';
     const row = (k, v) => `<div class="ag-r"><span>${k}</span><b>${v}</b></div>`;
-    card.innerHTML = '<h2>YUTULDUN!</h2>' + (this.deadKiller ? `<div class="ag-sub"></div>` : '') +
+    card.innerHTML = '<div class="ag-logo sm">YUTULDUN!</div>' + (this.deadKiller ? `<div class="ag-sub"></div>` : '') +
+      `<div class="ag-earn"><small>kazanılan</small><b>+${this.earned || 0} ❄️</b></div>` +
       row('KÜTLE', fmtM(o.maxMass) + (this.newBest ? ' 🏆 REKOR' : '')) + row('SIRA', o.bestRank >= 99 ? '-' : '#' + o.bestRank) + row('SÜRE', fmtT(this.time - o.t0)) + row('YUTULAN', o.kills) + row('SEVİYE', lvlOf(this.xp)) + row('EN İYİ', fmtM(this.best));
     if (this.deadKiller) card.querySelector('.ag-sub').textContent = this.deadKiller + ' seni yuttu';
     const b1 = document.createElement('button'); b1.type = 'button'; b1.className = 'ag-btn go'; b1.textContent = 'TEKRAR';
@@ -1099,13 +1158,30 @@ export class AgarMode {
   // ------------------------------------------------------------------ title / lobby screens
   clearScreen() { clearInterval(this._brT); this._brRender = null; if (this.screenEl) { this.screenEl.remove(); this.screenEl = null; } }
 
-  card(title) {
+  /** wallet pills: the player's PATPAT snowflakes + crystals */
+  wallet() {
+    const w = document.createElement('div'); w.className = 'ag-wallet';
+    let c = 0, g = 0;
+    try { c = this.save ? this.save.coins | 0 : 0; g = this.save && this.save.crystals ? this.save.crystals() | 0 : 0; } catch { /* ignore */ }
+    w.innerHTML = `<span class="ag-pill"><i>❄️</i>${c}</span><span class="ag-pill cr"><i>💎</i>${g}</span>`;
+    return w;
+  }
+  /** card(title, back?) - back: a function makes a round '←' button in the corner (same look as the main menu's back/close) */
+  card(title, back) {
     this.clearScreen();
     const el = document.createElement('div');
     el.className = 'ag-screen';
     const card = document.createElement('div');
     card.className = 'ag-card';
-    const h = document.createElement('h2'); h.textContent = title; card.appendChild(h);
+    const top = document.createElement('div'); top.className = 'ag-top';
+    if (back) {
+      const bb = document.createElement('button'); bb.type = 'button'; bb.className = 'ag-x'; bb.textContent = '←'; bb.setAttribute('aria-label', 'Geri');
+      bb.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('back'); back(); });
+      top.appendChild(bb);
+    }
+    top.appendChild(this.wallet());
+    card.appendChild(top);
+    if (title) { const h = document.createElement('h2'); h.textContent = title; card.appendChild(h); }
     el.appendChild(card);
     this.hud.root.appendChild(el);
     this.screenEl = el;
@@ -1130,15 +1206,26 @@ export class AgarMode {
   showTitle() {
     this._tok++;
     this.closedShown = false;
-    const c = this.card('KARTOPU ARENA');
+    const c = this.card('', () => this.exit());
+    c.classList.add('ag-title');
+    const logo = document.createElement('div'); logo.className = 'ag-logo'; logo.innerHTML = 'KARTOPU<br>ARENA'; c.appendChild(logo);
+    const o = this.owners[this.me];
+    const ball = document.createElement('div'); ball.className = 'ag-ball';
+    let hex = '#' + ('000000' + ((o && o.col) || 0xff7a2f).toString(16)).slice(-6);
+    try {
+      const sid = this.save && this.save.selected ? this.save.selected('skin') : null;
+      const sk = sid ? SKINS.find((k) => k.id === sid) : null;
+      if (sk && sk.preview && sk.preview.a) { hex = sk.preview.b || sk.preview.a; ball.style.setProperty('--ba', sk.preview.a); }
+    } catch { /* ignore */ }
+    ball.style.setProperty('--bc', hex); c.appendChild(ball);
     const s = document.createElement('div'); s.className = 'ag-sub'; s.textContent = 'Büyü, yut, hayatta kal! Rekor kütle: ' + fmtM(this.best) + ' · Seviye ' + lvlOf(this.xp); c.appendChild(s);
     this.nickInput(c);
-    this.btn(c, 'TEK OYUNCU', () => { this.ensureNick(); this.playSolo(); }, 'go');
-    this.btn(c, '⚡ HIZLI OYNA', () => this.quickPlay(), 'blue');
-    this.btn(c, '🌐 AÇIK ODALAR', () => this.openBrowser(), 'blue');
-    this.btn(c, '👥 ODA KUR', () => this.hostScreen(), 'blue');
-    this.btn(c, '🔑 KODLA KATIL', () => this.joinScreen(), 'blue');
-    this.btn(c, 'MENÜ', () => this.exit());
+    this.btn(c, '⚡ HIZLI OYNA', () => this.quickPlay(), 'go');
+    const g = document.createElement('div'); g.className = 'ag-grid'; c.appendChild(g);
+    this.btn(g, '🌐 AÇIK ODALAR', () => this.openBrowser(), 'blue');
+    this.btn(g, '👥 ODA KUR', () => this.hostScreen(), 'blue');
+    this.btn(g, '🔑 KODLA KATIL', () => this.joinScreen(), 'blue');
+    this.btn(g, '⛄ TEK OYUNCU', () => { this.ensureNick(); this.playSolo(); }, 'blue');
   }
 
   statusEl(card) { const s = document.createElement('div'); s.className = 'ag-status'; card.appendChild(s); return s; }
@@ -1169,7 +1256,7 @@ export class AgarMode {
 
   // ---- host: public (default) or private room, starts playing immediately
   hostScreen() {
-    const c = this.card('ODA KUR');
+    const c = this.card('ODA KUR', () => this.showTitle());
     const s = document.createElement('div'); s.className = 'ag-sub'; s.textContent = 'Oda hemen açılır, oyun başlar. Herkes istediği an katılabilir (en fazla ' + MAX_HUMANS + ' kişi), boşlukları botlar doldurur.'; c.appendChild(s);
     this.nickInput(c);
     const tg = this.btn(c, '', () => { this.privRoom = !this.privRoom; upd(); }, 'blue');
@@ -1180,7 +1267,6 @@ export class AgarMode {
     };
     upd();
     this.btn(c, 'KUR VE OYNA', () => this.createRoom(!this.privRoom), 'go');
-    this.btn(c, 'GERİ', () => this.showTitle());
   }
 
   async createRoom(pub) {
@@ -1227,15 +1313,14 @@ export class AgarMode {
   async openBrowser() {
     this._tok++;
     this.closedShown = false;
-    const c = this.card('AÇIK ODALAR');
+    const c = this.card('AÇIK ODALAR', () => this.showTitle());
     const st = this.statusEl(c);
     const list = document.createElement('div');
-    list.style.cssText = 'display:flex;flex-direction:column;gap:6px;max-height:34vh;overflow:auto';
+    list.className = 'ag-list';
     c.appendChild(list);
     this.btn(c, '⚡ HIZLI OYNA', () => this.quickPlay(), 'go');
     this.btn(c, '🔑 KODLA KATIL', () => this.joinScreen(), 'blue');
     this.btn(c, '👥 ODA KUR', () => this.hostScreen(), 'blue');
-    this.btn(c, 'GERİ', () => this.showTitle());
     let spin = 0;
     const render = () => {
       if (!list.isConnected) return;
@@ -1253,7 +1338,7 @@ export class AgarMode {
       const now = Date.now();
       for (const r of rooms) {
         const full = r.n >= r.max;
-        const b = document.createElement('button'); b.type = 'button'; b.className = 'ag-btn blue'; b.style.fontSize = '15px';
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'ag-btn blue room';
         b.textContent = (full ? '⛔ ' : '▶ ') + r.name + ' · ' + r.n + '/' + r.max + ' · ' + Math.max(0, Math.round((now - r.ts) / 1000)) + 's';
         b.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('click'); if (full) { this.toast('Oda dolu'); return; } this.doJoin(r.code, () => this.openBrowser()); });
         list.appendChild(b);
@@ -1329,7 +1414,7 @@ export class AgarMode {
   }
 
   joinScreen() {
-    const c = this.card('KODLA KATIL');
+    const c = this.card('KODLA KATIL', () => this.showTitle());
     const inp = document.createElement('input');
     inp.className = 'ag-inp code'; inp.maxLength = 5; inp.placeholder = 'KOD'; inp.autocomplete = 'off'; inp.autocapitalize = 'characters';
     c.appendChild(inp);
@@ -1340,7 +1425,6 @@ export class AgarMode {
       if (code.length !== 5) { st.textContent = '5 haneli kodu gir.'; return; }
       this.doJoin(code, () => this.joinScreen());
     }, 'go');
-    this.btn(c, 'GERİ', () => this.showTitle());
   }
 
   onRoomClosed(why, back) {
@@ -1389,6 +1473,7 @@ export class AgarMode {
       o.bot = false; o.human = id; o.seen = this.time;
       this.setName(o, nm, false);
       this.spawnOwner(o, 24);
+      this.pushFeed(nm + ' oyuna katıldı');
     });
     this.fdn = 0; this.fd.fill(0);
     const food = new Array(FOOD * 2);
@@ -1404,13 +1489,15 @@ export class AgarMode {
 
   /** a human connected while the match is running: he takes over the smallest bot slot as a fresh small ball */
   lateJoin(id, rec) {
-    let slot = null;
+    let slot = null, slotW = 0;
     for (let k = 1; k < NOWN; k++) {
       const o = this.owners[k];
       if (!o.bot || o.human) continue;
-      if (!slot || (o.alive ? o.mass : -1) < (slot.alive ? slot.mass : -1)) slot = o;
+      const w = o.away ? -2 : o.alive ? o.mass : -1; // free slots first, then dead bots, then the smallest
+      if (!slot || w < slotW) { slot = o; slotW = w; }
     }
     if (!slot) return false;
+    if (!slot.away) this.pushFeed(slot.name + ' oyundan ayrıldı');
     for (let i = 0; i < CAP; i++) {
       const c = this.cells[i];
       if (c.on && c.o === slot.id) { c.on = false; for (let k = 0; k < Math.min(8, c.m / 8); k++) this.spawnPellet(c.x + rnd(-c.r, c.r), c.z + rnd(-c.r, c.r), 1, slot.col); } // despawn with a poof of pellets
@@ -1425,7 +1512,7 @@ export class AgarMode {
     const own = this.owners.map((o) => [o.name, o.col, o.human ? 1 : 0]);
     this.net.sendTo(id, { t: 'start', me: slot.id, owners: own, food: this.foodPositions(), fc: this.foodColors(), seed: this.seed });
     this.net.broadcast({ t: 'own', i: slot.id, n: slot.name, c: slot.col, h: 1 });
-    this.pushFeed(nm + ' odaya katıldı');
+    this.pushFeed(nm + ' oyuna katıldı');
     return true;
   }
 
@@ -1464,7 +1551,7 @@ export class AgarMode {
     for (const [id, rec] of net.clients) {
       const o = this.owners.find((q) => q.human === id);
       if (!o || !rec.conn.open) continue;
-      net.sendTo(id, { t: 's', hn: net.clients.size + 1, st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
+      net.sendTo(id, { t: 's', hn: net.clients.size + 1, pn: this.presentCount(), st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
     }
   }
 
@@ -1472,7 +1559,7 @@ export class AgarMode {
   clientStart(m) {
     this.mp = 'client';
     this.me = m.me;
-    this.genTerrain(m.seed | 0); this.titleIdx = 0; this.lastMyMass = 0; this.chatLog.length = 0; this.chatDirty = true; this.trT.fill(-99); this.storm.on = false;
+    this.genTerrain(m.seed | 0); this.titleIdx = 0; this.lastMyMass = 0; this.chatLog.length = 0; this.chatDirty = true; this.trails.clear(); this.storm.on = false;
     this.clearScreen();
     this.hud.root.classList.remove('ag-menu');
     for (const c of this.cells) c.on = false;
@@ -1508,6 +1595,7 @@ export class AgarMode {
   applySnapshot(m) {
     this.lastSnap = this.time;
     if (m.hn) this.humans = m.hn;
+    if (m.pn) this.presentN = m.pn;
     if (m.st) { const sw = this.storm.on; this.storm.on = !!m.st[0]; this.storm.x = m.st[1]; this.storm.z = m.st[2]; if (this.storm.on && !sw) { this.pushFeed('❄ Kar fırtınası başladı!'); this.stormSndT = 0; } }
     const cells = this.cells;
     for (let i = 0; i < CAP; i++) cells[i].killer = 0; // 0 = not seen this snapshot
@@ -1652,29 +1740,16 @@ export class AgarMode {
       wm(sa, n * 16, c.x + r * 0.12, 0, c.z + r * 0.18, r * 1.6);
       cc[n * 3] = o.cr; cc[n * 3 + 1] = o.cg; cc[n * 3 + 2] = o.cb;
       n++;
-      // groove stamp
-      const sdx = c.x - c.lsx, sdz = c.z - c.lsz, gap = r * 0.9 + 0.8;
-      if (sdx * sdx + sdz * sdz > gap * gap) {
-        c.lsx = c.x; c.lsz = c.z;
-        if (Math.abs(c.x - this.camX) < hx && c.z > zmin && c.z < zmax) {
-          const k = this.trN++ % TRAIL_N;
-          this.trX[k] = c.x; this.trZ[k] = c.z; this.trR[k] = r * 0.55; this.trT[k] = this.time;
-        }
-      }
+      if (Math.abs(c.x - this.camX) < hx + 60 && c.z > zmin - 60 && c.z < zmax + 60) this.trails.sample(i, c.o, c.x, c.z, r, this.time);
     }
     this.cellMesh.count = n; this.shadowMesh.count = n;
     this.cellMesh.instanceMatrix.needsUpdate = true; this.cellMesh.instanceColor.needsUpdate = true; this.shadowMesh.instanceMatrix.needsUpdate = true;
-    // grooves fade out over ~7 s (colour towards the ground, width shrinking)
-    const ta = this.trailMesh.instanceMatrix.array, tc = this.trailMesh.instanceColor.array;
-    let tn = 0;
-    for (let k = 0; k < TRAIL_N; k++) {
-      const age = (this.time - this.trT[k]) / TRAIL_LIFE;
-      if (age >= 1 || age < 0) continue;
-      wm(ta, tn * 16, this.trX[k], 0, this.trZ[k], this.trR[k] * (1 - 0.4 * age));
-      tc[tn * 3] = 0.66 + 0.3 * age; tc[tn * 3 + 1] = 0.77 + 0.2 * age; tc[tn * 3 + 2] = 0.92 + 0.07 * age;
-      tn++;
+    this.trails.build(this.time, cells, this.camX, this.camZ, hx, zmin, zmax);
+    {
+      const st0 = this.storm; let heavy = 0;
+      if (st0.on) { const d = Math.hypot(this.camX - st0.x, this.camZ - st0.z); heavy = clampN(1.4 - d / (st0.r * 1.2), 0, 1); }
+      this.snowfall.update(dt, this.time, this.camX, this.camZ, this.camH, asp, this._camera.fov, this.sz.y * this.renderer.getPixelRatio(), heavy);
     }
-    this.trailMesh.count = tn; this.trailMesh.instanceMatrix.needsUpdate = true; this.trailMesh.instanceColor.needsUpdate = true;
     if (this.vDirty) {
       const va = this.virMesh.instanceMatrix.array;
       let vn = 0;
@@ -1804,7 +1879,7 @@ export class AgarMode {
       const yr = h.rows[10];
       if (myRank >= 10) { yr.style.display = 'flex'; yr.classList.add('me'); yr.children[0].textContent = (myRank + 1) + '. ' + me.name; yr.children[1].textContent = fmtM(me.mass); } else yr.style.display = 'none';
       h.rank.textContent = myRank >= 0 ? '#' + (myRank + 1) + ' / ' + n : '-';
-      h.online.textContent = String(n);
+      h.online.textContent = String(this.mp === 'client' && this.presentN ? this.presentN : this.presentCount());
       if (myRank >= 0 && this.state === 'play' && myRank + 1 < me.bestRank) me.bestRank = myRank + 1;
     }
     if (this.hudT <= 0) {

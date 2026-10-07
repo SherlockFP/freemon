@@ -616,3 +616,55 @@ html, body {
 .ag-cin button, .ag-cq button { font: inherit; font-size: 13px; padding: 5px 9px; color: #fff; border: 2px solid var(--ink); border-radius: 10px; background: linear-gradient(180deg, #7dc4ff, #2f7dff); cursor: pointer; }
 .ag-cq { display: flex; flex-wrap: wrap; gap: 4px; }
 .ag-menu .ag-chat { display: none; }
+
+/* ---- KARTOPU ARENA: unified with the main menu look (chunky outlined buttons, gradient pills, logo type) ---- */
+.ag-screen { padding: calc(var(--sat) + 14px) 14px calc(var(--sab) + 14px); background: linear-gradient(180deg, rgba(150, 205, 255, 0.35), rgba(23, 52, 92, 0.55)); animation: agFade 0.25s ease-out; overflow-y: auto; }
+.ag-card { width: min(100%, 380px); max-height: 100%; overflow-y: auto; gap: 12px; padding: 14px 14px 18px; border: 3px solid var(--ink); border-radius: 26px;
+  background: linear-gradient(180deg, #7dc4ff, #2f7dff 70%, #2563cc); box-shadow: 0 7px 0 var(--ink), 0 14px 26px rgba(10, 30, 60, 0.4), inset 0 3px 0 rgba(255, 255, 255, 0.45); animation: agPop 0.35s cubic-bezier(.2, 1.4, .4, 1); font-weight: 800; }
+@keyframes agFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes agPop { from { opacity: 0; transform: translateY(24px) scale(0.94); } to { opacity: 1; transform: none; } }
+.ag-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 46px; }
+.ag-wallet { display: flex; gap: 8px; margin-left: auto; }
+.ag-pill { display: flex; align-items: center; gap: 6px; padding: 6px 12px 6px 9px; min-height: 36px; border-radius: 17px; border: 3px solid var(--ink); font-size: 18px; line-height: 1; font-weight: 900; color: var(--gold); white-space: nowrap;
+  background: linear-gradient(180deg, rgba(34, 66, 120, 0.92), rgba(10, 25, 55, 0.92)); box-shadow: 0 3px 0 var(--ink), inset 0 2px 0 rgba(255, 255, 255, 0.16); text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35); }
+.ag-pill i { font-style: normal; font-size: 16px; }
+.ag-pill.cr { color: #9be7ff; }
+.ag-x { flex: none; width: 46px; height: 46px; padding: 0; border-radius: 15px; border: 3px solid var(--ink); cursor: pointer; font: inherit; font-size: 24px; font-weight: 900; line-height: 1; color: #fff; text-shadow: 0 2px 0 var(--ink);
+  background: linear-gradient(180deg, #ff8a8a, #e63b3b); box-shadow: 0 4px 0 #8f1c1c, inset 0 3px 0 rgba(255, 255, 255, 0.45); transition: transform 0.06s, box-shadow 0.06s; }
+.ag-x:active { transform: translateY(3px); box-shadow: 0 1px 0 #8f1c1c; }
+.ag-logo { font-weight: 900; font-size: clamp(40px, 13vw, 62px); line-height: 0.95; letter-spacing: 0.02em; color: #fff; transform: rotate(-3deg); margin: 2px 0 0;
+  text-shadow: 0 3px 0 var(--ink), 2px 2px 0 var(--ink), -2px 2px 0 var(--ink), 2px -2px 0 var(--ink), -2px -2px 0 var(--ink), 0 6px 12px rgba(10, 30, 60, 0.35); }
+.ag-logo.sm { font-size: 34px; transform: none; }
+.ag-ball { width: 96px; height: 96px; margin: 0 auto; border-radius: 50%; border: 3px solid var(--ink); animation: agBob 2.2s ease-in-out infinite;
+  background: radial-gradient(circle at 34% 30%, #fff 0 12%, var(--ba, #eef6ff) 40%, var(--ba, #c9defa) 100%); box-shadow: inset 0 -14px 0 var(--bc, #ff7a2f), inset 0 -22px 12px rgba(23, 52, 92, 0.18), 0 6px 0 var(--ink), 0 14px 12px rgba(10, 30, 60, 0.3); }
+@keyframes agBob { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-6px) rotate(4deg); } }
+.ag-card h2 { font-weight: 900; font-size: 28px; line-height: 1.05; text-shadow: 0 3px 0 var(--ink), 2px 2px 0 var(--ink), -2px 2px 0 var(--ink), 2px -2px 0 var(--ink), -2px -2px 0 var(--ink); }
+.ag-sub { font-weight: 800; text-shadow: 0 2px 0 var(--ink); }
+.ag-inp { min-height: 50px; border: 3px solid var(--ink); border-radius: 16px; font-weight: 900; box-shadow: inset 0 3px 0 rgba(23, 52, 92, 0.15), 0 3px 0 var(--ink); }
+.ag-btn { min-height: 52px; font-weight: 900; border: 3px solid var(--ink); border-radius: 18px; letter-spacing: 0.04em; transition: transform 0.06s, box-shadow 0.06s;
+  background: linear-gradient(180deg, #ffffff, #cfe2fb); color: var(--ink); text-shadow: none; box-shadow: 0 5px 0 var(--ink), inset 0 3px 0 rgba(255, 255, 255, 0.7); }
+.ag-btn.go { font-size: 26px; min-height: 62px; color: #fff; background: linear-gradient(180deg, #ff9a52, var(--orange)); box-shadow: 0 6px 0 var(--ink), inset 0 3px 0 rgba(255, 255, 255, 0.45); text-shadow: 0 2px 0 var(--orange-dark); }
+.ag-btn.blue { color: #fff; background: linear-gradient(180deg, #5aa0ff, var(--blue)); box-shadow: 0 5px 0 var(--ink), inset 0 3px 0 rgba(255, 255, 255, 0.4); text-shadow: 0 2px 0 var(--blue-dark); }
+.ag-btn:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--ink); }
+.ag-btn.room { font-size: 15px; min-height: 48px; }
+.ag-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ag-grid .ag-btn { font-size: 14px; padding: 8px 6px; min-height: 58px; line-height: 1.15; }
+.ag-list { display: flex; flex-direction: column; gap: 8px; max-height: 36vh; overflow-y: auto; padding-bottom: 6px; }
+.ag-plist { border: 3px solid var(--ink); background: rgba(10, 25, 55, 0.45); font-weight: 800; }
+.ag-r { border: 2px solid var(--ink); background: rgba(10, 25, 55, 0.4); padding: 6px 10px; font-weight: 800; }
+.ag-earn { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-radius: 16px; border: 3px solid var(--ink); background: linear-gradient(180deg, #ffe27a, var(--gold)); color: var(--ink); box-shadow: 0 4px 0 var(--ink), inset 0 3px 0 rgba(255, 255, 255, 0.55); animation: agPop 0.5s 0.15s backwards cubic-bezier(.2, 1.8, .4, 1); }
+.ag-earn small { font-size: 14px; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; }
+.ag-earn b { font-size: 26px; }
+/* in-game HUD panels share the pill/panel language */
+.ag-mass, .ag-lvl, .ag-online, .ag-room, .ag-rank, .ag-lb { background: linear-gradient(180deg, rgba(34, 66, 120, 0.88), rgba(10, 25, 55, 0.88)); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 3px 0 var(--ink), inset 0 2px 0 rgba(255, 255, 255, 0.16); font-weight: 800; }
+.ag-lb .t { color: var(--gold); font-weight: 900; }
+.ag-map { border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 3px 0 var(--ink); }
+.ag-act { width: 84px; height: 84px; background: linear-gradient(180deg, #5aa0ff, var(--blue)); box-shadow: 0 6px 0 var(--ink), inset 0 3px 0 rgba(255, 255, 255, 0.4); }
+.ag-act.boost { width: 96px; height: 96px; background: linear-gradient(180deg, #ff9a52, var(--orange)); box-shadow: 0 6px 0 var(--ink), inset 0 3px 0 rgba(255, 255, 255, 0.45); }
+.ag-act:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--ink); }
+.ag-cbtn { width: 46px; height: 46px; border-radius: 15px; box-shadow: 0 4px 0 var(--ink), inset 0 3px 0 rgba(255, 255, 255, 0.4); }
+.ag-cbtn:active { transform: translateY(3px); }
+.ag-cpanel { border: 3px solid var(--ink); border-radius: 16px; background: linear-gradient(180deg, rgba(34, 66, 120, 0.94), rgba(10, 25, 55, 0.94)); }
+.ag-cin input { min-height: 38px; border: 3px solid var(--ink); border-radius: 12px; font-weight: 800; }
+.ag-cin button, .ag-cq button { min-height: 34px; border: 3px solid var(--ink); border-radius: 12px; font-weight: 900; box-shadow: 0 3px 0 var(--ink); }
+@media (max-height: 640px) { .ag-ball { width: 64px; height: 64px; } .ag-logo { font-size: 40px; } }
