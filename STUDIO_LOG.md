@@ -1036,3 +1036,9 @@ Genel 7.3 · Rush 7.2 · ÇIĞ 7.1 · Arena 6.6 · Menü 7.1 — çökme yok.
 - ÇIĞ: TEKRAR/DAĞLAR arası boşluk + eşit genişlik; kriter yazıları büyüdü (yıldızların sırayla açılması zaten doğruymuş).
 - Arena GÖLGE AV: ortada hap etiket, TEKRAR DOĞ + MENÜ, katile kırmızı İNTİKAM oku (+10 kütle; ben: gölge katilin üstünde doğduğu için önce uzaklaşmak şart, buton taşması düzeltildi), pelletler soluk.
 - Smoke: hatasız.
+
+## Döngü 24 — değerlendirme (oyun döngüsü odaklı)
+Rush 7.3 · ÇIĞ 7.0 · Arena 6.7 · Genel 7.3 — çökme yok.
+- Rush: buff kartları otomatik → karar yok; 5. oturumda eğri düz. → 600 m'de iki şeritli kart seçimi (güvenli vs riskli), rekor işaretini canlı fark ile güçlendir.
+- ÇIĞ: tekrar oynamada yeni karar yok, büyüme pasif. → seviye ortasında risk/ödül yol ayrımı (dar kısa yol vs güvenli uzun yol).
+- Arena: tek değişken kütle, risk/ödül aracı az. → kütle fırlatma (eject) + buz dikeni (virüs) bölünme mekaniği.
