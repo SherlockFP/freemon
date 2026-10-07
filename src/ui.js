@@ -657,6 +657,8 @@ ${dist} m`; }
   hint(on, text = 'sürükle') {
     this.el.hint.classList.toggle('hidden', !on);
     if (on) this.el.hint.lastElementChild.textContent = text;
+    clearTimeout(this._hintT);
+    if (on) this._hintT = setTimeout(() => this.el.hint.classList.add('hidden'), 2000);
   }
 
   setTons(t) {
@@ -711,7 +713,7 @@ ${dist} m`; }
     const c = this._cmb || this._mkCmb();
     if (c.classList.contains('broke')) return;
     const n = this._cmN >= 3 ? this._cmN : 0, mu = this._mu || 0;
-    if (!n && !mu) { if (c.classList.contains('on')) c.className = 'cmb'; return; }
+    if (!n) { if (c.classList.contains('on')) c.className = 'cmb'; return; }
     this._cmK.textContent = n ? `${this._cmT >= 3 ? '🔥 ' : ''}KOMBO x${n}` : '';
     this._cmK.style.display = n ? '' : 'none';
     this._cmM.textContent = mu > 1 ? `x${Math.round(mu * 10) / 10}` : '';

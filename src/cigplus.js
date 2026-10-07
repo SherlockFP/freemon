@@ -1116,6 +1116,15 @@ export class CigPlus {
       const h = (1 - k) * (1 - k) * 34 + m.s, sc = m.boulder ? m.s * 1.4 : m.s;
       if (!m.ghost) S.emit(m.boulder ? TP.ice : TP.shot, m.x, gy + h, -m.d, t * 4, sc, sc, sc, 0, 0, 1, 1, 1, 1);
     }
+    if (B.shield > 0 && B.pos) {
+      const P = B.pos, gy = w.groundY(P.x, P.d), pu = 0.5 + 0.5 * Math.sin(t * 9), R = P.r * 1.25;
+      Gl.emit(TP.ring, P.x, gy + 0.3, -P.d, 0, R, R, R, Math.PI / 2, 0, 0.45, 0.85, 1, 0.55 + 0.3 * pu);
+      Gl.emit(TP.lane, P.x, gy + 0.26, -P.d, 0, R * 1.5, 1, R * 1.5, 0, 0, 0.5, 0.9, 1, 0.4);
+      for (let k = 0; k < 7; k++) {
+        const a = t * 1.6 + k * 0.898, rr = P.r * 1.1, hy = P.h * (0.15 + 0.7 * ((k * 0.37) % 1));
+        S.emit(TP.ice, P.x + Math.sin(a) * rr, gy + hy, -(P.d + Math.cos(a) * rr), t * 2 + k, 1.3, 2.2, 1.3, 0, 0, 0.6, 0.9, 1, 0.9);
+      }
+    }
     for (const T of B.traps || []) {
       const gy = w.groundY(T.x, T.d), rdy = T.cd <= 0, pu = 0.5 + 0.5 * Math.sin(t * 6 + T.x), al = rdy ? 0.7 + 0.3 * pu : 0.2, pk = 1 + 0.12 * pu;
       const col = T.k === 'ice' ? [0.5, 0.9, 1] : T.k === 'mirror' ? [1, 0.95, 0.5] : [1, 0.6, 0.4];
@@ -1801,6 +1810,7 @@ export class CigGame {
     if (e.B && e.B.dash === 2) return;   // the yeti's charge is resolved in its AI (dodge it)
     // small enemies (relative to the ball) are flattened in one hit; a power / rocket flattens anything but bosses
     if (!e.boss && (p.r <= b.r * 0.8 || this.powerT > 0 || this.plus.mods.plow)) { this._killEnemy(p); return; }
+    if (e.B && e.B.shield > 0) { this._shieldHit(p, e.B, dx); this._slide(p); return; }
     if (e.hitCd <= 0) this._hitEnemy(p, dx);
     this._slide(p);   // never pinned: the ball always glides around what it rams
   }
@@ -1990,6 +2000,7 @@ export class CigGame {
   }
   _bossStun(p, B, secs, txt) {
     B.stun = secs;
+    if (B.shield > 0) { B.shield = 0; B.shT = 9; }   // a stun drops the ice shield
     this._text('AÇIK!', p, 'big', true);
     this._msg(2, txt);
     this._h('sfx', 'milestone', 1);
@@ -2003,6 +2014,44 @@ export class CigGame {
     this._text(txt, p, 'big', true);
     if (e.hp <= 0) { this._killEnemy(p); return; }
     this._bossStun(p, B, secs, 'TUZAK! ÇARP, AÇIK!');
+  }
+  // BUZ KIRACAK: late bosses (Dağ 20+) raise a blue ice shield; only a ram at >= 85% of the top speed (boost strip) breaks it
+  _topSpeed() { const G = this.G, s = G.stripT; G.stripT = 1; const v = this.targetSpeed(); G.stripT = s; return v; }
+  shieldGauge() {
+    const B = this.plus.bossFx;
+    if (!B || B.dead || !(B.shield > 0)) return null;
+    return { f: this.ball.speed / Math.max(1, this._topSpeed()), need: 0.85 };
+  }
+  _shieldUp(p, B, b) {
+    B.shield = 10;
+    const hw = this.world.halfWidth(p.d), sx = Math.min(hw * 0.4, 9);
+    this._addStripAt(clamp(-sx, -hw + 3, hw - 3), Math.max(b.d + 8, p.d - 26));
+    this._addStripAt(clamp(sx, -hw + 3, hw - 3), Math.max(b.d + 8, p.d - 40));
+    this._msg(3, '🧊 BUZ KALKANI! Hız şeridinden HIZLAN!');
+    this._h('sfx', 'whoosh'); this._h('haptic', 'warning');
+    this._h('burst', p.x, p.y + p.h * 0.5, p.d, 18, 0x9fe0ff, 9, 0.4 + p.r * 0.05, 6);
+  }
+  _addStripAt(x, d) { this.strips.push({ x, d, w: 5, len: 12 }); }
+  _shieldHit(p, B, dx) {
+    const G = this.G, b = this.ball, e = p.enemy;
+    if (e.hitCd > 0) return;
+    e.hitCd = 0.5;
+    if (b.speed >= 0.85 * this._topSpeed()) {
+      B.shield = 0; B.shT = 9;
+      e.hp -= e.max * 0.06; e.flash = 0.3; e.woke = true;
+      this._h('burst', p.x, p.y + p.h * 0.5, p.d, 36, 0xbfeaff, 12, 0.6 + p.r * 0.06, 9);
+      this._h('burst', p.x, p.y + p.h * 0.5, p.d, 16, 0xffffff, 9, 0.4, 7);
+      this._h('sfx', 'crash', 1); this._h('haptic', 'heavy'); this._h('hitStop', 0.08); G.shake += 1.2;
+      this._text('BUZ KIRILDI!', p, 'big', true);
+      if (e.hp <= 0) { this._killEnemy(p); return; }
+      this._bossStun(p, B, 3.2, 'BUZ KIRILDI! ÇARP, AÇIK!');
+    } else {
+      b.speed *= 0.6; b.squash(0.12);
+      e.kbD = Math.max(e.kbD, 4); e.kbX = (dx >= 0 ? 1 : -1) * 2;
+      this._h('sfx', 'bump', 0.6); this._h('haptic', 'medium'); G.shake += 0.4;
+      this._h('burst', b.x, b.y, b.d, 8, 0xbfeaff, 7, 0.25, 5);
+      this._text('HIZLAN!', b, 'bad', true);
+    }
   }
   _bossTraps(B, A, hw) {
     const mk = (k, x, d, r) => ({ k, x, d, r, cd: 0, drop: null, zd: 0 });
@@ -2057,6 +2106,12 @@ export class CigGame {
     const K = B.rage ? 0.68 : 1;
     if (B.stun > 0) B.stun -= dt;
     const win = B.stun > 0;
+    B.pos = { x: p.x, y: p.y, d: p.d, r: p.r, h: p.h };
+    if (this.L && this.L.n >= 20 && !win && B.dash === 0) {
+      if (B.shT == null) B.shT = 6;
+      if (!(B.shield > 0)) { B.shT -= dt; if (B.shT <= 0 && !B.slam && !B.laser && dd > 40 && dd < 120) this._shieldUp(p, B, b); }
+      else { B.shield -= dt; if (B.shield <= 0) { B.shield = 0; B.shT = 8; } }
+    }
     p.tint = win ? (Math.sin(G.t * 16) > 0 ? [1.5, 1.4, 0.5] : [1.2, 1.1, 0.6]) : B.dash === 1 || B.slam ? [1.6, 1.3, 1.3] : B.rage ? [1, 0.2, 0.12] : B.base;
     if (dd > -b.r && B.dash === 0) {
       // stays off-centre (never between camera and ball): flips side every few seconds

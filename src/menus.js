@@ -595,7 +595,14 @@ const CSS = `
 .fm-tchip.hot { background: #ffd84a; color: var(--ink); }
 .fm-todaywrap.fm-lock { filter: none !important; opacity: 1 !important; }
 .fm-todaywrap.fm-lock .fm-tchip { background: #1b2a52; color: #fff; border-color: #0d1630; opacity: 0.92; }
-.fm-todaywrap.fm-lock::after { background: #0d1630; color: #fff; font-size: 12px; padding: 4px 10px; border: 2px solid #fff; }
+.fm-todaywrap.fm-lock::after { content: attr(data-lock); opacity: 1; left: 50%; right: auto; top: 50%; bottom: auto; width: auto; transform: translate(-50%, -50%); background: #0d1630; color: #fff; font-size: 12px; font-weight: 900; padding: 4px 10px; border: 2px solid #fff; border-radius: 10px; white-space: nowrap; }
+.fm-todaywrap.fm-lock::before { display: none; }
+.fm-tchip.fm-sz { position: relative; touch-action: manipulation; }
+.fm-sring { width: 22px; height: 22px; flex: none; display: block; pointer-events: none; }
+.fm-sring .bg { fill: none; stroke: rgba(40, 30, 90, 0.2); stroke-width: 3.5; }
+.fm-sring .fg { fill: none; stroke: #ff7a1a; stroke-width: 3.5; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; }
+.fm-sring text { font-size: 10px; text-anchor: middle; dominant-baseline: central; }
+.fm-tchip.fm-sz > * { pointer-events: none; }
 .fm-seatrack { display: flex; gap: 8px; overflow-x: auto; padding: 8px 4px 14px; -webkit-overflow-scrolling: touch; }
 .fm-seacard { flex: none; width: 92px; padding: 8px 4px; border-radius: 14px; border: 2.5px solid var(--ink); background: #fff; color: var(--ink); text-align: center; font-size: 11px; font-weight: 800; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .fm-seacard.ready { background: #ffd84a; }
@@ -3055,6 +3062,15 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       clear(r.today);
       const chips = [];
       let gr = false; try { gr = meta.globeReady(); } catch { /* ignore */ }
+      try {
+        const se = meta.season();
+        const nxt = se.tiers.find((t) => t.state === 'locked');
+        const prev = [...se.tiers].reverse().find((t) => t.need <= se.tokens);
+        const lo = prev ? prev.need : 0;
+        const frac = nxt ? Math.max(0, Math.min(1, (se.tokens - lo) / Math.max(1, nxt.need - lo))) : 1;
+        const gf = Math.max(0, Math.min(1, se.claimed / Math.max(1, se.total)));
+        chips.push({ sez: true, hot: se.ready > 0, frac, gf, text: `Sezon ${se.tokens}🧣 · ${se.claimed}/${se.total}`, fn: () => openSeason() });
+      } catch { /* ignore */ }
       if (gr) chips.push(['🔮', 'Küre hazır', true, () => shakeGlobe()]);
       const sm = stormOf();
       const sl = sm.ids.filter((i) => !sm.got[i]).length;
@@ -3064,10 +3080,29 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       chips.push(['🛒', wd < 1 ? 'Pazar yarın' : `Pazar ${wd}g`, wd < 1, () => { try { localStorage.setItem('patpat.shopTab', 'pazar'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]);
       if (cb.onDaily && save.cigDailyOpen && save.cigDailyOpen()) chips.push(['🏔', 'Günün Dağı', !(info.dailyBest > 0), () => { try { meta.setMode('daily'); } catch { /* ignore */ } cb.onDaily(); }]);
       try { const vt = vitrinInfo(save); if (vt && !vt.owned) chips.push(['⭐', 'Vitrin', false, () => { try { localStorage.setItem('patpat.shopTab', 'skin'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]); } catch { /* ignore */ }
-      try { const se = meta.season(); chips.push(['🧣', `Sezon: ${se.tokens} · Ödül ${se.claimed}/${se.total}`, se.ready > 0, () => openSeason()]); } catch { /* ignore */ }
       r.today.appendChild(el('span', 'tl', 'BUGÜN'));
       clear(r.tdots);
-      for (const [ic, tx, hot, fn] of chips) { r.today.appendChild(button(`fm-tchip${hot ? ' hot' : ''}`, `${ic} ${tx}`, () => { sfx('click'); fn(); })); r.tdots.appendChild(el('i')); }
+      for (const c of chips) {
+        if (c.sez) {
+          const b = button(`fm-tchip fm-sz${c.hot ? ' hot' : ''}`, '', () => { sfx('click'); c.fn(); }, 'Sezon Avı');
+          const NS = 'http://www.w3.org/2000/svg', C = 2 * Math.PI * 9;
+          const svg = document.createElementNS(NS, 'svg');
+          svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('class', 'fm-sring');
+          const mk = (t, a) => { const n = document.createElementNS(NS, t); for (const k in a) n.setAttribute(k, a[k]); svg.appendChild(n); return n; };
+          mk('circle', { class: 'bg', cx: 12, cy: 12, r: 9 });
+          mk('circle', { class: 'fg', cx: 12, cy: 12, r: 9, 'stroke-dasharray': `${(C * c.frac).toFixed(1)} ${C.toFixed(1)}` });
+          const tx = mk('text', { x: 12, y: 12.5 }); tx.textContent = '🧣';
+          // scarf fills with colour as season progress grows
+          const g = Math.round(c.gf * 100);
+          tx.setAttribute('style', `filter:grayscale(${100 - g}%) opacity(${(0.55 + 0.45 * c.gf).toFixed(2)})`);
+          b.appendChild(svg); b.appendChild(el('span', '', c.text));
+          r.today.appendChild(b);
+        } else {
+          const [ic, tx, hot, fn] = c;
+          r.today.appendChild(button(`fm-tchip${hot ? ' hot' : ''}`, `${ic} ${tx}`, () => { sfx('click'); fn(); }));
+        }
+        r.tdots.appendChild(el('i'));
+      }
       r.tScroll(); setTimeout(() => { try { r.tScroll(); } catch { /* ignore */ } }, 60);
     } catch { /* ignore */ }
 

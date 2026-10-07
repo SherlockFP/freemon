@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Track, flightDist, LANES, setLanes } from './track.js';
 import { Obstacles } from './obstacles.js';
-import { ABILITIES } from '../skins.js';
+import { ABILITIES, SKINS } from '../skins.js';
 import { Environment, biomeAt, trackPalette, musicStyleAt } from './biomes.js';
 import * as Biomes from './biomes.js';
 import { BuffSet, rollBuff, BUFF_LEN, DESTRUCTION, destructionTier } from './perks.js';
@@ -409,7 +409,7 @@ export class Runner {
       this.abil = ABILITIES[id] ? id : null; this.simitUsed = false; this.gapBonus = 0; this._gemNext = 0;
       if (this.abil === 'nazar') { this.gapBonus = 3; this.gap += 3; }
       if (this.abil === 'penguen') this.penN = 1;
-      if (this.abil) this.ctx.ui.toastSoft?.(ABILITIES[this.abil].icon + ' ' + ABILITIES[this.abil].text); }
+      if (this.abil) this.charIntro(id); }
     this.ctx.meta?.track?.('run_start', { mode: 'endless' });
     this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.()?.nextLetter ?? null);
     this.yetiN = 0; this.dblT = 0; this.turboN = 0; this.turboT = 0;
@@ -1140,12 +1140,17 @@ export class Runner {
     return true;
   }
 
+  _col() {
+    let c = document.getElementById('rcol');
+    if (!c) { c = document.createElement('div'); c.id = 'rcol'; document.body.appendChild(c); }
+    return c;
+  }
   _chipEl(key, bottom) {
     let el = this[key];
     if (!el) {
       el = this[key] = document.createElement('div');
-      el.style.cssText = `position:fixed;left:12px;bottom:${bottom}%;z-index:30;padding:6px 11px;border-radius:16px;background:rgba(20,40,70,.8);color:#fff;font:700 15px system-ui,sans-serif;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.35)`;
-      document.body.appendChild(el);
+      el.className = 'rcol-chip';
+      this._col().appendChild(el);
     }
     return el;
   }
@@ -1153,13 +1158,13 @@ export class Runner {
     if (!this.bread && !this._breadEl) return;
     const el = this._chipEl('_breadEl', 41);
     el.style.display = this.bread ? 'block' : 'none';
-    el.textContent = '🥐 SICAK ÇÖREK';
+    el.textContent = '🥐';
   }
   cannonChip() {
     if (!this._cannonEl && !(this.cannonN > 0)) return;
     const el = this._chipEl('_cannonEl', 27);
     el.style.display = this.cannonN > 0 ? 'block' : 'none';
-    el.textContent = '❄️ KANON ×' + Math.max(0, this.cannonN);
+    el.textContent = '❄️×' + Math.max(0, this.cannonN);
   }
 
   scarfChip() {
@@ -1167,11 +1172,11 @@ export class Runner {
     if (!this.seasonTokens) { if (el) el.style.display = 'none'; return; }
     if (!el) {
       el = this._scarfEl = document.createElement('div');
-      el.style.cssText = 'position:fixed;right:12px;bottom:34%;z-index:30;padding:4px 9px;border-radius:14px;background:rgba(150,30,40,.78);color:#fff;font:700 14px system-ui,sans-serif;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.35)';
-      document.body.appendChild(el);
+      el.className = 'rcol-chip';
+      this._col().appendChild(el);
     }
     el.style.display = 'block';
-    el.textContent = '🧣 ' + this.seasonTokens;
+    el.textContent = '🧣' + this.seasonTokens;
   }
 
   baitChip() {
@@ -1179,12 +1184,12 @@ export class Runner {
     if (!this.bait) { if (el) el.style.display = 'none'; return; }
     if (!el) {
       el = this._baitEl = document.createElement('div');
-      el.style.cssText = 'position:fixed;left:12px;bottom:34%;z-index:30;padding:6px 11px;border-radius:16px;background:rgba(20,40,70,.8);color:#fff;font:700 15px system-ui,sans-serif;pointer-events:auto;touch-action:manipulation;box-shadow:0 2px 8px rgba(0,0,0,.35)';
+      el.className = 'rcol-chip tap';
       el.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); this.useBait(false); });
-      document.body.appendChild(el);
+      this._col().appendChild(el);
     }
     el.style.display = 'block';
-    el.textContent = '🐟 BALIK YEMİ ×' + this.bait;
+    el.textContent = '🐟×' + this.bait;
   }
 
   /** A stumble: the Yeti is right behind you for a while; a second crash inside the window catches you. */
@@ -1914,14 +1919,14 @@ export class Runner {
         } else if (below) {
           // Really fell off a ledge / out of a gap and is now far below the track again: that fall is final.
           this.fallLock = true;
-          if (b.h < ts - 4) { this.die('fall'); return; }
+          if (b.h < ts - 4) { if (this.fallRescue()) return; this.die('fall'); return; }
         }
       } else {
         // Over a hole (not just a seam: groundAt already bridged those). Falling for real after a moment.
         this.holeRun = 0;
         this.holeAir = true;
         if (b.h < -0.6) this.fallLock = true;
-        if (b.h < RCFG.fallDeath) { this.die('fall'); return; }
+        if (b.h < RCFG.fallDeath) { if (this.fallRescue()) return; this.die('fall'); return; }
       }
     }
 
@@ -2211,6 +2216,48 @@ export class Runner {
     this.crashFx(30);
     this.ctx.audio.crash(1);
     this.die('smash');
+  }
+
+  // Character intro: big card at ~22% height for 1.5 s, then it shrinks into a corner badge; small accessory mesh on the ball.
+  charIntro(id) {
+    const A = ABILITIES[id]; if (!A) return;
+    let name = id; try { name = this.ctx.save.skinName?.(id) || (SKINS?.find?.((s) => s.id === id)?.name) || id; } catch { /* ignore */ }
+    const el = this.introEl = document.createElement('div');
+    el.className = 'char-intro';
+    el.innerHTML = '<span class="ci-ico">' + A.icon + '</span><b>' + String(name).toLocaleUpperCase('tr-TR') + '</b><i>' + A.text + '</i>';
+    document.body.appendChild(el);
+    this.ctx.ball.group.rotation.y = 0; this._introT = 1.5;
+    setTimeout(() => { el.classList.add('badge'); }, 1500);
+    try {
+      const T = this.ctx.ball.group.constructor && this.ctx.THREE;
+      const g = new THREE.Group();
+      const m = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6 });
+      const acc = { simit: [0xd98a2b, 'ring'], nazar: [0x2a6fdb, 'eye'], penguen: [0xffa31a, 'beak'], altin: [0xffd24a, 'hat'] }[id] || [0xc62d3a, 'scarf'];
+      const r = this.b.r || 0.5;
+      if (acc[1] === 'eye') { const e = new THREE.Mesh(new THREE.SphereGeometry(r * 0.22, 10, 8), m(acc[0])); e.position.set(0, r * 0.2, r * 0.92); g.add(e); const p = new THREE.Mesh(new THREE.SphereGeometry(r * 0.1, 8, 6), m(0x111111)); p.position.set(0, r * 0.2, r * 1.08); g.add(p); }
+      else if (acc[1] === 'beak') { const e = new THREE.Mesh(new THREE.ConeGeometry(r * 0.14, r * 0.35, 8), m(acc[0])); e.rotation.x = Math.PI / 2; e.position.set(0, 0, r * 1.05); g.add(e); }
+      else if (acc[1] === 'hat') { const e = new THREE.Mesh(new THREE.ConeGeometry(r * 0.32, r * 0.55, 10), m(acc[0])); e.position.set(0, r * 1.05, 0); g.add(e); }
+      else { const e = new THREE.Mesh(new THREE.TorusGeometry(r * 0.98, r * 0.1, 8, 20), m(acc[0])); e.rotation.x = Math.PI / 2 - 0.35; e.position.y = r * 0.35; g.add(e); }
+      this.ctx.ball.group.add(g); this.accGroup = g;
+    } catch (e) { /* cosmetic */ }
+  }
+
+  // A shield (sled / helmet / kabuk) rescues a fall: respawn on the first solid ground beyond the gap.
+  fallRescue() {
+    if (this.level || !(this.sledT > 0 || this.helmet || this.buffs.has('kabuk'))) return false;
+    const b = this.b, tr = this.track;
+    let s = b.s, ok = false;
+    for (let k = 0; k < 40; k++) { s = b.s + 3 + k * 2; if (tr.surfaceAt(s, b.u) !== -Infinity) { ok = true; break; } }
+    if (!ok) return false;
+    this.absorbShield(null);
+    b.s = s; b.h = Math.max(0, tr.surfaceAt(s, b.u)) + 0.1; b.vh = 0;
+    this.grounded = true; this.lastSurf = b.h; this.lastSlope = 0;
+    this.fallLock = false; this.holeRun = 0; this.holeAir = false; this.edgeS = -1;
+    this.invulnT = Math.max(this.invulnT, 1.5);
+    this.obstacles.clearRange?.(s, s + b.vs * 1.0);
+    this.float('KURTARILDIN!', 'big');
+    this.placeBall(true);
+    return true;
   }
 
   // Sled → helmet → kabuk card: each absorbs ONE hit (a missed turn included).
@@ -3580,6 +3627,8 @@ export class Runner {
     this.penMeshes = [];
     this._rcpKill();
     this.stormEl?.remove(); this.stormEl = null;
+    document.getElementById('rcol')?.remove(); this._baitEl = this._scarfEl = this._cannonEl = this._breadEl = null;
+    this.introEl?.remove(); this.introEl = null; this.accGroup?.parent?.remove(this.accGroup); this.accGroup = null;
     this.closeOut();
     this.rhythm?.dispose(); this.rhythm = null;
     this.track?.dispose();

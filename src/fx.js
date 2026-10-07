@@ -111,6 +111,7 @@ export class Fx {
         }`,
     }));
     this.mist.frustumCulled = false;
+    this.mistNear = 0;   // 0..1 how much storm / powder is around the ball (read by main for the ball rim)
     scene.add(this.mist);
   }
 
@@ -129,8 +130,11 @@ export class Fx {
     this.mBase[i] = alpha;
   }
 
-  updateMist(dt) {
+  updateMist(dt, ball) {
     const n = this.mN;
+    const bp = ball && ball.group ? ball.group.position : null, br = ball ? ball.r || 1 : 1;
+    const nearR = br * 3 + 6;
+    let dens = 0;
     for (let i = 0; i < n; i++) {
       if (this.mLife[i] <= 0) { this.mAlpha[i] = 0; this.mSizeAttr[i] = 0; continue; }
       this.mLife[i] -= dt;
@@ -140,8 +144,15 @@ export class Fx {
       this.mVel[o] *= drag; this.mVel[o + 1] = this.mVel[o + 1] * drag + 0.6 * dt; this.mVel[o + 2] *= drag;
       this.mPos[o] += this.mVel[o] * dt; this.mPos[o + 1] += this.mVel[o + 1] * dt; this.mPos[o + 2] += this.mVel[o + 2] * dt;
       this.mSizeAttr[i] = this.mSize[i] * (0.5 + 1.6 * t);
-      this.mAlpha[i] = (this.mBase ? this.mBase[i] : 0.5) * (t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85);
+      let al = (this.mBase ? this.mBase[i] : 0.5) * (t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85);
+      if (bp) {
+        // storm / powder near the ball: thin it out so the white ball never vanishes into white
+        const dx = this.mPos[o] - bp.x, dy = this.mPos[o + 1] - bp.y, dz = this.mPos[o + 2] - bp.z, q = (dx * dx + dy * dy + dz * dz) / (nearR * nearR);
+        if (q < 1) { dens += al * (1 - q); al *= 0.3 + 0.7 * q; }
+      }
+      this.mAlpha[i] = al;
     }
+    this.mistNear += (Math.min(1, dens / 2.5) - this.mistNear) * Math.min(1, dt * 4);
     const g = this.mist.geometry.attributes;
     g.position.needsUpdate = g.size.needsUpdate = g.alpha.needsUpdate = g.color.needsUpdate = true;
     this.mist.material.uniforms.uScale.value = window.innerHeight * 0.9;
@@ -204,7 +215,7 @@ export class Fx {
 
   update(dt, ball) {
     const w = this.world;
-    this.updateMist(dt);
+    this.updateMist(dt, ball);
     this._bb = 0;
     // particles
     let n = this.n;

@@ -194,8 +194,9 @@ const CSS = `
 .cs-card.r-epic { --rc: #a855f7; --rg: rgba(168, 85, 247, 0.5); }
 .cs-card.r-legendary { --rc: #ffb400; --rg: rgba(255, 180, 0, 0.62); }
 .cs-card.sel { box-shadow: 0 5px 0 var(--ink), 0 0 0 4px var(--gold), 0 0 20px 4px rgba(255, 207, 58, 0.55); }
-.cs-abil-b { display:inline-block; font-size:9px; font-weight:800; letter-spacing:.08em; padding:1px 6px; border-radius:6px; background:#ffb400; color:#2a1a00; margin-top:3px; }
-.cs-abil { font-size:11px; line-height:1.25; opacity:.9; margin-top:2px; }
+.cs-abilbox { display:flex; flex-direction:column; align-items:center; gap:2px; text-align:center; flex:none; max-width:100%; }
+.cs-abil-b { display:inline-block; font-size:10px; font-weight:900; letter-spacing:.08em; padding:2px 8px; border-radius:7px; background:linear-gradient(180deg,#ffe27a,#ffb400); color:#2a1a00; border:2px solid var(--ink,#17345c); }
+.cs-abil { font-size:11px; font-weight:800; line-height:1.2; color:#5a3a00; }
 .cs-rar {
   position: absolute; top: 6px; left: 7px; z-index: 2; padding: 3px 6px 2px; border-radius: 8px; pointer-events: none;
   font-size: 9px; line-height: 1; letter-spacing: 0.06em; color: #fff; background: var(--rc);
@@ -926,8 +927,8 @@ export function openShop({ save, onClose, onSelect } = {}) {
     card.appendChild(buildPreview(kind, st.secret ? HIDDEN : it.preview, st.secret));
     card.appendChild(h('span', 'cs-rar', RARITY[rar].label));
     card.appendChild(h('div', 'cs-name', st.secret ? '???' : it.name));
-    const ab = kind === 'skin' && !st.secret ? ABILITIES[it.id] : null;
-    if (ab) { card.appendChild(h('span', 'cs-abil-b', 'ABİLİTE')); card.appendChild(h('div', 'cs-abil', ab.icon + ' ' + ab.text)); }
+    const ab = kind === 'skin' ? ABILITIES[it.id] : null;
+    if (ab) { const w = h('div', 'cs-abilbox'); w.appendChild(h('span', 'cs-abil-b', '★ ABİLİTE')); w.appendChild(h('div', 'cs-abil', ab.icon + ' ' + ab.text)); card.appendChild(w); }
     if (st.locked) {
       card.appendChild(h('div', 'cs-note', st.secret ? 'Gizli ödül' : `⭐ ${Math.min(st.stars, st.need)}/${st.need}`));
       card.appendChild(h('span', 'cs-lockbadge', '🔒'));

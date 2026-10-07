@@ -590,9 +590,11 @@ function tonsCompact(t) {
   if (t < 1e6) return f(t / 1e3, 'k t');
   return f(t / 1e6, 'M t');
 }
+let lastHave = 0;
 function showSizeReadout(info) {
   const el = ui.el.tons;
   if (!el) return;
+  lastHave = info.lv.have;
   const main = 'Ø ' + fmtD(info.lv.have) + ' m', sub = tonsCompact(info.tons || 0);
   const c = el.firstChild;
   if (c && c.nodeType === 3 && c.nodeValue === main && el.childElementCount === 1 && el.lastChild.textContent === sub) return;
@@ -1125,7 +1127,7 @@ function ensureBars() {
     barPool.push({ el, fill, on: false });
   }
   bossEl = document.createElement('div');
-  bossEl.style.cssText = 'position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 78px);transform:translateX(-50%);width:min(82vw,420px);display:none;text-align:center;font:800 13px system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);letter-spacing:.06em;';
+  bossEl.style.cssText = 'position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 12px);transform:translateX(-50%);width:min(66vw,400px);display:none;text-align:center;font:800 13px system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);letter-spacing:.06em;';
   const nm = document.createElement('div');
   nm.style.cssText = 'line-height:16px;height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
   const track = document.createElement('div');
@@ -1135,7 +1137,25 @@ function ensureBars() {
   const num = document.createElement('span');
   num.style.cssText = 'position:absolute;left:0;right:0;top:0;line-height:16px;font-size:12px;';
   track.appendChild(bf); track.appendChild(num);
-  bossEl.appendChild(nm); bossEl.appendChild(track);
+  const gg = document.createElement('div');   // BUZ KIRACAK speed gauge (only while the boss holds an ice shield)
+  gg.style.cssText = 'position:relative;display:none;margin-top:4px;height:16px;border-radius:8px;background:rgba(10,16,32,.72);border:2px solid #9fe0ff;overflow:hidden;';
+  const gf = document.createElement('i');
+  gf.style.cssText = 'display:block;height:100%;width:100%;background:linear-gradient(#bff0ff,#4aa8ff);transform-origin:left center;';
+  const gm = document.createElement('b');
+  gm.style.cssText = 'position:absolute;top:0;bottom:0;width:2px;background:#fff;left:85%;';
+  const gt = document.createElement('span');
+  gt.style.cssText = 'position:absolute;left:0;right:0;top:0;line-height:12px;font-size:10px;letter-spacing:.12em;';
+  gg.appendChild(gf); gg.appendChild(gm); gg.appendChild(gt);
+  bossEl.appendChild(nm); bossEl.appendChild(track); bossEl.appendChild(gg);
+  bossEl._gg = gg; bossEl._gf = gf; bossEl._gt = gt;
+  if (!document.getElementById('cig-boss-css')) {
+    const st = document.createElement('style'); st.id = 'cig-boss-css';
+    // boss fight = ONE top block: hide the level strip / ETAP chip / size readout / goal, and park every message just below the block
+    st.textContent = '#hud.bossfight #cig-lv,#hud.bossfight .hud-level,#hud.bossfight .hud-progress,#hud.bossfight .hud-tons,#hud.bossfight .hud-goal,#hud.bossfight #hud-chal{display:none!important}'
+      + '#hud.bossfight.bossfight.bossfight.bossfight ~ #toast-soft:not(.res){top:calc(var(--sat,0px) + 88px)}'
+      + '#hud.bossfight ~ #toast-soft .ts:nth-child(n+2){display:none}';
+    document.head.appendChild(st);
+  }
   bossEl._nm = nm; bossEl._bf = bf; bossEl._num = num;
   barRoot.appendChild(bossEl);
   document.body.appendChild(barRoot);
@@ -1145,9 +1165,25 @@ function hideEnemyBars() {
   barRoot.style.display = 'none';
   for (const b of barPool) { b.on = false; b.el.style.display = 'none'; }
   bossEl.style.display = 'none';
+  ui.el.hud?.classList.remove('bossfight');
   for (const e of trapEls) e.style.display = 'none';
 }
+// dark rim around the white ball: strengthens with the storm / fog around it so it never melts into the white-blue
+let rimMesh = null;
+function updateBallRim() {
+  if (G.mode !== 'cig') { if (rimMesh) rimMesh.visible = false; return; }
+  if (!rimMesh) {
+    rimMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), new THREE.MeshBasicMaterial({ color: 0x1d3c68, side: THREE.BackSide, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+    rimMesh.renderOrder = 2; rimMesh.frustumCulled = false;
+    ball.group.add(rimMesh);
+  }
+  const o = Math.min(0.75, 0.12 + (fx.mistNear || 0) * 0.6 + (G.lv && G.lv.twist === 'fog' ? 0.25 : 0));
+  rimMesh.material.opacity += (o - rimMesh.material.opacity) * 0.15;
+  rimMesh.visible = ball.group.visible;
+  rimMesh.scale.setScalar(ball.snow.scale.x * 1.07);
+}
 function updateEnemyBars() {
+  updateBallRim();
   if (G.mode !== 'cig' || G.state !== 'play' || !world || !world.enemies.length) { if (barRoot && barRoot.style.display !== 'none') hideEnemyBars(); return; }
   ensureBars();
   barRoot.style.display = 'block';
@@ -1175,12 +1211,24 @@ function updateEnemyBars() {
   }
   for (let i = n; i < BAR_N; i++) if (barPool[i].on) { barPool[i].on = false; barPool[i].el.style.display = 'none'; }
   if (boss) {
-    bossEl.style.display = 'block'; bossEl.style.top = G.lv ? 'calc(env(safe-area-inset-top,0px) + 152px)' : 'calc(env(safe-area-inset-top,0px) + 78px)';
-    bossEl._nm.textContent = boss.enemy.name;
+    bossEl.style.display = 'block';
+    ui.el.hud.classList.add('bossfight');
+    const nmT = boss.enemy.name + (G.lv && lastHave ? '  ·  Ø ' + fmtD(lastHave) + ' m' : '');
+    if (bossEl._nmT !== nmT) { bossEl._nmT = nmT; bossEl._nm.textContent = nmT; }
+    const gz = game && game.shieldGauge ? game.shieldGauge() : null;
+    if (gz) {
+      const ok = gz.f >= gz.need;
+      bossEl._gg.style.display = 'block';
+      bossEl._gf.style.transform = 'scaleX(' + clamp(gz.f, 0, 1).toFixed(3) + ')';
+      bossEl._gf.style.background = ok ? 'linear-gradient(#fff,#7fe0ff)' : 'linear-gradient(#bff0ff,#4aa8ff)';
+      bossEl._gg.style.borderColor = ok ? '#fff' : '#9fe0ff';
+      bossEl._gg.style.opacity = ok ? '1' : (0.7 + 0.3 * Math.sin(performance.now() * 0.012)).toFixed(2);
+      bossEl._gt.textContent = ok ? '🧊 ŞİMDİ ÇARP!' : 'HIZLAN!';
+    } else if (bossEl._gg.style.display !== 'none') bossEl._gg.style.display = 'none';
     bossEl._num.textContent = Math.max(0, Math.ceil(boss.enemy.hp)) + ' / ' + Math.ceil(boss.enemy.max);
     bossEl._bf.style.transform = 'scaleX(' + clamp(boss.enemy.hp / boss.enemy.max, 0, 1).toFixed(3) + ')';
     ui.el.hint.classList.add('hidden');   // boss HP bar up: no generic hint line
-  } else bossEl.style.display = 'none';
+  } else { bossEl.style.display = 'none'; ui.el.hud.classList.remove('bossfight'); }
   // 👑 icon above the standing throne tower, so it is noticed from afar
   {
     let tw = null;

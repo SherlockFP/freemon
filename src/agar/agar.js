@@ -516,6 +516,7 @@ export class AgarMode {
       for (let k = 0; k < n; k++) { const a2 = Math.random() * 6.2832, d2 = Math.random() * 9, px = qx + Math.cos(a2) * d2, pz = qz + Math.sin(a2) * d2; if (px * px + pz * pz < (R - 4) * (R - 4)) this.spawnPellet(px, pz, 20 + ((Math.random() * 21) | 0), 0xffd24a); }
       this.toast('BÜYÜK LOKMA! 🍖', 1800);
     }
+    if (me.mass < 500) { const nb = Math.min(6, 1 + ((me.mass / 50) | 0)), hx = FOOD_PAL[(Math.random() * FOOD_PAL.length) | 0]; for (let k = 0; k < nb; k++) { const a1 = Math.random() * 6.2832, d1 = 8 + Math.random() * 50, px = me.lx + Math.cos(a1) * d1, pz = me.lz + Math.sin(a1) * d1; if (px * px + pz * pz < (R - 4) * (R - 4)) this.spawnPellet(px, pz, 1, hx); } } // density scales with player mass
     let near = 0, far = null;
     for (let k = 1; k < NOWN; k++) {
       const o = this.owners[k];
@@ -650,6 +651,7 @@ export class AgarMode {
 
   playSolo() {
     if (this.mp) return;
+    this.deaths = 0;
     this.state = 'play';
     this.clearScreen();
     this.hud.root.classList.remove('ag-menu');
@@ -707,7 +709,7 @@ export class AgarMode {
     d.style.touchAction = 'none';
     this.onDown = (e) => {
       this.audio?.init?.();
-      if (this.state !== 'play') return;
+      if (this.state !== 'play' && !this.ghost) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       if (this.stickId !== null) return;
       this.stickId = e.pointerId; this.sx = e.clientX; this.sy = e.clientY;
@@ -937,7 +939,7 @@ export class AgarMode {
       const d2 = c.x * c.x + c.z * c.z, lim = R - 1;
       if (d2 > lim * lim) { const k = lim / Math.sqrt(d2); c.x *= k; c.z *= k; }
       if (o.burCd <= 0 && c.m < BUR_M && o.cellN === 1 && this.mp !== 'client' && (!o.bot || o.fleeT > 0)) { for (let b = 0; b < NBUR; b++) { const bx = BUR[b].x - c.x, bz = BUR[b].z - c.z; if (bx * bx + bz * bz < BUR_IN * BUR_IN) { this.burIn(o, c, b); break; } } }
-      if (c.m > 300) c.m -= c.m * 0.0012 * dt; // big balls slowly shrink: growth stays gradual
+      if (c.m > 400) c.m -= c.m * 0.0012 * dt; // big balls slowly shrink: growth stays gradual
       if (this.zn.st === 2 && this.mp !== 'client' && c.m > 10 && !(o.shield > 0 && o.prot)) { const zx = c.x - this.zn.cx, zz = c.z - this.zn.cz; if (zx * zx + zz * zz > this.zn.r * this.zn.r) c.m = Math.max(10, c.m - (c.m * 0.015 + 0.4) * dt); }
     }
     // cell vs cell
@@ -986,7 +988,7 @@ export class AgarMode {
             const dx = this.fx[i] - c.x, dz = this.fz[i] - c.z, d2 = dx * dx + dz * dz;
             if (d2 < r2) {
               const v = this.fv[i];
-              let pv = o.bot && this.time - this.sessT < 120 ? v * 0.5 : v;
+              let pv = o.bot ? v * (this.time - this.sessT < 150 ? 0.5 : this.time - this.sessT < 240 ? 0.75 : 1) : v;
               for (const f of this.forts) if (f.pa > 0.5 && f.pc === c.o) { const px = this.fx[i] - f.x, pz = this.fz[i] - f.z; if (px * px + pz * pz < PAINT_R * PAINT_R) { pv *= 1.2; break; } }
               c.m = Math.min(MAXM, c.m + pv); o.xpRun += v;
               if (c.o === this.me) { this.snd('pellet'); if (!this.firstEat && this.state === 'play') { this.firstEat = true; this.toast('İLK YEMEK! 🎉'); this.audio?.milestone?.(1); } }
@@ -1683,9 +1685,66 @@ export class AgarMode {
     this.state = 'dead';
     this.deadT = 1.1;
     this.deadKiller = killer ? killer.name : '';
+    this.deaths = (this.deaths || 0) + 1;
+    if (this.mp !== 'client' && this.deaths < 3) { this.ghostStart(o); this.deadT = 1e9; } // GÖLGE AV: soft elimination
     this.audio?.lose?.();
     this.platform?.haptic?.('heavy');
     this.bank(o);
+  }
+
+  /** GÖLGE AV: after being eaten you roam 10 s as a ghost, collect a few pellets, then respawn with that bonus mass */
+  ghostStart(o) {
+    this.ghost = { x: o.lx, z: o.lz, t: 10, bonus: 0, n: 0, ct: 0 };
+    this.bank(o);
+    const el = document.createElement('div');
+    el.className = 'ag-ghost';
+    el.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;font-size:34px;filter:drop-shadow(0 0 8px #bfeaff);opacity:.85;z-index:5';
+    el.textContent = '👻';
+    const bar = document.createElement('div');
+    bar.style.cssText = 'position:absolute;left:50%;top:18%;transform:translateX(-50%);text-align:center;color:#eaf6ff;font:800 20px system-ui,sans-serif;text-shadow:0 2px 6px #0007;z-index:6;pointer-events:none';
+    const menu = document.createElement('button'); menu.type = 'button'; menu.className = 'ag-btn'; menu.textContent = 'MENÜ'; menu.style.cssText = 'pointer-events:auto;margin-top:8px;font-size:14px;padding:6px 16px';
+    menu.addEventListener('click', (e) => { e.stopPropagation(); this.ghostEnd(false); });
+    menu.addEventListener('pointerdown', (e) => e.stopPropagation());
+    const lab = document.createElement('div'); bar.append(lab, menu);
+    this.hud.root.append(el, bar);
+    this.ghost.el = el; this.ghost.bar = bar; this.ghost.lab = lab;
+  }
+  ghostEnd(respawn) {
+    const g = this.ghost; if (!g) return;
+    this.ghost = null; g.el.remove(); g.bar.remove();
+    this.inp.mag = 0;
+    if (!respawn) { this.deadT = 0; return; } // MENÜ -> result screen
+    const o = this.owners[this.me];
+    this.closeResult(); o.bot = false;
+    this.spawnOwner(o, this.startMass() + g.bonus);
+    this.state = 'play'; this.toast(g.bonus > 0 ? 'GERİ DÖNDÜN! +' + Math.round(g.bonus) + ' kütle' : 'GERİ DÖNDÜN!', 2000);
+    this.audio?.whoosh?.();
+  }
+  ghostTick(dt) {
+    const g = this.ghost; if (!g) return;
+    if (this.state !== 'dead') { this.ghost = null; g.el.remove(); g.bar.remove(); return; }
+    g.t -= dt;
+    const i = this.inp, sp = 24;
+    g.x += i.dx * i.mag * sp * dt; g.z += i.dz * i.mag * sp * dt;
+    const d = Math.hypot(g.x, g.z); if (d > R - 3) { g.x *= (R - 3) / d; g.z *= (R - 3) / d; }
+    g.ct -= dt;
+    if (g.ct <= 0 && g.n < 7) {
+      g.ct = 0.1;
+      for (let k = 0; k < FT; k++) {
+        const v = this.fv[k]; if (v <= 0 || v > 5) continue;
+        const dx = this.fx[k] - g.x, dz = this.fz[k] - g.z;
+        if (dx * dx + dz * dz < 36) {
+          g.bonus += v * 1.5; g.n++; this.snd('pellet');
+          if (k < FOOD) { const p = this.tmpP || (this.tmpP = { x: 0, z: 0 }); this.foodPos(p); this.foodPlace(k, p.x, p.z, this.baseVal(k)); } else this.foodPlace(k, 0, 0, 0);
+          if (g.n >= 7) break;
+        }
+      }
+    }
+    g.lab.textContent = 'GÖLGE: ' + Math.max(0, Math.ceil(g.t)) + ' sn · +' + Math.round(g.bonus) + ' kütle';
+    if (g.t <= 0) { this.ghostEnd(true); return; }
+    const cam = this._camera, v = this._pv3 || (this._pv3 = new THREE.Vector3());
+    v.set(g.x, 0.5, g.z).project(cam);
+    g.el.style.transform = 'translate(' + ((v.x * 0.5 + 0.5) * this.sz.x - 17) + 'px,' + ((-v.y * 0.5 + 0.5) * this.sz.y - 17) + 'px)';
   }
 
   bank(o) {
@@ -1711,7 +1770,7 @@ export class AgarMode {
     if (this.deadKiller) card.querySelector('.ag-sub').textContent = this.deadKiller + ' seni yuttu';
     const b1 = document.createElement('button'); b1.type = 'button'; b1.className = 'ag-btn go'; b1.textContent = 'TEKRAR';
     const b2 = document.createElement('button'); b2.type = 'button'; b2.className = 'ag-btn'; b2.textContent = 'MENÜ';
-    b1.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('confirm'); this.respawnMe(); });
+    b1.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('confirm'); this.deaths = 0; this.respawnMe(); });
     b2.addEventListener('click', () => { this.audio?.ui?.('back'); this.exit(); });
     card.append(b1, b2);
     el.appendChild(card);
@@ -2248,6 +2307,7 @@ export class AgarMode {
     if (this.mp !== 'client') this.checkDeaths();
     // host snapshots
     if (this.mp === 'host') { this.netT -= dt; if (this.netT <= 0) { this.netT = 0.08; this.sendSnapshot(); } }
+    this.ghostTick(dt);
     if (this.state === 'dead') { this.deadT -= dt; if (this.deadT <= 0 && !this.resultEl) this.showResult(); }
     this.render(dt);
     this.updateHud(dt);
@@ -2282,7 +2342,8 @@ export class AgarMode {
     this.uTime.value = this.time;
     // follow target
     let fo = me;
-    if (!me.alive) { fo = null; let bm = -1; for (let i = 0; i < NOWN; i++) if (owners[i].alive && owners[i].mass > bm) { bm = owners[i].mass; fo = owners[i]; } }
+    if (!me.alive && this.ghost) fo = { cx: this.ghost.x, cz: this.ghost.z, mass: 24, ext: 0 };
+    else if (!me.alive) { fo = null; let bm = -1; for (let i = 0; i < NOWN; i++) if (owners[i].alive && owners[i].mass > bm) { bm = owners[i].mass; fo = owners[i]; } }
     // camera: zooms out smoothly with size, stays inside the arena
     this.renderer.getSize(this.sz);
     const asp = (this.sz.x || 1) / (this.sz.y || 1);
