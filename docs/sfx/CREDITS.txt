@@ -56,3 +56,16 @@ jingle_star.ogg          <- jingles_STEEL16.ogg            Kenney - Music Jingle
 
 Procedurally synthesised sounds (rolling loop, whoosh, pop pluck, fallback versions of
 everything above) are generated at runtime in src/audio.js and need no credit.
+
+Menu / UI sounds, second pass (all Kenney - Interface Sounds 1.0, CC0 1.0; page
+https://kenney.nl/assets/interface-sounds also listed on https://kenney.itch.io/kenney-game-assets;
+licence file in the zip: Creative Commons Zero, CC0). Copied unedited, renamed:
+ui_tap.ogg               <- click_003.ogg
+ui_pick.ogg              <- pluck_001.ogg
+ui_ok.ogg                <- confirmation_002.ogg
+ui_return.ogg            <- minimize_003.ogg
+ui_close.ogg             <- close_002.ogg
+ui_open.ogg              <- maximize_003.ogg
+ui_switch.ogg            <- switch_003.ogg
+ui_nope.ogg              <- error_003.ogg
+ui_reward.ogg            <- bong_001.ogg
