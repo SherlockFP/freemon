@@ -1055,3 +1055,9 @@ Genel 7.4 · Rush 7.5 · ÇIĞ 7.0 · Arena 6.8 · Menü 7.1
 - Rush kart kapısı çalışıyor (kart alındı, risk uygulandı) ama uzaktan küçük, "YENİ REKOR!" üstünü örtüyor, alma bildirimi yok.
 - Arena FIRLAT çalışıyor ama buton küçük/sıkışık, ipucu BÖL'ü örtüyor, fırlatılan toplar zayıf görünüyor.
 - Şimdi: çatalı gerçekten doğur + tekilleştir; kart kapısı okunurluk + bildirim; arena kontrol kümesi + fırlatma efekti.
+
+### Döngü 25 — sonuçlar
+- ÇIĞ: YOL AYRIMI artık her boss dışı seviye ≥3'te doğuyor (22/22); world.js çift metot temizlendi, tabelalar büyüdü. L4 görüntüsünde sırt + "KISA YOL ⚡ RİSKLİ" tabelası görünüyor, seviye bitiyor.
+- Rush: kart kapısı 75 m'de, 1.4× kart, sallanma + nabız, yeşil/kırmızı şerit; "◀ GÜVENLİ · RİSKLİ ▶" ipucu; kapı yaklaşırken orta duyurular bekletiliyor; "KART: X" bildirimi + flaş.
+- Arena: başparmak yayı kontroller (HIZLAN 100px, BÖL 80, FIRLAT 76), ipuçları yukarı; fırlatılan toplar renkli + iz + "-16"; diken fırlatınca "DİKEN FIRLADI!"; gölgedeyken butonlar gizli. Görüntüyle doğrulandı.
+- Smoke: tüm modlar + bosslar + L3/4/9 hatasız.
