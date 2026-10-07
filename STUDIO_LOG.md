@@ -996,3 +996,5 @@ Genel 7.0 · Rush 7.0 · ÇIĞ 8.0 → yeniden çapalandı (Candy Crush / Hill C
 - Menü: ARENA ikincil (çerçeveli) buton, OYNA tek ana CTA; GÜNLÜK n/N pip kartı.
 - ÇIĞ: boyut "⚪ 32 m". HUD birleştirme + koşu içi yıldız pipleri sonraki döngüye (main.js/ui.js sahibi).
 - Smoke: Rush/ÇIĞ/Arena/boss L5-7-14/Günün Rush'ı hatasız.
+
+- Ek (döngü 20b): ÇIĞ HUD tek üst bar (ETAP çipi · ilerleme · ⚪ boyut), canlı 3 yıldız pipi, boss barı sadece boss sırasında. Ekran görüntüsüyle doğrulandı.
