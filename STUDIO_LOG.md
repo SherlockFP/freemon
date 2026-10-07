@@ -1004,3 +1004,10 @@ Genel 7.1 · Rush 7.0 · ÇIĞ 6.5 (sıkı çapa) · Arena 6.5 · Menü 7.0 — 
 - İyi: ÇIĞ tek üst bar okunur; Rush sonuç akışı tam; arena HUD dolu; menüde OYNA baskın.
 - Gelişmeli: Rush sonuçta "rekora N m" kancası yok, 500 m'de ortam değişmiyor; ÇIĞ yıldız pipleri küçük, sonuç ekranı düz liste; arena oyuncu küçük/uzak, mor bölge baskın, ölüm özeti yok; menüde BUGÜN satırı kesik, menü topu sönük.
 - Fikirler: rekor hayaleti, yaklaşan yeti kükremesi+vinyet; ÇIĞ yıldızların tek tek açılması + SONRAKİ DAĞ; arena tırmanış özeti.
+
+### Döngü 21 — sonuçlar
+- Rush: sonuçta "REKORA n m KALDI!" + en yakın görev; büyük TEKRAR; ❄50 ile tek seferlik DEVAM (3 sn halka); 500 m kapılarında gökyüzü/hava döngüsü; yeti yaklaşınca kırmızı kenar vinyeti + kükreme (6 sn sınır). Günlük paylaşım tek PAYLAŞ butonunda.
+- ÇIĞ: 17px yıldız pipleri, kazanınca "pop"; sonuç yıldızları 350 ms arayla + titreşim.
+- Menü: BUGÜN 2 satıra sarıyor (kesik çip yok); hazır ödül parlıyor+zıplıyor.
+- Arena: başta yakın kamera, küçük hücre min görsel boyut, bölge dolgusu soft, ağaç fade güçlü; "YENDİN: X" ölüm kartı + "ilk 3'e N kütle" kancası.
+- Smoke: Rush/ÇIĞ/Arena/boss/günlük hatasız.
