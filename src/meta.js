@@ -237,6 +237,7 @@ const MISSION_TPL = [
     on: { run_progress: best((d) => d.distance), endless_end: best((d) => d.distance) } },
   { id: 'jump', group: 'jump', modes: 'endless', scope: 'sum', icon: '🦘', goals: [5, 15, 30, 50, 80, 120], text: (g) => `${g} kez zıpla`, on: { jump: inc } },
   { id: 'close', group: 'close', modes: 'endless', scope: 'sum', icon: '😅', goals: [1, 2, 3, 5, 8, 12], text: (g) => `Yeti'den ${g} kez kıl payı kaç`, on: { close_call: inc } },
+  { id: 'turn', group: 'turn', modes: 'endless', scope: 'sum', icon: '↪️', goals: [5, 10, 20, 35, 50, 80], text: (g) => `${g} keskin viraj al`, on: { turn: inc } },
   { id: 'power', group: 'power', modes: 'endless', scope: 'sum', icon: '⚡', goals: [1, 3, 4, 6, 8, 10], text: (g) => `${g} güçlendirme topla`, on: { powerup: inc } },
   { id: 'maxsize', group: 'size', modes: 'endless', scope: 'sum', icon: '🌕', goals: [1, 1, 2, 3, 4, 5], text: (g) => (g === 1 ? 'Maksimum boyuta ulaş' : `Maksimum boyuta ${g} kez ulaş`),
     on: { tier_up: (d, v) => (num(d.tier) >= 4 ? v + 1 : v) } },
@@ -686,10 +687,11 @@ function onCigEnd(d) {
   st.cigRuns++;
   const tons = nz(d.tons);
   st.totalTons += tons;
-  if (d.daily) st.dailyRuns++;
+  const reached = d.reached !== false;
+  if (d.daily && reached) st.dailyRuns++;
   if (num(d.pct) >= 0.99) st.flattened++;
   const theme = typeof d.theme === 'string' ? d.theme : (!d.daily ? LEVEL_CYCLE[(Math.max(1, num(d.level, 1) | 0) - 1) % LEVEL_CYCLE.length] : '');
-  if (theme === 'night') st.nightRuns++;
+  if (theme === 'night' && reached) st.nightRuns++;
   pushRecent('c');
   addXp(20 + nz(d.stars) * 30 + nz(d.pct) * 40 + Math.sqrt(tons) * 0.8);
 }
@@ -704,7 +706,7 @@ function handle(ev, d, newly) {
     case 'endless_end': onEndlessEnd(d); break;
     case 'swallow': st.swallowed++; if (d.type === 'k_police') st.police++; break;
     case 'destroy': st.destroyed++; break;
-    case 'milestone': st.maxMilestone = Math.max(st.maxMilestone, num(d.level)); break;
+    case 'milestone': if (d.r === undefined || num(d.r) >= 9.5 || num(d.level) < 5) st.maxMilestone = Math.max(st.maxMilestone, num(d.level)); break;
     case 'tier_up': st.tierUps++; st.maxTier = Math.max(st.maxTier, num(d.tier)); break;
     case 'crash': st.crashes++; break;
     case 'smash': st.smashed++; break;

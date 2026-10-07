@@ -23,7 +23,7 @@ export const POWERS = {
   giant: { name: 'DEV MANTAR', icon: '🍄', color: 0x45e06f, dur: 6 },
   rocket: { name: 'ROKET', icon: '🚀', color: 0xff9226, dur: 4 },
   shield: { name: 'KALKAN', icon: '🛡️', color: 0x44a6ff, dur: 25 },
-  freeze: { name: 'BUZ BOMBASI', icon: '🧊', color: 0x8eeaff, dur: 6 },
+  freeze: { name: 'SOĞUK DALGA', icon: '🧊', color: 0x8eeaff, dur: 8 },
   rainbow: { name: 'GÖKKUŞAĞI', icon: '🌈', color: 0xff5fd2, dur: 8 },
   wings: { name: 'KANAT', icon: '🕊️', color: 0xffffff, dur: 5 },
   invert: { name: 'TERS YERÇEKİMİ', icon: '🙃', color: 0xb36bff, dur: 3 },
@@ -318,7 +318,7 @@ export class CigPlus {
 
     this.T = {};
     for (const k of KEYS) this.T[k] = 0;
-    this.mods = { speedMul: 1, accelMul: 1, steerMul: 1, eatMul: 1, gravityMul: 1, magnetR: 0, ghost: false, shield: false, tonMul: 1, sliding: false, flying: false, invert: false, noMelt: false };
+    this.mods = { speedMul: 1, accelMul: 1, steerMul: 1, eatMul: 1, gravityMul: 1, magnetR: 0, ghost: false, shield: false, tonMul: 1, sliding: false, flying: false, invert: false, noMelt: false, plow: false };
 
     this.pickups = []; this.slides = []; this.kickers = []; this.towers = [];
     this.mush = []; this.portals = []; this.gates = []; this.armies = []; this.snow = [];
@@ -357,7 +357,7 @@ export class CigPlus {
 
   _plan() {
     const w = this.world, R = this.rng, lvl = this.lvl;
-    const L = w.L, lo = 90, hi = L - 40;
+    const L = w.L, lo = 90, hi = L - 80;
     // Keep-out intervals tagged by type; each feature kind avoids only the types that would hurt it.
     // Higher levels are packed with world ramps/patches/roads, so slides, mushrooms, towers etc. may overlap
     // patches and roads (the ball is lifted / airborne there) but never ramps.
@@ -366,6 +366,9 @@ export class CigPlus {
     for (const r of w.ramps) blk.push([r.d - 6, r.d + r.len + 44, RAMP]);
     for (const p of w.patches) blk.push([p.d - p.rd - 6, p.d + p.rd + 6, PATCH]);
     for (const r of w.roads) blk.push([r.d - 10, r.d + 10, ROAD]);
+    // Size walls and the fork are protected too: nothing gimmicky within 70 m before / 15 m after a wall, around the fork.
+    for (const g of (w.gates || [])) blk.push([g.d - 70, g.d + 15, RAMP]);
+    for (const f of (w.forks || [])) blk.push([f.d - 10, f.d + f.len + 10, RAMP]);
     const MASK = { slide: RAMP | OWN, mush: RAMP | OWN, updraft: RAMP | OWN, flip: RAMP | OWN, portal: RAMP | OWN, army: RAMP | OWN, invert: RAMP | OWN, pickup: RAMP | OWN };
     const PM = [RAMP | PATCH | ROAD | OWN, RAMP | PATCH | OWN, RAMP | OWN]; // portal exit: prefer clear snow
     // earliest start >= d such that [a - pad, a + len + pad] is clear of everything in `mask`
@@ -389,7 +392,7 @@ export class CigPlus {
     };
 
     // Power-ups: one roughly every 150 m, drawn from a shuffled bag so kinds don't repeat.
-    const kinds = ['magnet', 'giant', 'shield', 'rainbow', 'wings'];
+    const kinds = ['magnet', 'giant', 'shield'];
     if (lvl >= 2) kinds.push('rocket');
     if (lvl >= 3) kinds.push('freeze');
     let bag = [];
@@ -412,10 +415,7 @@ export class CigPlus {
     const pool = [
       { k: 'slide', w: 3, min: 60, max: 100 }, { k: 'updraft', w: 2, min: 28, max: 28 }, { k: 'mush', w: 2, min: 40, max: 80 },
     ];
-    if (lvl >= 2) pool.push({ k: 'flip', w: 2.4, min: 52, max: 56 });
-    if (lvl >= 3) pool.push({ k: 'portal', w: 1.6, min: 0, max: 0 });
-    if (lvl >= 4) pool.push({ k: 'army', w: 2, min: 24, max: 24 });
-    if (lvl >= 5) pool.push({ k: 'invert', w: 0.7, min: 12, max: 12 });
+    if (lvl >= 3) pool.push({ k: 'army', w: 2, min: 24, max: 24 });
     let invertDone = false, last = '', last2 = '';
     let d = lo + R.range(20, 50);
     let guard = 0;
@@ -469,7 +469,7 @@ export class CigPlus {
   }
 
   // Remove props from a rectangular footprint so features never sit on top of scenery.
-  _clear(cxFn, d0, d1, halfW) {
+  _clear(cxFn, d0, d1, halfW, keepEdible = false) {
     const w = this.world, out = this.near;
     for (let d = d0 - 2; d <= d1 + 2; d += 6) {
       const x = cxFn(d - d0);
@@ -477,6 +477,7 @@ export class CigPlus {
       for (let i = 0; i < out.length; i++) {
         const p = out[i];
         if (!p.alive || p.kind === 'building') continue;
+        if (keepEdible && p.r <= 0.9 * this._expR(p.d)) continue; // food stays; only obstacles are cleared
         if (Math.abs(p.x - cxFn(clamp(p.d - d0, 0, d1 - d0))) < halfW + p.r * 0.5 && p.d > d0 - 2 - p.r && p.d < d1 + 2 + p.r) w.kill(p);
       }
     }
@@ -495,7 +496,7 @@ export class CigPlus {
     const H = 1.4 + hwC * 0.35;
     const s = { x0, A, hwC, H, d0, d1: d0 + len, len };
     this.slides.push(s);
-    this._clear((u) => this._cx(s, u), d0, d0 + len, hwC + 1.5);
+    this._clear((u) => this._cx(s, u), d0, d0 + len, hwC + 1.5, true);
     return len;
   }
   _cx(s, u) { return s.x0 + s.A * 1.3 * Math.sin((TAU * u) / s.len) * Math.sin((Math.PI * u) / s.len); }
@@ -706,7 +707,7 @@ export class CigPlus {
       for (let i = 0; i < a.n; i++) {
         const expR = this._expR(a.d);
         const boss = i === a.boss;
-        const ratio = boss ? 1.85 : R.chance(0.68) ? R.range(0.45, 0.78) : R.range(1.15, 1.6);
+        const ratio = boss ? 1.6 : R.chance(0.68) ? R.range(0.45, 0.78) : R.range(1.15, 1.6);
         const tR = Math.max(0.45, expR * ratio);
         const s = tR / baseDef.radius;
         const ang = R.range(0, TAU), rad = R.range(0, 1) * (3 + expR * 1.2);
@@ -739,14 +740,14 @@ export class CigPlus {
         p.s = p.s0 * (1 + 0.07 * Math.sin(this.time * (a.woke ? 14 : 2) + p.phase)); // waddle
         if (!a.woke || p._fz) continue;
         if (b.d > p.d + 10) continue; // left behind
-        let dx = b.x - p.x, dd = b.d - p.d;
-        const dist = Math.hypot(dx, dd) || 1;
-        dx /= dist; dd /= dist;
+        // Interceptors: they slide sideways into the ball's line, never uphill into it (no shoving).
+        const ddA = p.d - b.d;
+        if (ddA < 0 || ddA > 60) continue;
         const hw = w.halfWidth(p.d) - 1;
-        p.x = clamp(p.x + dx * p.spd * dt, -hw, hw);
-        p.d += dd * p.spd * dt;
-        p.ox = p.x; p.od = p.d;
-        p.rot = Math.atan2(dx, -dd);
+        const step = clamp(b.x - p.x, -p.spd * dt, p.spd * dt);
+        p.x = clamp(p.x + step, -hw, hw);
+        p.ox = p.x;
+        p.rot = Math.atan2(step, 0.0001);
       }
     }
   }
@@ -756,7 +757,7 @@ export class CigPlus {
     this.hud = null;
     if (!on || typeof document === 'undefined') return;
     const root = document.createElement('div');
-    root.style.cssText = 'position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 112px);display:none;justify-content:center;gap:6px;pointer-events:none;z-index:15;';
+    root.style.cssText = 'position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 166px);display:none;justify-content:center;gap:6px;pointer-events:none;z-index:15;';
     this.chips = {};
     for (const k of KEYS) {
       const P = POWERS[k], hex = '#' + P.color.toString(16).padStart(6, '0');
@@ -837,15 +838,15 @@ export class CigPlus {
 
   _refreshMods(b) {
     const m = this.mods, T = this.T;
-    m.speedMul = 1; m.accelMul = 1; m.steerMul = 1; m.eatMul = 1; m.gravityMul = 1; m.magnetR = 0; m.ghost = false; m.tonMul = 1;
-    m.noMelt = false;
+    m.speedMul = 1; m.accelMul = 1; m.steerMul = 1; m.eatMul = T.giant > 0 ? 1.5 : 1; m.gravityMul = 1; m.magnetR = 0; m.ghost = false; m.tonMul = 1;
+    m.noMelt = false; m.plow = T.rocket > 0;
     m.shield = T.shield > 0; m.sliding = !!this.slideCur; m.flying = this.fly.on; m.invert = T.invert > 0;
-    if (T.rocket > 0) { m.speedMul *= 1 + 0.8 * clamp(T.rocket / 0.6, 0, 1); m.accelMul = 4; m.ghost = true; }
+    if (T.rocket > 0) { m.speedMul *= 1 + 0.8 * clamp(T.rocket / 0.6, 0, 1); m.accelMul = 4; }
     if (this.slideCur) { m.speedMul *= 1.6; m.accelMul = Math.max(m.accelMul, 3); m.steerMul *= 2.4; m.ghost = true; }
     if (this.fly.on) { m.gravityMul = this.fly.t < this.fly.up ? -0.4 : 0.3; m.speedMul *= 1.12; m.steerMul *= 1.4; }
     if (T.magnet > 0 && b) m.magnetR = (7 + b.r * 3.2) * clamp(T.magnet / 0.8, 0.3, 1);
     if (T.rainbow > 0) m.tonMul = 3;
-    if (b) m.noMelt = !!this.slideCur || this._onKicker(b) || this.lift(b.x, b.d) > 0.15;
+    if (b) m.noMelt = T.freeze > 0 || !!this.slideCur || this._onKicker(b) || this.lift(b.x, b.d) > 0.15;
   }
 
   _onKicker(b) {
@@ -929,7 +930,7 @@ export class CigPlus {
     if (!s) {
       for (let i = 0; i < this.slides.length; i++) {
         const q = this.slides[i];
-        if (b.d < q.d0 || b.d > q.d1 - 16) continue;
+        if (b.d < q.d0 || b.d > q.d0 + 8) continue; // only the 8 m mouth captures
         const cx = this._cx(q, b.d - q.d0);
         if (Math.abs(b.x - cx) < q.hwC * 0.92 && (!b.airborne || b.y - b.r * 0.92 - this._gy(b.x, b.d) < 1.5)) {
           this.slideCur = s = q;
@@ -1128,8 +1129,9 @@ export class CigPlus {
       }
     }
     if (b.d > this.world.L + 10 && T.giant > 0) { T.giant = 0; this._call('onPowerEnd', 'giant'); }
+    if (b.d > this.world.L - 10 && T.rocket > 0) { T.rocket = 0; this._call('onPowerEnd', 'rocket'); }
     // Smooth radius change for the giant power (ball.r stays the single truth for physics).
-    const target = T.giant > 0 ? 1.6 : 1;
+    const target = 1; // giant no longer inflates the radius: it widens what can be eaten (mods.eatMul)
     const prev = this.sizeF;
     this.sizeF += (target - prev) * Math.min(1, dt * 5);
     if (Math.abs(target - this.sizeF) < 0.003) this.sizeF = target;

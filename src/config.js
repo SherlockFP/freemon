@@ -4,7 +4,6 @@ export const CFG = {
   trackWEnd: 50,       // ...and at the bottom, just before town
   townW: 70,           // playable width in the finale town
   grade: 0.3,          // vertical drop per meter downhill
-  townRun: 210,        // length of the finale town (m)
   flattenLen: 45,      // slope → town transition length
 
   startR: 0.55,        // starting snowball radius (m)
@@ -13,11 +12,11 @@ export const CFG = {
   growK: 0.85,         // volume gained per swallowed prop (fraction of its bounding volume)
   // Expected radius at slope progress 0, .25, .5, .75, 1 — matches the food tier schedule in world.js.
   expectedR: [0.6, 2.4, 4.4, 7, 9.5],
-  bandUp: 5,           // brake when bigger than expected: growth × (expected/r)^bandUp
+  bandUp: 3,           // brake when bigger than expected: growth × (expected/r)^bandUp
   bandDown: 1.2,       // catch-up when smaller: growth × (expected/r)^bandDown
-  bandMin: 0.02,
-  bandMax: 2.5,
-  passiveGrow: 0.006,  // radius gained per meter rolled on fresh snow (scaled by 1/r)
+  bandMin: 0.3,
+  bandMax: 2.0,
+  passiveGrow: 0.003,  // radius gained per meter rolled on fresh snow (scaled by 1/r)
   contactK: 0.7,       // props are smaller than their bounding sphere; scale contact distance
 
   baseSpeed: 12,       // m/s
@@ -29,10 +28,10 @@ export const CFG = {
   steerMass: 0.32,     // how much bigger balls resist steering
 
   smashRatio: 2.0,     // prop.radius <= r * smashRatio → it shatters on impact instead of blocking
-  smashLoss: 0.09,     // fraction of volume lost smashing through something
-  momentumTime: 0.45,  // after a smash, further smashes are free for this long
-  bumpLoss: 0.1,       // fraction of volume lost bouncing off something huge
-  patchMelt: 0.25,     // fraction of radius per second lost on bare ground (scaled)
+  smashLoss: 0.14,     // fraction of volume lost smashing through something
+  momentumTime: 0.25,  // after a smash, further smashes are free for this long
+  bumpLoss: 0.18,      // fraction of volume lost bouncing off something huge
+  patchMelt: 0.15,     // fraction of radius per second lost on bare ground (scaled)
   gravity: 24,
 
   // Size thresholds → "ÇIĞ" milestones. Each one widens destruction in the town.
@@ -42,7 +41,9 @@ export const CFG = {
   snowDensity: 0.45,   // t/m³ — turns radius into the big tonnage number
   comboWindow: 0.9,    // s between swallows to keep a combo alive
 
-  townReach: 0.12,     // town smash radius = r * (1 + townReach * milestones)
+  townReachK: 1.15,    // town reach = r * K + C (+ half the building's radius)
+  townReachC: 2,
+  destroyRatio: 1.25,  // a building falls when its radius <= r * destroyRatio
   starThresholds: [0.3, 0.6, 0.85], // fraction of town destroyed
   viewAhead: 260,      // render window ahead of the ball (m)
   viewBehind: 40,

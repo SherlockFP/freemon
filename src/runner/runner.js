@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Track } from './track.js';
+import { Track, LANES, flightDist } from './track.js';
 import { Obstacles } from './obstacles.js';
 import { Environment, biomeAt, trackPalette, musicStyleAt } from './biomes.js';
 import * as Biomes from './biomes.js';
@@ -9,18 +9,19 @@ import { patchMaterial } from '../shaders.js';
 import { scoreMult, chainBonus, dangerBonus, checkpointReward, rageScale, goalFor } from './goals.js';
 
 // SONSUZ İNİŞ — endless Temple-Run-style downhill run (RUNNER.md).
-// Core loop: the ball's SIZE is its health. Snow piles grow it; crashing knocks a layer off (and lets the Yeti
-// close in); crashing at the smallest size makes it burst. Bigger = faster, higher multiplier, smashes more,
-// but steers heavier and won't fit through narrow gaps.
+// Core loop: the ball's SIZE is its health. Snow piles grow it; crashing knocks a layer off and starts a STUMBLE
+// window (the Yeti is right behind you): crash again inside it and the Yeti catches you. Crashing at the smallest
+// size bursts the ball; head-on hits with big solid things are lethal; junctions need a swipe toward the turn.
 // Physics live in track-local coordinates: s along the path, u sideways (+right), h above the surface.
 export const RCFG = {
-  startSpeed: 13,
-  maxSpeed: 36,          // hard cap (reached very late)
+  startSpeed: 14,
+  maxSpeed: 48,          // asymptote of the late ramp
   refSpeed: 30,          // "fast" for visuals (FOV, speed lines)
-  speedPerM: 0.0075,     // early ramp
-  lateSpeedPerM: 0.0016, // after 2600 m it still creeps up
+  speedPerM: 0.0065,     // linear ramp up to speedKnee
+  speedKnee: 2000,
+  speedTau: 3230,        // (maxSpeed - v(knee)) / speedPerM: slope continuous at the knee
   layerLen: 600,         // a new difficulty layer every 600 m
-  sizeSpeed: 0.045,      // top speed +4.5% per size tier
+  sizeSpeed: 0.025,      // top speed +2.5% per size tier
   bpm0: 100,
   bpmMax: 150,
   bpmPerM: 0.012,
@@ -29,48 +30,84 @@ export const RCFG = {
   jumpV: 8.5,
   jumpPadV: 11,
   coyote: 0.12,
+  jumpBuf: 0.15,
+  landTol: 0.45,
   laneW: 2.4,            // 3 lanes at u = -2.4, 0, +2.4 (Subway Surfers style)
-  laneStiff: 320,        // lane-change spring: ~0.2 s per lane
+  laneStiff: 400,        // lane-change spring: ~0.2 s per lane at every speed
   diveV: -20,            // swipe down while airborne: slam back onto the snow
   // Size tiers = health. Index 0 is "about to burst". Max fits a lane (diameter 2.1 < 2.4).
   tierR: [0.45, 0.6, 0.75, 0.9, 1.05],
-  pilesPerTier: 6,       // snow piles needed to grow one tier
+  pilesPerTier: [4, 6, 8, 11],   // snow piles needed to grow one tier (by current tier)
   smashMargin: 2,        // you must be this many sizes above an obstacle's toughness to plough through it
-  crashSlow: 0.45,       // speed kept after a crash
-  invulnAfterCrash: 1.1,
-  // The Yeti.
-  yetiStart: 30,         // metres behind at the start
-  yetiMax: 38,
-  yetiRecover: 0.9,      // m/s you pull away at full speed
-  yetiCrash: 14,         // metres it gains per crash
+  smashCost: 0.08,       // growth lost per toughness point when smashing (not with the rocket)
+  crashSlow: 0.65,       // speed kept after a crash
+  invulnAfterCrash: 1.0,
+  // The Yeti: right behind you at the start and for a stumble window, otherwise it falls back off screen.
+  yetiStart: 5,
+  yetiHold: 2.5,         // seconds it stays right behind you at the start / after a revive
+  yetiStumbleGap: 5,
+  stumbleWin: 6.0,       // + 0.25 per layer (max 4)
+  yetiMax: 16,
+  yetiRecover: 2.0,      // m/s you pull away at full speed
+  yetiSlowClose: 0.5,
   yetiStumbleSpeed: 0.8, // below this fraction of target speed you are not pulling away
   fallDeath: -24,
+  helmetT: 20,
+  sledCd: 45,
   // Power-up durations (seconds) when the meta module isn't there to supply upgraded values.
-  dur: { magnet: 8, x2: 10, superjump: 9, rocket: 6, sled: 30 },
+  dur: { magnet: 8, x2: 10, superjump: 9, rocket: 6, sled: 20 },
   superJumpK: 1.55,
   rocketH: 6,
-  closeCall: 5,          // metres: the Yeti got this close and you got away → close call
   // Goals & pressure (endless only).
   cpCoins: 25,           // checkpoint (every layerLen) pays this × layer (layer capped at 8)
   recNear: 300,          // metres out: the goal strip switches to "REKORA n m"
   recCoins: 50,          // one-off payout for passing your record distance
   rageLen: 130,          // "YETİ ÖFKESİ": the Yeti throws boulders over the last N m of a layer (from layer 2 on) ...
   rageSecs: 7,           // ... or the last N seconds of running, whichever is longer (so fast runs still get 2+ boulders)
-  rageEvery: [2.4, 3.3], // seconds between boulders (× 0.93 per layer, floor 0.6)
-  rageBack: 8,           // metres the Yeti falls back when you survive the barrage
-  surgeEvery: [25, 35],  // seconds between Yeti lunges
-  surgeTele: 0.8,        // telegraph (roar + red edge) before the lunge starts
-  surgeLunge: 1.5,       // seconds the lunge takes
-  surgePull: 6,          // metres the gap shrinks over the lunge unless you shake it off
-  surgeFloor: 4,         // a lunge never pulls the Yeti closer than this
-  multCap: 8,            // cap of the in-run score multiplier (permanent bonuses sit on top)
+  rageEvery: [2.8, 3.6], // seconds between boulders (× 0.93 per layer, floor 0.7)
+  multCap: 6,            // + layer, at most 12
+  // Legacy keys still read by the older stumble/rage/surge code paths.
+  yetiCrash: 11,
+  closeCall: 4,
+  rageBack: 4,
+  surgeEvery: [25, 35],
+  surgeTele: 0.8,
+  surgeLunge: 1.5,
+  surgePull: 6,
+  surgeFloor: 4,
 };
 
 export const speedAt = (s) => {
-  const x = Math.max(0, s);
-  return Math.min(RCFG.maxSpeed, RCFG.startSpeed + Math.min(x, 2600) * RCFG.speedPerM + Math.max(0, x - 2600) * RCFG.lateSpeedPerM);
+  const x = Math.max(0, s), K = RCFG.speedKnee;
+  if (x <= K) return RCFG.startSpeed + x * RCFG.speedPerM;
+  const vK = RCFG.startSpeed + K * RCFG.speedPerM;
+  return vK + (RCFG.maxSpeed - vK) * (1 - Math.exp(-(x - K) / RCFG.speedTau));
 };
 export const bpmAt = (s) => Math.min(RCFG.bpmMax, RCFG.bpm0 + Math.max(0, s) * RCFG.bpmPerM);
+/** Turn window (seconds before the corner) the junction accepts a swipe in; shrinks with distance. */
+export const juncWinAt = (s) => 0.8 + 0.3 * Math.min(1, Math.max(0, 1 - (s - 350) / 4650));
+
+const WIDE = new Set(['fence', 'fallenLog', 'longLog', 'overhead', 'laser', 'slidewall']);
+const LETHAL_BASE = new Set(['rock', 'cabin']);
+const LETHAL_CAR = new Set(['snowcat', 'oncoming']);
+const LETHAL_ROLL = new Set(['boulder']);
+const LETHAL_WALL = new Set(['slidewall']);
+const DEATH_TEXT = {
+  explode: 'PATLADIN!', yeti: 'YETİ SENİ YAKALADI!', fall: 'UÇURUMA DÜŞTÜN!', turn: 'DUVARA ÇARPTIN!', turnFall: 'VİRAJDAN UÇTUN!',
+  rock: 'KAYAYA ÇARPTIN!', boulder: 'YUVARLANAN KAYAYA ÇARPTIN!', cabin: 'KULÜBEYE ÇARPTIN!', snowcat: 'KAR ARACINA ÇARPTIN!',
+  oncoming: 'TRENE ÇARPTIN!', slidewall: 'KAYAN DUVARA ÇARPTIN!',
+};
+const FLOAT_PRI = { '': 1, big: 2, bad: 3 };
+const CARDS = {
+  lane: { icon: '👆', title: '← KAYDIR →', text: 'Sandığa çarpmamak için sola ya da sağa kaydır' },
+  jump: { icon: '⬆️', title: 'ZIPLA', text: 'Kütüğün üstünden atlamak için yukarı kaydır' },
+  duck: { icon: '⬇️', title: 'EĞİL', text: 'Bariyerin altından geçmek için aşağı kaydır' },
+  boulder: { icon: '🪨', title: 'YETİ KAYA ATIYOR!', text: 'Kırmızı gölgeyi görünce şerit değiştir' },
+  slidewall: { icon: '🧱', title: 'KAYAN DUVAR', text: 'Boşluk yeşile dönünce yeri kesinleşir: oraya geç' },
+  train: { icon: '🚂', title: 'TREN GELİYOR!', text: 'Farları gördüğün şeritten çık' },
+  lip: { icon: '⬆️', title: 'ZIPLA!', text: 'Sarı-siyah rampanın ucunda yukarı kaydır' },
+};
+const TUT_ROWS = [{ s: 80, key: 'lane' }, { s: 160, key: 'jump' }, { s: 240, key: 'duck' }];
 
 const TIERS = RCFG.tierR.length;
 const _f = { pos: new THREE.Vector3(), tan: new THREE.Vector3(), right: new THREE.Vector3(), up: new THREE.Vector3() };
@@ -96,12 +133,15 @@ export class Runner {
     this.state = 'idle';
   }
 
-  start(seed = (Math.random() * 1e9) | 0, level = null) {
+  start(seed = (Math.random() * 1e9) | 0, level = null, opts = {}) {
     const { scene } = this.ctx;
+    this.closeOut?.();
     this.dispose();
+    const save = this.ctx.save;
     this.level = level;
     if (level) seed = level.seed >>> 0;
     this.seed = seed;
+    this.tut = !level && !this.ctx.noTut && !(save.runnerTutDone?.() ?? true);
     Biomes.setBiomeOverride?.(level ? level.biome : null);
     this.track = new Track(scene, {
       seed,
@@ -109,9 +149,13 @@ export class Runner {
       speedAt,
       bpmAt,
       biomeIndexAt: (s) => biomeAt(s).index,
+      vGen: (s) => 1.1 * speedAt(s),
+      juncWinAt,
+      junctionOk: (s) => Biomes.junctionOkAt?.(s) ?? true,
+      tutorial: this.tut,
     });
-    this.obstacles = new Obstacles(scene, this.track, { seed: seed ^ 0x9e3779b9, jumpPadV: RCFG.jumpPadV });
-    this.track.onPiece = (piece) => this.obstacles.spawn(piece, piece.diff ?? Math.min(1, piece.s0 / 5000), piece.biome ?? biomeAt(piece.s0).index);
+    this.obstacles = new Obstacles(scene, this.track, { seed: seed ^ 0x9e3779b9, jumpPadV: RCFG.jumpPadV, vGen: (s) => 1.1 * speedAt(s), tutorial: this.tut, endless: !level });
+    this.track.onPiece = (piece) => this.obstacles.spawn(piece, piece.diff ?? Math.min(1, piece.s0 / 5000), piece.biome ?? biomeAt(piece.s0).index, biomeAt(piece.s0).biome.id);
     if (level) {
       this.track.setLevel?.({ length: level.length, features: level.features, hardness: level.hardness, seed, boss: level.boss });
       this.obstacles.reset?.();
@@ -122,9 +166,10 @@ export class Runner {
     this.yeti = makeYeti(scene, this.ctx.lib);
     this.avalanche = makeAvalanche(scene);
 
-    this.tier = level ? Math.max(0, Math.min(4, level.startTier ?? 1)) : 1; // one layer above "fragile" so the first crash is a lesson
-    this.grow = 0;            // progress to the next tier (0..1)
-    const b = (this.b = { s: 2, u: 0, h: 0, r: RCFG.tierR[this.tier], vs: RCFG.startSpeed * 0.6, vu: 0, ve: 0, vh: 0, size: 2 });
+    this.tier = level ? Math.max(0, Math.min(4, level.startTier ?? 1)) : 2;
+    this.grow = level ? 0 : 0.5;            // progress to the next tier (0..1)
+    const b = (this.b = { s: 16, u: 0, h: 0, r: RCFG.tierR[this.tier], vs: RCFG.startSpeed * 0.6, vu: 0, ve: 0, vh: 0, size: 2 });
+    if (!level) b.r = RCFG.tierR[this.tier] + (RCFG.tierR[this.tier + 1] - RCFG.tierR[this.tier]) * this.grow * 0.6;
     this.rShown = b.r;
     this.grounded = true;
     this.coyoteT = 0;
@@ -133,27 +178,39 @@ export class Runner {
     this.lastSurf = 0;
     this.lastSlope = 0;
     this.gap = RCFG.yetiStart;
+    this.avLevel = 1;
+    this.yetiHoldT = RCFG.yetiHold;
+    this.stumbleT = 0;
+    this.stumbleMax = RCFG.stumbleWin;
+    this.stumbles = 0;
+    this.minGap = Infinity;
+    this.minGapArmed = false;
     this.score = 0;
     this.coins = 0;
+    this.coinsBanked = 0;
+    this.finalized = false;
     this.time = 0;
     this.deadT = 0;
     this.revived = false;
     this.invulnT = 1.2;
     this.helmet = false;
+    this.helmetT = 0;
     this.magnetT = 0;
     this.rocketT = 0;
     this.x2T = 0;
     this.superT = 0;
     this.sledT = 0;
+    this.sledCdT = 0;
     this.boxes = 0;
     this.crystals = 0;
     this.revives = 0;
     this.jumps = 0;
     this.smashes = 0;
-    this.maxTier = 1;
-    this.closeArmed = false;
+    this.turns = 0;
+    this.maxTier = this.tier;
     this.timeScale = 1;
     this.slowUntil = -1;
+    this.slowScale = 1;
     this.zip = null;
     this.grind = null;
     this.diveT = 0;
@@ -164,47 +221,51 @@ export class Runner {
     this.ctx.meta?.track?.('run_start', { mode: 'endless' });
     this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.().nextLetter ?? null);
     this.iceT = 0;
-    this.lastSafe = { s: 2, u: 0 };
+    this.lastSafe = { s: 16, u: 0 };
     this.safeT = 0;
     this.shake = 0;
+    this.trauma = 0;
+    this.kick = 0;
     this.rollS = 0;
     this.rollU = 0;
     this.roarT = 0;
     this.cause = '';
+    this.killKind = null;
     this.crashes = 0;
     this.state = 'play';
-    this.countT = 3;
+    this.countT = opts.retry ? 1.5 : 3;
     this.layer = 0;
     this.speedTier = 0;
     this.flow = 0;
     this.flowLvl = 0;
     this.flowT = 0;
-    this.bestDist = this.ctx.save.runnerBestDist?.() ?? 0;
-    this.bestScore = this.ctx.save.runnerBest?.() ?? 0;
+    this.bestDist = save.runnerBestDist?.() ?? 0;
+    this.bestScore = save.runnerBest?.() ?? 0;
     this.passedDist = this.bestDist < 50;
     this.passedScore = this.bestScore < 100;
-    this.baseHard = level ? level.hardness : this.ctx.meta?.hardness?.() ?? 1;
+    this.baseHard = level ? level.hardness : 1;
     this.perfects = 0;
     this.powerups = 0;
     this.layersLost = 0;
-    // Addictive layer: perks, power-ups, risk, chains, destruction, avalanche level.
+    // Addictive layer: perks, power-ups, risk, chains, destruction.
     this.perks = new Set();
-    this.perm = this.ctx.save.perm?.() ?? {};
+    this.perm = save.perm?.() ?? {};
     this.nextPerkS = Infinity;   // set when a layer boundary makes a perk card due (see layerUp)
     this.perkLayer = level ? Infinity : 1; // boundary number at which the next card is due (every 2nd layer)
     this.perkDue = false;
     this.perkPause = false;
+    this.resumeRamp = 0;
     this.bannerQ = [];        // queued banners [text, level, hold, ...]: the 600 m cluster must not stomp itself
     this.bannerT = 0;
     this.later = [];          // delayed callbacks that follow game time (and die with the run)
-    this.rage = null;         // "YETİ ÖFKESİ" mini-boss { s0, B, t, n, crashes0, failed }
-    this.surge = null;        // Yeti lunge { t, applied, near }
-    this.surgeT = rand(RCFG.surgeEvery[0], RCFG.surgeEvery[1]);
+    this.rage = null;         // "YETİ ÖFKESİ" mini-boss { s0, B, t, n, crashes0 }
+    this.rageCount = 0;
     this.newRecT = 0;
     this.nearChain = 0;
     this.nearT = 0;
     this.riskStack = 0;
     this.kabuk = 0;
+    this.kabukUsed = false;
     this.warpT = 0;
     this.ghostT = 0;
     this.riskT = 0;
@@ -213,11 +274,46 @@ export class Runner {
     this.coinsF = 0;
     this.destTons = 0;
     this.destTier = 0;
-    this.avLevel = 1;
     this.punch = 0;
     this.magnetPerm = false;
     this.zone = null;      // staged rule change { kind, from, until, name, announced }
-    this.invertT = 0;
+    this.inZone = null;
+    this.warned = null;
+    this.closeK = 1;
+    this.cornerK = 0;
+    this.camYawOff = 0;
+    this.camYawJ = null;
+    this.flipK = 0;
+    this.tilt = 0;
+    this._progT = 0;
+    this.camBack = 9;
+    this.off = null;
+    this.turnJ = null;
+    this.deadSlowT = 0;
+    this.lethalOn = !level ? { base: true, car: true, roll: true, wall: true } : {
+      base: !!this.track.allows?.('lethal'), car: !!this.track.allows?.('lethalCar'), roll: !!this.track.allows?.('lethal'), wall: !!this.track.allows?.('lethalWall'),
+    };
+    this.jumpBufT = 0;
+    this.duckOnLand = false;
+    this.lipBoost = false;
+    this.lipBoosted = false;
+    this.rampAirT = 0;
+    this.edgeHold = false;
+    this.leanT = 0;
+    this.leanDir = 0;
+    this.floatT = 0;
+    this.floatPri = 0;
+    this.boulderNonLethal = 2;
+    this.card = null;
+    this.cardT = 0;
+    this.tutDone = {};
+    this.tutJ = null;
+    this.tutSlow = 0.35;
+    this.lipShown = -1;
+    this.threatT = 0;
+    this.juncCue = null;
+    this.juncSeen = null;
+    this.lastSmashStop = -9;
     this.obstacles.setHardness?.(this.baseHard);
     this.track.setHardness?.(this.baseHard);
     this.makeRecordFlag();
@@ -226,19 +322,28 @@ export class Runner {
     this.hitStop = 0;
     this.squash = 0;
     this.trailN = 0;
+    this.obstacles.markSmashable?.(this.tier);
 
     const ball = this.ctx.ball;
     ball.reset(b.r);
     this.ctx.fx.reset();
     this.ctx.input.consumeDx();
     this.ctx.input.consumeJump();
+    this.ctx.input.consumeDive?.();
+    this.ctx.input.consumeLane();
+    this.ctx.input.consumeDoubleTap?.();
 
     music.init();
     music.start(musicStyleAt(0), bpmAt(0));
-    music.setIntensity(0.3);
-    this.ctx.ui.runnerHud(true, biomeAt(0).biome.name);
-    if (level) this.ctx.ui.runnerGoal?.(null); // campaign has its own finish-line progress bar
-    this.ctx.ui.banner('3', 3);
+    music.duck(false);
+    music.setIntensity(0.55);
+    const ui = this.ctx.ui;
+    ui.runnerHud(true, biomeAt(0).biome.name);
+    ui.runnerTurn?.(null);
+    ui.runnerTutor?.(null);
+    ui.hideRunnerRevive?.();
+    if (level) ui.runnerGoal?.(null); // campaign has its own finish-line progress bar
+    ui.banner(String(Math.ceil(this.countT)), 3);
     this.updateHud();
     this.placeBall(true);
   }
@@ -1303,7 +1408,7 @@ export class Runner {
           music.note();
           platform.haptic('select');
         } else if (e.kind === 'snow') {
-          this.addSnow((1 / RCFG.pilesPerTier) * (this.perks.has('kar') ? 2 : 1) * (1 + 0.06 * (this.perm.size || 0)));
+          this.addSnow((1 / RCFG.pilesPerTier[Math.min(3, this.tier)]) * (this.perks.has('kar') ? 2 : 1) * (1 + 0.06 * (this.perm.size || 0)));
           audio.pop(0.4, 3);
           this.burst(8, 0xffffff, 2);
         } else if (e.kind === 'star') {
@@ -1565,6 +1670,7 @@ export class Runner {
     this.grounded = true;
     this.lastSurf = b.h;
     this.gap = RCFG.yetiStart;
+    this.avLevel = 1;
     this.surgeT = Math.max(this.surgeT, 10);
     this.invulnT = 2.5;
     this.state = 'play';

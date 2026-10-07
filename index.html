@@ -22,7 +22,8 @@
         <button class="icon-btn" id="btn-pause" aria-label="Durdur">❚❚</button>
       </div>
       <div class="hud-tons" id="hud-tons">0 kg</div>
-      <div class="hud-goal hidden" id="hud-goal"><div class="goal-fill" id="hud-goal-fill"></div><span class="goal-lbl" id="hud-goal-lbl"></span></div>
+      <div class="hud-goal hidden" id="hud-goal"><div class="goal-fill" id="hud-goal-fill"></div><i class="goal-amber" id="hud-goal-amber"></i><i class="goal-red" id="hud-goal-red"></i><i class="goal-tick" id="hud-gt0"></i><i class="goal-tick" id="hud-gt1"></i><i class="goal-tick" id="hud-gt2"></i><span class="goal-lbl" id="hud-goal-lbl"></span></div>
+      <div id="hud-chal" class="hidden"></div>
       <div class="hud-combo" id="hud-combo"></div>
       <div class="hud-coins hidden" id="hud-coins">❄️ 0</div>
       <div class="hud-vitals hidden" id="hud-vitals">
@@ -35,6 +36,7 @@
       <div class="hud-yeti hidden" id="hud-yeti">
         <span class="yeti-ico">👣</span>
         <div class="yetibar"><div class="yetifill" id="hud-yetifill"></div></div>
+        <span class="yeti-lbl" id="hud-yeti-lbl"></span>
       </div>
     </div>
 
@@ -42,11 +44,23 @@
     <div id="flash"></div>
     <div id="perks" class="hidden"><div class="perk-title" id="perk-title">BİR GÜÇ SEÇ</div><div class="perk-cards" id="perk-cards"></div></div>
     <div id="danger" class="hidden"></div>
+    <div id="turn-cue" class="hidden"><div class="tc-chev"></div><div class="tc-lbl">DÖN!</div></div>
     <div id="floats"></div>
+    <div id="markers"></div>
     <div id="banner"></div>
+    <div id="tutor" class="hidden"><div class="tt-icon"></div><div class="tt-title"></div><div class="tt-text"></div></div>
     <div id="hint" class="hidden"><div class="finger">👆</div><div>sürükle</div></div>
+    <div id="subtitle"></div>
+    <div id="revive-panel" class="hidden">
+      <div class="rv-card">
+        <div class="rv-title" id="rv-title">PATLADIN!</div>
+        <div class="rv-dist" id="rv-dist">0 m</div>
+        <button class="btn big" id="btn-revive">DEVAM ET</button>
+        <button class="btn mid alt" id="btn-revive-end">BİTİR</button>
+      </div>
+    </div>
 
-    <div id="menu" class="screen">
+    <div id="menu" class="screen hidden">
       <div class="logo">PATPAT</div>
       <div class="tagline">kartopu · yeti · çığ</div>
       <div class="menu-card">
@@ -74,9 +88,10 @@
       <div class="res-sub" id="res-sub"></div>
       <div class="res-coins hidden" id="res-coins"></div>
       <div class="res-extra hidden" id="res-extra"></div>
-      <button class="btn big" id="btn-next">SONRAKİ DAĞ</button>
-      <div class="row">
+      <button class="btn big" id="btn-next">SONRAKİ DAĞ ▶</button>
+      <div class="row three">
         <button class="btn mid" id="btn-retry">↻ TEKRAR</button>
+        <button class="btn mid alt" id="btn-menu">⌂ MENÜ</button>
         <button class="btn mid share" id="btn-share">PAYLAŞ</button>
       </div>
       <div class="toast" id="toast"></div>

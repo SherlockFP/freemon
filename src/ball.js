@@ -23,6 +23,7 @@ export class Ball {
     this.snow = new THREE.Mesh(makeSnowGeometry(), patchMaterial(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), { snow: true }));
     this.spin.add(this.snow);
 
+    this.pp = 0; this.pv = 0; // scale punch spring (growth feedback)
     this.stuck = {}; // type → { mesh, items: [] }
     this.reset(0.55);
   }
@@ -39,7 +40,20 @@ export class Ball {
       this.stuck[k].items.length = 0;
       this.stuck[k].mesh.count = 0;
     }
+    this.pp = 0; this.pv = 0;
     this.snow.scale.setScalar(r);
+  }
+
+  // Growth punch: a quick springy overshoot of the snowball's scale (peak about 0.9 * a, settles in ~0.25 s).
+  punch(a) { this.pv += a * 45; }
+
+  tick(dt) {
+    if (this.pp === 0 && this.pv === 0) return;
+    const w = 32, z = 0.32, h = Math.min(dt, 0.033);
+    this.pv += (-w * w * this.pp - 2 * z * w * this.pv) * h;
+    this.pp += this.pv * h;
+    if (Math.abs(this.pp) < 1e-4 && Math.abs(this.pv) < 1e-3) { this.pp = 0; this.pv = 0; }
+    this.snow.scale.setScalar(this.r * (1 + this.pp));
   }
 
   setRadius(r) {
@@ -85,6 +99,7 @@ export class Ball {
     _v.normalize();
     // Bias toward the top-front so new loot is visible from the chase camera.
     _v.y = Math.abs(_v.y) * 0.6 + 0.35;
+    _v.z = Math.abs(_v.z) * 0.5 + 0.3; // back-top (toward the chase camera) so every pickup is seen right away
     _v.x += (Math.random() - 0.5) * 0.6;
     _v.normalize();
     _q2.copy(this.spin.quaternion).invert();
