@@ -421,3 +421,34 @@ Genel puan istikrarlı yükseliyor (7 → 7.2).
 - Arena: Pelet Fırtınası, Sürü Modu.
 - Macera: Yıldız Fırtınası.
 - Menü: Yeti Pazarı, Dostlar Duvarı.
+
+## Tur 7 — Yapılanlar
+
+Hepsi push edildi.
+
+**Rush**
+- Kombo artık kazanılarak büyüyor:
+  - Çarpan AKIŞ'a bağlı; x10, x25 ve x50 için gerçek beceri gerekiyor.
+  - Kar tanesi toplamak artık akış kazandırmıyor.
+  - İlk dakikada akışa tavan var.
+- Biyom geçişleri yaklaşık 120 m boyunca yumuşak geçiyor.
+- Yeni: **Çığ Rüzgârı**. 1,5 km'den itibaren uyarılı yan rüzgâr esiyor, karşı yönlendirme yapman gerekiyor. Rüzgâr bölgesinde ölümcül engel yok.
+
+**ÇIĞ**
+- Tüm mesajlar tek öncelikli kuyruktan geçiyor, ekranda aynı anda tek mesaj oluyor.
+- Yutma etiketi sadece ilk kez yenen nesne türünde çıkıyor.
+- Yazıların çevresinde koyu kontur var.
+- Yeni: **Domino Çam**. Çam sırasını devirince zincirleme bonus geliyor.
+
+**Arena**
+- Oyuncuyu ve yemi gizleyen büyük yapılar şeffaflaşıyor, boyutları sınırlandı.
+- Büyüme testi (bot): 60 sn'de kütle 120'ye ulaştı, sıra #15.
+- Yeni: **Pelet Yağmuru**. Uyarıdan sonra 8 sn boyunca değerli yem yağıyor.
+
+**Menü**
+- Hedefi sıfır olan satırlar gizlendi ("1.200 / 0" hatası düzeldi).
+- Çarpan çipi artık "✖️ ×N ÇARPAN" diye yazıyor; görev rozeti alınabilir ödül sayısını gösteriyor.
+- Macera haritasında sonraki 3 bölüm ad ve ikonla görünüyor, mevcut bölümde avatar var.
+- Yeni: **Yeti Pazarı**. Haftalık değişen 3 teklif.
+
+Kontrol: Rush'ta bot 2,6 km'yi hatasız koştu; tüm modlar sorunsuz.
