@@ -942,6 +942,12 @@ const STYLES = {
   },
 };
 
+// Four more biomes: variations of existing styles (other key / mode / pulse), same instrument bindings.
+STYLES.aurora = Object.assign({}, STYLES.snow, { root: 45, scale: [0, 2, 3, 7, 8], chords: [{ r: 0, t: m }, { r: -4, t: M }, { r: 3, t: M }, { r: -2, t: M }] });
+STYLES.bamboo = Object.assign({}, STYLES.forest, { root: 50, scale: [0, 2, 5, 7, 9] });
+STYLES.glacier = Object.assign({}, STYLES.snow, { root: 52, scale: [0, 2, 4, 6, 7, 9, 11] });
+STYLES.carnival = Object.assign({}, STYLES.candy, { root: 53, scale: [0, 2, 4, 5, 7, 9, 11] });
+
 const STYLE_IDS = Object.keys(STYLES);
 
 function foldTo(x, lo) {

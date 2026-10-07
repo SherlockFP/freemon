@@ -847,11 +847,11 @@ Object.assign(Track.prototype, {
       p.dYaw = 0; p.noObs = true; p.curb = true; p.edge = 'wall';
       if (lw > 0) {
         p.len = 44; p.s1 = s0 + 44; p.n = nn; p.widen = nn; p.hw = hB; p.halfWidth = hB; p.hwAt = (s) => hA + (hB - hA) * smooth((s - p.s0 - 4) / 34);
-        this._wideEnd = s0 + 44 + this.rng.range(300, 700);
+        this._wideEnd = s0 + 44 + this.rng.range(150, 280);
       } else {
         // narrowing: the piece keeps the wide lanes (n = old) while the outer lanes close; funnel arrows telegraph them, the runner pushes the ball inward
         p.len = 56; p.s1 = s0 + 56; p.n = oldN; p.narrow = oldN; p.hw = hA; p.halfWidth = hA; p.hwAt = (s) => hA + (hB - hA) * smooth((s - p.s0 - 14) / 34);
-        this._wideAt = s0 + 56 + this.rng.range(500, 900);
+        this._wideAt = s0 + 56 + this.rng.range(600, 1000);
       }
     } else if (this._bonusDue(s0)) {
       const air = this._bonusN++ % 3 === 1, vs = this.speedAt(s0 + 40);

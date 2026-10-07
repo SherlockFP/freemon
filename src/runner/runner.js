@@ -128,7 +128,7 @@ const _tp = new THREE.Vector3();
 const _goal = { mode: 'cp', val: 0, frac: 0 };
 const _bi = { biome: null, index: 0, t: 0, next: null };   // biomeAt() scratch: read it right away, never keep it
 const RAGE_SKIP = new Set(['zipline', 'rail', 'loop', 'corkscrew']); // sections where the Yeti keeps its boulders
-const GLOW_KINDS = new Set(['star', 'x2', 'superjump', 'crystal', 'timewarp', 'ghost', 'risk', 'clone', 'helmet', 'magnet', 'rocket']);
+const GLOW_KINDS = new Set(['star', 'x2', 'superjump', 'crystal', 'timewarp', 'ghost', 'risk', 'clone', 'helmet', 'magnet', 'rocket', 'cannon']);
 const FLIP_KINDS = new Set(['loop', 'corkscrew']);                   // the track really turns upside down here
 const ROUND_KINDS = new Set(['helix', 'halfpipe', 'tube', 'loop', 'corkscrew']);
 const DEG = Math.PI / 180;
@@ -310,6 +310,7 @@ export class Runner {
     this.lastSmashStop = -9;
     this.smashTimes = [];
     this.rampT = 0;
+    this.cannonN = 0; this.cannonCd = 0; this.cannonT = 0; this.slideT = 0; this.slideMsgT = 0; this.tunnelMsgT = 0;
     this.fogK = 0;
     this.fogTarget = 0;
 
@@ -594,12 +595,13 @@ export class Runner {
     this.duckT -= dt;
 
     // ---- speed: downhill pace + size bonus; rocket overrides ----
-    const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1) * (this.riskT > 0 ? 1.45 : 1);
+    const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1) * (this.riskT > 0 ? 1.45 : 1) * (this.slideT > 0 ? 1.2 : 1);
     if (b.vs < top) b.vs = Math.min(top, b.vs + RCFG.accel * dt);
     else b.vs = Math.max(top, b.vs - RCFG.accel * 0.6 * dt);
     this.invulnT -= dt;
     this.coyoteT -= dt;
     this.iceT -= dt;
+    this.slideT -= dt; this.slideMsgT -= dt; this.tunnelMsgT -= dt;
     if (this.magnetT > 0) this.magnetT -= dt;
     if (this.x2T > 0) this.x2T -= dt;
     if (this.superT > 0) this.superT -= dt;
@@ -611,6 +613,7 @@ export class Runner {
       if (Math.random() < dt * 40) this.burst(1, 0xffa040, 2);
       if (this.rocketT <= 0) { this.invulnT = Math.max(this.invulnT, 1); this.yetiHoldT = 0; }
     }
+    if (this.cannonN > 0) this.cannonTick(dt);
     if (this.rampT > 0) { this.rampT -= dt; if (Math.random() < dt * 30) this.burst(1, 0xffd060, 2); if (this.rampT <= 0) this.float('YIKIM BİTTİ', ''); }
     if (this.ghostT > 0) { this.ghostT -= dt; if (this.ghostT <= 0) { this.setGhost(false); this.float('HAYALET BİTTİ', ''); } }
     if (this.riskT > 0) { this.riskT -= dt; if (this.riskT <= 0) this.float('RİSK BİTTİ', ''); }
@@ -660,6 +663,28 @@ export class Runner {
       this.lastSafe.s = b.s;
       this.lastSafe.u = b.u;
     }
+  }
+
+  // KAR KANONU: auto-fires a snowball every 0.3 s at the nearest breakable blocker ahead in the ball's lane (5 shots, 25 s).
+  cannonTick(dt) {
+    this.cannonT -= dt; this.cannonCd -= dt;
+    if (this.cannonT <= 0) { this.cannonN = 0; this.float('KANON BİTTİ', ''); return; }
+    if (this.cannonCd > 0 || this.grind || this.zip) return;
+    const b = this.b, o = this.obstacles.snipe?.(b.s, b.u, 26 + b.vs * 0.25);
+    if (!o) return;
+    this.cannonCd = 0.3; this.cannonN--;
+    const { audio, platform } = this.ctx;
+    for (let i = 1; i <= 5; i++) {      // the snowball's streak from the ball to the target
+      const t = i / 5;
+      this.track.toWorld(b.s + (o.s - b.s) * t, b.u + (o.u - b.u) * t, b.h + 0.9 + 0.2 * Math.sin(t * Math.PI), _v);
+      this.ctx.fx.puff(_v.x, _v.y, _v.z, 0, 0.3, 0, 0.5, 0.35, 0xffffff, 0.9);
+    }
+    this.debris({ s: o.s, u: o.u, h: 0, color: o.color }, 12);
+    this.smashes++; this.score += 40 * Math.max(1, o.tough) * this.mult;
+    audio.crash?.(0.5); platform.haptic('light');
+    this.kick += 1; this.trauma = Math.min(1, this.trauma + 0.1);
+    this.float(this.cannonN > 0 ? `KARTOPU! ${this.cannonN} KALDI` : 'KANON BİTTİ', '');
+    if (this.cannonN <= 0) this.cannonT = 0;
   }
 
   // ---------- input actions ----------
@@ -1409,8 +1434,9 @@ export class Runner {
   updateGoal() {
     if (this.level) return;
     const ui = this.ctx.ui, s = this.b.s, r = this.rage;
-    if (this.boss && this.boss.ph !== 'out') { ui.runnerGoal?.('rage', 0, this.boss.ph === 'in' ? 1 : Math.max(0, 1 - this.boss.t / this.boss.dur)); return; }
+    if (this.boss && this.boss.ph !== 'out') { ui.runnerGoal?.('boss', 0, this.boss.ph === 'in' ? 1 : Math.max(0, 1 - this.boss.t / this.boss.dur)); return; }
     if (r) { ui.runnerGoal?.('rage', 0, (s - r.s0) / Math.max(1, r.B - r.s0)); return; }
+    if (this.cannonN > 0) { ui.runnerGoal?.('cannon', this.cannonN, this.cannonN / 5); return; }
     if (this.newRecT > 0) { ui.runnerGoal?.('new', 0, 1); return; }
     const g = goalFor(s, RCFG.layerLen, this.bestDist, this.passedDist, RCFG.recNear, _goal);
     ui.runnerGoal?.(g.mode, g.val, g.frac);
@@ -1424,7 +1450,7 @@ export class Runner {
     // Lateral: player spring (heavier when big, slippery on ice) + external knocks / curve drift.
     // Once the ball has dropped off the track it can no longer steer (no sliding back "through" the ground).
     const mass = 1 + this.tier * 0.06;
-    const grip = this.iceT > 0 ? 0.5 : 1;
+    const grip = this.slideT > 0 ? 0.4 : this.iceT > 0 ? 0.5 : 1;   // BUZ KAYDIRAĞI: fast but lane changes are slow
     const k = (RCFG.laneStiff * grip) / mass;
     const locked = this.fallLock || this.wallRun !== null;
     const tgtU = locked ? b.u : this.targetU;
@@ -1642,7 +1668,9 @@ export class Runner {
     const { audio, platform } = this.ctx;
     const tough = e.toughness ?? 5;
     const giant = this.buffs.has('dev');
-    if (this.rocketT > 0 || this.sizeNow() >= tough + RCFG.smashMargin || (giant && tough <= 3) || (this.rampT > 0 && tough <= 4)) {
+    const cn = this.cannonN > 0 && tough <= 5;     // KAR KANONU: a blocker that slips through is smashed by the next shot
+    if (cn && this.rocketT <= 0) { this.cannonN--; if (this.cannonN <= 0) this.cannonT = 0; }
+    if (cn || this.rocketT > 0 || this.sizeNow() >= tough + RCFG.smashMargin || (giant && tough <= 3) || (this.rampT > 0 && tough <= 4)) {
       this.obstacles.resolve?.(e.id, true);
       this.smashes++;
       this.ctx.meta?.track?.('smash', { toughness: tough });
@@ -1918,6 +1946,15 @@ export class Runner {
         break;
       case 'ice':
         this.iceT = 0.15;
+        break;
+      case 'slide':
+        if (this.slideT <= 0 && this.slideMsgT <= 0) { this.float('BUZ KAYDIRAĞI!', 'big'); audio.whoosh?.(); this.slideMsgT = 6; this.kick += 2; }
+        this.slideT = 0.2;
+        if (Math.random() < 0.5) this.mistBurst(1, 0xcdeeff, 2.5, 0.7);
+        break;
+      case 'tunnel':
+        if (e.enter && this.tunnelMsgT <= 0) { this.float('TÜNEL! IŞIKLARI TAKİP ET', 'big'); this.tunnelMsgT = 5; }
+        audio.whoosh?.(); this.kick += e.enter ? 3 : 1;
         break;
       case 'warn':
         if (!this.warned || this.warned !== e.kind + e.lane + Math.round(e.t * 10)) {
@@ -2237,6 +2274,12 @@ export class Runner {
         this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'magnet' });
         audio.milestone(3);
         this.float('MIKNATIS!', 'big');
+        break;
+      case 'cannon':
+        this.cannonN = 5; this.cannonT = 25; this.cannonCd = 0.5;
+        this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'cannon' });
+        audio.milestone(3); platform.haptic('success');
+        this.float('KAR KANONU! 5 ATIŞ', 'big');
         break;
       case 'rocket':
         this.rocketT = this.dur('rocket');

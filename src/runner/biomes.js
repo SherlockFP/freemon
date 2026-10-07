@@ -346,6 +346,74 @@ export const BIOMES = [
       ],
     },
   },
+  {
+    id: 'aurora', name: 'Kuzey Işıkları', music: 'aurora', depth: 54, aurora: 1,
+    flank: { U: 110, e: 1.6, top: 0xcfe0ff, mid: 0x6a86c0, rock: 0x3a4a78, rockAmt: 0.8 },
+    sky: { top: 0x040a22, mid: 0x0a2450, horizon: 0x1a5a78 },
+    fog: { color: 0x0c2248, near: 45, far: 260 },
+    hemi: { sky: 0x8fb4ff, ground: 0x203a6a, intensity: 1.05 },
+    sun: { color: 0xa8c8ff, intensity: 1.0, az: 2.6, el: 0.7 },
+    disc: { color: 0xdfeaff, size: 0.05, az: 0.3, el: 0.5, kind: 'sun' },
+    ground: [0x9ab4e0, 0x7f9ad0, 0xb4c8ec],
+    track: { tileA: 0xe4f0ff, tileB: 0x6a8fd8, edge: 0x3fd0a0, rail: 0x5fffc0, glow: 0x5fffc0, under: 0x1a2a5a },
+    clouds: 0x1a3a6a, stars: 1, grid: 0, cloudAmt: 0.3,
+    pulse: { sky: 0.05, glow: 0.4, grid: 0, spark: 0.4, lava: 0 }, glowBase: 1,
+    particles: {
+      n: 260, size: 0.3, alpha: 0.8, add: true, twinkle: true,
+      groups: [{ f: 1, pal: [0xffffff, 0xbfe8ff, 0x9affd8], v: [0.5, -2.0, 0.3], j: [1.2, 0.8, 1.2] }],
+    },
+  },
+  {
+    id: 'bamboo', name: 'Bambu Ormanı', music: 'bamboo', depth: 48,
+    flank: { U: 90, e: 1.7, top: 0x7fcf6a, mid: 0x3f8a48, rock: 0x6a7a5a, rockAmt: 0.5 },
+    sky: { top: 0x7fc4a8, mid: 0xb8e4c8, horizon: 0xe8f6dc },
+    fog: { color: 0xcfe8d4, near: 25, far: 210 },
+    hemi: { sky: 0xeaffe0, ground: 0x6a9a70, intensity: 1.3 },
+    sun: { color: 0xfff0c8, intensity: 1.5, az: 2.6, el: 0.7 },
+    disc: { color: 0xfff6d8, size: 0.06, az: 0.3, el: 0.5, kind: 'sun' },
+    ground: [0x6fb868, 0x5aa85a, 0x84c878],
+    track: { tileA: 0xf2f0dc, tileB: 0x9cc87a, edge: 0x4a8a3a, rail: 0x8cd05a, glow: 0xb6ff8a, under: 0x3a6a3a },
+    clouds: 0xf4fff0, stars: 0, grid: 0, cloudAmt: 0.8,
+    pulse: { sky: 0.03, glow: 0, grid: 0, spark: 0.25, lava: 0 }, glowBase: 1,
+    particles: {
+      n: 160, size: 0.45, alpha: 0.7, add: false, twinkle: false,
+      groups: [{ f: 1, pal: [0xb6e06a, 0x8fd05a, 0xe8f8b0], v: [0.5, -0.8, 0.4], j: [1.2, 0.8, 1.2] }],
+    },
+  },
+  {
+    id: 'glacier', name: 'Buz Krallığı', music: 'glacier', depth: 56,
+    flank: { U: 100, e: 1.6, top: 0xe8f8ff, mid: 0x6ab4f0, rock: 0x3a7ac8, rockAmt: 0.7 },
+    sky: { top: 0x0a3a8a, mid: 0x4aa8f0, horizon: 0xd0f4ff },
+    fog: { color: 0xbfe8ff, near: 55, far: 300 },
+    hemi: { sky: 0xd8f0ff, ground: 0x5a90d0, intensity: 1.45 },
+    sun: { color: 0xe8f6ff, intensity: 1.7, az: 2.5, el: 0.9 },
+    disc: { color: 0xf4fbff, size: 0.05, az: 0.3, el: 0.62, kind: 'sun' },
+    ground: [0xa8dcff, 0x8ec8f5, 0xc4e8ff],
+    track: { tileA: 0xe8f8ff, tileB: 0x5aa8f0, edge: 0x2a78d8, rail: 0x4ab8ff, glow: 0x9ae8ff, under: 0x2a5a9a },
+    clouds: 0xeaf8ff, stars: 0, grid: 0, cloudAmt: 0.6,
+    pulse: { sky: 0.04, glow: 0.3, grid: 0, spark: 0.5, lava: 0 }, glowBase: 1,
+    particles: {
+      n: 240, size: 0.3, alpha: 0.85, add: true, twinkle: true,
+      groups: [{ f: 1, pal: [0xffffff, 0xcfeeff, 0x9ad8ff], v: [0.3, -1.2, 0.3], j: [1.0, 0.8, 1.0] }],
+    },
+  },
+  {
+    id: 'carnival', name: 'Lunapark', music: 'carnival', depth: 52,
+    flank: { U: 90, e: 1.7, top: 0xc8a0ff, mid: 0x7a52c8, rock: 0x4a3a8a, rockAmt: 0.5 },
+    sky: { top: 0x2a1060, mid: 0x7a3aa8, horizon: 0xff8ac0 },
+    fog: { color: 0x6a3a98, near: 40, far: 270 },
+    hemi: { sky: 0xffc8f0, ground: 0x4a2a80, intensity: 1.2 },
+    sun: { color: 0xffd0f0, intensity: 1.3, az: 2.7, el: 0.6 },
+    disc: { color: 0xffe0f4, size: 0.08, az: 0.3, el: 0.3, kind: 'sun' },
+    ground: [0x6a3ab0, 0x7a4ac0, 0x5a2aa0],
+    track: { tileA: 0xfff0fa, tileB: 0xff9ad0, edge: 0xffd23a, rail: 0x7fe8ff, glow: 0xffe03a, under: 0x3a1a6a },
+    clouds: 0xe8a0d8, stars: 0.6, grid: 0, cloudAmt: 0.6,
+    pulse: { sky: 0.12, glow: 0.6, grid: 0, spark: 0.5, lava: 0 }, glowBase: 0.9,
+    particles: {
+      n: 300, size: 0.4, alpha: 0.95, add: true, twinkle: true,
+      groups: [{ f: 1, pal: [0xff4a8a, 0xffe03a, 0x4ad0ff, 0x7aff9a, 0xffffff], v: [0.4, -0.6, 0.4], j: [1.4, 0.9, 1.4] }],
+    },
+  },
 ];
 
 const TAGS = {
@@ -354,6 +422,7 @@ const TAGS = {
   icecave: 'Buz mağarası: yol kaygan!', candy: 'Şeker yağmuru başladı!', sakura: 'Kiraz çiçekleri yağıyor!',
   istanbul: 'Boğaz\'da rüzgâr esiyor!', neon: 'Neon gecesi başlıyor!', moon: 'Ay\'da yerçekimi az!',
   pirate: 'Korsan koyunda define peşinde!', volcano: 'Lavlar yükseliyor!',
+  aurora: 'Gökyüzünde kuzey ışıkları dans ediyor!', bamboo: 'Bambu ormanında sis var!', glacier: 'Buz krallığının kapıları açıldı!', carnival: 'Lunapark ışıl ışıl!',
 };
 const MODS = { moon: { gravity: 0.55 }, icecave: { grip: 0.6 }, istanbul: { wind: 0.3 } };
 for (const b of BIOMES) {
@@ -445,6 +514,18 @@ const P = {
   volcRock: [0x3b302d, 0x2a2220, 0x4a3a33],
   volcHill: [0x2b2321, 0x1f1a19, 0x352a26],
   lava: [0xff6a1a, 0xff8a22, 0xff5410],
+  nightPine: [0x9ad8e8, 0x7fb8d8, 0xa8f0e0],
+  nightHill: [0x8fb0e0, 0x7aa0d8, 0xa8c4ec],
+  nightPeak: [0xb8d0f8, 0x9ab8f0, 0xcfe0ff],
+  auroraGlow: [0x5fffc0, 0x7fe8ff, 0xb08cff, 0x5fffa0],
+  bamHill: [0x4faa5a, 0x5fbf62, 0x449a50, 0x78c868],
+  bamTint: [0xffffff, 0xe8ffc8, 0xd0f4a0, 0xf0ffd8],
+  bamWater: [0x3fb8a0, 0x56c8b0, 0x38a890],
+  glacHill: [0xa8dcff, 0x8ec8f5, 0xc4e8ff],
+  glacSpire: [0x9ad8ff, 0xbfe8ff, 0x7fc0f0, 0xd8f4ff],
+  glacWater: [0x2a8ae0, 0x4aa8f0, 0x2478d0],
+  carnHill: [0xb07af0, 0x7aa0f0, 0xf07ac8, 0x7af0b8],
+  carnAny: [0xffffff, 0xffe0e8, 0xe0f0ff, 0xfff0b8],
   ember: [0xff7a24, 0xff9a30],
 };
 for (const k in P) P[k] = P[k].map((h) => new THREE.Color(h));
@@ -882,6 +963,58 @@ BUILD.crystal = () => { // glowing ice crystal cluster (unlit)
   return m.build();
 };
 
+BUILD.bamboo = () => { // cluster of segmented bamboo stalks with leaf tufts (tint per instance)
+  const m = new Mesher();
+  for (const [x, z, h, r] of [[0, 0, 6, 0.17], [0.55, 0.25, 5.2, 0.15], [-0.5, 0.3, 5.6, 0.16], [0.15, -0.55, 4.6, 0.14]]) {
+    m.add(CYL(r * 0.8, r, h, 6, 1), (nx, ny, nz, cx, cy) => (Math.floor(cy / 0.7) % 2 ? 0x4f9e34 : 0x62b845), { x, z, y: h / 2 });
+    for (let y = 0.7; y < h; y += 0.7) m.add(CYL(r * 1.2, r * 1.2, 0.07, 6, 1), 0x2f6a22, { x, z, y });
+    m.add(jit(ICO(1, 0), 0.2, 3), 0x7ed04a, { x, z, y: h, sx: 0.7, sy: 0.22, sz: 0.7 });
+    m.add(jit(ICO(1, 0), 0.2, 5), 0x9ae060, { x: x + 0.15, z, y: h - 0.7, sx: 0.55, sy: 0.18, sz: 0.55 });
+  }
+  return m.build();
+};
+
+BUILD.icespire = () => { // ice-castle tower: hex keep + cone roof + two turrets, a lit window (tint = blue ice)
+  const m = new Mesher();
+  const col = (nx, ny, nz, cx, cy, cz) => gray(0.8 + 0.2 * clamp(ny * 0.6 + 0.4, 0, 1) + (ihash(Math.round(cx * 9), Math.round(cy * 9), Math.round(cz * 9)) - 0.5) * 0.12);
+  m.add(CYL(0.7, 0.9, 3.2, 6, 1), col, { y: 1.6 });
+  m.add(CYL(0.01, 0.85, 2.4, 6, 1), col, { y: 4.4 });
+  for (const [x, z, k] of [[1.25, 0.3, 1], [-1.1, -0.4, 0.8]]) {
+    m.add(CYL(0.35 * k, 0.45 * k, 2.2 * k, 6, 1), col, { x, z, y: 1.1 * k });
+    m.add(CYL(0.01, 0.42 * k, 1.4 * k, 6, 1), col, { x, z, y: 2.9 * k });
+  }
+  m.add(BOX(0.2, 0.55, 0.1), [2.2, 2.7, 3.2], { y: 2.2, z: 0.82 });
+  return m.build();
+};
+
+BUILD.ferris = () => { // carnival ferris wheel (ring, spokes, gondolas, lamps); the wheel faces +z
+  const m = new Mesher(), R = 2.5, cy = 3.2, gc = [0xff3a5a, 0xffd23a, 0x3aa8ff, 0x5aff9a];
+  m.add(new THREE.TorusGeometry(R, 0.08, 4, 20), 0xf4f4ff, { y: cy });
+  m.add(new THREE.TorusGeometry(R * 0.55, 0.06, 4, 14), 0xffd23a, { y: cy });
+  for (let i = 0; i < 4; i++) m.add(BOX(0.06, R * 2, 0.06), 0xdfe4f0, { y: cy, rz: (i * Math.PI) / 4 });
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4, x = Math.cos(a) * R, y = cy + Math.sin(a) * R;
+    m.add(BOX(0.5, 0.4, 0.5), gc[i % 4], { x, y: y - 0.3 });
+    m.add(ICO(0.1, 0), [3.0, 2.4, 0.7], { x, y: y + 0.12 });
+  }
+  m.add(CYL(0.18, 0.18, 0.3, 6, 1), 0xffd23a, { y: cy, rx: Math.PI / 2 });
+  for (const sx of [-1, 1]) m.add(BOX(0.14, 3.6, 0.14), 0x6a4a9a, { x: sx * 0.95, y: 1.6, rz: -sx * 0.3 });
+  m.add(BOX(2.6, 0.2, 1.0), 0x4a3a7a, { y: 0.1 });
+  return m.build();
+};
+
+BUILD.tent = () => { // striped circus tent with a flag
+  const m = new Mesher();
+  const stripe = (nx, ny, nz, cx, cy, cz) => (Math.floor((Math.atan2(cz, cx) + Math.PI) / (Math.PI / 6)) % 2 ? 0xff3a5a : 0xffffff);
+  m.add(CYL(1, 1, 1.2, 12, 1), stripe, { y: 0.6 });
+  m.add(CYL(0.02, 1.12, 1.3, 12, 1), stripe, { y: 1.85 });
+  m.add(CYL(0.02, 0.02, 0.7, 4, 1), 0x6a4a2a, { y: 2.85 });
+  m.add(BOX(0.35, 0.22, 0.02), 0xffd23a, { x: 0.18, y: 3.05 });
+  m.add(BOX(0.45, 0.85, 0.05), 0x2a1a3a, { y: 0.43, z: 1.0 });
+  m.add(ICO(0.09, 0), [3.0, 2.4, 0.7], { y: 0.95, z: 1.02, x: -0.3 }); m.add(ICO(0.09, 0), [3.0, 2.4, 0.7], { y: 0.95, z: 1.02, x: 0.3 });
+  return m.build();
+};
+
 BUILD.sakuratree = () => {
   const m = new Mesher();
   m.add(CYL(0.25, 0.42, 2.8, 6), 0x5a3a2a, { y: 1.4 });
@@ -1286,6 +1419,10 @@ const TDEF = {
   fire: { make: BUILD.fire, cap: 40, glow: true },
   jellycube: { make: BUILD.jellycube, cap: 100 },
   robot: { make: BUILD.robot, cap: 50, glow: true },
+  bamboo: { make: BUILD.bamboo, cap: 260, sink: 0.3 },
+  icespire: { make: BUILD.icespire, cap: 70, sink: 0.3 },
+  ferris: { make: BUILD.ferris, cap: 12 },
+  tent: { make: BUILD.tent, cap: 40 },
   // library props, snowy originals
   pine: { lib: 'pine', cap: 220, sink: 0.4 },
   pine_big: { lib: 'pine_big', cap: 90, sink: 0.4 },
@@ -1320,6 +1457,10 @@ const BIOME_TYPES = {
   candy: ['hill', 'cane', 'lollipop', 'donut', 'icecream', 'pond', 'jellycube'],
   neon: ['pillar', 'tower', 'pyramid', 'ring', 'peak', 'robot'],
   volcano: ['volcano', 'hill', 'lava', 'rock', 'spire', 'fire'],
+  aurora: ['peak', 'hill', 'pine', 'pine_big', 'boulder', 'pond', 'crystal'],
+  bamboo: ['hill', 'bamboo', 'roundtree', 'rock', 'pond', 'pavilion', 'rbridge'],
+  glacier: ['peak', 'hill', 'icespire', 'crystal', 'stalag', 'pond', 'seal'],
+  carnival: ['hill', 'ferris', 'tent', 'balloon', 'lollipop', 'ring', 'tower'],
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -1727,6 +1868,63 @@ const GEN = {
     E._sc('peak', 0.8, 50, 130, 50, 90, { rel: true, my: 1.2, pal: P.neonMtn, ov: 0.9, block: false });
   },
 
+  aurora(E, R) {
+    const U = E._cU + 3.5;
+    E._sc('peak', 0.5, 145, 215, 45, 85, { my: 1.8, pal: P.nightPeak, ov: 0.9, block: false });
+    E._sc('hill', 2.4, 130, 195, 24, 46, { rel: false, my: 0.24, pal: P.nightHill, ov: 0.6, lift: -0.4 });
+    if (R.next() < 0.4) E._sc('pond', 1, 18, 70, 14, 32, { rel: true, floor: true, mz: 0.75, pal: P.ice, lift: 0.5, ov: 0.9 });
+    E._sc('pine', 11, 17, U - 4, 1.0, 1.7, { pal: P.nightPine, clump: 0.3 });
+    E._sc('pine_big', 3, 20, U - 4, 1.0, 1.5, { pal: P.nightPine, clump: 0.3 });
+    E._sc('crystal', 4, 15, U - 2, 1.2, 2.6, { pal: P.auroraGlow });
+    E._sc('boulder', 2.5, 16, U, 0.9, 1.9, { pal: P.nightHill });
+    E._sc('pine', 12, 6, 75, 1.2, 2.0, { pal: P.nightPine, clump: 0.3, rel: true });
+    E._sc('crystal', 5, 6, 90, 1.8, 4, { rel: true, pal: P.auroraGlow, ov: 0.8 });
+    E._sc('boulder', 1.5, 6, 80, 1.2, 2.4, { rel: true, pal: P.nightHill });
+  },
+
+  bamboo(E, R) {
+    const s0 = E._ch.s0, U = E._cU + 3.5;
+    const side = biomeIdx(s0) & 1 ? 1 : -1;
+    E._sc('hill', 2.8, 100, 170, 26, 50, { my: 0.27, pal: P.bamHill, ov: 0.6, lift: -0.4 });
+    for (let j = 0; j < 2; j++) {
+      const s = s0 + 12 + j * 25;
+      const u = side * (U + 30 + 16 * Math.sin(s / 120 + 0.7) + 6 * Math.sin(s / 43));
+      const k = side * ((16 / 120) * Math.cos(s / 120 + 0.7) + (6 / 43) * Math.cos(s / 43));
+      E._put('pond', s, u, 7.5, 1, 16, 'path', P.bamWater[(R.next() * 3) | 0], { yo: -Math.atan(k), lift: 0.5, ov: 0.9, floor: true });
+    }
+    E._sc('bamboo', 16, 15, U - 3, 1.3, 2.4, { pal: P.bamTint, clump: 0.25 });
+    E._sc('bamboo', 20, 6, 80, 1.6, 2.8, { rel: true, pal: P.bamTint, clump: 0.25 });
+    E._sc('rock', 3, 15, U, 1.0, 2.4, { pal: P.rockGrey });
+    if (R.next() < 0.35) E._sc('pavilion', 1, 15, 70, 2.4, 3.2, { rel: true, yaw: 'face', pal: P.bld });
+    E._sc('roundtree', 2, 6, 80, 1.2, 1.9, { rel: true, pal: P.treeTint });
+  },
+
+  glacier(E, R) {
+    const U = E._cU + 3.5;
+    E._sc('peak', 0.6, 145, 215, 45, 85, { my: 1.8, pal: P.glacHill, ov: 0.9, block: false });
+    E._sc('hill', 2.2, 20, 100, 22, 44, { rel: true, my: 0.3, pal: P.glacHill, ov: 0.6, lift: -0.4 });
+    if (R.next() < 0.5) E._sc('pond', 1, 15, 80, 12, 26, { rel: true, floor: true, pal: P.glacWater, mz: 0.8, lift: 0.5, ov: 0.9 });
+    E._sc('icespire', 5, 15, U - 4, 1.8, 3.4, { pal: P.glacSpire });
+    E._sc('crystal', 7, 15, U - 2, 1.4, 3.0, { pal: P.iceGlow });
+    E._sc('stalag', 4, 15, U - 2, 1.6, 3.0, { pal: P.iceRock });
+    E._sc('icespire', 4, 6, 90, 2.6, 5.2, { rel: true, pal: P.glacSpire, ov: 0.9 });
+    E._sc('crystal', 6, 6, 90, 2.2, 5, { rel: true, pal: P.iceGlow, ov: 0.8 });
+    E._sc('seal', 1.2, 16, U - 4, 2.2, 3.2, {});
+  },
+
+  carnival(E, R) {
+    const U = E._cU + 3.5;
+    E._sc('hill', 4, 17, U, 3.5, 8.5, { my: 0.9, pal: P.carnHill, lift: -0.4 });
+    E._sc('ferris', 0.9, 20, 95, 3.4, 5.2, { rel: true, yaw: 'face', pal: P.carnAny, ov: 0.9 });
+    E._sc('tent', 2.2, 17, U - 3, 2.2, 3.4, { yaw: 'face', pal: P.carnAny });
+    E._sc('tent', 2.5, 6, 80, 2.6, 4.4, { rel: true, yaw: 'face', pal: P.carnAny });
+    E._sc('balloon', 4, 6, 18, 3.5, 6, { pal: P.balloon, liftR: [10, 85], block: false });
+    E._sc('lollipop', 5, 17, U - 4, 1.0, 2.0, { pal: P.carnHill });
+    E._sc('tower', 5, 17, U - 4, 1.4, 2.4, { pal: P.neon, ov: 0.9 });
+    E._sc('ring', 1.2, 26, 70, 7, 13, { yaw: 'path', pal: P.neonHot, ov: 0.9 });
+    E._sc('lollipop', 6, 6, 90, 1.1, 2.3, { rel: true, pal: P.carnHill });
+  },
+
   volcano(E, R) {
     const s0 = E._ch.s0, U = E._cU + 3.5;
     const side = biomeIdx(s0) & 1 ? 1 : -1;
@@ -1758,7 +1956,7 @@ const lavaSlope = (s) => (52 / 150) * Math.cos(s / 150 + 2.4) + (16 / 53) * Math
 // Environment
 // ---------------------------------------------------------------------------------------------
 const NC = 9;   // colour channels:  skyTop skyMid skyHor fog hemiSky hemiGnd sunCol discCol cloud
-const NN = 17;  // numeric channels: fogNear fogFar hemiI sunI lightAz lightEl discAz discEl discSize stars pSky pGlow pGrid pSpark glowBase pLava cloudAmt
+const NN = 18;  // numeric channels: fogNear fogFar hemiI sunI lightAz lightEl discAz discEl discSize stars pSky pGlow pGrid pSpark glowBase pLava cloudAmt
 
 export class Environment {
   /**
@@ -1944,6 +2142,28 @@ export class Environment {
     this.stars.renderOrder = -95;
     this.stars.visible = false;
     this.group.add(this.stars);
+
+    // northern lights: three additive curtains high in the sky (bright at the bottom edge, fading to black above); only visible in biomes with aurora
+    const AN = 28, apos = [], acol = [], aidx = [];
+    [[0.3, 0.55, 0.2, [0.2, 1.0, 0.65]], [2.3, 0.7, 0.28, [0.3, 0.8, 1.0]], [4.4, 0.5, 0.24, [0.7, 0.4, 1.0]]].forEach(([a0, span, hh, c], k) => {
+      const b0 = apos.length / 3;
+      for (let i = 0; i <= AN; i++) {
+        const t = i / AN, a = a0 + t * span * 2.2, y0 = 0.3 + 0.09 * Math.sin(t * 5 + k * 2), y1 = y0 + hh * (0.6 + 0.5 * Math.sin(t * 7 + k)), f = Math.sin(t * Math.PI), r0 = Math.sqrt(1 - y0 * y0), r1 = Math.sqrt(1 - y1 * y1);
+        apos.push(Math.cos(a) * r0, y0, Math.sin(a) * r0, Math.cos(a + 0.05) * r1, y1, Math.sin(a + 0.05) * r1);
+        acol.push(c[0] * f, c[1] * f, c[2] * f, 0, 0, 0);
+        if (i < AN) { const j = b0 + i * 2; aidx.push(j, j + 1, j + 2, j + 1, j + 3, j + 2); }
+      }
+    });
+    const ag = new THREE.BufferGeometry();
+    ag.setAttribute('position', new THREE.BufferAttribute(new Float32Array(apos), 3));
+    ag.setAttribute('color', new THREE.BufferAttribute(new Float32Array(acol), 3));
+    ag.setIndex(aidx);
+    this.auroraMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    this.aurora = new THREE.Mesh(ag, this.auroraMat);
+    this.aurora.frustumCulled = false;
+    this.aurora.renderOrder = -93;
+    this.aurora.visible = false;
+    this.group.add(this.aurora);
   }
 
   _buildGround() {
@@ -3269,6 +3489,14 @@ export class Environment {
       this.stars.position.copy(cp);
       this.stars.scale.setScalar(this._domeR * 0.97);
     }
+    const au = nn[17], at = Date.now() * 0.001;
+    this.auroraMat.opacity = au * (0.8 + 0.2 * Math.sin(at * 0.9));
+    this.aurora.visible = au > 0.02;
+    if (this.aurora.visible) {
+      this.aurora.position.copy(cp);
+      this.aurora.scale.set(this._domeR * 0.97, this._domeR * 0.97 * (1 + 0.15 * Math.sin(at * 0.5)), this._domeR * 0.97);
+      this.aurora.rotation.y = 0.12 * Math.sin(at * 0.08);
+    }
   }
 
   _pulse(beat) {
@@ -3360,7 +3588,7 @@ export class Environment {
       const G = this._glowT;
       if (this._shaderWarm > 0) {
         if (this._gridOK) this.grid.visible = true;
-        this.stars.visible = true;
+        this.stars.visible = true; this.aurora.visible = true;
         G.mesh.visible = true; G.mesh.count = Math.max(1, G.count);
       } else {
         G.mesh.count = G.count; G.mesh.visible = G.count > 0;
@@ -3438,5 +3666,6 @@ function makeLook(b) {
   n[10] = b.pulse.sky; n[11] = b.pulse.glow; n[12] = b.pulse.grid; n[13] = b.pulse.spark;
   n[14] = b.glowBase; n[15] = b.pulse.lava;
   n[16] = b.cloudAmt === undefined ? 1 : b.cloudAmt;
+  n[17] = b.aurora || 0;
   return { c, n };
 }

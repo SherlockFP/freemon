@@ -517,10 +517,10 @@ export class UI {
       g.classList.toggle('hidden', !mode);
       this.el.hud.classList.toggle('has-goal', !!mode);
       g.classList.remove('cp', 'rec', 'rage', 'new');
-      if (mode) g.classList.add(mode);
+      if (mode) g.classList.add(mode === 'boss' ? 'rage' : mode === 'cannon' ? 'rec' : mode);
     }
     if (mode && (mChanged || val !== this.gVal)) {
-      this.el.goalLbl.textContent = mode === 'cp' ? `SIRADAKİ: ${val} m` : mode === 'rec' ? `REKORA ${val} m` : mode === 'new' ? 'YENİ REKOR!' : '⚠ YETİ ÖFKESİ';
+      this.el.goalLbl.textContent = mode === 'cp' ? `SIRADAKİ: ${val} m` : mode === 'rec' ? `REKORA ${val} m` : mode === 'new' ? 'YENİ REKOR!' : mode === 'cannon' ? `KAR KANONU: ${val}` : mode === 'boss' ? 'YETİ ÖNÜNDE!' : '⚠ YETİ ÖFKESİ';
     }
     if (mode && (mChanged || pct !== this.gPct)) this.el.goalFill.style.width = `${pct}%`;
     this.gMode = mode; this.gVal = val; this.gPct = pct;

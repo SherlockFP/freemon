@@ -285,7 +285,7 @@ const POOLS = {
   beam: ['beamBox', 'glow', 220],
 };
 // pickup kind -> pool
-const PICK_POOL = { flake: 'flake', snow: 'ball', x2: 'star', gem: 'gem', crystal: 'crystal', box: 'gift', letter: 'letter', magnet: 'magnet', helmet: 'helmet', rocket: 'rocket', superjump: 'spring', timewarp: 'timewarp', ghost: 'ghost', risk: 'risk', clone: 'clone' };
+const PICK_POOL = { flake: 'flake', snow: 'ball', x2: 'star', gem: 'gem', crystal: 'crystal', box: 'gift', letter: 'letter', magnet: 'magnet', helmet: 'helmet', rocket: 'rocket', superjump: 'spring', timewarp: 'timewarp', ghost: 'ghost', risk: 'risk', clone: 'clone', cannon: 'rocket' };
 
 export function pulseOf(phase) {
   const p = phase > 0.5 ? phase - 1 : phase, a = 1 - Math.abs(p) / 0.3;
@@ -332,10 +332,10 @@ export class Obstacles {
     this.rowsLog = [];         // {s, ext, free} of every row (used to keep boulders from trapping the player)
     this._hk = null;           // explicit hardness override (else track.hardness)
     this.nextBoulder = 1e9;
-    this.powerW = { magnet: 1, x2: 1, superjump: 1, rocket: 1, helmet: 1, timewarp: 1, ghost: 1, risk: 1, clone: 1 };
+    this.powerW = { cannon: 1, magnet: 1, x2: 1, superjump: 1, rocket: 1, helmet: 1, timewarp: 1, ghost: 1, risk: 1, clone: 1 };
     this._cid = 'main';
     this.rng = makeRng((this.seed ^ 0xa5a5a5a5) >>> 0);
-    this.next = { power: 260, gem: 520, box: 340, letter: 300, chain: 420, yeti: 330, plow: 1000 };   // distance accumulators for rare pickups
+    this.next = { power: 260, gem: 520, box: 340, letter: 300, chain: 420, yeti: 330, plow: 1000, tunnel: 900, slide: 380 };   // distance accumulators for rare pickups
     this.tutorial = !!opts.tutorial;
     this.endless = opts.endless ?? !track.level;
     this.boxes = !!opts.boxes;                  // surprise boxes / letters on the track (off: the endless run credits rewards silently)
@@ -496,6 +496,22 @@ export class Obstacles {
     if (this._cid !== 'main') return;                  // a clone's hit never auto-resolves (the obstacle stays for the main ball)
     ob.pending = true; ob.hitSize = ball.size || 1; ob.autoAt = this.time + 0.06;
     this.pending.push(ob);
+  }
+
+  /** KAR KANONU: break the nearest static blocker ahead of s in the lane around u (within range m). Returns { s, u, color, tough } or null. */
+  snipe(s, u, range) {
+    const obs = this.obs;
+    for (let i = this._lb(obs, s + 2); i < obs.length; i++) {
+      const ob = obs[i];
+      if (ob.s > s + range) break;
+      if (!ob.alive || ob.kind !== 'static') continue;
+      const ou = ob.cu !== undefined ? ob.cu : ob.u, hu = (ob.shape === 'cyl' ? ob.rad : ob.hu) || 0.8;
+      if (Math.abs(ou - u) > hu + 0.9) continue;
+      const r = { s: ob.s, u: ou, color: ob.color, tough: ob.tough };
+      ob.pending = true; this._resolve(ob, true);
+      return r;
+    }
+    return null;
   }
 
   /** Runner tells us the outcome of a 'hit': smashed -> the obstacle breaks into debris, else it stays. */
@@ -760,9 +776,9 @@ export class Obstacles {
 //   small rock 'stone' = low + wide (jumpable, tough 2); big 'rock' = tall faceted boulder with a red / white hazard flag (lane blocker, lethal).
 // ---------------------------------------------------------------------------------------------------------------------------
 const SEG = 4.2;   // train segment length (each segment has its own frame so trains follow curves)
-const FAMILY = { snow: 'snow', forest: 'forest', greenhill: 'forest', sakura: 'forest', kapadokya: 'desert', desert: 'desert', pirate: 'desert', town: 'town', istanbul: 'town', icecave: 'ice', candy: 'candy', neon: 'neon', moon: 'moon', volcano: 'volcano' };
-const ROCK_TINT = { snow: 0x5d6572, forest: 0x626d58, desert: 0x8b4b2e, ice: 0x5f8dbd, candy: 0xc23c86, moon: 0x70707b, volcano: 0x3b2c28, town: 0x6a6f78, neon: 0x4d3f85 };
-const STONE_TINT = { snow: 0x6a7280, forest: 0x6f7a63, desert: 0x7d4a2f, ice: 0x7aa6d4, candy: 0xff8ccf, moon: 0x85858f, volcano: 0x4a3a34, town: 0x7a7f88, neon: 0x5b4d9a };
+const FAMILY = { aurora: 'aurora', bamboo: 'bamboo', glacier: 'glacier', carnival: 'carnival', snow: 'snow', forest: 'forest', greenhill: 'forest', sakura: 'forest', kapadokya: 'desert', desert: 'desert', pirate: 'desert', town: 'town', istanbul: 'town', icecave: 'ice', candy: 'candy', neon: 'neon', moon: 'moon', volcano: 'volcano' };
+const ROCK_TINT = { snow: 0x5d6572, forest: 0x626d58, desert: 0x8b4b2e, ice: 0x5f8dbd, aurora: 0x4a6a9a, bamboo: 0x6a7a5a, glacier: 0x4a86c8, carnival: 0xb03070, candy: 0xc23c86, moon: 0x70707b, volcano: 0x3b2c28, town: 0x6a6f78, neon: 0x4d3f85 };
+const STONE_TINT = { snow: 0x6a7280, forest: 0x6f7a63, desert: 0x7d4a2f, ice: 0x7aa6d4, aurora: 0x6a8ac0, bamboo: 0x8a9a7a, glacier: 0x6aa6e4, carnival: 0xff7ab0, candy: 0xff8ccf, moon: 0x85858f, volcano: 0x4a3a34, town: 0x7a7f88, neon: 0x5b4d9a };
 const KALIAS = { longLogs: 'longLog' };   // event kind names the runner knows (rock, cabin, pine, fence, fallenLog, snowcat ... pass through)
 
 function bigRock(ob) {       // tall faceted boulder (lethal head-on) + hazard flag
@@ -1313,12 +1329,94 @@ KIND.portal = {
 //   FAIRNESS: every row keeps a free route reachable at 0.25 s per lane change at the design speed (track.vGen); at most 3 hard rows in a row;
 //   no two lethal rows in a row in the first km; never a jump / duck row within 0.62 s of the opposite verb.
 // ---------------------------------------------------------------------------
+
+// ---- new biome families (aurora / bamboo / glacier / carnival): same hit boxes as the base set, own looks
+SK.aurora = {
+  snowman(ob) {   // glowing aurora lantern post
+    const u = ob.u; ob.shape = 'cyl'; ob.rad = 0.5; ob.ht = 2.3;
+    this._part(ob, 'cyl', 0x2a3a5a, u, 0.2, 0, 0, 1.0, 0.4, 1.0); this._part(ob, 'cyl', 0x1c2a44, u, 1.0, 0, 0, 0.22, 1.7, 0.22); this._part(ob, 'lamp', 0x5fffc0, u, 2.0, 0, 0, 0.8, 0.8, 0.8);
+  },
+  crate(ob) {     // frozen northern-lights crate
+    const n = ob.n || 1; ob.shape = 'box'; ob.hs = 0.6; ob.hu = 0.6; ob.ht = 1.1 * n;
+    for (let k = 0; k < n; k++) { this._part(ob, 'ice', 0x4a8ae0, ob.u, 0.55 + 1.1 * k, 0.1 * (k ? -1 : 1), 0, 1.1, 1.1, 1.1); this._part(ob, 'lamp', 0x5fffc0, ob.u, 0.55 + 1.1 * k, 0, 0, 0.4, 0.4, 0.4); }
+    this._part(ob, 'box', 0xc8e6ff, ob.u, 0.05, 0, 0, 1.14, 0.1, 1.14);
+  },
+  pine(ob) {      // frosted teal spruce
+    const sc = ob.sc || 1; ob.shape = 'cyl'; ob.rad = 0.8 * sc; ob.ht = 4.7 * sc;
+    this._part(ob, 'cone', 0x2f9a8a, ob.u, 0, ob.u * 2.1, 0, 1.7 * sc, 4.7 * sc, 1.7 * sc); this._part(ob, 'cone', 0xcff8ee, ob.u, 2.2 * sc, 0, 0, 1.05 * sc, 2.4 * sc, 1.05 * sc);
+  },
+  fallenLog(ob) { logBuild.call(this, ob, 0x5a7ad0, 0x9fffe0); },
+  fence(ob) { fenceBuild.call(this, ob, 0x3fd0a0, 0xcdf4ff); },
+};
+SK.bamboo = {
+  snowman(ob) {   // mossy stone lantern
+    const u = ob.u; ob.shape = 'cyl'; ob.rad = 0.5; ob.ht = 2.1;
+    this._part(ob, 'cyl', 0x7f8a80, u, 0.3, 0, 0, 0.9, 0.6, 0.9); this._part(ob, 'cyl', 0x8f9a90, u, 0.9, 0, 0, 0.4, 0.7, 0.4); this._part(ob, 'box', 0xb8c4b0, u, 1.45, 0, 0, 0.8, 0.5, 0.8);
+    this._part(ob, 'lamp', 0xffd070, u, 1.45, 0, 0, 0.4, 0.3, 0.4); this._part(ob, 'cone', 0x5a7a50, u, 1.7, 0, 0, 1.2, 0.5, 1.2);
+  },
+  crate(ob) {     // bamboo bundle
+    const n = ob.n || 1; ob.shape = 'box'; ob.hs = 0.6; ob.hu = 0.6; ob.ht = 1.1 * n;
+    for (let k = 0; k < n; k++) for (const x of [-0.36, -0.12, 0.12, 0.36]) this._part(ob, 'cyl', k % 2 ? 0x9bd45a : 0x6fbf4a, ob.u + x, 0.55 + 1.1 * k, 0, 0, 0.26, 1.1, 0.26);
+    this._part(ob, 'box', 0xe8d28a, ob.u, 0.35, 0, 0, 1.15, 0.08, 0.1, 0, 0, 0.3);
+  },
+  pine(ob) {      // bamboo clump
+    const sc = ob.sc || 1; ob.shape = 'cyl'; ob.rad = 0.7 * sc; ob.ht = 4.6 * sc;
+    for (const [x, z, h] of [[0, 0, 4.6], [0.4, 0.2, 3.8], [-0.35, 0.25, 4.1], [0.05, -0.4, 3.4]]) { this._part(ob, 'cyl', 0x62b845, ob.u + x * sc, h * sc / 2, 0, 0, 0.3 * sc, h * sc, 0.3 * sc, 0, 0, z * sc); this._part(ob, 'cyl', 0xb6e06a, ob.u + x * sc, h * sc * 0.55, 0, 0, 0.36 * sc, 0.08, 0.36 * sc, 0, 0, z * sc); }
+  },
+  fallenLog(ob) { logBuild.call(this, ob, 0x7ac84a, 0xd8f09a); },
+  fence(ob) { fenceBuild.call(this, ob, 0x8cd05a, 0xd8e8a0); },
+};
+SK.glacier = {
+  snowman(ob) {   // frozen knight statue
+    const u = ob.u; ob.shape = 'cyl'; ob.rad = 0.5; ob.ht = 2.4;
+    this._part(ob, 'cyl', 0x3a7ac0, u, 0.2, 0, 0, 1.0, 0.4, 1.0); this._part(ob, 'ice', 0x7fd0ff, u, 1.0, 0, 0, 0.8, 1.2, 0.5); this._part(ob, 'ice', 0xa8e6ff, u, 1.85, 0, 0, 0.5, 0.5, 0.5); this._part(ob, 'cone', 0xe8fbff, u, 2.1, 0, 0, 0.5, 0.6, 0.5);
+  },
+  crate(ob) {     // royal ice block with a crown
+    const n = ob.n || 1; ob.shape = 'box'; ob.hs = 0.6; ob.hu = 0.6; ob.ht = 1.1 * n;
+    for (let k = 0; k < n; k++) this._part(ob, 'ice', 0x3a8ae8, ob.u, 0.55 + 1.1 * k, 0.1 * (k ? -1 : 1), 0, 1.1, 1.1, 1.1);
+    for (const x of [-0.35, 0, 0.35]) this._part(ob, 'cone', 0xe8fbff, ob.u + x, 1.1 * n, 0, 0, 0.25, 0.4, 0.25);
+  },
+  pine(ob) {      // ice spire
+    const sc = ob.sc || 1; ob.shape = 'cyl'; ob.rad = 0.8 * sc; ob.ht = 5.2 * sc;
+    this._part(ob, 'cone', 0x4aa0f0, ob.u, 0, ob.u * 2.1, 0, 1.3 * sc, 5.2 * sc, 1.3 * sc); this._part(ob, 'cone', 0xcff4ff, ob.u + 0.5 * sc, 0, 0.5, 0, 0.6 * sc, 2.8 * sc, 0.6 * sc);
+  },
+  cabin(ob) {     // ice-castle turret
+    const u = ob.u; ob.shape = 'cyl'; ob.rad = 1.3; ob.ht = 3.2;
+    this._part(ob, 'cyl', 0x9ad8ff, u, 1.1, 0, 0, 2.4, 2.2, 2.4); this._part(ob, 'cone', 0x3a8ae8, u, 2.2, 0, 0, 2.7, 1.8, 2.7); this._part(ob, 'box', 0x1d3a6a, u, 0.6, 0, 0, 0.8, 1.0, 0.2, 0, 0, 1.2);
+  },
+  fallenLog(ob) { logBuild.call(this, ob, 0x6fc4f4, 0xe8fbff); },
+  fence(ob) { fenceBuild.call(this, ob, 0x4a9ae8, 0xe0f6ff); },
+};
+SK.carnival = {
+  snowman(ob) {   // balloon clown pole
+    const u = ob.u; ob.shape = 'cyl'; ob.rad = 0.5; ob.ht = 2.4;
+    this._part(ob, 'cyl', 0xffffff, u, 0.9, 0, 0, 0.2, 1.8, 0.2); this._part(ob, 'ball', 0xff3a6a, u, 1.9, 0, 0, 1.0, 1.1, 1.0); this._part(ob, 'ball', 0xffe03a, u + 0.2, 2.15, 0, 0, 0.5, 0.55, 0.5); this._part(ob, 'lamp', 0xffffff, u, 0.1, 0, 0, 0.5, 0.2, 0.5);
+  },
+  crate(ob) {     // striped prize box with a bulb
+    const n = ob.n || 1; ob.shape = 'box'; ob.hs = 0.6; ob.hu = 0.6; ob.ht = 1.1 * n;
+    for (let k = 0; k < n; k++) { this._part(ob, 'box', 0xff3a5a, ob.u, 0.55 + 1.1 * k, 0.1 * (k ? -1 : 1), 0, 1.1, 1.1, 1.1); this._part(ob, 'box', 0xffffff, ob.u, 0.55 + 1.1 * k, 0.1 * (k ? -1 : 1), 0, 1.12, 0.3, 1.12); }
+    this._part(ob, 'lamp', 0xffe03a, ob.u, 1.1 * n + 0.1, 0, 0, 0.3, 0.3, 0.3);
+  },
+  pine(ob) {      // striped tent pole with lights
+    const sc = ob.sc || 1; ob.shape = 'cyl'; ob.rad = 0.6 * sc; ob.ht = 4.4 * sc;
+    this._part(ob, 'cyl', 0xffffff, ob.u, 2.0 * sc, 0, 0, 0.5 * sc, 4.0 * sc, 0.5 * sc);
+    for (let k = 0; k < 4; k++) this._part(ob, 'cyl', 0xff3a5a, ob.u, (0.4 + k) * sc, 0, 0, 0.54 * sc, 0.5 * sc, 0.54 * sc);
+    this._part(ob, 'cone', 0xffd23a, ob.u, 3.9 * sc, 0, 0, 1.2 * sc, 0.9 * sc, 1.2 * sc); this._part(ob, 'lamp', 0x7fe8ff, ob.u, 4.4 * sc, 0, 0, 0.4, 0.4, 0.4);
+  },
+  cabin(ob) {     // ticket booth
+    const u = ob.u; ob.shape = 'box'; ob.hs = 1.2; ob.hu = 1.0; ob.ht = 2.6;
+    this._part(ob, 'box', 0xff3a5a, u, 0.9, 0, 0, 2.0, 1.8, 2.4); this._part(ob, 'box', 0xffffff, u, 1.9, 0, 0, 2.2, 0.3, 2.6); this._part(ob, 'cone', 0xffd23a, u, 2.0, 0, 0, 1.8, 0.7, 1.8); this._part(ob, 'lamp', 0xfff0a0, u, 1.0, 0, 0, 0.9, 0.5, 0.1, 0, 0, 1.22);
+  },
+  fallenLog(ob) { logBuild.call(this, ob, 0xff3a5a, 0xffffff); },
+  fence(ob) { fenceBuild.call(this, ob, 0xffd23a, 0xff3a8a); },
+};
+
 // [type, weight, min budget, biome families (null = all)]; rock / cabin are the lethal ones, their share is driven by lethalK(d)
 const STATIC_W = [['snowman', 2.0, 0, null], ['sign', 1.2, 0, null], ['crate', 1.8, 0, null], ['stone', 2.2, 0, null],
-  ['sled', 0.9, 0.1, { snow: 1, forest: 1, ice: 1, town: 1, desert: 1, volcano: 1 }], ['logpile', 0.9, 0.2, { snow: 1, forest: 1, volcano: 1, town: 1 }], ['pine', 1.1, 0.1, { snow: 1, forest: 1, ice: 1 }],
+  ['sled', 0.9, 0.1, { snow: 1, forest: 1, ice: 1, town: 1, desert: 1, volcano: 1, aurora: 1, glacier: 1 }], ['logpile', 0.9, 0.2, { snow: 1, forest: 1, volcano: 1, town: 1, bamboo: 1 }], ['pine', 1.1, 0.1, { snow: 1, forest: 1, ice: 1, aurora: 1, bamboo: 1, glacier: 1, carnival: 1 }],
   ['rock', 0.4, 0.18, null], ['cabin', 0.5, 0.3, null]];
-const BIOME_IDS = ['snow', 'forest', 'greenhill', 'kapadokya', 'town', 'desert', 'icecave', 'candy', 'sakura', 'istanbul', 'neon', 'moon', 'pirate', 'volcano'];   // same order as biomes.js
-const POWERS = ['magnet', 'x2', 'superjump', 'rocket', 'helmet', 'timewarp', 'ghost', 'risk', 'clone'];
+const BIOME_IDS = ['snow', 'forest', 'greenhill', 'kapadokya', 'town', 'desert', 'icecave', 'candy', 'sakura', 'istanbul', 'neon', 'moon', 'pirate', 'volcano', 'aurora', 'bamboo', 'glacier', 'carnival'];   // same order as biomes.js
+const POWERS = ['magnet', 'x2', 'superjump', 'rocket', 'helmet', 'timewarp', 'ghost', 'risk', 'clone', 'cannon'];
 // zone multipliers of the row-pattern weights (default 1); the zone's own patterns also ignore the difficulty gate
 const ZONE_OWN = { lasers: ['laser'], missiles: ['missile'], movers: ['mover', 'rolling'], boss: ['oncoming', 'rolling'] };
 const ZONE_M = {
@@ -1863,7 +1961,7 @@ Object.assign(Obstacles.prototype, {
         }
       }
       // Gap to the next row (seconds -> metres at the nominal speed): 1 / rate(s), shaped by the tension cycle and the piece density
-      const gapSec = Math.max(0.65, (1 / (rowRate(s) * Math.pow(hk, 0.3) * dens)) * tn * rng.range(0.88, 1.12) * (late ? 0.92 : 1));
+      const gapSec = Math.max(0.65, (1 / (rowRate(s) * Math.pow(hk, 0.3) * dens)) * tn * rng.range(0.88, 1.12) * (late ? 0.92 : 1) * (NL > 3 ? 0.78 : 1));   // wide bursts: a denser dodge-fest
       s += (made && ph ? vs * ph.g + Math.min(ext, 3) : made ? Math.max(vs * gapSec, 0.4 * vd + Math.min(ext, 3) + 1.2) : vs * gapSec) + advanceExtra;
     }
     if (rows.length) { const r = rows[rows.length - 1]; this._carry = { s: r.s, ext: r.ext, route: r.route, free: r.free, jump: r.jump, pat: r.pat, lethal: r.lethal, hardN: r.hardN, persist: persist.slice(), ph }; }
@@ -2280,6 +2378,26 @@ Object.assign(Obstacles.prototype, {
       if (T.allows('fog') && (storm || plan.diff >= 0.3) && len >= 40 && rng.chance(storm ? 0.7 : 0.07 + 0.15 * plan.diff)) {
         const l = Math.min(len - 4, rng.range(40, 70));
         this._mk(plan, { kind: 'fog', s: s0 + len / 2, u: 0, len: l, ext: l / 2 + 8, maxD: rng.range(0.55, 0.9) });
+      }
+    }
+    // BUZ KAYDIRAĞI strips and TÜNEL sections on plain pieces (never in zones, junction windows or next to hazards)
+    if (!piece.noObs && !plan.zone && (kind === 'straight' || kind === 'curve') && piece.len >= 56) {
+      let tun = false;
+      if (s0 >= 700 && s0 >= this.next.tunnel && T.allows('fog') && piece.len >= 64) {
+        const l = Math.min(piece.len - 10, rng.range(60, 84)), sc = s0 + piece.len / 2;
+        this._mk(plan, { kind: 'tunnel', s: sc, u: 0, len: l, ext: l / 2 + 10, n: NL, maxD: rng.range(0.55, 0.7), rowL: plan.rows.filter((r) => r.s > sc - l / 2 + 4 && r.s < sc + l / 2 - 2).map((r) => ({ s: r.s, free: r.free })) });
+        this.next.tunnel = s0 + piece.len + rng.range(750, 1100); tun = true;
+      }
+      if (!tun && s0 >= 320 && s0 >= this.next.slide && T.allows('ice')) {
+        const len = rng.range(26, 34);
+        for (let a = s0 + 8; a + len < s1 - 6; a += 3) {
+          if (plan.rows.some((r) => a - 8 < r.s + r.ext && a + len + 18 > r.s - r.ext)) continue;
+          const l = rng.int(0, NL - 1), sc = a + len / 2;
+          this._mk(plan, { kind: 'slide', s: sc, u: LANES[l], len, ext: len / 2 + 1 });
+          for (let x = a + 3; x < a + len - 1; x += 2.4) this._pickup('flake', x, LANES[l], 0.9);
+          this.next.slide = s0 + piece.len + rng.range(380, 650);
+          break;
+        }
       }
     }
     // register: obstacles and pickups sorted by s (pieces are generated in order)
@@ -2958,7 +3076,7 @@ Object.assign(Obstacles.prototype, {
     for (const d of this.deb) if (d.on) { d.on = false; this._release('box', d.idx); d.idx = -1; }
     this.pending.length = 0; this.platforms.length = 0; this.rowsLog.length = 0; this.warnQ.length = 0; this.byId.clear();
     this.maxExt = 4.6; this.gateChain = 0; this.nextBoulder = 1e9; this._bArmed = false;
-    this.next = { power: 260, gem: 520, box: 340, letter: 300, chain: 420, yeti: 330, plow: 1000 };
+    this.next = { power: 260, gem: 520, box: 340, letter: 300, chain: 420, yeti: 330, plow: 1000, tunnel: 900, slide: 380 };
     this._carry = null; this._clock = 0; this._nextCrit = this.track.level ? 130 : 160; this._teach = 0; this._breath = null; this._snowOwed = 0; this.tierBias = 0;
     if (this.critters) this.critters.reset();
     this.rng = makeRng((this.seed ^ (this.track.seed | 0) ^ 0xa5a5a5a5) >>> 0);
@@ -3288,6 +3406,59 @@ KIND.fog = {
     if (ball.s < a || ball.s > b) return;
     const d = Math.min(1, (ball.s - a) / 12, (b - ball.s) / 12), e = ev(events, 'fog');
     e.density = ob.maxD * smooth(d);
+  },
+};
+
+
+// ---------------------------------------------------------------------------
+// BUZ KAYDIRAĞI: an icy strip in one lane: +20 % speed and slow lane changes while on it, with a flake row along it (risk / reward).
+// Emits a 'slide' event every frame the ball is on it; kept clear of rows before and after by the spawner.
+KIND.slide = {
+  build(ob) {
+    ob.hc = 0.05; ob.tough = 0; ob.color = 0xbfeaff;
+    const ns = Math.max(1, Math.round(ob.len / SEGL)), sl = ob.len / ns, s0 = ob.s - ob.len / 2;
+    for (let k = 0; k < ns; k++) {
+      const f = this._frameOf(s0 + (k + 0.5) * sl);
+      this._part(ob, 'ice', 0x8fdcff, ob.u, 0.04, 0, 0, 2.3, 0.06, sl + 0.05, 0, 0, 0, f);
+      for (const sg of [-1, 1]) this._part(ob, 'box', 0xe8fbff, ob.u + sg * 1.18, 0.08, 0, 0, 0.08, 0.08, sl + 0.05, 0, 0, 0, f);
+    }
+    for (let k = 0; k < 3; k++) this._part(ob, 'chev', 0x9ef0ff, ob.u, 0.1, 0, 0, 1.3, 1, 1.0, 0, 0, 0, this._frameOf(s0 + 2 + k * 2.2));
+  },
+  hit(ob, ball, events) {
+    if (ball.h - ball.r > 0.5 || Math.abs(ball.s - ob.s) > ob.len / 2 || Math.abs(ball.u - ob.u) > 1.3) return;
+    ev(events, 'slide');
+  },
+};
+
+// TÜNEL: a dark stretch (fog event darkens the view) with lit arches; every blocker row is telegraphed by hanging lamps over its blocked lanes
+// plus a glow disc on the ground 7 m ahead of it. Events: 'fog' (density) while inside, 'tunnel' on entry / exit / every ~40 m (the echoing whoosh).
+KIND.tunnel = {
+  build(ob) {
+    ob.tough = 0; ob.color = 0; ob.hc = 2; ob.was = false;
+    const a = ob.s - ob.len / 2, hw = hwFor(ob.n || 3) + 0.4, n = Math.max(2, Math.round(ob.len / 9));
+    ob.a = a; ob.b = a + ob.len; ob.echo = a + 36;
+    for (let i = 0; i <= n; i++) {
+      const f = this._frameOf(a + (i * ob.len) / n), edge = i === 0 || i === n;
+      for (const sg of [-1, 1]) this._part(ob, 'box', 0x2a3048, sg * hw, 2.1, 0, 0, 0.5, 4.2, 0.5, 0, 0, 0, f);
+      this._part(ob, 'box', 0x2a3048, 0, 4.35, 0, 0, 2 * hw + 0.6, 0.4, 0.5, 0, 0, 0, f);
+      for (const sg of [-1, 0, 1]) this._part(ob, 'lamp', edge ? 0xffb02a : 0x7fe8ff, sg * hw * 0.62, 4.0, 0, 0, 0.5, 0.35, 0.5, 0, 0, 0, f);
+    }
+    for (const r of ob.rowL || []) {
+      const f = this._frameOf(r.s), f2 = this._frameOf(r.s - 7);
+      for (let l = 0; l < (ob.n || 3); l++) if (!(r.free & (1 << l))) {
+        this._part(ob, 'lamp', 0xff5a2a, LANES[l], 3.3, 0, 0, 0.6, 0.45, 0.6, 0, 0, 0, f);
+        this._part(ob, 'disc', 0xff7a3a, LANES[l], 0.06, 0, 0, 2.0, 1, 2.0, 0, 0, 0, f2);
+      }
+    }
+  },
+  hit(ob, ball, events) {
+    const inside = ball.s >= ob.a && ball.s <= ob.b;
+    if (inside) {
+      const d = Math.min(1, (ball.s - ob.a) / 8, (ob.b - ball.s) / 8), e = ev(events, 'fog');
+      e.density = ob.maxD * smooth(d);
+      if (!ob.was) { ob.was = true; const t = ev(events, 'tunnel'); t.enter = true; }
+      else if (ball.s > ob.echo) { ob.echo = ball.s + 40; const t = ev(events, 'tunnel'); t.enter = false; }
+    } else if (ob.was && ball.s > ob.b) { ob.was = false; const t = ev(events, 'tunnel'); t.enter = false; }
   },
 };
 
