@@ -43,8 +43,12 @@ export const TRACK = {
   BANK_K: 11, BANK_MAX: 35 * DEG,   // banked turns: roll = clamp(BANK_K * yawRate)
 };
 /** Subway-Surfers style lanes (track-local u). */
-export const LANES = [-2.4, 0, 2.4];
 export const LANE_W = 2.4;
+export const LANES = [-2.4, 0, 2.4];                // mutable: setLanes(n) re-centres it for n = 3 / 4 / 5 lanes
+export const hwFor = (n) => ((n - 1) * LANE_W) / 2 + 1.4;   // 3 -> 3.8, 4 -> 5.0, 5 -> 6.2
+export function setLanes(n) { n = Math.max(3, Math.min(5, n | 0 || 3)); if (LANES.length !== n) { LANES.length = 0; for (let i = 0; i < n; i++) LANES.push(+((i - (n - 1) / 2) * LANE_W).toFixed(4)); } return n; }
+export const laneOf = (u) => Math.max(0, Math.min(LANES.length - 1, Math.round(u / LANE_W + (LANES.length - 1) / 2)));
+export const laneMask = () => (1 << LANES.length) - 1;
 const T = TRACK;
 
 /** Flight distance of a ball launched at vertical speed vh0 from h0 above the landing level. */
@@ -139,6 +143,7 @@ function cellPoly(sc, uc, Rs, half, k, a0, slope) {
   return m < 3 ? 0 : m;
 }
 
+const LANES_FOR = (n) => Array.from({ length: n }, (_, i) => +((i - (n - 1) / 2) * LANE_W).toFixed(4));
 function gridParams(a, b, nc, w) {
   const L = b - a;
   const n = Math.max(1, Math.round(L / T.ROW));
@@ -155,7 +160,7 @@ function pieceHW(p, s) {
     case 'gapRamp': case 'skiJump': case 'chasm': case 'gapJump': case 'zipline': return s >= p.gapS0 && s < p.gapS1 ? 0 : p.hw;
     case 'narrow': {
       const d = Math.min(s - p.s0, p.s1 - s);
-      return p.hw + (T.HW - p.hw) * Math.max(0, 1 - d / (p.taper || 5));
+      return p.hw + (hwFor(p.n || 3) - p.hw) * Math.max(0, 1 - d / (p.taper || 5));
     }
     default: return p.hw;
   }
@@ -182,7 +187,7 @@ export class Track {
     this.group = new THREE.Group();
     this.group.name = 'track';
     if (scene && scene.add) scene.add(this.group);
-    this.mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    this.mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide });
     this.pieces = [];
     this.onPiece = null;
     this.onReset = null;
@@ -197,6 +202,7 @@ export class Track {
   /** (re)initialise the path and the generator state; meshes must already be gone */
   _init() {
     this.rng = makeRng((this.seed ^ 0x9e3779b9) >>> 0);
+    this.laneN = 3;
     this.sBase = 0;
     const sp0 = Math.sin(T.START_PITCH), cp0 = Math.cos(T.START_PITCH);
     // per-sample channels: position, heading (yaw/pitch, for curvature), tangent, up (incl. roll), roll
@@ -613,7 +619,7 @@ Object.assign(Track.prototype, {
   _spec(kind, s0, diff, biome, flatten) {
     const rng = this.rng, last = this.YW.length - 1;
     const p = {
-      id: this._ids++, kind, s0, s1: s0, len: 0, hw: T.HW, halfWidth: T.HW, diff, biome,
+      id: this._ids++, kind, s0, s1: s0, len: 0, hw: hwFor(this.laneN), halfWidth: hwFor(this.laneN), n: this.laneN, diff, biome,
       curb: true, edge: 'wall', needsJump: false, flatten: !!flatten,
       yaw0: this.YW[last], pitch0: this.PT[last], pitch1: this.PT[last], dYaw: 0, mesh: null,
     };
@@ -669,7 +675,7 @@ Object.assign(Track.prototype, {
       case 'split': {
         // centre lane missing for a stretch; left + right lanes stay
         const vs = this.speedAt(s0), lead = Math.max(10, Math.ceil(0.8 * vs)), hole = rng.int(14, 24), tail = 8;
-        p.len = lead + hole + tail; p.hw = T.HW;
+        p.len = lead + hole + tail; p.hw = hwFor(p.n);
         const hc = hexCols(p.hw - trim);
         const g = (p.grid = gridParams(s0, s0 + p.len, hc.nc, hc.w));
         g.holes = new Uint8Array(g.n * (g.nc + 1));
@@ -678,10 +684,10 @@ Object.assign(Track.prototype, {
           const odd = r & 1, sc = g.a + g.Rs + r * g.step;
           for (let c = 0; c <= g.nc; c++) {
             const uc = odd ? (c - g.nc * 0.5) * g.w : (c - (g.nc - 1) * 0.5) * g.w;
-            g.holes[r * (g.nc + 1) + c] = (!odd && c === g.nc) || (sc >= sa && sc < sb && Math.abs(uc) < 1.3) ? 1 : 0;
+            g.holes[r * (g.nc + 1) + c] = (!odd && c === g.nc) || (sc >= sa && sc < sb && Math.abs(uc) < (p.n === 4 ? 2.5 : 1.3)) ? 1 : 0;
           }
         }
-        p.lanes = [{ u: LANES[0], hw: 1.2 }, { u: LANES[2], hw: 1.2 }];
+        p.lanes = LANES_FOR(p.n).filter((u) => Math.abs(u) >= (p.n === 4 ? 2.5 : 1.3)).map((u) => ({ u, hw: 1.2 }));
         p.holeS0 = sa; p.holeS1 = sb;
         break;
       }
@@ -689,17 +695,17 @@ Object.assign(Track.prototype, {
         // platform with whole lane-segments missing; always >= 1 free lane, reachable from the previous segment
         const vs = this.speedAt(s0), segLen = Math.max(8, Math.round(vs * 1.0)), lead = Math.max(10, Math.ceil(0.9 * vs)), tail = 7;
         const nSeg = Math.max(3, Math.min(rng.int(3, 5), Math.floor(90 / segLen)));
-        p.len = lead + nSeg * segLen + tail; p.hw = T.HW;
+        p.len = lead + nSeg * segLen + tail; p.hw = hwFor(p.n);
         const hc = hexCols(p.hw - trim);
         const g = (p.grid = gridParams(s0, s0 + p.len, hc.nc, hc.w));
         g.holes = new Uint8Array(g.n * (g.nc + 1));
         const segs = [];
-        let route = 1;
+        const NL = p.n; let route = NL >> 1;
         for (let k = 0; k < nSeg; k++) {
-          const opts = [route - 1, route, route + 1].filter((x) => x >= 0 && x <= 2);
+          const opts = [route - 1, route, route + 1].filter((x) => x >= 0 && x < NL);
           route = opts[rng.int(0, opts.length - 1)];
           const free = [route];
-          if (!(diff > 0.15 && rng.chance(0.35 + 0.5 * diff))) { let o; do { o = rng.int(0, 2); } while (o === route); free.push(o); }
+          if (!(diff > 0.15 && rng.chance(0.35 + 0.5 * diff))) { let o; do { o = rng.int(0, NL - 1); } while (o === route); free.push(o); }
           segs.push({ s0: s0 + lead + k * segLen, s1: s0 + lead + (k + 1) * segLen, route, free });
         }
         p.laneSegs = segs;
@@ -716,16 +722,16 @@ Object.assign(Track.prototype, {
           for (let c = 0; c <= g.nc; c++) {
             const uc = odd ? (c - g.nc * 0.5) * g.w : (c - (g.nc - 1) * 0.5) * g.w;
             let hole = (!odd && c === g.nc) ? 1 : 0;
-            if (seg && !hole) { hole = 1; for (const li of fset) if (Math.abs(uc - LANES[li]) <= LANE_W * 0.5 + 0.4) { hole = 0; break; } }
+            if (seg && !hole) { hole = 1; for (const li of fset) if (Math.abs(uc - LANES_FOR(NL)[li]) <= LANE_W * 0.5 + 0.4) { hole = 0; break; } }
             g.holes[r * (g.nc + 1) + c] = hole;
           }
         }
         p.pathU = (s) => {
           let k = 0;
           while (k < segs.length - 1 && s >= segs[k].s1) k++;
-          let u = LANES[segs[k].route];
-          if (k < segs.length - 1) { const w = smooth((s - (segs[k].s1 - 3)) / 6); u += (LANES[segs[k + 1].route] - u) * w; }
-          if (k > 0) { const w = smooth((s - (segs[k].s0 - 3)) / 6); u = LANES[segs[k - 1].route] + (u - LANES[segs[k - 1].route]) * w; }
+          const LF = LANES_FOR(NL); let u = LF[segs[k].route];
+          if (k < segs.length - 1) { const w = smooth((s - (segs[k].s1 - 3)) / 6); u += (LF[segs[k + 1].route] - u) * w; }
+          if (k > 0) { const w = smooth((s - (segs[k].s0 - 3)) / 6); u = LF[segs[k - 1].route] + (u - LF[segs[k - 1].route]) * w; }
           return u;
         };
         break;
@@ -805,6 +811,10 @@ Object.assign(Track.prototype, {
     if (p.stairs) { const a = p.stairs.a; for (let k = 0; k < a.length - 1; k++) p.stairs.y[k] = this._planeY(a[k + 1]); }
   },
 
+  _widenDue(s0, bNow) {
+    return this.laneN < 5 && !this.zone && !this._bossStarted && s0 >= (this.laneN === 3 ? 1500 : 3500) && this.biomeIndexAt(s0 + 44) === bNow && !this._juncDue(s0) && bNow === this._lastBiome;
+  },
+
   _gen() {
     const s0 = this.genEnd, diff = this._diff(s0), L = this.level;
     const bNow = this.biomeIndexAt(s0);
@@ -816,6 +826,12 @@ Object.assign(Track.prototype, {
     } else if (L && s0 >= L.length) {
       this._finished = true;
       p = this._spec('finish', s0, diff, bNow, true);
+    } else if (this._widenDue(s0, bNow)) {
+      this.laneN++;
+      p = this._spec('straight', s0, diff, bNow, false);
+      const nn = this.laneN, hA = hwFor(nn - 1), hB = hwFor(nn);
+      p.len = 44; p.s1 = s0 + 44; p.dYaw = 0; p.noObs = true; p.n = nn; p.widen = nn; p.curb = true; p.edge = 'wall';
+      p.hw = hB; p.halfWidth = hB; p.hwAt = (s) => hA + (hB - hA) * smooth((s - p.s0 - 4) / 34);
     } else if (bNow !== this._lastBiome) {
       this._lastBiome = bNow;
       p = this._spec('portal', s0, diff, bNow, true);
@@ -1192,7 +1208,7 @@ Object.assign(Track.prototype, {
     p.dYaw = dir * TAU + d;
     p.yawWrap = dir * TAU;
     p.len = Math.round((Math.abs(p.dYaw) * R) / (1 - a));
-    p.hw = T.HW;
+    p.hw = hwFor(p.n);
     p.curb = rng.chance(0.85);
     p.edge = p.curb ? 'wall' : 'cliff';
     p.pitch1 = this._endPitch(p);
@@ -1304,7 +1320,7 @@ Object.assign(Track.prototype, {
     p.curb = true; p.edge = 'wall';
     p.pitch1 = this._endPitch(p);
     this._plateau(p, -rng.range(8, 11) * DEG, 0.15);
-    const FLOOR = T.HW, XM = 4.33, RW = 5;
+    const FLOOR = hwFor(p.n), XM = 4.33, RW = 5;
     const kAt = (s) => Math.max(0.001, Math.min(smooth((s - p.s0) / 10), smooth((p.s1 - s) / 10)));
     p.pipeK = kAt;
     p.hw = FLOOR + XM;
@@ -1340,7 +1356,7 @@ Object.assign(Track.prototype, {
     const rng = this.rng, vp = this.speedAt(s0 + 30);
     const Gr = G_REAL * this.gravity(s0 + 30) / T.G, R = clamp((0.8 * vp * vp) / (5 * Gr), 5.5, 11);
     const entry = 10, exit = 12, L = Math.round(TAU * R);
-    p.len = entry + L + exit; p.hw = T.HW; p.curb = true; p.edge = 'wall'; p.free3d = true;
+    p.len = entry + L + exit; p.hw = hwFor(p.n); p.curb = true; p.edge = 'wall'; p.free3d = true;
     const ls = s0 + entry, phi0 = T.FLAT2;
     // yaw bump amplitude giving a net lateral shift of 8.6 m (> one road width): the horizontal part of the heading
     // is cos(pitch), which flips sign over the top, so integrate numerically and bisect
@@ -1359,7 +1375,7 @@ Object.assign(Track.prototype, {
   },
   _spec_corkscrew(p, s0, diff) {
     const rng = this.rng, vp = this.speedAt(s0 + 20), L = Math.max(40, Math.round(1.5 * vp)), lead = 8, tail = 8, dir = rng.sign();
-    p.len = lead + L + tail; p.hw = T.HW; p.curb = true; p.edge = 'wall'; p.free3d = true;
+    p.len = lead + L + tail; p.hw = hwFor(p.n); p.curb = true; p.edge = 'wall'; p.free3d = true;
     p.pitch1 = this._endPitch(p);
     this._plateau(p, -rng.range(8, 11) * DEG, 0.12);
     const rs = lead / p.len, re = (lead + L) / p.len;
@@ -1388,11 +1404,11 @@ Object.assign(Track.prototype, {
     this._slab(mb, { a: p.gapS1, b: p.s1, hwf: hfB, hTop: () => 0, curb: p.curb, C, rng, capA: true, top: 'snow' });
     this._bandU(mb, p.gapS1, p.gapS1 + 1.2, p.hw, C);
     // start gate (two posts + cross bar), end post pair, rope between them (follows the path plane)
-    this._boxS(mb, z.s0, z.s0 + 0.5, -T.HW + 0.4, -T.HW + 0.9, 0, z.h + 0.6, post, C.under);
-    this._boxS(mb, z.s0, z.s0 + 0.5, T.HW - 0.9, T.HW - 0.4, 0, z.h + 0.6, post, C.under);
-    this._boxS(mb, z.s0, z.s0 + 0.5, -T.HW + 0.4, T.HW - 0.4, z.h + 0.35, z.h + 0.6, C.glow, post);
-    this._boxS(mb, z.s1 - 0.5, z.s1, -T.HW + 0.4, -T.HW + 0.9, 0, z.h + 0.6, post, C.under);
-    this._boxS(mb, z.s1 - 0.5, z.s1, T.HW - 0.9, T.HW - 0.4, 0, z.h + 0.6, post, C.under);
+    this._boxS(mb, z.s0, z.s0 + 0.5, -p.hw + 0.4, -p.hw + 0.9, 0, z.h + 0.6, post, C.under);
+    this._boxS(mb, z.s0, z.s0 + 0.5, p.hw - 0.9, p.hw - 0.4, 0, z.h + 0.6, post, C.under);
+    this._boxS(mb, z.s0, z.s0 + 0.5, -p.hw + 0.4, p.hw - 0.4, z.h + 0.35, z.h + 0.6, C.glow, post);
+    this._boxS(mb, z.s1 - 0.5, z.s1, -p.hw + 0.4, -p.hw + 0.9, 0, z.h + 0.6, post, C.under);
+    this._boxS(mb, z.s1 - 0.5, z.s1, p.hw - 0.9, p.hw - 0.4, 0, z.h + 0.6, post, C.under);
     for (let s = Math.ceil(z.s0 + 0.5); s < z.s1 - 0.5; s += 2) this._boxS(mb, s, Math.min(s + 2, z.s1 - 0.5), -0.07, 0.07, z.h - 0.07, z.h + 0.07, rope);
   },
 
@@ -1516,7 +1532,7 @@ Object.assign(Track.prototype, {
     p.dYaw = dir * mag;
     const Lc = mag > 60 * DEG ? 9 : 8, a = 0.1;
     p.len = La + Lc + Le;
-    p.hw = T.HW; p.curb = true; p.edge = 'wall';
+    p.hw = hwFor(p.n); p.curb = true; p.edge = 'wall';
     p.pitch1 = this._endPitch(p);
     this._plateau(p, -rng.range(6, 8) * DEG, 0.12);
     p.yawFn = (t) => {

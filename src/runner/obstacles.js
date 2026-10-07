@@ -21,7 +21,7 @@
 
 import * as THREE from 'three';
 import { makeRng } from '../rng.js';
-import { LANES, LANE_W } from './track.js';
+import { LANES, LANE_W, setLanes, laneOf, hwFor } from './track.js';
 import { Critters } from './critters.js';
 
 const PI = Math.PI, TAU = PI * 2;
@@ -517,6 +517,7 @@ export class Obstacles {
 
   // ---------- per-frame ----------
   update(dt, beat, ball) {
+    { const bp = this.track.pieceAt(ball.s); if (bp && bp.n) useLanes(bp.n); }
     this.time += dt;
     this.beatF = beat.beat; this.phase = beat.phase; this.bpm = beat.bpm || this.bpm;
     const pulse = pulseOf(beat.phase);
@@ -835,16 +836,16 @@ const DEFS = {
     const L = ob.L, ns = Math.max(2, Math.round(L / SEG)), sl = L / ns, ride = !!ob.ride;
     ob.hs = L / 2; ob.hu = 1.05;
     if (ride) {   // flatbed tram car: flat roof you can ride after the ramp (see platformAt)
-      ob.H = 2.3; ob.rl = ob.rl || 9; ob.ht = ob.H; ob.cs = ob.s; ob.cu = ob.u;
+      ob.H = ob.H || 2.3; ob.rl = ob.rl ?? 9; ob.ht = ob.H; ob.cs = ob.s; ob.cu = ob.u;
       const fr = this._frameOf(ob.s - L / 2 - ob.rl / 2);
-      this._part(ob, 'wedge', COL.wood2, ob.u, ob.H / 2, 0, 0, 2.0, ob.H, ob.rl, 0, 0, 0, fr);
+      if (ob.rl > 0) this._part(ob, 'wedge', ob.ice ? 0xcfeeff : COL.wood2, ob.u, ob.H / 2, 0, 0, 2.0, ob.H, ob.rl, 0, 0, 0, fr);
       this.platforms.push(ob);
     }
     for (let k = 0; k < ns; k++) {
       const f = this._frameOf(ob.s - L / 2 + (k + 0.5) * sl);
-      this._part(ob, 'box', COL.orange, ob.u, 1.15, 0, 0, 2.0, ride ? 2.3 : 1.5, sl + 0.04, 0, 0, 0, f);
+      this._part(ob, 'box', ob.ice ? 0xa9dcf5 : COL.orange, ob.u, ride ? ob.H / 2 : 1.15, 0, 0, 2.0, ride ? ob.H : 1.5, sl + 0.04, 0, 0, 0, f);
       this._part(ob, 'box', COL.dark, ob.u - 0.95, 0.4, 0, 0, 0.6, 0.8, sl + 0.04, 0, 0, 0, f); this._part(ob, 'box', COL.dark, ob.u + 0.95, 0.4, 0, 0, 0.6, 0.8, sl + 0.04, 0, 0, 0, f);
-      if (ride) { this._part(ob, 'box', 0xbfe3ff, ob.u, 1.6, 0, 0, 2.06, 0.5, sl * 0.8, 0, 0, 0, f); this._part(ob, 'box', ob.glow || 0xffd23a, ob.u, 2.33, 0, 0, 1.9, 0.06, sl, 0, 0, 0, f); }
+      if (ride) { this._part(ob, 'box', 0xbfe3ff, ob.u, ob.H * 0.7, 0, 0, 2.06, 0.4, sl * 0.8, 0, 0, 0, f); this._part(ob, 'box', ob.glow || 0xffd23a, ob.u, ob.H + 0.03, 0, 0, 1.9, 0.06, sl, 0, 0, 0, f); }
       else if (k === 0) { this._part(ob, 'box', 0xbfe3ff, ob.u, 2.2, 0, 0, 1.7, 1.0, sl, 0, 0, 0, f); this._part(ob, 'box', 0xffd23a, ob.u, 2.85, 0, 0, 0.9, 0.18, 0.4, 0, 0, 0, f); this._part(ob, 'box', COL.red, ob.u, 0.1, 0, 0, 2.05, 0.2, 0.1, 0, 0, sl / 2, f); }
       else this._part(ob, 'box', COL.rock, ob.u, 2.05, 0, 0, 1.6, 0.6, sl * 0.9, 0, 0, 0, f);
     }
@@ -1315,7 +1316,7 @@ KIND.portal = {
 // [type, weight, min budget, biome families (null = all)]; rock / cabin are the lethal ones, their share is driven by lethalK(d)
 const STATIC_W = [['snowman', 2.0, 0, null], ['sign', 1.2, 0, null], ['crate', 1.8, 0, null], ['stone', 2.2, 0, null],
   ['sled', 0.9, 0.1, { snow: 1, forest: 1, ice: 1, town: 1, desert: 1, volcano: 1 }], ['logpile', 0.9, 0.2, { snow: 1, forest: 1, volcano: 1, town: 1 }], ['pine', 1.1, 0.1, { snow: 1, forest: 1, ice: 1 }],
-  ['rock', 1.0, 0.18, null], ['cabin', 0.5, 0.3, null]];
+  ['rock', 0.4, 0.18, null], ['cabin', 0.5, 0.3, null]];
 const BIOME_IDS = ['snow', 'forest', 'greenhill', 'kapadokya', 'town', 'desert', 'icecave', 'candy', 'sakura', 'istanbul', 'neon', 'moon', 'pirate', 'volcano'];   // same order as biomes.js
 const POWERS = ['magnet', 'x2', 'superjump', 'rocket', 'helmet', 'timewarp', 'ghost', 'risk', 'clone'];
 // zone multipliers of the row-pattern weights (default 1); the zone's own patterns also ignore the difficulty gate
@@ -1331,6 +1332,8 @@ const ZONE_M = {
 const AIR_VH = 8.5;
 let AIR_G = 28;      // set from track.gravity() at the start of every spawn() (moon = low gravity -> longer arcs)
 const bit = (l) => 1 << l;
+let NL = 3, FULL = 7; const ALLL = [0, 1, 2];     // lane count of the piece being generated / the ball's piece (see useLanes)
+function useLanes(n) { n = setLanes(n); NL = n; FULL = (1 << n) - 1; ALLL.length = 0; for (let i = 0; i < n; i++) ALLL.push(i); return n; }
 
 function wpick(rng, items, w) {      // items weighted by w(item) (<=0 excluded)
   let tot = 0;
@@ -1355,13 +1358,13 @@ const TEACH_END = 300;
 // patterns that can never leave a free lane out of reach when the previous row is < 0.5 s behind (see _rows: tightRow)
 const TIGHT_OK = ['single', 'low', 'duck', 'slide', 'swing', 'ice', 'conveyor', 'rail', 'rest', 'laser', 'critter'];
 // a row that asks for a jump / duck (a jump needs ~0.6 s of air + landing: no jump or duck row may follow within that time)
-const vertRow = (r) => r.jump === true || r.pat === 'duck' || (r.pat === 'laser' && r.free === 7);
+const vertRow = (r) => r.jump === true || r.pat === 'duck' || (r.pat === 'laser' && r.free === FULL);
 
 // Authored phrases: 2-4 rows 0.5-0.75 s apart, picked like a row pattern (weight w(diff), unlocked by min difficulty).
 // ok(c) / build(c) get the row context built in _rows; a step is { t, g } with g = seconds to the next row (raised to the lane-swap time, see _rows) and
 // t = 'blk' (single on lane, -1 = the route lane) | 'wall' (all lanes but `free`) | 'hurdle' (wall + low log on `lane`) | 'low' | 'duck' (full width) | 'train' (outer `lane`)
 const PH_PAT = { blk: 'single', wall: 'double', hurdle: 'low', low: 'low', duck: 'duck', train: 'train' };      // row pattern a step stands for (coin arcs, stats)
-const outerLane = (c) => c.prevRoute === 1 ? (c.rng.chance(0.5) ? 0 : 2) : c.prevRoute;
+const outerLane = (c) => c.prevRoute > 0 && c.prevRoute < NL - 1 ? (c.rng.chance(0.5) ? 0 : NL - 1) : c.prevRoute;
 const PHRASES = [
   // zig-zag singles: each blocks the lane you are in, so every row is a swap
   { name: 'zigzag', min: 0.05, w: (d) => Math.max(0.4, 1.6 - 1.2 * d), ok: (c) => c.free0.length >= 2 && c.fit(3), build: (c) => {
@@ -1372,7 +1375,7 @@ const PHRASES = [
   // two-lane walls whose gap flips between the outer lanes: two quick double swaps
   { name: 'switchback', min: 0.3, w: (d) => 1.0 + d, ok: (c) => c.open3 && c.fit(3), build: (c) => {
     const a = outerLane(c), st = [];
-    for (let i = 0, n = c.diff > 0.55 ? 4 : 3; i < n; i++) st.push({ t: 'wall', free: i & 1 ? 2 - a : a, g: 0.7 });
+    for (let i = 0, n = c.diff > 0.55 ? 4 : 3; i < n; i++) st.push({ t: 'wall', free: i & 1 ? NL - 1 - a : a, g: 0.7 });
     return st;
   } },
   // jump, then duck right after the landing (+ another hurdle when hard)
@@ -1383,19 +1386,19 @@ const PHRASES = [
   } },
   // two-lane wall, then the free lane gets a hurdle: be in it and jump
   { name: 'wallGap', min: 0.25, w: () => 1.4, ok: (c) => c.open3 && c.fit(2), build: (c) => {
-    const l = c.rng.int(0, 2);
+    const l = c.rng.int(0, NL - 1);
     return [{ t: 'wall', free: l, g: 0.6 }, { t: 'hurdle', lane: l, g: 0.6 }];
   } },
   // long train in an outer lane, then singles that keep swapping you between the two lanes beside it
   { name: 'trainSide', min: 0.3, w: () => 1.1, ok: (c) => c.open3 && c.persist.length === 0 && c.fit(3), build: (c) => {
-    const st = [{ t: 'train', lane: c.rng.chance(0.5) ? 0 : 2, g: 0.58 }];
+    const st = [{ t: 'train', lane: c.rng.chance(0.5) ? 0 : NL - 1, g: 0.58 }];
     for (let i = 0, n = c.diff > 0.55 ? 3 : 2; i < n; i++) st.push({ t: 'blk', lane: -1, g: 0.58 });
     return st;
   } },
   // staircase: the free lane steps one lane per row (0,1,2 and back to the middle when hard)
   { name: 'stair', min: 0.2, w: () => 1.3, ok: (c) => c.open3 && c.fit(3), build: (c) => {
-    const a = outerLane(c), st = [{ t: 'wall', free: a, g: 0.55 }, { t: 'wall', free: 1, g: 0.55 }, { t: 'wall', free: 2 - a, g: 0.6 }];
-    if (c.diff > 0.55) st.push({ t: 'wall', free: 1, g: 0.6 });
+    const a = outerLane(c), st = [{ t: 'wall', free: a, g: 0.55 }, { t: 'wall', free: NL >> 1, g: 0.55 }, { t: 'wall', free: NL - 1 - a, g: 0.6 }];
+    if (c.diff > 0.55) st.push({ t: 'wall', free: NL >> 1, g: 0.6 });
     return st;
   } },
 ];
@@ -1412,7 +1415,7 @@ Object.assign(Obstacles.prototype, {
   _pickStatic(plan, allowedFn) {
     const d = plan.d ?? plan.diff, fam = plan.skin, lk = plan.lethalOk === false ? 0 : lethalK(d) * Math.min(2.2, 1 + 0.3 * (this.tierBias || 0));
     const e = wpick(plan.rng, STATIC_W, (x) => {
-      if (d < x[2] || !allowedFn(x[0]) || (x[3] && !x[3][fam])) return 0;
+      if (d < x[2] || (x[0] === 'rock' && plan.piece && plan.piece.s0 < 500) || !allowedFn(x[0]) || (x[3] && !x[3][fam])) return 0;
       return DEFS[x[0]].lethal ? x[1] * lk : x[1];
     });
     return (e || STATIC_W[0])[0];
@@ -1437,7 +1440,7 @@ Object.assign(Obstacles.prototype, {
    */
   _phraseRow(plan, c, st) {
     const rng = plan.rng, s = c.s, f0 = c.free0;
-    c.free = 7; c.ext = 1.5; c.jump = false;
+    c.free = FULL; c.ext = 1.5; c.jump = false;
     const open = (l) => f0.indexOf(l) >= 0;
     switch (st.t) {
       case 'blk': {
@@ -1446,11 +1449,11 @@ Object.assign(Obstacles.prototype, {
         if (l === undefined) return false;
         const type = this._pickStatic(plan, () => true);
         this._scaled(plan, type, s, l);
-        c.free = 7 & ~bit(l); c.ext = DEFS[type].ext;
+        c.free = FULL & ~bit(l); c.ext = DEFS[type].ext;
         return true;
       }
       case 'wall': case 'hurdle': {
-        const f = st.t === 'wall' ? st.free : st.lane, lanes = [0, 1, 2].filter((l) => l !== f);
+        const f = st.t === 'wall' ? st.free : st.lane, lanes = ALLL.filter((l) => l !== f);
         if (!(c.rm & bit(f)) || !lanes.every(open)) return false;
         for (const l of lanes) this._scaled(plan, this._pickStatic(plan, (t) => t !== 'cabin' && t !== 'rock'), s + rng.range(-0.6, 0.6), l);
         if (st.t === 'hurdle') { this._static(plan, rng.chance(0.65) ? 'fallenLog' : 'fence', s, 0, { uMin: LANES[f] - 1.2, uMax: LANES[f] + 1.2 }); c.jump = true; }
@@ -1458,8 +1461,8 @@ Object.assign(Obstacles.prototype, {
         return true;
       }
       case 'low': {
-        if (f0.length < 3) return false;
-        this._static(plan, rng.chance(0.65) ? 'fallenLog' : 'fence', s, 0, { uMin: LANES[0] - 1.2, uMax: LANES[2] + 1.2 });
+        if (f0.length < NL) return false;
+        this._static(plan, rng.chance(0.65) ? 'fallenLog' : 'fence', s, 0, { uMin: LANES[0] - 1.2, uMax: LANES[NL - 1] + 1.2 });
         c.free = 0; c.jump = true; c.ext = 1.2;
         return true;
       }
@@ -1471,7 +1474,7 @@ Object.assign(Obstacles.prototype, {
         if (L < 12 || !open(l) || !(c.rm & ~bit(l)) || c.persist.length || s + L + 4 > c.lim) return false;
         this._static(plan, plan.lethalOk !== false && rng.chance(0.6) ? 'snowcat' : 'longLogs', s + L / 2, LANES[l], { L, ext: L / 2 + 1.5 });
         c.persist.push({ lane: l, s0: s, s1: s + L });
-        c.free = 7 & ~bit(l); c.ext = L + 1;      // route transitions begin after the train
+        c.free = FULL & ~bit(l); c.ext = L + 1;      // route transitions begin after the train
         return true;
       }
     }
@@ -1486,7 +1489,7 @@ Object.assign(Obstacles.prototype, {
    */
   _rows(plan, sA, sB, o = {}) {
     const { rng, piece } = plan, T = this.track, hk = this.hk();
-    const dens = o.dens || 1, allowed = o.allowed || [0, 1, 2], only = o.only || null, okAt = o.okAt || null, clear = o.clear || null, dense = !!o.dense;
+    const dens = o.dens || 1, allowed = o.allowed || ALLL.slice(), only = o.only || null, okAt = o.okAt || null, clear = o.clear || null, dense = !!o.dense;
     // hardEnd: nothing may outlive sB (the junction approach; the piece before a junction): no trains / critter parades / volleys run on into the corner window
     const hardEnd = !!o.hardEnd || (!!T._juncDue && piece.kind !== 'junction' && T._juncDue(piece.s1));
     const rows = plan.rows, persist = [], carry = this._carry, F = T.features || {};
@@ -1494,9 +1497,9 @@ Object.assign(Obstacles.prototype, {
     const cyc = !T.level && F.tension !== false;                                  // tension cycle: endless runs only
     const cycT0 = cyc ? T.timeAt(TEACH_END) : 0;                                  // (design time of the end of the teaching stretch = phase 0 of the cycle)
     const phOn = !only && (!T.level || F.phrases === true) && F.phrases !== false;  // authored phrases: campaign levels opt in with features.phrases
-    const c = { rng, diff: 0, T, persist, s: 0, vs: 0, free0: null, rm: 0, room: 0, lim: 0, prevRoute: 0, open3: false, plain: false, vq: false, free: 7, ext: 1.5, jump: false,
+    const c = { rng, diff: 0, T, persist, s: 0, vs: 0, free0: null, rm: 0, room: 0, lim: 0, prevRoute: 0, open3: false, plain: false, vq: false, free: FULL, ext: 1.5, jump: false,
       fit: (n) => c.plain || (n - 1) * (c.vs * 0.65 + 2.5) <= c.room - 2 };   // row context for phrases (fit: a phrase of n rows fits in this piece or flows into a plain next one)
-    let prevRoute = allowed.indexOf(1) >= 0 ? 1 : allowed[0], lastRest = false, ph = null;
+    let prevRoute = allowed.indexOf(NL >> 1) >= 0 ? NL >> 1 : allowed[0], lastRest = false, ph = null;
     let s = Math.max(sA, this._clock || 0);
     if (!T.level && s < TEACH_END && !o.teach) s = TEACH_END;                    // the first 300 m hold only the scripted teaching rows (_teachRows)
     if (carry) {
@@ -1538,8 +1541,8 @@ Object.assign(Obstacles.prototype, {
       const free0 = allowed.filter((l) => !(tm & bit(l)));         // lanes not occupied by persistent blockers
       if (free0.length === 0) { s += vs * 1.2; continue; }
       const room = sB - s;
-      const open3 = free0.length === 3;
-      const prevFree = rows.length ? rows[rows.length - 1].free : carry ? carry.free : 7;
+      const open3 = free0.length === NL;
+      const prevFree = rows.length ? rows[rows.length - 1].free : carry ? carry.free : FULL;
       // fairness: lanes reachable from the route lane before this row (0.25 s per lane change at the DESIGN speed);
       // a "tight" row may then only use patterns that cannot hide the last reachable lane (TIGHT_OK)
       const lastR = rows.length ? rows[rows.length - 1] : carry, gapT = lastR ? (s - 1.5 - lastR.s - Math.min(lastR.ext, 3)) / vd : 9;
@@ -1558,9 +1561,9 @@ Object.assign(Obstacles.prototype, {
       const lim = forcedNext ? sB : isForced(nk1) ? piece.s1 : Infinity;
       // missiles: the volley (contact ~2 s ahead) must be over before the run-in of a lane-forcing piece (~40 m per piece)
       const limM = forcedNext ? sB : isForced(nk1) ? piece.s1 : isForced(T._q && T._q[2]) ? piece.s1 + 40 : Infinity;
-      const adj = free0.length === 3 || (free0.length === 2 && Math.abs(free0[0] - free0[1]) === 1);
+      const adj = free0.length === NL || (free0.length === 2 && Math.abs(free0[0] - free0[1]) === 1);
       const zone = plan.zone, zmap = zone ? ZONE_M[zone] : null, zown = zone ? ZONE_OWN[zone] : null;
-      const split2 = (tm & 2) !== 0;            // a persistent blocker in the middle lane splits the track: only jump / duck / floor patterns then
+      const split2 = (tm & bit(NL >> 1)) !== 0;            // a persistent blocker in the middle lane splits the track: only jump / duck / floor patterns then
       const wantCrit = s >= this._nextCrit && !only && F.critters !== false && T.allows('critters') && this.critters && room > 30 && free0.length >= 2 && !tightRow && !zone;
       const onlyNow = !rows.length && o.firstOnly ? o.firstOnly : only;      // (the first row after a junction corner: single verb)
       // sliding walls: never right after a junction corner, never within 1.5 s of another hard row
@@ -1576,7 +1579,7 @@ Object.assign(Obstacles.prototype, {
           case 'single': return free0.length >= 2 ? 3 : 0;
           case 'double': return open3 && dz >= 0.2 ? 1.2 + 1.6 * dz + (dense ? 0.6 : 0) : 0;
           case 'low': return 2.6;
-          case 'train': return dz >= 0.25 && persist.length === 0 && room > 30 && s + 26 <= lim && allowed.length === 3 ? 0.8 + 0.8 * dz + (dense ? 0.4 : 0) : 0;
+          case 'train': return dz >= 0.25 && persist.length === 0 && room > 30 && s + 26 <= lim && allowed.length === NL ? 0.8 + 0.8 * dz + (dense ? 0.4 : 0) : 0;
           case 'mover': return dz >= 0.1 && free0.length >= 2 && room > 6 && free0.some((l) => free0.indexOf(l + 1) >= 0) ? 1.1 : 0;
           case 'rolling': return dz >= 0.2 && room > 18 && persist.length === 0 && s + 30 <= lim && free0.length >= 2 ? 0.8 : 0;
           case 'beat': return dz >= 0.25 && room > 6 && open3 ? 0.9 + (dense ? 0.5 : 0) : 0;
@@ -1601,7 +1604,7 @@ Object.assign(Obstacles.prototype, {
       };
       c.s = s; c.vs = vs; c.free0 = free0; c.rm = rm; c.room = room; c.lim = lim; c.prevRoute = prevRoute; c.open3 = open3; c.plain = !hardEnd && (nk0 === 'straight' || nk0 === 'curve'); c.vq = vq;
       const pat = ph ? 'phrase' : wpick(rng, pats, (p) => wfn(p) * (zmap ? (zmap[p] !== undefined ? zmap[p] : zmap._) : 1));
-      let free = 7, ext = 1.5, jump = false, advanceExtra = 0, made = true, phK = 0, phI = 0, rowPat = pat, rext = -1;     // rext: extent the route / snow trails / gems see (a critter group never blocks the route lane: it keeps only the full `ext` in rowsLog)
+      let free = FULL, ext = 1.5, jump = false, advanceExtra = 0, made = true, phK = 0, phI = 0, rowPat = pat, rext = -1;     // rext: extent the route / snow trails / gems see (a critter group never blocks the route lane: it keeps only the full `ext` in rowsLog)
       switch (pat) {
         case 'single': {
           // 'single' favours the lane the player is most likely in (the previous route lane) ~50% of the time
@@ -1609,14 +1612,15 @@ Object.assign(Obstacles.prototype, {
           if (!(rm & ~bit(l))) l = free0.find((q) => q !== l);        // never hide the only reachable lane
           const type = this._pickStatic(plan, () => true);
           this._scaled(plan, type, s, l);
-          free = bit(0) | bit(1) | bit(2); free &= ~bit(l);
+          free = FULL & ~bit(l);
           ext = DEFS[type].ext;
           break;
         }
         case 'double': {
-          const lanes = rng.chance(0.5) ? [0, 1] : rng.chance(0.5) ? [1, 2] : [0, 2];
+          const la = rng.int(0, NL - 1); let lb; do { lb = rng.int(0, NL - 1); } while (lb === la);
+          const lanes = [la, lb];
           for (const l of lanes) this._scaled(plan, this._pickStatic(plan, (t) => t !== 'cabin' && t !== 'rock'), s + rng.range(-1, 1), l);
-          free = 7 & ~(bit(lanes[0]) | bit(lanes[1]));
+          free = FULL & ~(bit(lanes[0]) | bit(lanes[1]));
           ext = 2;
           break;
         }
@@ -1624,7 +1628,7 @@ Object.assign(Obstacles.prototype, {
           // jumpable low blockers across contiguous runs of free lanes (all 3 lanes only if a jump clears them)
           const runs = [];
           let cur = null;
-          for (let l = 0; l < 3; l++) {
+          for (let l = 0; l < NL; l++) {
             if (free0.indexOf(l) >= 0) { if (cur && l === cur.hi + 1) cur.hi = l; else { cur = { lo: l, hi: l }; runs.push(cur); } }
             else cur = null;
           }
@@ -1633,29 +1637,37 @@ Object.assign(Obstacles.prototype, {
           if (rng.chance(0.55)) { lo = rng.int(run.lo, run.hi); hi = rng.int(lo, run.hi); }
           const type = rng.chance(0.65) ? 'fallenLog' : 'fence';
           this._static(plan, type, s, 0, { uMin: LANES[lo] - 1.2, uMax: LANES[hi] + 1.2 });
-          free = 7 & ~(((1 << (hi + 1)) - 1) ^ ((1 << lo) - 1));
+          free = FULL & ~(((1 << (hi + 1)) - 1) ^ ((1 << lo) - 1));
           jump = free0.length > 0 && (free & amask & ~tm & rm) === 0;       // no free lane in reach: must jump
           if (jump) free = 0;
           ext = 1.2;
           break;
         }
         case 'train': {
-          const l = rng.chance(0.5) ? 0 : 2;
-          const L = Math.min(rng.int(14, 22), Math.floor(room - 8));
-          if (L < 10 || !(prevFree & ~bit(l) & amask)) { made = false; break; }
-          const type = plan.lethalOk && rng.chance(0.6) ? 'snowcat' : 'longLogs', ride = type === 'snowcat' && diff >= 0.3 && rng.chance(0.4), rl = 9;
-          if (ride) {
-            if (s + rl + L > sB) { made = false; break; }
-            this._static(plan, type, s + rl + L / 2, LANES[l], { L, ride: true, rl, glow: this._pal(s).glow, ext: L / 2 + rl + 1.5 });
-            persist.push({ lane: l, s0: s, s1: s + rl + L });
-            const sp = this._sp(s);
-            for (let x = s + rl + 1.5; x < s + rl + L - 1; x += sp) this._pickup('flake', x, LANES[l], 3.2);   // roof coins
+          // Subway-style: 8-25 m blocks. Rideable ones (kar treni / ice blocks, roof 1.6 m) come as 1-3 parallel cars with ONE ramp at the back
+          const L = Math.min(rng.int(8, 25), Math.floor(room - 12));
+          const rideK = plan.lethalOk && diff >= 0.12 && rng.chance(0.6);
+          const np = rideK ? (NL >= 5 && rng.chance(0.4) ? 3 : NL >= 4 && rng.chance(0.55) ? 2 : 1) : 1, rl = 9;
+          const lo = np === 1 ? (rng.chance(0.5) ? 0 : NL - 1) : (rng.chance(0.5) ? 0 : NL - np);
+          const ls = []; for (let k = 0; k < np; k++) ls.push(lo + k);
+          let lm = 0; for (const l of ls) lm |= bit(l);
+          if (L < 8 || !(prevFree & ~lm & amask) || ls.some((l) => !inAllowed(l))) { made = false; break; }
+          if (rideK) {
+            if (s + rl + L > sB || s + rl + L > lim) { made = false; break; }
+            const ice = rng.chance(0.4), ramp = ls[rng.int(0, np - 1)], H = 1.6;
+            for (const l of ls) {
+              this._static(plan, 'snowcat', s + rl + L / 2, LANES[l], { L, ride: true, rl: l === ramp ? rl : 0, H, ice, glow: this._pal(s).glow, ext: L / 2 + rl + 1.5 });
+              persist.push({ lane: l, s0: s, s1: s + rl + L });
+              const sp = this._sp(s);
+              for (let x = s + rl + 1.5; x < s + rl + L - 1; x += sp) this._pickup('flake', x, LANES[l], H + 0.9);   // roof coins
+            }
+            ext = L + rl + 1;
           } else {
-            this._static(plan, type, s + L / 2, LANES[l], { L, ext: L / 2 + 1.5 });
-            persist.push({ lane: l, s0: s, s1: s + L });
+            this._static(plan, plan.lethalOk && rng.chance(0.6) ? 'snowcat' : 'longLogs', s + L / 2, LANES[ls[0]], { L, ext: L / 2 + 1.5 });
+            persist.push({ lane: ls[0], s0: s, s1: s + L });
+            ext = L + 1;
           }
-          free = 7 & ~bit(l);
-          ext = L + 1;      // route transitions begin after the train
+          free = FULL & ~lm;
           advanceExtra = 0;
           break;
         }
@@ -1663,7 +1675,7 @@ Object.assign(Obstacles.prototype, {
           const pairs = [];
           for (const l of free0) if (free0.indexOf(l + 1) >= 0) pairs.push([l, l + 1]);
           const pr = pairs[rng.int(0, pairs.length - 1)];
-          const freeLane = [0, 1, 2].filter((l) => l !== pr[0] && l !== pr[1])[0];
+          const freeLane = ALLL.filter((l) => l !== pr[0] && l !== pr[1])[0];
           if (!inAllowed(freeLane) || (tm & bit(freeLane))) { made = false; break; }
           const type = rng.chance(0.65) ? 'skier' : 'sled';
           const suits = [0x2f7de6, 0xe6492f, 0x35c46a, 0xe6b82f];
@@ -1677,23 +1689,23 @@ Object.assign(Obstacles.prototype, {
           if (s + L > piece.s1 - 3 || !(prevFree & ~bit(l) & amask)) { made = false; break; }
           this._mk(plan, { kind: 'moving', type: 'rolling', s: s + L / 2, u: LANES[l], ext: L / 2 + 1.5, s0: s, L, per: Math.max(4, 8 / hk), ph: rng.range(0, 1) });
           persist.push({ lane: l, s0: s, s1: s + L });
-          free = 7 & ~bit(l);
+          free = FULL & ~bit(l);
           ext = 2;
           break;
         }
         case 'beat': {
           const sigma = rng.chance(0.5) ? -1 : 1;
-          const farLane = sigma < 0 ? 2 : 0;
+          const farLane = sigma < 0 ? NL - 1 : 0;
           if (tm & bit(farLane) || !inAllowed(farLane)) { made = false; break; }
-          const hw = Math.min(piece.hw, 3.8);
+          const hw = piece.hw;
           this._mk(plan, { kind: 'plow', s, u: sigma * (hw - 0.25), u0: sigma * (hw - 0.25), sigma, L: 4.4, per: Math.max(2.2, (diff > 0.7 ? 3 : 4) / hk), phi: rng.range(0, TAU), ext: 4.8 });
           free = bit(farLane);
           ext = 4.8;
           break;
         }
         case 'swing': {
-          this._mk(plan, { kind: 'swing', s, u: 0, hw: Math.min(piece.hw, 3.8), H: 4.2, Ls: 3.6, amp: 62 * PI / 180, per: Math.max(2.2, (diff > 0.6 ? 3 : 4) / hk), ext: 2.2 });
-          free = 7; ext = 2.2;
+          this._mk(plan, { kind: 'swing', s, u: 0, hw: piece.hw, H: 4.2, Ls: 3.6, amp: 62 * PI / 180, per: Math.max(2.2, (diff > 0.6 ? 3 : 4) / hk), ext: 2.2 });
+          free = FULL; ext = 2.2;
           break;
         }
         case 'ice': {
@@ -1702,18 +1714,18 @@ Object.assign(Obstacles.prototype, {
           for (const l of lanes) { if (groups.length && l === groups[groups.length - 1].hi + 1) groups[groups.length - 1].hi = l; else groups.push({ lo: l, hi: l }); }
           const len = rng.range(6, 10);
           this._mk(plan, { kind: 'ice', s, u: 0, len, ext: len / 2 + 0.5, groups: groups.map((g) => ({ uMin: LANES[g.lo] - 1.2, uMax: LANES[g.hi] + 1.2 })) });
-          free = 7; ext = len / 2;
+          free = FULL; ext = len / 2;
           break;
         }
         case 'melt': {
-          const lanes = free0.length >= 3 ? [free0[rng.int(0, 2)]] : [free0[rng.int(0, free0.length - 1)]];
-          if (free0.length === 3 && rng.chance(0.4)) { const o2 = rng.chance(0.5) ? 1 : -1, l2 = lanes[0] + o2; if (l2 >= 0 && l2 <= 2) lanes.push(l2); }
+          const lanes = free0.length >= NL ? [free0[rng.int(0, free0.length - 1)]] : [free0[rng.int(0, free0.length - 1)]];
+          if (free0.length === NL && rng.chance(0.4)) { const o2 = rng.chance(0.5) ? 1 : -1, l2 = lanes[0] + o2; if (l2 >= 0 && l2 < NL) lanes.push(l2); }
           lanes.sort();
           const groups = [];
           for (const l of lanes) { if (groups.length && l === groups[groups.length - 1].hi + 1) groups[groups.length - 1].hi = l; else groups.push({ lo: l, hi: l }); }
           const len = rng.range(10, 14);
           this._mk(plan, { kind: 'melt', s, u: 0, len, ext: len / 2 + 0.5, rate: 0.18 + 0.12 * diff, groups: groups.map((g) => ({ uMin: LANES[g.lo] - 1.2, uMax: LANES[g.hi] + 1.2 })) });
-          free = 7 & ~lanes.reduce((m, l) => m | bit(l), 0); if (!(free & ~tm)) free = 7;      // (a floor patch is not a blocker: never the only open lane)
+          free = FULL & ~lanes.reduce((m, l) => m | bit(l), 0); if (!(free & ~tm)) free = FULL;      // (a floor patch is not a blocker: never the only open lane)
           ext = len / 2;
           break;
         }
@@ -1723,7 +1735,7 @@ Object.assign(Obstacles.prototype, {
           for (const l of lanes) { if (groups.length && l === groups[groups.length - 1].hi + 1) groups[groups.length - 1].hi = l; else groups.push({ lo: l, hi: l }); }
           const len = rng.range(8, 12);
           this._mk(plan, { kind: 'conveyor', s, u: 0, len, ext: len / 2 + 0.5, dir: rng.sign(), push: 3.6, glow: this._pal(s).glow, groups: groups.map((g) => ({ uMin: LANES[g.lo] - 1.2, uMax: LANES[g.hi] + 1.2 })) });
-          free = 7; ext = len / 2;
+          free = FULL; ext = len / 2;
           break;
         }
         case 'rail': {
@@ -1732,7 +1744,7 @@ Object.assign(Obstacles.prototype, {
           const railH = 0.55, sp = this._sp(s);
           this._mk(plan, { kind: 'rail', s: s + len / 2, u: LANES[l], len, railH, glow: this._pal(s).glow, ext: len / 2 + 1 });
           for (let x = s + 2; x < s + len - 1; x += sp) this._pickup('flake', x, LANES[l], 1.35);      // coins above the rail: grind to collect
-          free = 7; ext = 3;
+          free = FULL; ext = 3;
           break;
         }
         case 'oncoming': {
@@ -1741,34 +1753,34 @@ Object.assign(Obstacles.prototype, {
           const vt = Math.min(12, rng.range(6, 10) * Math.sqrt(hk)), ride = diff >= 0.3 && rng.chance(0.45);
           this._mk(plan, { kind: 'oncoming', s: sP, sP, u: LANES[l], lane: l, vt, ride, L: 12, ext: 74, glow: this._pal(sP).glow });
           persist.push({ lane: l, s0: s, s1: sP + 8 });
-          free = 7 & ~bit(l); ext = 70;
+          free = FULL & ~bit(l); ext = 70;
           break;
         }
         case 'duck': {
-          const lo = allowed.length === 1 ? allowed[0] : rng.int(0, 2), hi = allowed.length === 1 ? lo : rng.chance(0.4) ? 2 : rng.int(lo, 2), hb = rng.range(1.0, 1.6);
+          const lo = allowed.length === 1 ? allowed[0] : rng.int(0, NL - 1), hi = allowed.length === 1 ? lo : rng.chance(0.4) ? NL - 1 : rng.int(lo, NL - 1), hb = rng.range(1.0, 1.6);
           this._mk(plan, { kind: 'overhead', s, lo, hi, hb, u: (LANES[lo] + LANES[hi]) / 2, ext: 2.4, glow: this._pal(s).glow });
-          free = 7; ext = 1.5;
+          free = FULL; ext = 1.5;
           break;
         }
         case 'slide': {
-          const al = free0.length === 3 ? [0, 1, 2] : free0.slice();
+          const al = free0.length === NL ? ALLL : free0.slice();
           this._mk(plan, { kind: 'slidewall', s, u: 0, pat: this._slidePattern(rng, al), per: 4, ext: 2.6, glow: this._pal(s).glow });
-          free = 7; ext = Math.max(3, 1.6 * vs);       // >= 1.5 s of clear track after a sliding wall
+          free = FULL; ext = Math.max(3, 1.6 * vs);       // >= 1.5 s of clear track after a sliding wall
           break;
         }
         case 'combo': {
-          const l = rng.chance(0.5) ? 0 : 2, sP = s + 42, wS = sP + 16;
+          const l = rng.chance(0.5) ? 0 : NL - 1, sP = s + 42, wS = sP + 16;
           if (wS > sB + 20 || !(prevFree & ~bit(l) & amask)) { made = false; break; }
-          const al = [0, 1, 2].filter((x) => x !== l), vt = Math.min(12, rng.range(7, 11) * Math.sqrt(hk));
+          const al = ALLL.filter((x) => x !== l), vt = Math.min(12, rng.range(7, 11) * Math.sqrt(hk));
           this._mk(plan, { kind: 'oncoming', s: sP, sP, u: LANES[l], lane: l, vt, ride: false, L: 12, ext: 74, glow: this._pal(sP).glow });
           this._mk(plan, { kind: 'slidewall', s: wS, u: 0, pat: this._slidePattern(rng, al), per: 1, ext: 2.6, glow: this._pal(wS).glow });
           persist.push({ lane: l, s0: s, s1: wS + 4 });
-          free = 7 & ~bit(l); ext = 70;
+          free = FULL & ~bit(l); ext = 70;
           break;
         }
         case 'laser': {
-          const dd = zown && zown.indexOf('laser') >= 0 ? Math.max(diff, 0.35) : diff, hwE = Math.min(piece.hw, 3.8);
-          const sg = rng.chance(0.5) ? -1 : 1, farLane = sg < 0 ? 2 : 0, farOk = inAllowed(farLane) && !(tm & bit(farLane)) && (prevFree & bit(farLane));
+          const dd = zown && zown.indexOf('laser') >= 0 ? Math.max(diff, 0.35) : diff, hwE = piece.hw;
+          const sg = rng.chance(0.5) ? -1 : 1, farLane = sg < 0 ? NL - 1 : 0, farOk = inAllowed(farLane) && !(tm & bit(farLane)) && (prevFree & bit(farLane));
           const v = wpick(rng, ['low', 'high', 'curtain', 'rotating', 'blink'], (x) => ({
             low: dd >= 0.08 ? 3 : 0, high: dd >= 0.12 ? 2.5 : 0, curtain: free0.length >= 2 && !split2 && !tightRow && dd >= 0.2 ? 2 : 0,
             rotating: farOk && !split2 && !tightRow && room > 10 && dd >= 0.3 ? 1.5 : 0, blink: open3 && room > 10 && dd >= 0.35 && T.allows('lasers') ? 1.4 : 0 }[x]));
@@ -1778,13 +1790,13 @@ Object.assign(Obstacles.prototype, {
           else if (v === 'high') { Object.assign(base, { hb: 1.3 }); ext = 1.6; }
           else if (v === 'curtain') {
             const runs = []; let cur = null;
-            for (let l = 0; l < 3; l++) { if (free0.indexOf(l) >= 0) { if (cur && l === cur.hi + 1) cur.hi = l; else { cur = { lo: l, hi: l }; runs.push(cur); } } else cur = null; }
+            for (let l = 0; l < NL; l++) { if (free0.indexOf(l) >= 0) { if (cur && l === cur.hi + 1) cur.hi = l; else { cur = { lo: l, hi: l }; runs.push(cur); } } else cur = null; }
             const run = runs[rng.int(0, runs.length - 1)];
-            let lo = run.lo, hi = run.hi; if (hi - lo >= 1 && (free0.length < 3 || rng.chance(0.6))) { lo = rng.int(run.lo, run.hi - (free0.length === 3 ? 1 : 0)); hi = free0.length === 3 && rng.chance(0.5) ? Math.min(2, lo + 1) : lo; }
+            let lo = run.lo, hi = run.hi; if (hi - lo >= 1 && (free0.length < NL || rng.chance(0.6))) { lo = rng.int(run.lo, run.hi - (free0.length === NL ? 1 : 0)); hi = free0.length === NL && rng.chance(0.5) ? Math.min(NL - 1, lo + 1) : lo; }
             if (hi - lo + 1 >= free0.length) hi = lo;
-            Object.assign(base, { lo, hi }); free = 7 & ~(((1 << (hi + 1)) - 1) ^ ((1 << lo) - 1)); ext = 1.5;
+            Object.assign(base, { lo, hi }); free = FULL & ~(((1 << (hi + 1)) - 1) ^ ((1 << lo) - 1)); ext = 1.5;
           } else if (v === 'rotating') Object.assign(base, { sigma: sg, L: 2 * hwE - 2.7, per: Math.max(2.2, (dd > 0.6 ? 3 : 4) / hk), phi: rng.range(0, TAU), ext: 5 }), free = bit(farLane), ext = 5;
-          else Object.assign(base, { pat: this._slidePattern(rng, [0, 1, 2]), per: Math.max(4, Math.ceil(3.2 * T.bpmAt(s) / 60)), ext: 3 });       // one lane per ~3.2 s (flicker telegraph = last 30%)
+          else Object.assign(base, { pat: this._slidePattern(rng, ALLL), per: Math.max(4, Math.ceil(3.2 * T.bpmAt(s) / 60)), ext: 3 });       // one lane per ~3.2 s (flicker telegraph = last 30%)
           this._mk(plan, base);
           break;
         }
@@ -1798,7 +1810,7 @@ Object.assign(Obstacles.prototype, {
             this._mk(plan, { kind: 'missile', s: mm, sP, u: LANES[l], lane: l, vm, ext: 90, p0: s - 3, p1: mm + vs * 0.6 + 8 });
             persist.push({ lane: l, s0: s - 3, s1: mm + vs * 0.6 + 8, mm });
           });
-          free = 7 & ~lanes.reduce((a, l) => a | bit(l), 0); ext = 3;
+          free = FULL & ~lanes.reduce((a, l) => a | bit(l), 0); ext = 3;
           break;
         }
         case 'critter': {
@@ -1834,13 +1846,13 @@ Object.assign(Obstacles.prototype, {
       if (made) {
         const mask = amask & ~tm;
         // the route goes to a free lane that is within reach, else (jump rows) to any lane in reach, else any free / open lane
-        let cand = [0, 1, 2].filter((l) => (free & bit(l)) && (mask & bit(l)) && (rm & bit(l)));
-        if (!cand.length) cand = [0, 1, 2].filter((l) => (jump ? rm : free) & bit(l) && (mask & bit(l)));
-        if (!cand.length) cand = [0, 1, 2].filter((l) => mask & bit(l));
+        let cand = ALLL.filter((l) => (free & bit(l)) && (mask & bit(l)) && (rm & bit(l)));
+        if (!cand.length) cand = ALLL.filter((l) => (jump ? rm : free) & bit(l) && (mask & bit(l)));
+        if (!cand.length) cand = ALLL.filter((l) => mask & bit(l));
         let best = cand[0], bd = 9;
         for (const l of cand) { const d = Math.abs(l - prevRoute) + rng.next() * 0.3; if (d < bd) { bd = d; best = l; } }
         prevRoute = best;
-        const lethal = !!plan.rowLethal, hard = !!HARD_PAT[rowPat] || lethal, vert = jump || rowPat === 'duck' || (rowPat === 'laser' && free === 7);
+        const lethal = !!plan.rowLethal, hard = !!HARD_PAT[rowPat] || lethal, vert = jump || rowPat === 'duck' || (rowPat === 'laser' && free === FULL);
         const row = { s, ext: rext >= 0 ? rext : ext, free, jump, route: best, pat: rowPat, tm, ph: phK, pi: phI, lethal, hard, hardN: pat === 'rest' ? 0 : hard ? hardN + 1 : 0, vert };
         rows.push(row);
         this.rowsLog.push({ s, ext: Math.max(ext, 2), free, jump, lethal, hard, pat: rowPat, vert, route: best });
@@ -1866,23 +1878,23 @@ Object.assign(Obstacles.prototype, {
       const t = TEACH[this._teach++];
       if (t.s < piece.s0) continue;
       const rng = plan.rng, s = t.s, tut = !!this.tutorial;
-      let ext = 1.5, free = 7, jump = false, route = 1, pat = t.pat;
+      let ext = 1.5, free = FULL, jump = false, route = 1, pat = t.pat;
       plan.diff = 0; plan.d = 0; plan.lethalOk = false;
       if (pat === 'single') {
-        const lane = tut || rng.chance(0.6) ? 1 : rng.int(0, 2);
+        const lane = tut || rng.chance(0.6) ? NL >> 1 : rng.int(0, NL - 1);
         const type = tut ? 'crate' : this._pickStatic(plan, (x) => x === 'crate' || x === 'snowman' || x === 'stone' || x === 'sign');
         this._scaled(plan, type, s, lane);
-        free = 7 & ~bit(lane); ext = DEFS[type].ext; route = lane === 1 ? (rng.chance(0.5) ? 0 : 2) : 1;
+        free = FULL & ~bit(lane); ext = DEFS[type].ext; route = lane === (NL >> 1) ? (rng.chance(0.5) ? 0 : NL - 1) : NL >> 1;
       } else if (pat === 'low') {
-        this._static(plan, rng.chance(0.65) ? 'fallenLog' : 'fence', s, 0, { uMin: LANES[0] - 1.2, uMax: LANES[2] + 1.2 });
-        free = 0; jump = true; ext = 1.2; route = 1;
+        this._static(plan, rng.chance(0.65) ? 'fallenLog' : 'fence', s, 0, { uMin: LANES[0] - 1.2, uMax: LANES[NL - 1] + 1.2 });
+        free = 0; jump = true; ext = 1.2; route = NL >> 1;
       } else if (pat === 'duck') {
-        this._mk(plan, { kind: 'overhead', s, lo: 0, hi: 2, hb: 1.2, u: 0, ext: 2.4, glow: this._pal(s).glow });
-        free = 7; ext = 1.5; route = 1;
+        this._mk(plan, { kind: 'overhead', s, lo: 0, hi: NL - 1, hb: 1.2, u: 0, ext: 2.4, glow: this._pal(s).glow });
+        free = FULL; ext = 1.5; route = 1;
       } else if (pat === 'critter') {
-        const g = this._critterGroup(plan, { rng, diff: 0 }, s, [0, 1, 2], 7, 1, { teach: true });
+        const g = this._critterGroup(plan, { rng, diff: 0 }, s, ALLL, FULL, NL >> 1, { teach: true });
         if (!g) continue;
-        free = g.free; ext = g.ext; route = [0, 1, 2].find((l) => free & bit(l) && l !== 1) ?? 1;
+        free = g.free; ext = g.ext; route = ALLL.find((l) => free & bit(l) && l !== (NL >> 1)) ?? (NL >> 1);
         this._nextCrit = Math.max(this._nextCrit, s + 12 * this.track.speedAt(s));
       }
       const row = { s, ext: pat === 'critter' ? 3 : ext, free, jump, route, pat, tm: 0, ph: 0, pi: 0, lethal: false, hard: false, hardN: 0, vert: jump || pat === 'duck' };
@@ -1919,12 +1931,12 @@ Object.assign(Obstacles.prototype, {
     }
     const hop = !opt.teach && d >= 0.12 && rng.chance(0.4 + 0.3 * d);
     let hopTo = -1;
-    if (hop) { hopTo = [laneA - 1, laneA + 1].filter((l) => l >= 0 && l <= 2 && l !== prevRoute && free0.indexOf(l) >= 0)[0] ?? -1; if (hopTo >= 0) used.push(hopTo); }
+    if (hop) { hopTo = [laneA - 1, laneA + 1].filter((l) => l >= 0 && l < NL && l !== prevRoute && free0.indexOf(l) >= 0)[0] ?? -1; if (hopTo >= 0) used.push(hopTo); }
     const second = !opt.teach && !hop && n >= 3 && d >= 0.3 && rng.chance(0.35) ? free0.find((l) => l !== laneA && l !== prevRoute) : undefined;
     cr.spawnGroup({ species, s, lane: laneA, n, spacing, vc, hopTo, second: second ?? -1, seed: (rng.next() * 1e9) | 0, skin: plan.skin });
     if (second !== undefined) used.push(second);
     const len = (n - 1) * spacing;
-    let free = 7; for (const l of used) free &= ~bit(l);
+    let free = FULL; for (const l of used) free &= ~bit(l);
     return { free, ext: len + 13, lanes: used };
   },
 
@@ -1975,7 +1987,7 @@ Object.assign(Obstacles.prototype, {
 
   /** one snow-pile trail: n piles (4-8) every ~2.4 m along u(s) */
   _snowTrail(plan, s0, n, uFn, sp = 2.4) {
-    for (let i = 0; i < n; i++) { const si = s0 + i * sp; this._pickup('snow', si, clamp(uFn(si), -LANES[2], LANES[2]), 0.38); }
+    for (let i = 0; i < n; i++) { const si = s0 + i * sp; this._pickup('snow', si, clamp(uFn(si), -LANES[NL - 1], LANES[NL - 1]), 0.38); }
     return [s0, s0 + (n - 1) * sp];
   },
   _snowGroup(plan, s, lane, n = 3, weave = 0) {
@@ -2026,10 +2038,10 @@ Object.assign(Obstacles.prototype, {
         const nMax = Math.floor((sl.b - a - 1) / 2.4) + 1;
         let n = Math.min(8, Math.max(4, Math.round(this._snowOwed)), nMax);
         if (n < 4) break;
-        const risky = sl.next && sl.next.free !== 7 && rng.chance(0.28);
+        const risky = sl.next && sl.next.free !== FULL && rng.chance(0.28);
         let uFn = route;
         if (risky) {
-          const blocked = [0, 1, 2].filter((l) => !(sl.next.free & bit(l)));
+          const blocked = ALLL.filter((l) => !(sl.next.free & bit(l)));
           const lane = blocked.length ? blocked[rng.int(0, blocked.length - 1)] : 1, u = LANES[lane];
           uFn = () => u;
           n = Math.min(8, n + 2, nMax);          // the risky trail pays 2 extra piles
@@ -2048,15 +2060,15 @@ Object.assign(Obstacles.prototype, {
     if (p.s0 < 150 || p.s1 <= this.next.gem) return;
     if (apex) { this._pickup('gem', apex.s, apex.u, apex.h, { value: 1 }); this.next.gem = apex.s + rng.range(560, 680); return; }
     const T = this.track, vd = T.vGen ? T.vGen(sA) : 1.1 * T.speedAt(sA);
-    const rows = plan.rows.filter((r) => r.free !== 7 && r.free !== 0 && r.s > sA + 10 && r.s < sB - 4 && r.s - r.ext - sA > 14);
+    const rows = plan.rows.filter((r) => r.free !== FULL && r.free !== 0 && r.s > sA + 10 && r.s < sB - 4 && r.s - r.ext - sA > 14);
     let s, lane;
     if (rows.length) {
-      const r = rows[rng.int(0, rows.length - 1)], blocked = [0, 1, 2].filter((l) => !(r.free & bit(l)));
+      const r = rows[rng.int(0, rows.length - 1)], blocked = ALLL.filter((l) => !(r.free & bit(l)));
       lane = blocked[rng.int(0, blocked.length - 1)];
       s = r.s - r.ext - 0.75 * vd - 4;
     } else {
       s = (sA + sB) / 2 + 6;
-      const rl = clamp(Math.round(route(s) / LANE_W) + 1, 0, 2), o = [0, 1, 2].filter((l) => l !== rl);
+      const rl = laneOf(route(s)), o = ALLL.filter((l) => l !== rl);
       lane = o[rng.int(0, 1)];
     }
     if (s < sA + 2 || s > sB - 2) return;
@@ -2073,7 +2085,7 @@ Object.assign(Obstacles.prototype, {
 
   /** Gap pieces: flake arc over the gap (rewards the jump), snow after the landing. */
   _gapArc(plan, p) {
-    const T = this.track, rng = plan.rng, lane = rng.int(0, 2), u = LANES[lane];
+    const T = this.track, rng = plan.rng, lane = rng.int(0, NL - 1), u = LANES[lane];
     const vs = T.speedAt(p.gapS0), sp = (vs * 60) / T.bpmAt(p.gapS0) / 2;
     if (p.kind === 'gapRamp') {
       const base = p.rampH + 0.55;
@@ -2097,6 +2109,10 @@ Object.assign(Obstacles.prototype, {
 
   // ----- main entry -----
   spawn(piece, difficulty, biomeIndex, biomeId) {
+    const nPrev = NL; useLanes(piece.n || 3);
+    try { return this._spawn(piece, difficulty, biomeIndex, biomeId); } finally { useLanes(nPrev); }
+  },
+  _spawn(piece, difficulty, biomeIndex, biomeId) {
     const T = this.track, rng = makeRng((Math.imul(piece.id + 1, 2654435761) ^ this.seed ^ (T.seed | 0)) >>> 0);
     AIR_G = T.gravity ? T.gravity(piece.s0 + 10) : 28;
     const bid = biomeId || BIOME_IDS[((biomeIndex ?? piece.biome ?? 0) % BIOME_IDS.length + BIOME_IDS.length) % BIOME_IDS.length];
@@ -2129,7 +2145,7 @@ Object.assign(Obstacles.prototype, {
             const vs = T.speedAt(s0 + 10), spring = F.spring !== false && rng.chance(0.65);
             const fl = vs * ((2 * this.jumpPadV * (spring ? 1.55 : 1)) / AIR_G);
             if (s0 + 7 + fl + 12 < rowEnd) {
-              const lane = rng.int(0, 2);
+              const lane = rng.int(0, NL - 1);
               if (spring) padFlight = this._spring(plan, s0 + 7, lane);
               else { this._pad(plan, 'jump', s0 + 7, lane); padFlight = this._arcFlakes(plan, s0 + 8.2, LANES[lane], this.jumpPadV); }
               rowStart = s0 + 7 + padFlight + 7;
@@ -2153,7 +2169,7 @@ Object.assign(Obstacles.prototype, {
           break;
         }
         case 'narrow': {
-          this._carry = { s: s0, ext: 0, route: 1, free: bit(1), lethal: false, hardN: 0, persist: [], ph: null };
+          this._carry = { s: s0, ext: 0, route: NL >> 1, free: bit(NL >> 1), lethal: false, hardN: 0, persist: [], ph: null };
           route = () => 0;
           // a narrow bridge is one lane wide: single-verb rows only (low log / duck bar / low-high beam), 80% density
           if (!early) this._rows(plan, s0 + piece.taper + 3, s1 - piece.taper - 1, { allowed: [1], only: SINGLE_VERB, dens: 0.8 });
@@ -2161,7 +2177,7 @@ Object.assign(Obstacles.prototype, {
           break;
         }
         case 'split': {
-          let lane = rng.chance(0.5) ? 0 : 2;
+          let lane = rng.chance(0.5) ? 0 : NL - 1;
           if (!early && rng.chance(0.55 + 0.3 * plan.diff)) lane = this._splitRows(plan, piece);   // blocks ONE side lane only
           this._carry = { s: s0, ext: 0, route: lane, free: bit(lane), lethal: false, hardN: 0, persist: [], ph: null };
           route = () => LANES[lane];
@@ -2197,14 +2213,14 @@ Object.assign(Obstacles.prototype, {
       if (piece.slowmo) this._mk(plan, { kind: 'slowmo', s: piece.slowmo.s0, u: 0, ext: 6, slow: piece.slowmo });
       // snow piles: after dangerous pieces / the teaching stretch (the trail supply of plain pieces is laid by _trails above)
       const hazard = kind === 'narrow' || kind === 'hexHoles' || kind === 'split' || kind === 'stairs' || kind === 'slalom' || kind === 'helix' || kind === 'iceBridge' || kind === 'halfpipe' || kind === 'tube' || kind === 'corkscrew' || kind === 'loop' || kind === 'zipline';
-      if (hazard && !trailed && kind !== 'slalom') this._snowGroup(plan, s1 - 18, kind === 'narrow' ? 1 : rng.int(0, 2), 4, kind === 'narrow' ? 0 : 1.2);
+      if (hazard && !trailed && kind !== 'slalom') this._snowGroup(plan, s1 - 18, kind === 'narrow' ? NL >> 1 : rng.int(0, NL - 1), 4, kind === 'narrow' ? 0 : 1.2);
       // rare pickups
       const mid = (s0 + s1) / 2, normal = kind === 'straight' || kind === 'curve' || kind === 'slalom' || kind === 'stairs' || kind === 'waves';
       const freeS = (want) => { let s = want; for (const r of plan.rows) if (Math.abs(s - r.s) < r.ext + 3.5) s = r.s + r.ext + 4; return Math.min(s, s1 - 3); };
-      const offRoute = (s) => { const rl = Math.round((route(s) / LANE_W) + 1); const o = [0, 1, 2].filter((l) => l !== rl); return o[rng.int(0, 1)]; };
+      const offRoute = (s) => { const rl = laneOf(route(s)); const o = ALLL.filter((l) => l !== rl); return o[rng.int(0, 1)]; };
       if (s0 >= 150 && normal && s1 > this.next.power) {
         const k = wpick(rng, POWERS, (x) => this.powerW[x] ?? 1) || 'magnet', s = freeS(mid);
-        this._powerUp(plan, k, s, rng.chance(0.5) ? offRoute(s) : Math.round(route(s) / LANE_W) + 1);
+        this._powerUp(plan, k, s, rng.chance(0.5) ? offRoute(s) : laneOf(route(s)));
         this.next.power = s + rng.range(420, 520);
       }
       if (kind !== 'junction' && (normal || apex)) this._gems(plan, route, s0 + 4, s1 - 3, apex);
@@ -2213,7 +2229,7 @@ Object.assign(Obstacles.prototype, {
         const n = rng.int(3, 4), sp = 9, span = n * sp + 12;
         for (let a = s0 + 6; a + span < s1 - 4; a += 3) {
           if (plan.rows.some((r) => a - 6 < r.s + r.ext && a + span + 4 > r.s - r.ext)) continue;
-          const l = rng.int(0, 2);
+          const l = rng.int(0, NL - 1);
           for (let i = 0; i < n; i++) this._mk(plan, { kind: 'strip', s: a + i * sp, u: LANES[l], len: 4, ext: 3, glow: this._pal(a).glow, power: 1, chain: true });
           for (let x = a + n * sp + 1; x < a + n * sp + 11; x += 1.6) this._pickup('flake', x, LANES[l], 1.35);
           this.next.chain = a + span + rng.range(380, 620);
@@ -2226,13 +2242,13 @@ Object.assign(Obstacles.prototype, {
         this.next.yeti = s + rng.range(260, 420);
       }
       if (s0 >= 1000 && normal && plan.lethalOk && s1 > this.next.plow && s1 - s0 > 40) {
-        const s = freeS(mid), l = rng.int(0, 2);
+        const s = freeS(mid), l = rng.int(0, NL - 1);
         this._mk(plan, { kind: 'oncoming', s, sP: s, u: LANES[l], lane: l, vt: 9, ride: false, L: 12, ext: 74, plow: true, glow: this._pal(s).glow });
         this.next.plow = s + rng.range(1100, 1700);
       }
       if (this.boxes && s0 >= 100 && normal && s1 > this.next.box) {       // (surprise boxes / letters: only when a mode asks for them; the endless run credits rewards silently)
         const s = freeS(mid - 5);
-        this._pickup('box', s, LANES[rng.int(0, 2)], 1.1);
+        this._pickup('box', s, LANES[rng.int(0, NL - 1)], 1.1);
         this.next.box = s + rng.range(360, 440);
       }
       if (this.boxes && this.nextLetter && s0 >= 100 && normal && s1 > this.next.letter) {
@@ -2268,9 +2284,9 @@ Object.assign(Obstacles.prototype, {
    */
   _spawn_junction(plan, p) {
     const T = this.track, J = p.junction, rng = plan.rng, vN = T.speedAt(J.s), vd = T.vGen ? T.vGen(J.s) : 1.1 * vN, early = p.s0 < 40;
-    const aEnd = J.s - (1.5 * vd + 6), sFree = J.sEnd + 1.7 * vd + 6, inner = J.dir > 0 ? 2 : 0;
+    const aEnd = J.s - (1.5 * vd + 6), sFree = J.sEnd + 1.7 * vd + 6, inner = J.dir > 0 ? NL - 1 : 0;
     if (!early && aEnd - p.s0 > 12) this._rows(plan, p.s0 + 5, aEnd, { hardEnd: true });
-    const last = plan.rows.length ? plan.rows[plan.rows.length - 1].route : (this._carry ? this._carry.route : 1);
+    const last = plan.rows.length ? plan.rows[plan.rows.length - 1].route : (this._carry ? this._carry.route : NL >> 1);
     const u0 = LANES[last];
     // flake line: stays on the route, drifts to the inner lane over the 2.2 s before the window opens and goes round the corner
     const lastRow = plan.rows.length ? plan.rows[plan.rows.length - 1] : null;
@@ -2281,7 +2297,7 @@ Object.assign(Obstacles.prototype, {
     const av = !early && aEnd - p.s0 > 20 ? this._trails(plan, (s) => LANES[last], p.s0 + 3, Math.min(aEnd, J.s0 - 8)) : [];
     this._snowTrail(plan, J.sEnd + 4, 5, () => LANES[inner]);
     // exit tail: rows resume 1.0 s after the corner; the first one is single-verb (the ball may be in any lane after the turn)
-    this._carry = { s: J.sEnd, ext: 0, route: 1, free: 7, jump: false, pat: 'none', lethal: false, hardN: 0, persist: [], ph: null };
+    this._carry = { s: J.sEnd, ext: 0, route: NL >> 1, free: FULL, jump: false, pat: 'none', lethal: false, hardN: 0, persist: [], ph: null };
     this._clock = Math.max(this._clock, sFree);
     // (a calm run-in before a lane-forcing piece follows, like on every plain piece)
     const nk = T._q && T._q[0], forced = nk === 'narrow' || nk === 'split' || nk === 'hexHoles' || nk === 'gapRamp' || nk === 'gapJump' || nk === 'skiJump' || nk === 'chasm';
@@ -2303,7 +2319,7 @@ Object.assign(Obstacles.prototype, {
     const T = this.track, vs = T.speedAt(s0), sp = (vs * 60) / T.bpmAt(s0) / 2;
     const n = Math.min(70, Math.floor((s1 - s0) / sp));
     for (let i = 0; i < n; i++) {
-      const s = s0 + i * sp, u = LANES[2] * Math.sin(i * sp * 0.2);
+      const s = s0 + i * sp, u = LANES[NL - 1] * Math.sin(i * sp * 0.2);
       this._pickup('flake', s, u, 6.7 + 0.25 * Math.sin(i * 0.9));   // rocket flies the ball bottom at h = 6
     }
     this._sortPicks();
@@ -2586,11 +2602,11 @@ Object.assign(Obstacles.prototype, {
 
   _gates(plan, sA, sB) {
     const T = this.track, rng = plan.rng, list = [];
-    let s = sA, lane = rng.int(0, 2);
+    let s = sA, lane = rng.int(0, NL - 1);
     while (s < sB) {
       this._mk(plan, { kind: 'gate', s, u: LANES[lane], ext: 2, flagA: 0xe8473a, flagB: 0x3a7de8 });
       list.push({ s, u: LANES[lane] });
-      const opts = [0, 1, 2].filter((l) => l !== lane && (Math.abs(l - lane) === 1 || plan.diff > 0.3));
+      const opts = ALLL.filter((l) => l !== lane && (Math.abs(l - lane) === 1 || plan.diff > 0.3));
       lane = opts[rng.int(0, opts.length - 1)];
       s += T.speedAt(s) * (1.15 - 0.2 * plan.diff);
     }
@@ -2615,7 +2631,7 @@ Object.assign(Obstacles.prototype, {
     const rng = plan.rng;
     for (let s = sA; s + len < sB; s += 3) {
       if (plan.rows.some((r) => s - 6 < r.s + r.ext && s + len + 4 > r.s - r.ext)) continue;
-      const sc = s + len / 2, lane = clamp(Math.round(route(sc) / LANE_W) + 1, 0, 2);
+      const sc = s + len / 2, lane = laneOf(route(sc));
       this._mk(plan, { kind: 'strip', s: sc, u: LANES[lane], len, ext: len / 2 + 1, glow: this._pal(sc).glow, power: 1 });
       return true;
     }
@@ -2624,7 +2640,7 @@ Object.assign(Obstacles.prototype, {
 
   /** split piece: only one side lane is ever blocked (the centre lane is missing, so you cannot swap sides). Returns the free lane. */
   _splitRows(plan, p) {
-    const T = this.track, rng = plan.rng, bl = rng.chance(0.5) ? 0 : 2, ol = 2 - bl;
+    const T = this.track, rng = plan.rng, bl = rng.chance(0.5) ? 0 : NL - 1, ol = NL - 1 - bl;
     let s = p.holeS0 + 2;
     while (s < p.holeS1 - 3) {
       const type = this._pickStatic(plan, (n) => n !== 'cabin');
@@ -2648,7 +2664,7 @@ Object.assign(Obstacles.prototype, {
 
   /** is a row (or its depth) blocking the lane at (s, u)? (coins must not lead into a blocked lane) */
   _rowConflict(plan, s, u) {
-    const lane = clamp(Math.round(u / LANE_W) + 1, 0, 2);
+    const lane = laneOf(u);
     for (const r of plan.rows) if (Math.abs(s - r.s) < r.ext + 2 && !(r.free & (1 << lane))) return true;
     return false;
   },
@@ -2681,7 +2697,7 @@ Object.assign(Obstacles.prototype, {
   _spawn_iceBridge(plan, p) {
     const ice = p.ice;
     this._mk(plan, { kind: 'icebridge', s: (ice.s0b + ice.s1b) / 2, u: 0, ext: (ice.s1b - ice.s0b) / 2 + 4, piece: p });
-    const route = () => LANES[1];
+    const route = () => LANES[NL >> 1];
     this._flakeRuns(plan, route, p.s0 + 4, p.s1 - 3, []);
     return { route };
   },
@@ -2722,7 +2738,7 @@ Object.assign(Obstacles.prototype, {
   _spawn_loop(plan, p) {
     const L = p.loop, pal = this._pal(L.s0), len = L.s1 - L.s0;
     this._mk(plan, { kind: 'loop', s: (L.s0 + L.s1) / 2, u: 0, ext: (L.s1 - L.s0) / 2 + 12, loop: L });
-    if ((this.track.features || {}).boost !== false) for (let l = 0; l < 3; l++) this._mk(plan, { kind: 'strip', s: L.s0 - 8, u: LANES[l], len: 14, ext: 8, glow: pal.glow, power: 1 });
+    if ((this.track.features || {}).boost !== false) for (let l = 0; l < NL; l++) this._mk(plan, { kind: 'strip', s: L.s0 - 8, u: LANES[l], len: 14, ext: 8, glow: pal.glow, power: 1 });
     // rows: before the strips, on the first / last third of the circle (not at the top: a hit there would stall the ball), after the circle
     const okAt = (s) => { if (s < L.s0 - 22 || s > L.s1 + 3) return true; const th = (s - L.s0) / len; return (th > 0.07 && th < 0.3) || (th > 0.7 && th < 0.93); };
     this._rows(plan, p.s0 + 8, p.s1 - 4, { dens: 0.6, only: SINGLE_VERB, okAt, noLethal: true });
@@ -2784,7 +2800,8 @@ Object.assign(Obstacles.prototype, {
       const ob = P[i];
       if (!ob.alive) continue;
       const cs = ob.cs !== undefined ? ob.cs : ob.s, cu = ob.cu !== undefined ? ob.cu : ob.u;
-      if (u < cu - 1.05 || u > cu + 1.05) continue;
+      if (u < cu - 1.2 || u > cu + 1.2) continue;
+      if (!(ob.rl > 0) && s < cs - ob.L / 2) continue;
       const front = cs - ob.L / 2;
       let h = -Infinity;
       if (s >= front - ob.rl && s < front) h = (ob.H * (s - (front - ob.rl))) / ob.rl;
@@ -2882,7 +2899,7 @@ Object.assign(Obstacles.prototype, {
     for (const r of this.rowsLog) {
       if (r.s + r.ext < sA || r.s - r.ext > sB) continue;
       const f = r.free;
-      if (f === 0) mask |= 7; else if ((f & (f - 1)) === 0) mask |= f;
+      if (f === 0) mask |= FULL; else if ((f & (f - 1)) === 0) mask |= f;
     }
     return mask;
   },
@@ -2893,13 +2910,13 @@ Object.assign(Obstacles.prototype, {
    * Unless `force`, the lane is moved away from lanes that would trap the player. Returns the lane used, or -1.
    */
   throwBoulder(lane, s, force = false) {
-    let l = clamp(lane | 0, 0, 2);
+    let l = clamp(lane | 0, 0, NL - 1);
     if (!force) {
       if (this.lastS < 2000 && this.dyn.length) return -1;      // max one boulder (flying or rolling) at a time in the first 2 km
       if (this._forcedStretch(s - 6, s + 100)) return -1;
       const bad = this._trapMask(s - 8, s + 100);
       if (bad & bit6(l)) {
-        const alt = [0, 1, 2].filter((x) => !(bad & bit6(x))).sort((a, b) => Math.abs(a - l) - Math.abs(b - l))[0];
+        const alt = ALLL.filter((x) => !(bad & bit6(x))).sort((a, b) => Math.abs(a - l) - Math.abs(b - l))[0];
         if (alt === undefined) return -1;
         l = alt;
       }
@@ -2936,10 +2953,10 @@ Object.assign(Obstacles.prototype, {
         let busy = false;      // never stack a rage boulder on a hard / lethal row
         for (let i = this.rowsLog.length - 1; i >= 0 && this.rowsLog[i].s > sLand - 40; i--) { const rl = this.rowsLog[i]; if ((rl.hard || rl.lethal) && Math.abs(rl.s - sLand) < 40) { busy = true; break; } }
         if (busy) { this.nextBoulder = this.time + 1.0; } else {
-        const pl = clamp(Math.round(ball.u / LANE_W) + 1, 0, 2);
-        const got = this.throwBoulder(rng.chance(0.5) ? pl : rng.int(0, 2), sLand);
+        const pl = laneOf(ball.u);
+        const got = this.throwBoulder(rng.chance(0.5) ? pl : rng.int(0, NL - 1), sLand);
         const diff = T._diff ? T._diff(ball.s) : 0.5;
-        this.nextBoulder = this.time + (got < 0 ? 1.2 : (boss ? rng.range(5, 9) : rng.range(22, 38) / (0.8 + 0.6 * diff)) / hk);
+        this.nextBoulder = this.time + (got < 0 ? 1.2 : (boss ? rng.range(5, 9) : rng.range(55, 95) / (0.8 + 0.6 * diff)) / hk);
         }
       }
     }
@@ -3191,7 +3208,7 @@ KIND.laser = {
     } else {   // blink
       post(-hw - 0.3, 2.5); post(hw + 0.3, 2.5);
       ob.lane = [];
-      for (let l = 0; l < 3; l++) {
+      for (let l = 0; l < NL; l++) {
         const u = LANES[l];
         ob.lane.push({ halo: beam(u, 1.05, 2.3, 2.1, 0.12, LASER_HALO), core: beam(u, 0.2, 2.3, 0.12, 0.14, LASER_COL), core2: beam(u, 1.95, 2.3, 0.12, 0.14, LASER_COL), on: true });
       }
@@ -3215,7 +3232,7 @@ KIND.laser = {
       const n = ob.pat.length, x = b / ob.per, k = Math.floor(x), f = x - k;
       const cur = ob.pat[((k % n) + n) % n], nxt = ob.pat[(((k + 1) % n) + n) % n];
       ob.offLane = cur; ob.nextOff = nxt;
-      for (let l = 0; l < 3; l++) {
+      for (let l = 0; l < NL; l++) {
         const L = ob.lane[l];
         // lane l is ON when it is not the current off lane; the lane that is about to switch on (cur != nxt) flickers in the last 30% of the step
         const flicker = l === cur && nxt !== cur && f > 0.7;
@@ -3265,7 +3282,7 @@ KIND.laser = {
     }
     // blink: ON lanes are full-height curtains
     if (ob.hitDone || !ob.lane) return;
-    for (let l = 0; l < 3; l++) {
+    for (let l = 0; l < NL; l++) {
       if (!ob.lane[l].on) continue;
       const H = this._aabb(ball, ob.s - 0.1, ob.s + 0.1, LANES[l] - 1.2, LANES[l] + 1.2, 0, 2.1);
       if (H && (H.ds !== 0 || H.du !== 0)) { this._hit(ob, ball, events, H.ds, H.du); return; }

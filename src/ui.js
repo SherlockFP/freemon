@@ -170,7 +170,8 @@ export class UI {
     this.el.level.textContent = String(biomeName || '').toLocaleUpperCase('tr-TR');
     this.el.floats.innerHTML = '';
     this.floatCount = 0;
-    this.setCombo(0);
+    this.comboReset();
+    this.scoreReset();
     // the swipe hint only teaches brand-new players
     let runs = 0;
     try { runs = meta.stats().runs || 0; } catch { runs = 0; }
@@ -181,13 +182,17 @@ export class UI {
   runnerStats(score, coins, mult, biomeT, dist, biomeName) {
     // numbers are compared first: no string building / Intl formatting on frames where nothing visible changed
     const sc = Math.round(score);
-    if (sc !== this._sc) { this._sc = sc; const s = fmtN(sc); this.el.tons.textContent = s; this.lastTonsText = s; }
+    if (sc !== this._sc) this.scoreTo(sc);
     if (coins !== this._co || dist !== this._di) { this._co = coins; this._di = dist; this.el.coins.textContent = `❄️ ${coins} · ${dist} m`; }
     if (biomeName && biomeName !== this.lastBiome) { this.el.level.textContent = String(biomeName).toLocaleUpperCase('tr-TR'); this.lastBiome = biomeName; }
     if (mult !== this._mu) {
       this._mu = mult;
-      if (mult > 1) { this.el.combo.textContent = `x${mult} SKOR`; this.el.combo.classList.add('on'); }
-      else if (this.el.combo.textContent.endsWith('SKOR')) this.el.combo.classList.remove('on');
+      if (mult > 1) {
+        const c = this.el.combo, lv = mult >= 6 ? 4 : mult >= 4 ? 3 : mult >= 3 ? 2 : 1;
+        c.textContent = `${lv >= 2 ? '\u{1F525} ' : ''}x${mult} SKOR${lv >= 4 ? ' \u2728' : ''}`;
+        c.className = `hud-combo on m${lv}`;
+        void c.offsetWidth; c.classList.add('rise');
+      } else if (/SKOR/.test(this.el.combo.textContent)) this.el.combo.className = 'hud-combo';
     }
     this.setProgress(biomeT);
   }
@@ -271,6 +276,9 @@ export class UI {
     else if (toRecord > 0 && toRecord < Math.max(400, distance * 0.6)) html += `<div class="rx-line">Rekora ${fmtN(toRecord)} m kaldı!</div>`;
     else if (rank > 0 && rank <= 3) html += `<div class="rx-line">#${rank}. en iyi koşun</div>`;
     else if ((p && p.tip) || dt.tip) html += `<div class="rx-dim">${(p && p.tip) || dt.tip}</div>`;
+    const isScoreRec = !!(p && p.isBest) || isRec;
+    html += `<div class="rx-line rx-best">${isScoreRec ? '\u2605 ' : ''}EN \u0130Y\u0130 SKOR ${fmtN(Math.max(best, score))}</div>`;
+    if ((this._bestCombo || 0) >= 3) html += `<div class="rx-line rx-combo">\u{1F525} EN \u0130Y\u0130 KOMBO x${this._bestCombo}</div>`;
     html += mrep.html;
     html += this.goalBlock();
     ex.innerHTML = html;
@@ -301,10 +309,11 @@ export class UI {
     this.el.retry.textContent = '↻ TEKRAR';
     this.el.menuBtn.classList.remove('hidden');
 
+    this.resultFx(isScoreRec);
     this.countUp(distance, (v, e) => {
       this.el.resPct.textContent = `${fmtN(v)} m`;
       this.el.resTons.textContent = `SKOR ${fmtN(score * e)}`;
-    });
+    }, 1400, { tick: true, done: () => this.resultScoreDone(isScoreRec) });
     this.flushNotices(mrep.notices);
   }
 
@@ -349,18 +358,80 @@ export class UI {
     }
   }
 
-  countUp(target, fn, dur = 800) {
+  countUp(target, fn, dur = 800, opt = null) {
     const t0 = performance.now();
+    let lastTick = 0;
     const tick = () => {
-      const k = Math.min(1, (performance.now() - t0) / dur);
+      const now = performance.now();
+      const k = Math.min(1, (now - t0) / dur);
       const e = 1 - Math.pow(1 - k, 3);
       fn(target * e, e);
+      if (opt && opt.tick && k < 1 && now - lastTick > 65) { lastTick = now; snd('ui'); }
       if (k < 1) this.raf = requestAnimationFrame(tick);
+      else if (opt && opt.done) opt.done();
     };
     tick();
   }
 
+  // Result-screen juice shared by both result screens: stat rows slide in, coins fly to the counter, record = confetti + glow.
+  resultFx(rec) {
+    const R = this.el.result;
+    R.classList.remove('rec');
+    this.el.resTons.classList.remove('pop');
+    let i = 0;
+    for (const ch of this.el.resExtra.children) { ch.classList.add('slidein'); ch.style.animationDelay = `${0.5 + i * 0.12}s`; i++; }
+    if (rec) {
+      R.classList.add('rec');
+      this.timers.push(setTimeout(() => this.confetti(), 1100));
+    }
+    this.timers.push(setTimeout(() => this.coinFly(), 1000));
+  }
+
+  resultScoreDone(rec) {
+    const t = this.el.resTons;
+    t.classList.remove('pop'); void t.offsetWidth; t.classList.add('pop');
+    if (rec) snd('chime'); else snd('ui', 'confirm');
+  }
+
+  confetti() {
+    const R = this.el.result;
+    const cols = ['#ffd23a', '#ff5c8a', '#4fd3ff', '#7dff6a', '#fff', '#b46bff'];
+    const box = document.createElement('div');
+    box.className = 'confetti';
+    let h = '';
+    for (let i = 0; i < 34; i++) {
+      const a = Math.random() * Math.PI * 2, r = 90 + Math.random() * 190;
+      h += `<i style="background:${cols[i % cols.length]};--x:${Math.round(Math.cos(a) * r)}px;--y:${Math.round(Math.sin(a) * r - 60)}px;--r:${Math.round(Math.random() * 720 - 360)}deg;animation-delay:${(Math.random() * 0.15).toFixed(2)}s"></i>`;
+    }
+    for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; h += `<b style="--x:${Math.round(Math.cos(a) * 130)}px;--y:${Math.round(Math.sin(a) * 130 - 60)}px">★</b>`; }
+    box.innerHTML = h;
+    R.appendChild(box);
+    snd('chime');
+    setTimeout(() => box.remove(), 2200);
+  }
+
+  coinFly() {
+    const dst = this.el.resCoins, src = this.el.resPct;
+    if (!dst || dst.classList.contains('hidden') || !dst.textContent) return;
+    let a, b;
+    try { a = src.getBoundingClientRect(); b = dst.getBoundingClientRect(); } catch { return; }
+    for (let i = 0; i < 6; i++) {
+      const c = document.createElement('div');
+      c.className = 'coin-fly';
+      c.textContent = '❄️';
+      c.style.left = `${a.left + a.width / 2}px`; c.style.top = `${a.top + a.height / 2}px`;
+      this.el.result.appendChild(c);
+      const dx = b.left + b.width / 2 - (a.left + a.width / 2), dy = b.top + b.height / 2 - (a.top + a.height / 2);
+      try {
+        const an = c.animate([{ transform: 'translate(-50%,-50%) scale(1.2)', opacity: 1 }, { transform: `translate(calc(-50% + ${dx * 0.5 + (i - 3) * 14}px),calc(-50% + ${dy * 0.3 - 30}px)) scale(1)`, opacity: 1, offset: 0.5 }, { transform: `translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px)) scale(0.5)`, opacity: 0.6 }], { duration: 650, delay: i * 70, easing: 'ease-in', fill: 'backwards' });
+        an.onfinish = () => { c.remove(); if (i === 5) { dst.classList.remove('pop'); void dst.offsetWidth; dst.classList.add('pop'); snd('ui'); } };
+      } catch { c.remove(); }
+    }
+  }
+
   hideResult() {
+    this.el.result.classList.remove('rec');
+    this.el.result.querySelectorAll('.confetti,.coin-fly').forEach((n) => n.remove());
     this.clearTimers(); // pending "GÖREV TAMAM" toasts / count-ups belong to the result screen, not to the continued run
     this.el.toastSoft.classList.remove('res');
     this.el.toastSoft.innerHTML = '';
@@ -539,7 +610,8 @@ export class UI {
     this.el.level.textContent = label;
     this.el.floats.innerHTML = '';
     this.floatCount = 0;
-    this.setCombo(0);
+    this.comboReset();
+    this.scoreReset();
   }
 
   hint(on, text = 'sürükle') {
@@ -570,11 +642,132 @@ export class UI {
     this.el.dot.style.left = v;
   }
 
+  // ÇIĞ swallow combo (external): same counter as the derived Yeti Rush one
   setCombo(n) {
+    if (n > 0) this._extCombo = true;
+    this._comboSet(n, 3200);
+  }
+
+  comboReset() {
+    clearTimeout(this._dT);
+    this._dN = 0; this._cmN = 0; this._bestCombo = 0; this._extCombo = false; this._cmT = 0;
+    if (this._cmb) this._cmb.className = 'cmb';
+  }
+
+  _mkCmb() {
+    const c = document.createElement('div');
+    c.className = 'cmb';
+    c.innerHTML = '<span class="cmb-n"></span><i class="cmb-bar"><b></b></i>';
+    this.el.hud.appendChild(c);
+    this._cmb = c; this._cmn = c.firstChild; this._cmbar = c.lastChild.firstChild;
+    return c;
+  }
+
+  _comboSet(n, drainMs) {
+    const c = this._cmb || this._mkCmb();
     if (n >= 3) {
-      this.el.combo.textContent = `KOMBO x${n}`;
-      this.el.combo.classList.add('on');
-    } else this.el.combo.classList.remove('on');
+      if (n === this._cmN) return;
+      const rose = n > this._cmN;
+      this._cmN = n;
+      if (n > (this._bestCombo || 0)) this._bestCombo = n;
+      const t = n >= 50 ? 4 : n >= 20 ? 3 : n >= 10 ? 2 : n >= 5 ? 1 : 0;
+      const tierUp = t > (this._cmT || 0);
+      this._cmT = t;
+      this._cmn.textContent = `${t >= 3 ? '\u{1F525} ' : ''}KOMBO x${n}`;
+      c.className = `cmb on t${t}`;
+      void c.offsetWidth;
+      c.classList.add(tierUp ? 'tierup' : 'hit');
+      if (tierUp) snd('chime');
+      if (rose) {
+        const b = this._cmbar;
+        b.style.transition = 'none'; b.style.transform = 'scaleX(1)';
+        void b.offsetWidth;
+        b.style.transition = `transform ${drainMs}ms linear`; b.style.transform = 'scaleX(0)';
+      }
+    } else if (this._cmN >= 3) {
+      this._cmN = 0; this._cmT = 0;
+      this._cmn.textContent = 'KOMBO KIRILDI';
+      c.className = 'cmb broke';
+    }
+  }
+
+  // ---------- score feel: smooth count-up, bump + flash on big chunks, milestones, popups, record ribbon ----------
+  scoreReset() {
+    cancelAnimationFrame(this._sraf);
+    this._sraf = 0; this._disp = 0; this._tgt = 0; this._rate = 0; this._sc = -1; this._shown = -1; this._recShown = false; this._pops = 0;
+    let b = 0;
+    try { b = save.runnerBest(); } catch { b = 0; }
+    this._best = b;
+    this.el.tons.className = 'hud-tons';
+    this.el.tons.textContent = '0';
+  }
+
+  scoreTo(sc) {
+    const prev = this._sc < 0 ? 0 : this._tgt;
+    this._sc = sc; this._tgt = sc;
+    const delta = sc - prev;
+    if (delta < 0) { this._disp = sc; this._shown = sc; this.el.tons.textContent = fmtN(sc); this.lastTonsText = this.el.tons.textContent; return; }
+    const big = delta >= 20 && delta > this._rate * 4 + 10;
+    if (!big) this._rate = this._rate * 0.9 + delta * 0.1;
+    const el = this.el.tons;
+    if (big) {
+      const k = delta >= 300 ? 1.5 : delta >= 100 ? 1.3 : 1.18;
+      try { el.animate([{ transform: 'scale(1)', color: '#fff' }, { transform: `scale(${k})`, color: '#ffd23a', offset: 0.3 }, { transform: 'scale(1)', color: '#fff' }], { duration: 420, easing: 'cubic-bezier(.2,1.6,.4,1)' }); } catch { /* optional */ }
+      this.scorePop(delta);
+      this.comboDerive();
+    }
+    const m = (v, st) => Math.floor(v / st);
+    if (m(sc, 1000) > m(prev, 1000)) {
+      const ms = m(sc, 10000) > m(prev, 10000) ? 3 : m(sc, 5000) > m(prev, 5000) ? 2 : 1;
+      el.classList.remove('gold1', 'gold2', 'gold3'); void el.offsetWidth; el.classList.add(`gold${ms}`);
+      snd('chime');
+    }
+    if (!this._recShown && this._best > 0 && sc > this._best) { this._recShown = true; this.recRibbon(); }
+    if (!this._sraf) this._sraf = requestAnimationFrame(this._scoreTick || (this._scoreTick = () => this.scoreStep()));
+  }
+
+  scoreStep() {
+    this._sraf = 0;
+    const d = this._tgt - this._disp;
+    this._disp = Math.abs(d) < 1.5 ? this._tgt : this._disp + d * 0.2;
+    const r = Math.round(this._disp);
+    if (r !== this._shown) { this._shown = r; const s = fmtN(r); this.el.tons.textContent = s; this.lastTonsText = s; }
+    if (this._disp !== this._tgt) this._sraf = requestAnimationFrame(this._scoreTick);
+  }
+
+  scorePop(delta) {
+    if (this._pops >= 3 || typeof document === 'undefined') return;
+    this._pops++;
+    const d = document.createElement('div');
+    d.className = 'score-pop';
+    d.textContent = `+${fmtN(delta)}`;
+    this.el.hud.appendChild(d);
+    let dx = 0, dy = -90;
+    const W = window.innerWidth || 390, H = window.innerHeight || 800;
+    try { const r = this.el.tons.getBoundingClientRect(); dx = r.left + r.width / 2 - W / 2; dy = r.top + r.height / 2 - H * 0.3; } catch { /* default */ }
+    const done = () => { d.remove(); this._pops--; };
+    try {
+      const a = d.animate([{ transform: 'translate(-50%,0) scale(0.6)', opacity: 0 }, { transform: 'translate(-50%,0) scale(1.35)', opacity: 1, offset: 0.2 }, { transform: 'translate(-50%,0) scale(1.2)', opacity: 1, offset: 0.4 }, { transform: `translate(calc(-50% + ${dx}px),${dy}px) scale(0.45)`, opacity: 0.1 }], { duration: 750, easing: 'ease-in' });
+      a.onfinish = done;
+    } catch { done(); }
+  }
+
+  recRibbon() {
+    const r = document.createElement('div');
+    r.className = 'rec-ribbon';
+    r.textContent = '★ YENİ REKOR! ★';
+    this.el.hud.appendChild(r);
+    snd('chime');
+    setTimeout(() => r.remove(), 2000);
+  }
+
+  // no combo data from the runner: a big score chunk is a combo hit, 2.2 s without one breaks it
+  comboDerive() {
+    if (this._extCombo) return;
+    this._dN = (this._dN || 0) + 1;
+    this._comboSet(this._dN, 2200);
+    clearTimeout(this._dT);
+    this._dT = setTimeout(() => { this._comboSet(0); this._dN = 0; }, 2200);
   }
 
   // Floating text is rationed (plain ones at most one a second, the rarer big/bad ones every 0.65 s) and never piles up.
@@ -888,10 +1081,12 @@ export class UI {
       this.el.resSub.textContent = rec ? '' : bt > 0 ? `REKOR ${fmtTons(bt)}${bd > 0 ? ` · ${fmtN(bd)} m` : ''}` : sub || '';
       this.el.next.classList.add('hidden');
       let html = (!rec && (tip || dt.tip)) ? `<div class="rx-dim">${tip || dt.tip}</div>` : '';
+      if ((this._bestCombo || 0) >= 3) html += `<div class="rx-line rx-combo">\u{1F525} EN \u0130Y\u0130 KOMBO x${this._bestCombo}</div>`;
       html += mrep.html + this.goalBlock();
       this.el.resExtra.innerHTML = html;
       this.el.resExtra.classList.toggle('hidden', !html);
-      this.countUp(tons, (v) => { this.el.resPct.textContent = fmtTons(v); this.el.resTons.textContent = `${fmtN(dd * (v / Math.max(tons, 0.0001)))} m`; });
+      this.resultFx(rec);
+      this.countUp(tons, (v) => { this.el.resPct.textContent = fmtTons(v); this.el.resTons.textContent = `${fmtN(dd * (v / Math.max(tons, 0.0001)))} m`; }, 1200, { tick: true, done: () => this.resultScoreDone(rec) });
       this.flushNotices(mrep.notices);
       return;
     }

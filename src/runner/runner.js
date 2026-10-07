@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Track, flightDist } from './track.js';
+import { Track, flightDist, LANES, setLanes } from './track.js';
 import { Obstacles } from './obstacles.js';
 import { Environment, biomeAt, trackPalette, musicStyleAt } from './biomes.js';
 import * as Biomes from './biomes.js';
@@ -46,10 +46,10 @@ export const RCFG = {
   crashSlow: 0.65,       // speed kept after a crash
   invulnAfterCrash: 1.0,
   // The Yeti: right behind you at the start and for a stumble window, otherwise it falls back off screen.
-  yetiStart: 5,
+  yetiStart: 9,
   yetiHold: 2.5,         // seconds it stays right behind you at the start / after a revive
-  yetiStumbleGap: 5,
-  stumbleWin: 6.0,       // + 0.25 per layer (max 7)
+  yetiStumbleGap: 6,
+  stumbleWin: 5.0,       // + 0.25 per layer (max 6); the Yeti catches only on the 3rd crash inside the window
   yetiMax: 16,
   yetiRecover: 2.0,      // m/s you pull away at full speed
   yetiStumbleSpeed: 0.8, // below this fraction of target speed you are not pulling away
@@ -90,7 +90,7 @@ export const RCFG = {
   recCoins: 50,          // one-off payout for passing your record distance
   rageLen: 130,          // "YETİ ÖFKESİ": the Yeti throws boulders over the last N m of a layer (from layer 2 on) ...
   rageSecs: 7,           // ... or the last N seconds of running, whichever is longer (so fast runs still get 2+ boulders)
-  rageEvery: [2.8, 3.6], // seconds between boulders (× 0.93 per layer, floor 0.7)
+  rageEvery: [7.0, 9.0], // seconds between boulders (× 0.93 per layer, floor 0.7)
   rageBack: 4,           // the Yeti drops back this far when you survive a barrage
   multCap: 6,            // + layer, at most 12
   closeCall: 4,
@@ -240,7 +240,7 @@ export class Runner {
     // ---- the Yeti ----
     this.gap = RCFG.yetiStart;
     this.yetiHoldT = RCFG.yetiHold;
-    this.stumbleT = 0;
+    this.stumbleT = 0; this.stumbleHits = 0;
     this.stumbleMax = RCFG.stumbleWin;
     this.stumbles = 0;
     this.minGap = Infinity;
@@ -534,10 +534,22 @@ export class Runner {
     this.updateCamera(rdt);
   }
 
+  // lane count of the piece under the ball (3 -> 4 -> 5 as the track widens); lane = signed lane offset (half lanes when even)
+  laneMax() { return (LANES.length - 1) / 2; }
+  laneSnap(l) { const n = LANES.length, m = (n - 1) / 2; return clamp(n % 2 ? Math.round(l) : Math.floor(l) + 0.5, -m, m); }
+  syncLanes() {
+    const b = this.b, pc = this.track.pieceAt(b.s);
+    if (b.s < 100) this.widenS = -1;
+    if (!pc || !pc.n) return;
+    if (pc.n !== LANES.length) { setLanes(pc.n); this.lane = this.laneSnap(this.lane); }
+    if (pc.widen && pc.s0 > (this.widenS ?? -1)) { this.widenS = pc.s0; this.float('ŞERİT AÇILDI!', 'big'); this.kick += 1.5; }
+  }
+
   updatePlay(dt, beat) {
     const { input, ui } = this.ctx;
     const b = this.b;
     const tr = this.track;
+    this.syncLanes();
     const counting = this.countT > 0;
 
     // ---- junction runtime (inert when the track has no junctions) ----
@@ -645,7 +657,7 @@ export class Runner {
     ui.hint(false);
     if (this.grind) { this.grind = null; this.grounded = false; b.vh = 2.5; }   // hop off the rail sideways
     const prev = this.lane;
-    this.lane = clamp(prev + lane, -1, 1);
+    this.lane = clamp(prev + lane, -this.laneMax(), this.laneMax());
     if (this.lane === prev) {
       // Already on the edge lane: a soft nudge into the snow bank instead of a fake lane change.
       b.vu += Math.sign(lane) * 5;
@@ -966,7 +978,7 @@ export class Runner {
       this.gap = Math.min(this.gap, RCFG.yetiStart);
     } else if (this.stumbleT > 0) {
       this.stumbleT -= dt;
-      this.gap += (RCFG.yetiStumbleGap - this.gap) * Math.min(1, dt * 4);
+      this.gap += ((this.stumbleHits >= 2 ? RCFG.yetiStumbleGap - 2.2 : RCFG.yetiStumbleGap) - this.gap) * Math.min(1, dt * 4);
       if (this.stumbleT <= 0) {
         this.stumbleT = 0;
         this.score += 50 * this.mult;
@@ -975,7 +987,7 @@ export class Runner {
     } else if (b.vs >= top * RCFG.yetiStumbleSpeed) {
       this.gap = Math.min(RCFG.yetiMax, this.gap + RCFG.yetiRecover * dt);
     } else {
-      this.gap = Math.max(RCFG.yetiStart, this.gap - (top * RCFG.yetiStumbleSpeed - b.vs) * 0.5 * dt);
+      this.gap = Math.max(RCFG.yetiStart, this.gap - (top * RCFG.yetiStumbleSpeed - b.vs) * 0.32 * dt);
     }
     if (this.stumbleT > 0) this.minGap = Math.min(this.minGap, this.gap);
     this.roarT -= dt;
@@ -986,7 +998,8 @@ export class Runner {
   openStumble() {
     if (this.buffs.has('yetikov')) return;
     const layerK = Math.min(4, this.layer);
-    this.stumbleMax = Math.min(7, RCFG.stumbleWin + 0.25 * layerK) * (1 - 0.04 * Math.min(5, this.perm.yeti || 0));
+    this.stumbleMax = Math.min(6, RCFG.stumbleWin + 0.25 * layerK) * (1 - 0.04 * Math.min(5, this.perm.yeti || 0));
+    if (this.stumbleT <= 0) this.stumbleHits = 1;
     this.stumbleT = this.stumbleMax;
     this.gap = Math.min(this.gap, RCFG.yetiStumbleGap + 4);
     this.yetiHoldT = 0;
@@ -1180,8 +1193,8 @@ export class Runner {
     const sLand = b.s + b.vs * 1.5 + 9;             // lands ~9 m ahead of where you will be
     if (sLand > B - 6) { r.t = 1; return; }          // the last boulder lands before the boundary
     if (this.rageCount === 0 && r.n >= 2) { r.t = 2; return; }      // the first barrage of a run is just two boulders
-    const pl = this.lane + 1;
-    const lane = Math.random() < 0.5 ? pl : (pl + 1 + ((Math.random() * 2) | 0)) % 3;
+    const NLn = LANES.length, pl = Math.round(this.lane + (NLn - 1) / 2);
+    const lane = Math.random() < 0.5 ? pl : (pl + 1 + ((Math.random() * (NLn - 1)) | 0)) % NLn;
     if (this.obstacles.throwBoulder(lane, sLand) < 0) { r.t = 0.8; return; }
     r.n++;
     r.t = rand(RCFG.rageEvery[0], RCFG.rageEvery[1]) * rageScale(this.layer);
@@ -1329,7 +1342,7 @@ export class Runner {
     const c = this.clone;
     if (!c) return;
     const b = this.b;
-    const lane = ((this.lane + 2) % 3) - 1; // always a different lane than you
+    const lane = this.lane + 1 > this.laneMax() ? this.lane - 1 : this.lane + 1; // always a different lane than you
     const dt = 1 / 60;
     c.vu += ((lane * RCFG.laneW - c.u) * 260 - c.vu * 2 * Math.sqrt(260) * 0.95) * dt;
     c.u += c.vu * dt;
@@ -1419,7 +1432,7 @@ export class Runner {
       this.ctx.platform.haptic('light');
       b.ve *= -0.35;
       // Bounced off the snow bank: snap back to the nearest lane that fits.
-      while (Math.abs(this.lane * RCFG.laneW) > lim + 0.01 && this.lane !== 0) this.lane -= Math.sign(this.lane);
+      while (Math.abs(this.lane * RCFG.laneW) > lim + 0.01 && Math.abs(this.lane) > (LANES.length % 2 ? 0.01 : 0.51)) this.lane -= Math.sign(this.lane);
     }
 
     // Vertical. Rideable train roofs/ramps count as ground too. groundAt bridges one-sample seam holes between pieces.
@@ -1430,14 +1443,14 @@ export class Runner {
       // Hanging from the rope: centre lane, fixed height, no gravity until the far end.
       this.grounded = false;
       b.vh = 0;
-      this.lane = 0;
+      this.lane = this.laneSnap(0);
       b.h += (this.zip.h - b.h) * Math.min(1, dt * 10);
       if (b.s >= this.zip.s1) { this.zip = null; this.ctx.audio.whoosh(); }
     } else if (this.grind) {
       this.grounded = true;
       b.vh = 0;
       b.h = this.grind.h;
-      this.lane = clamp(Math.round(this.grind.u / RCFG.laneW), -1, 1);
+      this.lane = this.laneSnap(this.grind.u / RCFG.laneW);
       b.vs = Math.max(b.vs, Math.min(speedAt(b.s) + 4, b.vs + 3 * dt));
       this.score += 30 * dt * this.mult;
       this.addFlow(6 * dt);
@@ -1711,9 +1724,8 @@ export class Runner {
     this.debris(e, 10);
     // A second crash while the Yeti is right behind you: it catches you.
     if (this.stumbleT > 0 && !this.buffs.has('yetikov')) {
-      this.crashFx(30, false);
-      this.die('yeti');
-      return;
+      this.stumbleHits = (this.stumbleHits || 1) + 1;
+      if (this.stumbleHits >= 3) { this.crashFx(30, false); this.die('yeti'); return; }
     }
     // Smallest size: the ball bursts.
     if (this.tier === 0) { this.explode(); return; }
@@ -1841,7 +1853,7 @@ export class Runner {
       case 'zip':
         if (!this.zip) {
           this.zip = { s1: e.s1, h: (e.h ?? 3.4) - this.b.r * 2.2 };
-          this.lane = 0;
+          this.lane = this.laneSnap(0);
           audio.whoosh();
           platform.haptic('medium');
           this.float('HALAT!', 'big');
@@ -1940,7 +1952,7 @@ export class Runner {
     const ui = this.ctx.ui;
     if (!ui.laneWarn) return;
     const b = this.b, d = Math.min(18, b.vs * (e.t || 1));
-    this.track.toWorld(b.s + d, (e.lane - 1) * RCFG.laneW, 1.2, _v2);
+    this.track.toWorld(b.s + d, (LANES[e.lane] ?? 0), 1.2, _v2);
     _v2.project(this.ctx.camera);
     if (_v2.z > 1) { ui.laneWarn(e.lane, e.kind); return; }
     ui.laneWarn(e.lane, e.kind, (_v2.x * 0.5 + 0.5) * window.innerWidth, (-_v2.y * 0.5 + 0.5) * window.innerHeight);
@@ -2365,7 +2377,7 @@ export class Runner {
     let sSafe = this.lastSafe.s;
     for (let k = 0; k < 60 && sSafe < b.s && tr.surfaceAt(sSafe, this.lastSafe.u) === -Infinity; k++) sSafe += 4;
     b.s = sSafe;
-    this.lane = clamp(Math.round(this.lastSafe.u / RCFG.laneW), -1, 1);
+    this.lane = this.laneSnap(this.lastSafe.u / RCFG.laneW);
     b.u = this.lane * RCFG.laneW;
     b.h = Math.max(0, tr.surfaceAt(b.s, b.u));
     b.vh = 0; b.vu = 0; b.ve = 0;
@@ -2687,7 +2699,7 @@ export class Runner {
     // Inside a vertical loop (a circle only 5.5-11 m in radius) the camera is a rigid chase rig in the BALL's own frame:
     // close behind (along the tangent), up toward the circle's centre, looking at the track a short way ahead.
     const loopT = pc && pc.loop && b.s > pc.loop.s0 - 14 && b.s < pc.loop.s1 + 6 ? 1 : 0;
-    this.camLoopK += (loopT - this.camLoopK) * kfil(snap, cdt, 5);
+    this.camLoopK += (loopT - this.camLoopK) * kfil(snap, cdt, 7);
     if (loopT) { const R = pc.loop.R; backT = 0.8 * R + 0.8; upT = 0.5 * R + 0.5; laT = 0.8 * R; }
     const lk = this.camLoopK;
     this.camBackS += (backT - this.camBackS) * kfil(snap, cdt, 5);
@@ -2713,12 +2725,13 @@ export class Runner {
     const camH = dying && this.cause === 'fall' ? Math.max(b.h + this.camUpH, -6) + this.camUpH * 0.5 : Math.max(b.h * 0.5, 0) + this.camUpH;
     tr.toWorld(camS, this.camU, 0, _v);
     _v.addScaledVector(_f.up, camH);          // centred over the track (only the camera's roll is limited, not its place)
-    if (lk > 0.001) {
-      tr.frame(b.s, _f2);
-      tr.toWorld(b.s, this.camU, 0, _tp);
-      _tp.addScaledVector(_f2.tan, -this.camBackS).addScaledVector(_f2.up, camH);
+    if (lk > 0.001 && pc && pc.loop) {
+      // Sonic-style side camera: off to the side of the loop plane (along the entry's right vector), looking at the ball.
+      tr.frame(pc.loop.s0 - 2, _f2);
+      const bp = this.ctx.ball.group.position, R = pc.loop.R;
+      _tp.copy(bp).addScaledVector(_f2.right, 2.2 * R + 2).addScaledVector(_f2.tan, -0.3 * R).addScaledVector(WORLD_UP, 0.25 * R);
       _v.lerp(_tp, lk);
-      _x.lerp(_f2.up, lk).normalize();
+      _x.lerp(WORLD_UP, lk).normalize();
     }
     // Look target: a point on the track ahead (the lead term cancels the filter's lag at speed).
     const laS = b.s + this.camLa + (snap ? 0 : b.vs * 0.1);
@@ -2731,6 +2744,7 @@ export class Runner {
       const dx = _tp.x - _v.x, dz = _tp.z - _v.z, dl = Math.hypot(dx, dz);
       if (dl > 0.5) { const e = (dl + this.camLa) / dl, bx = _v.x + dx * e, bz = _v.z + dz * e, w = 0.85 * (1 - 2 * lk); _look.x += (bx - _look.x) * w; _look.z += (bz - _look.z) * w; }
     }
+    if (lk > 0.001) _look.lerp(this.ctx.ball.group.position, lk);
     if (dying) _look.copy(this.ctx.ball.group.position);
     this.camPos.copy(_v);
     this.camLook.lerp(_look, snap ? 1 : 1 - Math.exp(-cdt * (10 - 3 * this.cornerK)));
