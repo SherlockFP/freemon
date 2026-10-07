@@ -675,3 +675,29 @@ Her biri için ilk karşılaşmada ipucu gösteriliyor.
 - Yeni: **Rozet Rafı**. Pasaportta mod başına kupa rafları ve açılmaya en yakın 3 başarım var.
 
 **Kontrol:** Rush 2,6 km hatasız; boss dağları 5 ve 14 ile Ters Çığ (7) bot tarafından kazanıldı; tüm modlar hatasız.
+
+## Tur 13 — Değerlendirme
+
+| Mod | Puan |
+|---|---|
+| Rush | 7.9 |
+| ÇIĞ | 7.4 |
+| Arena | 6.5 |
+| Menü | 7.2 |
+| **Genel** | **7.3** |
+
+**Gelişmeli**
+- Rush'ın yeni engellerinden Topçu ve Kızak 2,8 km boyunca hiç görülmedi. Buz Kapısı'nın çubuğu zor okunuyor.
+- Rozet Rafı boş cam kutulardan oluşuyor ve başlıkları okunmuyor.
+- Küçük yazılardaki kontur (stroke) okunurluğu bozuyor: çiplerde ve kartpostalda.
+- ✉ ikonu bir çipin üstüne biniyor.
+- Boss dövüşü çok kolay: bot 53 saniyede bitirdi.
+- Ganimet küresi görünmüyor.
+- Arena'nın ilk dakikasında av anı yok.
+
+**Yeni fikirler**
+- Rush: Kar Sürüsü (kurtarılan penguenler).
+- ÇIĞ: Çığ Eşliği (seri bonusu), Kardan Adam Tahtı.
+- Arena: Kartopu Güreşi, Mevsim Boss Topu.
+- Macera: Yeti Haritası, Dağ Misafiri.
+- Menü: Kar Küresi Koleksiyonu, Arkadaş Postası.
