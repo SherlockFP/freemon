@@ -409,7 +409,7 @@ async function startAgar() {
   audio.setRoll(0, 0);
   setCigVisible(false);
   agar = new mod.AgarMode({
-    renderer, post, ui, audio, save, platform,
+    renderer, post, ui, audio, save, platform, lib,
     onExit: () => { if (agar) { agar.dispose(); agar = null; } toMenu(); },
   });
   G.mode = 'agar';
@@ -882,6 +882,7 @@ function updateEnemyBars() {
     if (!p.alive) continue;
     const dd = p.d - ball.d;
     if (dd < -6 || dd > 130) continue;
+    if (p.enemy.rival) continue;
     if (p.enemy.boss) { if (!boss || dd < boss.d - ball.d) boss = p; continue; }
     if (n >= BAR_N) continue;
     _v.set(p.x, p.y + p.h * 1.08 + 0.2, -p.d).project(camera);

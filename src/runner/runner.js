@@ -395,6 +395,8 @@ export class Runner {
     this.markedSize = this.sizeNow();
     this.ctx.meta?.track?.('run_start', { mode: 'endless' });
     this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.()?.nextLetter ?? null);
+    this.yetiN = 0; this.dblT = 0; this.turboN = 0; this.turboT = 0;
+    this.obstacles.setYetiLetter?.('Y');
 
     const ball = this.ctx.ball;
     ball.reset(b.r);
@@ -619,7 +621,9 @@ export class Runner {
     this.fogTarget = 0;
 
     // ---- scoring / music ----
-    this.score += b.vs * dt * this.mult;
+    if (this.dblT > 0) this.dblT -= dt;
+    if (this.turboT > 0) this.turboT -= dt; else this.turboN = 0;
+    this.score += b.vs * dt * this.mult * (this.dblT > 0 ? 2 : 1);
     music.setBpm(bpmAt(b.s));
     music.setIntensity(clamp(0.55 + b.s / 4000 + (this.stumbleT > 0 || this.rage ? 0.35 : 0), 0.55, 1));
     this.ctx.audio.setRoll(this.grounded ? clamp(b.vs / RCFG.maxSpeed, 0, 1) * 0.7 : 0, clamp(b.r / 1.5, 0, 1) * 0.5);
@@ -1785,6 +1789,7 @@ export class Runner {
           this.warned = e.kind + e.lane + Math.round(e.t * 10);
           this.laneWarn(e);
           if (e.kind === 'oncoming') audio.ui('back');
+          if (e.value) { this.float('DİKKAT!', 'bad'); this.trauma = Math.min(1, this.trauma + 0.15); }
           platform.haptic('light');
         }
         break;
@@ -1877,6 +1882,12 @@ export class Runner {
           b.vs = Math.max(b.vs, Math.min(speedAt(b.s) * 1.3, b.vs + 7 * (e.power || 1)));
           this.gap = Math.min(RCFG.yetiMax, this.gap + 4);
           this.kick += 5;
+          if (e.value) {
+            this.turboN++; this.turboT = 3;
+            b.vs += 3 * Math.min(4, this.turboN); this.gap = Math.min(RCFG.yetiMax, this.gap + 2);
+            this.score += 50 * this.turboN * this.mult;
+            if (this.turboN >= 2) this.float(`TURBO x${this.turboN}!`, 'big');
+          }
         } else { this.jump(RCFG.jumpPadV * (e.onBeat ? 1.15 : 1) * (e.power || 1), true); this.kick += 3; }
         if (e.onBeat) {
           this.perfects++;
@@ -1996,7 +2007,24 @@ export class Runner {
         audio.star(1);
         platform.haptic('success');
         break;
+      case 'plowdodge':
+        this.score += 500 * this.mult; this.addFlakes(25);
+        this.float('KAR SAVAŞI! +500', 'big'); audio.milestone?.(3);
+        break;
       case 'letter': {
+        if (this.yetiN < 4 && e.letter === 'YETİ'[this.yetiN]) {
+          this.yetiN++;
+          audio.milestone(4); platform.haptic('success');
+          const got = 'YETİ'.slice(0, this.yetiN).split('').join('-');
+          if (this.yetiN < 4) { ui.toastSoft?.(got + '-…'); this.float(got, 'big'); this.obstacles.setYetiLetter?.('YETİ'[this.yetiN]); }
+          else {
+            this.obstacles.setYetiLetter?.(null);
+            this.addFlakes(500 * this.mult); this.score += 2000 * this.mult; this.dblT = 15;
+            ui.buffAdd?.('yeti', '❄️', 'ÇİFT SKOR', 15);
+            this.float('YETİ TAMAM!', 'big'); ui.toastSoft?.('YETİ TAMAM!');
+          }
+          break;
+        }
         this.ctx.meta?.collectLetter?.();
         audio.milestone(4);
         platform.haptic('success');
@@ -2652,15 +2680,15 @@ export class Runner {
     const cornerT = this.jnJ && b.s >= this.jnJ.s - 12 && b.s <= this.jnJ.s + 18 ? 1 : 0;
     this.cornerK += (cornerT - this.cornerK) * kfil(snap, cdt, 8);
 
-    let backT = 6.6 + r * 2.6 - this.closeK * 1.2 + 1.0 * speedK;
-    let upT = 3.5 + r * 1.4 + this.closeK * 3.2 + curvK * 1.4 + pitchK * 1.5 + this.camRoundK * 0.8;
+    let backT = 7.6 + r * 2.9 - this.closeK * 1.2 + 1.0 * speedK;
+    let upT = 3.85 + r * 1.5 + this.closeK * 3.2 + curvK * 1.4 + pitchK * 1.5 + this.camRoundK * 0.8;
     let laT = 11 + 5 * speedK + 2 * this.closeK - 4 * this.cornerK;       // through a sharp corner: look a little shorter, swing a little slower
     if (kind === 'tube') upT = Math.min(upT, 7);
     // Inside a vertical loop (a circle only 5.5-11 m in radius) the camera is a rigid chase rig in the BALL's own frame:
     // close behind (along the tangent), up toward the circle's centre, looking at the track a short way ahead.
-    const loopT = pc && pc.loop && b.s > pc.loop.s0 - 9 && b.s < pc.loop.s1 + 3 ? 1 : 0;
-    this.camLoopK += (loopT - this.camLoopK) * kfil(snap, cdt, 8);
-    if (loopT) { const R = pc.loop.R; backT = 0.75 * R + 0.5; upT = 0.55 * R + 0.5; laT = 0.8 * R; }
+    const loopT = pc && pc.loop && b.s > pc.loop.s0 - 14 && b.s < pc.loop.s1 + 6 ? 1 : 0;
+    this.camLoopK += (loopT - this.camLoopK) * kfil(snap, cdt, 5);
+    if (loopT) { const R = pc.loop.R; backT = 0.8 * R + 0.8; upT = 0.5 * R + 0.5; laT = 0.8 * R; }
     const lk = this.camLoopK;
     this.camBackS += (backT - this.camBackS) * kfil(snap, cdt, 5);
     this.camUpH += (upT - this.camUpH) * kfil(snap, cdt, 5);
@@ -2734,7 +2762,7 @@ export class Runner {
     ud.fovKick = this.kick;
     // main.js low-passes fovBoost at 4/s, which keeps only ~27% of a short pulse: until it applies fovKick itself (and sets
     // fovKickOk) the pulse is sent through fovBoost with a gain that survives that filter (a smash or near miss: ~1.5 degrees).
-    ud.fovBoost = -3 + speedK * 5 + (this.rocketT > 0 ? 6 : 0) + (this.riskT > 0 ? 4 : 0) + (ud.fovKickOk ? 0 : this.kick * 1.6);
+    ud.fovBoost = -2 + speedK * 5 + (this.rocketT > 0 ? 6 : 0) + (this.riskT > 0 ? 4 : 0) + (ud.fovKickOk ? 0 : this.kick * 1.6);
   }
 
   dispose() {

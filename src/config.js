@@ -18,10 +18,10 @@ export const CFG = {
   comboWindow: 0.9,    // s between swallows to keep a combo alive
 
   // ---- size tiers (ball radius → zone) ----
-  tierEdges: [1.5, 3, 6, 10],                         // r at which tier 2, 3, 4, 5 begin
-  tierNames: ['KARTOPU', 'ÇIĞ', 'MEGA ÇIĞ', 'FELAKET', 'KIYAMET'],
-  tierWidth: [28, 40, 56, 80, 110],                   // slope width (m) per tier
-  tierSpan: [1.5, 3, 6, 10, 20],                      // upper r used for the "progress to next tier" bar
+  tierEdges: [1.5, 3, 6, 10, 16, 26, 40],                         // r at which tier 2, 3, 4, 5 begin
+  tierNames: ['KARTOPU', 'ÇIĞ', 'MEGA ÇIĞ', 'FELAKET', 'KIYAMET', 'ŞEHİR YUTUCU', 'DAĞ DEVİ', 'GEZEGEN'],
+  tierWidth: [28, 40, 56, 80, 110, 150, 200, 260],                   // slope width (m) per tier
+  tierSpan: [1.5, 3, 6, 10, 16, 26, 40, 70],                      // upper r used for the "progress to next tier" bar
   widthBlend: 60,      // the slope widens smoothly over this many meters
   widthLead: 95,       // the widening starts this far ahead of the ball (m): beyond what is already on screen
 
@@ -52,7 +52,7 @@ export const CFG = {
   pullsPerStep: 8,
 
   // ---- hunger (continuous melt, volume fraction per second) ----
-  melt: [0.027, 0.032, 0.038, 0.045, 0.052],
+  melt: [0.027, 0.032, 0.038, 0.045, 0.052, 0.056, 0.06, 0.064],
   meltGrace: [4, 16],  // seconds: no melt before the first, full melt after the second
   patchMelt: 0.09,     // extra melt while rolling on bare ground
   dieK: 0.42,          // ERİDİN! when r < max(minR, dieK * peak radius)
@@ -81,6 +81,8 @@ export const CFG = {
   enemyGap: [140, 210],    // distance between enemy groups
   firstEnemy: 170,
   bossGap: 800,
+  rivalGap: [850, 1250],   // a rival snowball of similar size races you (eat it if you are bigger)
+  firstRival: 650,
   firstBoss: 620,
   hpPerR: 24,              // enemy HP = radius * this (times a per-type factor)
   ramDmg: 14,              // ram damage = ball radius * this * speed factor
@@ -99,7 +101,7 @@ export const CFG = {
   foodAnchors: [[0.5, 0.03], [1.5, 0.0135], [3, 0.0079], [6, 0.0051], [10, 0.0038], [20, 0.0025]],
   foodScale: 1,        // balance knob: multiplies every food budget
   foodTail: -1.2,      // exponent of the decay past the last anchor
-  obstacleRate: [1.5, 1.7, 1.9, 2.0, 2.1],            // big obstacles per 100 m after the first 130 m
+  obstacleRate: [1.5, 1.7, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4],            // big obstacles per 100 m after the first 130 m
   viewAheadMax: 1500,
 
   // ---- pacing: the radius the slope is tuned for at distance d (metres → radius). Growth is throttled when you are
@@ -197,6 +199,7 @@ export const LABEL = {
   cp_snowman: 'KARDAN ADAM ORDUSU', k_tent: 'ÇADIR', k_canoe: 'KANO', k_sled: 'KIZAK', k_gingerbread: 'ZENCEFİLLİ ADAM',
   k_pine_a_big: 'DEV ÇAM', k_pine_b_big: 'DEV ÇAM', k_pine_c_big: 'DEV ÇAM',
   k_house_a: 'EV', k_house_b: 'EV', k_house_c: 'EV', k_house_d: 'EV', k_house_e: 'EV', k_house_f: 'EV', k_house_g: 'EV',
+  skyscraper: 'GÖKDELEN', stadium: 'STADYUM', castle: 'KALE', ship: 'GEMİ', airplane: 'UÇAK', wind_turbine: 'RÜZGAR TÜRBİNİ', radio_tower: 'RADYO KULESİ', ferris_wheel: 'DEV DOLAP', rocket_pad: 'ROKET',
   k_house_h: 'EV', k_house_i: 'EV', k_house_j: 'EV', k_house_k: 'EV', k_house_l: 'EV',
 };
-export const TIER_MASS = [0.02, 0.1, 1.5, 20, 1000];
+export const TIER_MASS = [0.02, 0.1, 1.5, 20, 1000, 20000, 400000, 8000000];

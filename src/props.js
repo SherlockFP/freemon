@@ -1319,6 +1319,172 @@ function buildBarn() {
 }
 
 // ---------------------------------------------------------------------------
+// Late-game giants (tiers 6-8): city / mountain / planet setpieces + the robot enemy + the rival snowball
+// ---------------------------------------------------------------------------
+
+function buildSkyscraper() {
+  const m = new Model();
+  const glass = [0x5fa8d8, 0x4a93c9, 0x76b9e0];
+  let y = 0.4;
+  m.boxB(8, 0.4, 8, 0x9aa1ab);
+  const tiers = [[6, 14], [5, 12], [3.8, 9], [2.6, 6]];
+  tiers.forEach(([w, h], i) => {
+    m.boxB(w, h, w, glass[i % 3], 0, y, 0);
+    for (let k = 1; k < h / 2.2; k++) m.boxB(w + 0.12, 0.25, w + 0.12, 0xdfe8f2, 0, y + k * 2.2, 0);
+    m.boxB(w + 0.3, 0.4, w + 0.3, SNOW, 0, y + h, 0);
+    y += h + 0.4;
+  });
+  m.cylB(0.12, 0.2, 9, 5, 0xd9363e, 0, y, 0);
+  return m.build('skyscraper', 4, 'building', { ground: true });
+}
+
+function buildStadium() {
+  const m = new Model();
+  m.cylB(15, 16, 5, 14, 0xc9ced8, 0, 0, 0);
+  m.cylB(14.6, 14.6, 0.1, 14, SNOW, 0, 5, 0);
+  m.cylB(11, 11, 0.2, 14, 0x3fae5a, 0, 4.9, 0);
+  m.cylB(5, 5, 0.25, 12, 0xf4f7ff, 0, 5.0, 0);
+  m.cylB(3.5, 3.5, 0.3, 12, 0x3fae5a, 0, 5.0, 0);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    m.rod([Math.cos(a) * 15, 4, Math.sin(a) * 15], [Math.cos(a) * 15, 17, Math.sin(a) * 15], 0.4, 0.3, 0x6c7a89, 5);
+    m.boxB(2.2, 1.1, 0.6, 0xfff3a8, Math.cos(a) * 15, 17, Math.sin(a) * 15, [0, -a, 0]);
+  }
+  return m.build('stadium', 4, 'building', { ground: true });
+}
+
+function buildCastle() {
+  const m = new Model();
+  const st = 0xb9b2a5, roofC = 0xc0392b;
+  m.boxB(16, 5, 16, st, 0, 0, 0);
+  m.boxB(16.4, 0.5, 16.4, SNOW, 0, 5, 0);
+  m.boxB(7, 11, 7, 0xc7c0b3, 0, 5, 0);
+  m.coneB(5.4, 6, 4, roofC, 0, 16, 0, [0, Math.PI / 4, 0]);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    m.cylB(2.1, 2.3, 11, 8, st, sx * 8, 0, sz * 8);
+    m.coneB(2.9, 4, 8, roofC, sx * 8, 11, sz * 8);
+  }
+  m.boxB(3, 3.6, 0.5, 0x3a2f2a, 0, 0, 8.1);
+  m.boxB(0.12, 3, 0.12, 0x333333, 0, 22, 0);
+  m.boxB(1.6, 1, 0.08, 0xe0b34a, 0.8, 24.2, 0);
+  return m.build('castle', 4, 'building', { ground: true });
+}
+
+function buildShip() {
+  const m = new Model();
+  m.tboxB(8, 3.4, 22, 0x2f5f8f, 0, 0.6, 0, 1.0, 1.0);
+  m.boxB(8.3, 0.4, 22.3, 0xd9363e, 0, 0.3, 0);
+  m.boxB(8.2, 0.4, 22.2, 0xf4f7ff, 0, 4.0, 0);
+  m.boxB(6, 3, 8, 0xf4f7ff, 0, 4.4, -2);
+  m.boxB(5, 2.2, 5, 0xe9edf3, 0, 7.4, -2);
+  for (const z of [-1, -4]) m.cylB(1, 1.2, 3.6, 8, 0xe0b34a, 0, 9.4, z);
+  m.cone(3.4, 6, 4, 0x2f5f8f, 0, 3.4, 13, [HALF_PI, 0, 0]);
+  return m.build('ship', 4, 'building', { ground: true });
+}
+
+function buildAirplane() {
+  const m = new Model();
+  const body = 0xf4f7ff;
+  m.cyl(1.5, 1.5, 17, 8, body, 0, 3.4, 0, [HALF_PI, 0, 0]);
+  m.cone(1.5, 3.4, 8, 0xd9363e, 0, 3.4, 10.2, [HALF_PI, 0, 0]);
+  m.cone(1.5, 4, 8, body, 0, 3.4, -10.5, [-HALF_PI, 0, 0]);
+  m.boxB(20, 0.35, 4, 0xdfe8f2, 0, 3.2, 1);
+  m.boxB(7, 0.3, 2.2, 0xdfe8f2, 0, 3.8, -8.5);
+  m.boxB(0.35, 4.5, 3, 0xd9363e, 0, 4.2, -8.5);
+  for (const s of [-1, 1]) { m.cylB(0.7, 0.7, 2.6, 8, 0x6c7a89, s * 5.5, 1.7, 2, [HALF_PI, 0, 0]); m.cylB(0.35, 0.35, 1.7, 5, 0x333a46, s * 2.2, 0, 3); }
+  m.boxB(1.0, 1.5, 1.0, 0x6c7a89, 0, 0, -3);
+  return m.build('airplane', 4, 'building', { ground: true });
+}
+
+function buildWindTurbine() {
+  const m = new Model();
+  m.cylB(0.55, 1.0, 22, 8, 0xf4f7ff, 0, 0, 0);
+  m.boxB(1.8, 1.8, 4, 0xdfe8f2, 0, 22, 0);
+  m.ball(0.9, 0xd9363e, 0, 23, 2.2, null, 0);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + 0.4;
+    m.rod([0, 23, 2.4], [Math.sin(a) * 11, 23 + Math.cos(a) * 11, 2.4], 0.4, 0.12, 0xf4f7ff, 4);
+  }
+  return m.build('wind_turbine', 4, 'building', { ground: true });
+}
+
+function buildRadioTower() {
+  const m = new Model();
+  const H = 38, r0 = 3.4;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) m.strut([sx * r0, 0, sz * r0], [sx * 0.3, H, sz * 0.3], 0.35, 0xd9363e);
+  for (let k = 1; k < 6; k++) {
+    const y = k * (H / 6), v = r0 + (0.3 - r0) * (y / H);
+    const c = k % 2 ? 0xf4f7ff : 0xd9363e;
+    m.strut([-v, y, v], [v, y, v], 0.2, c);
+    m.strut([-v, y, -v], [v, y, -v], 0.2, c);
+    m.strut([v, y, -v], [v, y, v], 0.2, 0xdfe8f2);
+    m.strut([-v, y, -v], [-v, y, v], 0.2, 0xdfe8f2);
+  }
+  m.cylB(1.6, 1.6, 1.4, 8, 0xdfe8f2, 0, 26, 0);
+  m.cylB(0.1, 0.25, 8, 5, 0xd9363e, 0, H, 0);
+  return m.build('radio_tower', 4, 'building', { ground: true });
+}
+
+function buildFerrisWheel() {
+  const m = new Model();
+  const R = 10, cy = 12, N = 14, pal = [0xff4d5e, 0xffc83a, 0x3ddc84, 0x3fa7ff];
+  for (let i = 0; i < N; i++) {
+    const a0 = (i / N) * Math.PI * 2, a1 = ((i + 1) / N) * Math.PI * 2;
+    m.rod([Math.cos(a0) * R, cy + Math.sin(a0) * R, 0], [Math.cos(a1) * R, cy + Math.sin(a1) * R, 0], 0.25, 0.25, 0xf4f7ff, 5);
+    m.rod([0, cy, 0], [Math.cos(a0) * R, cy + Math.sin(a0) * R, 0], 0.15, 0.15, 0xdfe8f2, 4);
+    m.boxB(1.6, 1.6, 1.6, pal[i % 4], Math.cos(a0) * R, cy + Math.sin(a0) * R - 1.7, 0);
+  }
+  for (const sx of [-4, 4]) for (const sz of [-1.5, 1.5]) m.strut([sx, 0, sz], [0, cy, 0], 0.5, 0x6c7a89);
+  return m.build('ferris_wheel', 4, 'building', { ground: true });
+}
+
+function buildRocketPad() {
+  const m = new Model();
+  m.cylB(7, 8, 1.2, 10, 0x6c7a89, 0, 0, 0);
+  m.cylB(1.7, 1.9, 22, 10, 0xf4f7ff, 0, 1.2, 0);
+  m.cylB(1.72, 1.72, 2, 10, 0xd9363e, 0, 9, 0);
+  m.coneB(1.7, 6, 10, 0xd9363e, 0, 23.2, 0);
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    m.boxB(0.4, 5, 1.8, 0xd9363e, Math.cos(a) * 2.2, 1.2, Math.sin(a) * 2.2, [0, -a, 0]);
+  }
+  m.boxB(1.4, 24, 1.4, 0x6c7a89, 5.5, 1.2, 0);
+  m.boxB(3.6, 0.5, 0.5, 0x6c7a89, 3.6, 20, 0);
+  return m.build('rocket_pad', 4, 'building', { ground: true });
+}
+
+// enemy: ice robot (kind 'enemy' is outside the food catalog)
+function buildRobot() {
+  const m = new Model();
+  const ice = 0x9fd6f2, dark = 0x3b5b7a;
+  for (const s of [-1, 1]) {
+    m.boxB(1.3, 3, 1.4, dark, s * 1.1, 0, 0);
+    m.boxB(1.8, 0.5, 2.2, ice, s * 1.1, 0, 0.3);
+    m.boxB(1.1, 3.4, 1.1, ice, s * 2.7, 3.3, 0);
+    m.boxB(1.4, 1.4, 1.4, 0xd9363e, s * 2.7, 2.1, 0.4);
+  }
+  m.boxB(4.2, 3.6, 2.6, ice, 0, 3, 0);
+  m.boxB(2.4, 1.6, 0.2, 0xff5a3a, 0, 4.2, 1.35);
+  m.boxB(2.2, 1.8, 2, 0xdfe8f2, 0, 6.6, 0);
+  m.boxB(0.5, 0.5, 0.2, 0xff3b3b, -0.55, 7.2, 1.05);
+  m.boxB(0.5, 0.5, 0.2, 0xff3b3b, 0.55, 7.2, 1.05);
+  m.cylB(0.1, 0.12, 1.4, 4, dark, 0, 8.4, 0);
+  return m.build('robot', 3, 'enemy', { ground: true });
+}
+
+// the rival snowball: a grumpy ball with eyes and brows (radius ~1, scaled to the ball's size)
+function buildRivalBall() {
+  const m = new Model();
+  m.ball(1, 0xeaf3ff, 0, 1, 0, null, 1, 0.05, 3);
+  m.ball(0.2, 0x1b2230, -0.38, 1.35, 0.9, null, 0);
+  m.ball(0.2, 0x1b2230, 0.38, 1.35, 0.9, null, 0);
+  m.boxB(0.5, 0.1, 0.1, 0x1b2230, -0.38, 1.62, 0.92, [0, 0, 0.45]);
+  m.boxB(0.5, 0.1, 0.1, 0x1b2230, 0.38, 1.62, 0.92, [0, 0, -0.45]);
+  m.cone(0.14, 0.45, 5, 0xff8a2a, 0, 1.05, 1.0, [HALF_PI, 0, 0]);
+  return m.build('rival_ball', 3, 'ball');
+}
+
+// ---------------------------------------------------------------------------
 // Library
 // ---------------------------------------------------------------------------
 
@@ -1329,6 +1495,7 @@ const BUILDERS = [
   buildCabin, buildBus, buildLiftPylon, buildTruck, buildPineBig,
   buildHotel, buildGondolaStation, buildWaterTower, buildRockBig,
   buildHouse, buildHouseTall, buildShop, buildApartment, buildClocktower, buildBarn,
+  buildSkyscraper, buildStadium, buildCastle, buildShip, buildAirplane, buildWindTurbine, buildRadioTower, buildFerrisWheel, buildRocketPad, buildRobot, buildRivalBall,
 ];
 
 /** Build every prop. Returns { [name]: { name, geometry, radius, height, tier, kind } }. */

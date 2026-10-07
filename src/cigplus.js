@@ -1321,11 +1321,66 @@ export class CigGame {
 
   // ---- enemies (HP bars): ram them, they take damage, burst into XP
   _enemyContact(p, dx, dd, dist, above) {
-    const b = this.ball;
+    const b = this.ball, e = p.enemy;
     if (dist > b.r + p.r * 0.85) return;
     if (b.airborne && above > 0) return;
-    if (p.enemy.hitCd > 0) return;
-    this._hitEnemy(p, dx);
+    if (e.rival) { this._rivalContact(p); return; }
+    // small enemies (relative to the ball) are flattened in one hit; a power / rocket flattens anything but bosses
+    if (!e.boss && (p.r <= b.r * 0.8 || this.powerT > 0 || this.plus.mods.plow)) { this._killEnemy(p); return; }
+    if (e.hitCd <= 0) this._hitEnemy(p, dx);
+    this._slide(p);   // never pinned: the ball always glides around what it rams
+  }
+
+  // Slide the ball past an enemy (lateral push along the contact circle); if boxed in, shove the enemy aside instead.
+  _slide(p) {
+    const G = this.G, b = this.ball, w = this.world;
+    const hw = w.halfWidth(b.d);
+    const lim = Math.max(0.5, hw - b.r * 0.55);
+    const contact = b.r + p.r * 0.85;
+    const dd = p.d - b.d;
+    const off = b.x - p.x;
+    let side = Math.abs(off) > 0.12 * contact ? Math.sign(off) : (G.deflSide || (G.deflSide = Math.random() < 0.5 ? -1 : 1));
+    const edge = Math.sqrt(Math.max(0, contact * contact - dd * dd)) + 0.05;
+    let nx = p.x + side * edge;
+    if (Math.abs(nx) > lim) { side = -side; nx = p.x + side * edge; }
+    if (Math.abs(nx) > lim) { p.x = clamp(b.x - side * (edge + 0.3), -hw + 1, hw - 1); p.enemy.kbD = Math.max(p.enemy.kbD, 10 + b.speed); return; }
+    b.x = nx;
+    b.vx = side * Math.max(Math.abs(b.vx), 6 + 0.25 * b.speed);
+    if (b.speed < this.targetSpeed() * 0.8) b.speed = this.targetSpeed() * 0.8;
+  }
+
+  // Rival snowball: eat it when you are bigger, it shaves you when it is bigger.
+  _rivalContact(p) {
+    const G = this.G, b = this.ball, e = p.enemy;
+    if (b.r > p.r * 1.05) {
+      e.hp = 0;
+      this.world.kill(p);
+      this.stats.kills++;
+      const gain = Math.min(CFG.growK * p.r ** 3 * 1.2, 0.5 * b.r ** 3);
+      b.setRadius(Math.cbrt(b.r ** 3 + gain));
+      b.punch(0.12);
+      const xp = Math.max(30, this.snowTons() * 0.4);
+      G.bonusTons += xp;
+      this._h('burst', p.x, p.y + p.h * 0.5, p.d, 28, 0xeaf3ff, 10, 0.4 + p.r * 0.07, 8);
+      this._h('hitStop', 0.09); G.shake += 0.8;
+      this._h('sfx', 'crash', 0.7); this._h('sfx', 'milestone', 2); this._h('haptic', 'success'); this._h('flash', 'gold');
+      this._text('RAKİP YUTULDU!', p, 'big', true);
+      this._h('toast', '+' + fmtTonsShort(xp) + ' XP');
+      this._tierCheck();
+      return;
+    }
+    if (p.r > b.r * 1.05 && (e.rcd || 0) <= 0) {
+      e.rcd = 1.2;
+      if (!this.plus.consumeShield()) {
+        this._loseSnow(0.1);
+        G.combo = 0; this._comboUi(0);
+        this._text('RAKİP SENİ TIRAŞLADI!', b, 'bad', true);
+      }
+      b.speed *= 0.95; G.shake += 0.7; b.squash(0.15);
+      this._h('sfx', 'bump', 0.7); this._h('haptic', 'heavy'); this._h('flash', 'hit');
+      this._h('burst', b.x, b.y, b.d, 12, 0xeaf3ff, 8, 0.3, 5);
+    }
+    this._slide(p);
   }
 
   _hitEnemy(p, dx) {
@@ -1366,7 +1421,7 @@ export class CigGame {
     this._h('sfx', 'milestone', e.boss ? 3 : 1);
     this._h('haptic', 'success');
     this._h('flash', e.boss ? 'milestone' : 'gold');
-    this._text(e.boss ? 'DEV YETİ YENİLDİ!' : e.name + ' YOK EDİLDİ!', p, 'big', true);
+    this._text(e.boss ? e.name + ' YENİLDİ!' : e.name + ' EZİLDİ!', p, 'big', true);
     this._h('toast', '+' + fmtTonsShort(xp) + ' XP');
     this._h('track', 'enemy_kill', { id: e.id, boss: e.boss });
     if (e.boss) this._power();
@@ -1387,16 +1442,17 @@ export class CigGame {
       const dd = p.d - b.d;
       if (dd < -25 || dd > 140) continue;
       const hw = w.halfWidth(p.d) - 1;
+      if (e.rival) { this._rivalAI(p, b, dt, hw, dd); continue; }
       if (e.kbD > 0.2 || Math.abs(e.kbX) > 0.2) {
         p.d += e.kbD * dt; p.x = clamp(p.x + e.kbX * dt, -hw, hw);
         const k = Math.exp(-dt * 5); e.kbD *= k; e.kbX *= k;
       }
       if (!e.woke && dd < 95) {
         e.woke = true;
-        if (e.boss) { this._h('toast', '⚠ DEV YETİ GELİYOR!'); this._h('sfx', 'rumble'); this._h('haptic', 'warning'); }
+        if (e.boss) { this._h('toast', '⚠ ' + e.name + ' GELİYOR!'); this._h('sfx', 'rumble'); this._h('haptic', 'warning'); }
       }
       if (!e.woke) continue;
-      if (dd > 0 && dd < 75 && e.spd > 0) {
+      if (dd > b.r + p.r && dd < 75 && e.spd > 0) {
         p.x = clamp(p.x + clamp(b.x - p.x, -e.spd * dt, e.spd * dt), -hw, hw);
       }
       if (dd > 0) p.rot = Math.atan2(b.x - p.x, 16) * 0.8;
@@ -1413,6 +1469,23 @@ export class CigGame {
         }
       }
     }
+  }
+
+  // Rival AI: bigger = hunts you (waits ahead, then rams from behind), smaller = races away and dodges sideways.
+  _rivalAI(p, b, dt, hw, dd) {
+    const e = p.enemy, target = this.targetSpeed();
+    if (e.rcd > 0) e.rcd -= dt;
+    const bigger = p.r > b.r * 1.05, smaller = b.r > p.r * 1.05;
+    p.tint = bigger ? RIVAL_RED : smaller ? RIVAL_BLUE : RIVAL_WHITE;
+    let v = target * (bigger ? (dd < 0 ? 1.12 : 0.96) : smaller ? 0.82 : 0.95);
+    p.d += v * dt;
+    const dx = b.x - p.x;
+    if (bigger) p.x = clamp(p.x + clamp(dx, -e.spd * dt, e.spd * dt), -hw, hw);
+    else if (smaller && Math.abs(dx) < b.r + p.r + 4 && dd > -2 && dd < 40) p.x = clamp(p.x - Math.sign(dx || 1) * e.spd * dt, -hw, hw);
+    p.rot = Math.atan2(dx, 30) * 0.5;
+    // the rival is a snowball: it rolls (visual wobble) and grows a little as it races
+    p.s = p.s0 || (p.s0 = p.s);
+    if (!e.grown && dd < 80) { e.grown = true; this._h('toast', bigger ? '⚠ RAKİP KARTOPU SENDEN BÜYÜK: kaç!' : '⚪ RAKİP KARTOPU: yakalayıp ye!'); }
   }
 
   _shotHit() {
@@ -1833,6 +1906,7 @@ export class CigGame {
 }
 
 const _stickPos = new THREE.Vector3();
+const RIVAL_RED = [1, 0.45, 0.45], RIVAL_BLUE = [0.7, 0.95, 1], RIVAL_WHITE = [1, 1, 1];
 
 function fmtD(d) {
   if (d >= 10) return String(Math.round(d));

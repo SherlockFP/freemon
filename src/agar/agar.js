@@ -7,6 +7,7 @@ import { Terrain, NICE, NDEEP, NRAMP } from './terrain.js';
 import { generateNames, BOT_CHAT } from './names.js';
 import { Trails, Snowfall } from './snowfx.js';
 import { SKINS } from '../skins.js';
+import { ArenaProps, TIER_NAMES, TIER_HINT, tierOfM } from './props.js';
 
 // ------------------------------------------------------------------ constants
 const R = 1100; // arena radius (m) - a big agar.io-like map (2.2 km across)
@@ -135,7 +136,8 @@ function spikyGeometry() {
 }
 
 export class AgarMode {
-  constructor({ renderer, post, ui, audio, save, platform, onExit } = {}) {
+  constructor({ renderer, post, ui, audio, save, platform, onExit, lib } = {}) {
+    this.lib = lib || {}; this.cigTier = 0; this.camKick = 0;
     this.renderer = renderer; this.post = post; this.ui = ui; this.audio = audio; this.save = save; this.platform = platform; this.onExit = onExit;
     this._scene = new THREE.Scene();
     this._scene.background = new THREE.Color(0x6fb0e6);
@@ -184,7 +186,7 @@ export class AgarMode {
   // ------------------------------------------------------------------ data
   initData() {
     this.cells = [];
-    for (let i = 0; i < CAP; i++) this.cells.push({ on: false, o: 0, x: 0, z: 0, vx: 0, vz: 0, m: 0, r: 0, merge: 0, tx: 0, tz: 0, killer: -1, mvx: 0, mvz: 0, qx: 0, qy: 0, qz: 0, qw: 1, px0: 0, pz0: 0, lsx: 0, lsz: 0, rampT: 0 });
+    for (let i = 0; i < CAP; i++) this.cells.push({ on: false, o: 0, x: 0, z: 0, vx: 0, vz: 0, m: 0, r: 0, merge: 0, tx: 0, tz: 0, killer: -1, mvx: 0, mvz: 0, qx: 0, qy: 0, qz: 0, qw: 1, px0: 0, pz0: 0, lsx: 0, lsz: 0, rampT: 0, pcd: 0 });
     this.act = new Int16Array(CAP);
     this.tmpIdx = new Int16Array(CAP);
     this.owners = [];
@@ -192,7 +194,7 @@ export class AgarMode {
       const o = {
         id: i, name: '', col: 0xffffff, cr: 1, cg: 1, cb: 1, bot: true, human: null, alive: false, wasAlive: false, cellN: 0, mass: 0, cx: 0, cz: 0, lx: 0, lz: 0, maxR: 1, maxM: 0, ext: 0,
         dx: 0, dz: 1, mag: 0, ldx: 0, ldz: 1, boostT: 0, boostCd: 0, trailT: 0, splitCd: 0, shield: 0, magnet: 0, speed: 0, away: false, respawnT: 0, aiT: Math.random(), tx: 0, tz: 0, wanderT: 0,
-        kills: 0, xpRun: 0, t0: 0, bestRank: 99, maxMass: 0, seen: 0, killer: -1, sprite: null, tex: null, spriteName: '',
+        bc: 0, kills: 0, xpRun: 0, t0: 0, bestRank: 99, maxMass: 0, seen: 0, killer: -1, sprite: null, tex: null, spriteName: '',
       };
       this.owners.push(o);
     }
@@ -299,6 +301,7 @@ export class AgarMode {
     this.ring = new THREE.Mesh(new THREE.RingGeometry(0.94, 1, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff6a6a, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }));
     this.ring.visible = false; this.ring.position.y = 0.3; this.ring.frustumCulled = false;
     sc.add(this.ring);
+    this.props = new ArenaProps(this, sc, this.lib, R, MAXM);
     // name sprites
     for (const o of this.owners) {
       const cvs = document.createElement('canvas');
@@ -435,6 +438,7 @@ export class AgarMode {
     this.seed = seed;
     const T = this.terrain;
     T.gen(seed);
+    if (this.props) this.props.gen(seed);
     const w = (mesh, arr, n, h) => {
       const a = mesh.instanceMatrix.array;
       for (let i = 0; i < n; i++) wm(a, i * 16, arr[i * 3], h, arr[i * 3 + 1], arr[i * 3 + 2]);
@@ -457,7 +461,7 @@ export class AgarMode {
   newCell(o, x, z, m) {
     for (let i = 0; i < CAP; i++) {
       const c = this.cells[i];
-      if (!c.on) { c.on = true; c.o = o.id; c.x = c.tx = x; c.z = c.tz = z; c.vx = c.vz = 0; c.m = m; c.r = KR * Math.sqrt(m); c.merge = 0; c.killer = -1; c.mvx = c.mvz = 0; c.qx = c.qy = c.qz = 0; c.qw = 1; c.px0 = x; c.pz0 = z; c.lsx = x; c.lsz = z; c.rampT = 0; return c; }
+      if (!c.on) { c.on = true; c.o = o.id; c.x = c.tx = x; c.z = c.tz = z; c.vx = c.vz = 0; c.m = m; c.r = KR * Math.sqrt(m); c.merge = 0; c.killer = -1; c.mvx = c.mvz = 0; c.qx = c.qy = c.qz = 0; c.qw = 1; c.px0 = x; c.pz0 = z; c.lsx = x; c.lsz = z; c.rampT = 0; c.pcd = 0; return c; }
     }
     return null;
   }
@@ -466,11 +470,12 @@ export class AgarMode {
     const p = { x: 0, z: 0 };
     for (let t = 0; t < 10; t++) {
       this.randPos(p, 25);
-      let ok = true;
+      let ok = !this.props.blockedAt(p.x, p.z, 4);
       for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.m > m * 0.8 && (c.x - p.x) * (c.x - p.x) + (c.z - p.z) * (c.z - p.z) < 900) { ok = false; break; } }
       if (ok) break;
     }
     this.newCell(o, p.x, p.z, m);
+    this.props.clearStuck(o.id);
     if (o.id === this.me) this.titleIdx = 0;
     o.away = false; o.alive = true; o.wasAlive = true; o.cellN = 1; o.mass = m; o.cx = p.x; o.cz = p.z; o.lx = p.x; o.lz = p.z;
     o.boostT = o.boostCd = o.splitCd = o.magnet = o.speed = 0; o.shield = o.bot ? 0 : 3;
@@ -523,7 +528,7 @@ export class AgarMode {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    clearInterval(this._brT);
+    clearInterval(this._brT); clearTimeout(this._tbT);
     if (this.net) { try { this.net.close(); } catch { /* ignore */ } this.net = null; }
     this.stopPresence();
     this.unbindInput();
@@ -531,7 +536,7 @@ export class AgarMode {
     if (this.screenEl) this.screenEl.remove();
     if (this.resultEl) this.resultEl.remove();
     this._scene.traverse((n) => {
-      if (n.geometry) n.geometry.dispose();
+      if (n.geometry && !(n.userData && n.userData.keepGeo)) n.geometry.dispose();
       if (n.material) { if (n.material.map) n.material.map.dispose(); n.material.dispose(); }
     });
     this.groundTex.dispose();
@@ -693,6 +698,7 @@ export class AgarMode {
   simulate(dt) {
     const owners = this.owners, cells = this.cells;
     this.stormTick(dt);
+    this.props.tick(dt);
     this.botChatTick(dt);
     if (this.mp !== 'client' && this.state === 'play') this.popTick(dt);
     // local player input
@@ -816,6 +822,7 @@ export class AgarMode {
           }
         }
       }
+      this.props.interact(c, this.act[a], o, dt);
       if (c.m >= VIR_MIN && o.shield <= 0) {
         for (let v = 0; v < NVIR; v++) {
           if (!this.von[v]) continue;
@@ -978,7 +985,8 @@ export class AgarMode {
           if (d < bd) { bd = d; best = i; }
         }
       }
-      if (best >= 0) { tx = this.fx[best]; tz = this.fz[best]; } else {
+      const pt = this.props.tmpT;
+      if (this.props.bestFor(cx, cz, om, orr, pt) && (best < 0 || pt.g * (bd + 12) > 1.2 * (pt.d + 12))) { tx = pt.x; tz = pt.z; } else if (best >= 0) { tx = this.fx[best]; tz = this.fz[best]; } else {
         o.wanderT -= 0.2;
         if (o.wanderT <= 0 || Math.hypot(o.tx - cx, o.tz - cz) < 8) { const p = this.tmpP || (this.tmpP = { x: 0, z: 0 }); this.randPos(p, 20); o.tx = p.x; o.tz = p.z; o.wanderT = 8; }
         tx = o.tx; tz = o.tz;
@@ -1005,6 +1013,7 @@ export class AgarMode {
         if (vd < orr + 8) { dx += (vx / vd) * 1.6; dz += (vz / vd) * 1.6; }
       }
     }
+    { const rp = this.props.tmpT; rp.x = 0; rp.z = 0; this.props.repel(cx, cz, orr, rp); dx += rp.x; dz += rp.z; }
     const ed = Math.hypot(cx, cz);
     if (ed > R - 14) { dx -= (cx / ed) * 1.8; dz -= (cz / ed) * 1.8; }
     const l2 = Math.hypot(dx, dz) + 0.001;
@@ -1021,7 +1030,7 @@ export class AgarMode {
       if (!c.on) continue;
       const o = owners[c.o];
       o.mass += c.m; o.cellN++; o.cx += c.x * c.m; o.cz += c.z * c.m;
-      if (c.m > o.maxM) { o.maxM = c.m; o.maxR = c.r; o.lx = c.x; o.lz = c.z; }
+      if (c.m > o.maxM) { o.maxM = c.m; o.maxR = c.r; o.lx = c.x; o.lz = c.z; o.bc = i; }
     }
     for (let k = 0; k < NOWN; k++) {
       const o = owners[k];
@@ -1479,7 +1488,7 @@ export class AgarMode {
     const food = new Array(FOOD * 2);
     for (let i = 0; i < FOOD; i++) { food[i * 2] = Math.round(this.fx[i] * 10); food[i * 2 + 1] = Math.round(this.fz[i] * 10); }
     const own = this.owners.map((o) => [o.name, o.col, o.human ? 1 : 0]);
-    ids.forEach((id, k) => this.net.sendTo(id, { t: 'start', me: k + 1, owners: own, food, fc: this.foodColors(), seed: this.seed }));
+    ids.forEach((id, k) => this.net.sendTo(id, { t: 'start', me: k + 1, owners: own, food, fc: this.foodColors(), seed: this.seed, pd: this.props.deadList() }));
     this.state = 'play';
     this.lastLevel = lvlOf(this.xp);
     this.pushFeed('Oda açıldı - katılmak serbest!');
@@ -1510,7 +1519,7 @@ export class AgarMode {
     this.setName(slot, nm, false);
     this.spawnOwner(slot, 24);
     const own = this.owners.map((o) => [o.name, o.col, o.human ? 1 : 0]);
-    this.net.sendTo(id, { t: 'start', me: slot.id, owners: own, food: this.foodPositions(), fc: this.foodColors(), seed: this.seed });
+    this.net.sendTo(id, { t: 'start', me: slot.id, owners: own, food: this.foodPositions(), fc: this.foodColors(), seed: this.seed, pd: this.props.deadList() });
     this.net.broadcast({ t: 'own', i: slot.id, n: slot.name, c: slot.col, h: 1 });
     this.pushFeed(nm + ' oyuna katıldı');
     return true;
@@ -1538,7 +1547,8 @@ export class AgarMode {
 
   sendSnapshot() {
     const net = this.net;
-    if (!net || net.clients.size === 0) { this.fdn = 0; this.fd.fill(0); return; }
+    if (!net || net.clients.size === 0) { this.fdn = 0; this.fd.fill(0); this.props.dropDelta(); return; }
+    const pd = this.props.takeDelta();
     const c = [];
     for (let i = 0; i < CAP; i++) { const q = this.cells[i]; if (q.on) c.push(i, q.o, Math.round(q.x * 10) / 10, Math.round(q.z * 10) / 10, Math.round(q.m * 10) / 10); }
     const fd = [];
@@ -1551,7 +1561,7 @@ export class AgarMode {
     for (const [id, rec] of net.clients) {
       const o = this.owners.find((q) => q.human === id);
       if (!o || !rec.conn.open) continue;
-      net.sendTo(id, { t: 's', hn: net.clients.size + 1, pn: this.presentCount(), st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
+      net.sendTo(id, { t: 's', hn: net.clients.size + 1, pn: this.presentCount(), pd, st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
     }
   }
 
@@ -1576,6 +1586,7 @@ export class AgarMode {
       this.fx[i] = m.food[i * 2] / 10; this.fz[i] = m.food[i * 2 + 1] / 10; this.fv[i] = this.baseVal(i); this.gAdd(i);
     }
     for (let i = 0; i < FT; i++) this.writeFood(i);
+    this.props.setDead(m.pd);
     const me = this.owners[this.me];
     me.t0 = this.time; me.maxMass = 0; me.bestRank = 99; me.kills = 0; me.xpRun = 0;
     this.state = 'play';
@@ -1607,6 +1618,7 @@ export class AgarMode {
       q.o = c[k + 1]; q.tx = c[k + 2]; q.tz = c[k + 3]; q.m = c[k + 4]; q.killer = 1;
     }
     for (let i = 0; i < CAP; i++) if (cells[i].on && cells[i].killer === 0) cells[i].on = false;
+    this.props.applyDelta(m.pd);
     const fd = m.fd;
     for (let k = 0; k + 4 < fd.length; k += 5) {
       const i = fd[k];
@@ -1653,6 +1665,7 @@ export class AgarMode {
     this.time += dt;
     if (this.mp === 'client') this.clientSmooth(dt);
     else if (this.state === 'play' || this.state === 'dead' || this.state === 'title' || this.state === 'lobby') this.simulate(dt);
+    this.props.updatePulls(dt);
     // radii
     const k = Math.min(1, dt * 9);
     for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on) c.r += (KR * Math.sqrt(c.m) - c.r) * k; }
@@ -1686,6 +1699,7 @@ export class AgarMode {
       this.camX += (fo.cx + (me.alive ? this.inp.dx * this.inp.mag * rEff * 0.5 : 0) - this.camX) * kk;
       this.camZ += (fo.cz + (me.alive ? this.inp.dz * this.inp.mag * rEff * 0.5 : 0) - this.camZ) * kk;
     }
+    if (this.camKick > 0) { this.camKick = Math.max(0, this.camKick - dt * 0.12); ht *= 1 + this.camKick; }
     ht = Math.min(ht, 1500);
     this.camH += (ht - this.camH) * Math.min(1, dt * 1.4);
     const cdist = Math.hypot(this.camX, this.camZ), clim = R * 0.97;
@@ -1745,6 +1759,7 @@ export class AgarMode {
     this.cellMesh.count = n; this.shadowMesh.count = n;
     this.cellMesh.instanceMatrix.needsUpdate = true; this.cellMesh.instanceColor.needsUpdate = true; this.shadowMesh.instanceMatrix.needsUpdate = true;
     this.trails.build(this.time, cells, this.camX, this.camZ, hx, zmin, zmax);
+    this.props.render(this.camX, this.camH, hx, zmin, zmax, cells, owners, me);
     {
       const st0 = this.storm; let heavy = 0;
       if (st0.on) { const d = Math.hypot(this.camX - st0.x, this.camZ - st0.z); heavy = clampN(1.4 - d / (st0.r * 1.2), 0, 1); }
@@ -1784,15 +1799,30 @@ export class AgarMode {
     }
   }
 
+  tierBanner(t) {
+    const el = this.hud.tier;
+    el.children[1].textContent = TIER_NAMES[t]; el.children[2].textContent = TIER_HINT[t] || '';
+    el.style.opacity = '1'; el.style.transform = 'scale(1)';
+    clearTimeout(this._tbT);
+    this._tbT = setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'scale(.6)'; }, 2600);
+    this.camKick = 0.35;
+    if (this.mp !== 'client') this.owners[this.me].xpRun += 25 * t;
+    this.audio?.milestone?.(Math.min(6, t + 1));
+    this.platform?.haptic?.('success');
+  }
+
   /** per-frame watchers: terrain-entry sounds, size titles, storm rumble */
   watch(dt) {
     const me = this.owners[this.me];
     if (me.alive && this.state === 'play') {
       const z = this.terrain.zone(me.lx, me.lz);
       if (z !== this.meZone) { this.meZone = z; if (z === 2) this.snd('deep'); else if (z === 1) this.snd('slide'); }
+      const ct = tierOfM(me.mass);
+      if (ct > this.cigTier) { this.cigTier = ct; this.tierBanner(ct); }
       const ti = titleOf(me.mass);
       if (ti > this.titleIdx) { this.titleIdx = ti; this.toast('★ ' + TITLES[ti][1] + '!'); this.audio?.milestone?.(Math.min(6, ti)); }
     }
+    if (!me.alive) this.cigTier = 0;
     const st = this.storm;
     if (st.on && this.state !== 'title') {
       this.stormSndT -= dt;
@@ -1827,8 +1857,12 @@ export class AgarMode {
     for (let i = 0; i < 3; i++) { const d = document.createElement('div'); d.className = 'chip'; q('.ag-chips').appendChild(d); chips.push(d); }
     const feeds = [];
     for (let i = 0; i < 4; i++) { const d = document.createElement('div'); d.className = 'f'; q('.ag-feed').appendChild(d); feeds.push(d); }
+    const tier = document.createElement('div');
+    tier.style.cssText = 'position:absolute;left:0;right:0;top:20%;text-align:center;pointer-events:none;opacity:0;transform:scale(.6);transition:opacity .35s,transform .45s cubic-bezier(.2,1.6,.4,1);text-shadow:0 3px 0 #0a2a4a,2px 2px 0 #0a2a4a,-2px 2px 0 #0a2a4a;';
+    tier.innerHTML = '<div style="font-size:20px;color:#ffe066">YENİ BÖLGE!</div><div style="font-size:48px;font-weight:900"></div><div style="font-size:15px;color:#cfe8ff"></div>';
+    root.appendChild(tier);
     this.hud = {
-      root, rows, chips, feeds, mass: q('.m'), tt: q('.tt'), lv: q('.lv'), bar: q('.bar i'), online: q('.on'), room: q('.ag-room'), rank: q('.ag-rank b'), stick: q('.ag-stick'), knob: q('.ag-stick i'), toast: q('.ag-toast'),
+      tier, root, rows, chips, feeds, mass: q('.m'), tt: q('.tt'), lv: q('.lv'), bar: q('.bar i'), online: q('.on'), room: q('.ag-room'), rank: q('.ag-rank b'), stick: q('.ag-stick'), knob: q('.ag-stick i'), toast: q('.ag-toast'),
       map: q('.ag-map'), mctx: q('.ag-map').getContext('2d'), boost: q('.boost'), cd: q('.cd'), bsplit: q('.split'),
     };
     const press = (el, fn) => {
@@ -1885,7 +1919,7 @@ export class AgarMode {
     if (this.hudT <= 0) {
       this.hudT = 0.1;
       h.mass.textContent = me.alive ? fmtM(me.mass) : '0';
-      h.tt.textContent = TITLES[titleOf(me.alive ? me.mass : 0)][1];
+      h.tt.textContent = TITLES[titleOf(me.alive ? me.mass : 0)][1] + ' · ' + TIER_NAMES[tierOfM(me.alive ? me.mass : 0)];
       const ch = h.chat;
       ch.btn.style.display = this.mp ? '' : 'none';
       if (!this.mp) ch.panel.classList.remove('on');

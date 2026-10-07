@@ -335,7 +335,7 @@ export class Obstacles {
     this.powerW = { magnet: 1, x2: 1, superjump: 1, rocket: 1, helmet: 1, timewarp: 1, ghost: 1, risk: 1, clone: 1 };
     this._cid = 'main';
     this.rng = makeRng((this.seed ^ 0xa5a5a5a5) >>> 0);
-    this.next = { power: 260, gem: 520, box: 340, letter: 300 };   // distance accumulators for rare pickups
+    this.next = { power: 260, gem: 520, box: 340, letter: 300, chain: 420, yeti: 330, plow: 1000 };   // distance accumulators for rare pickups
     this.tutorial = !!opts.tutorial;
     this.endless = opts.endless ?? !track.level;
     this.boxes = !!opts.boxes;                  // surprise boxes / letters on the track (off: the endless run credits rewards silently)
@@ -701,7 +701,15 @@ export class Obstacles {
     this.nextLetter = c;
     const p = this.pool.letter;
     if (c) { p.m.geometry.dispose(); p.m.geometry = letterGeometry(c); p.m.geometry.computeBoundingSphere(); }
-    else for (const k of this.picks) if (k.kind === 'letter' && k.alive) { k.alive = false; this._freePick(k); }
+    else if (!this.yetiLetter) for (const k of this.picks) if (k.kind === 'letter' && k.alive) { k.alive = false; this._freePick(k); }
+  }
+
+  /** Y-E-T-I hunt: the letter the runner wants next (null: none). Spawns rarely, one at a time. */
+  setYetiLetter(ch) {
+    this.yetiLetter = ch || null;
+    if (!ch) return;
+    const p = this.pool.letter;
+    p.m.geometry.dispose(); p.m.geometry = letterGeometry(ch); p.m.geometry.computeBoundingSphere();
   }
 
   trim(sBehind) {
@@ -2200,6 +2208,28 @@ Object.assign(Obstacles.prototype, {
         this.next.power = s + rng.range(420, 520);
       }
       if (kind !== 'junction' && (normal || apex)) this._gems(plan, route, s0 + 4, s1 - 3, apex);
+      // mini mechanics: speed-pad chain, Y-E-T-I letters, snowplow head-on
+      if (s0 >= 250 && normal && s1 > this.next.chain && (this.track.features || {}).boost !== false) {
+        const n = rng.int(3, 4), sp = 9, span = n * sp + 12;
+        for (let a = s0 + 6; a + span < s1 - 4; a += 3) {
+          if (plan.rows.some((r) => a - 6 < r.s + r.ext && a + span + 4 > r.s - r.ext)) continue;
+          const l = rng.int(0, 2);
+          for (let i = 0; i < n; i++) this._mk(plan, { kind: 'strip', s: a + i * sp, u: LANES[l], len: 4, ext: 3, glow: this._pal(a).glow, power: 1, chain: true });
+          for (let x = a + n * sp + 1; x < a + n * sp + 11; x += 1.6) this._pickup('flake', x, LANES[l], 1.35);
+          this.next.chain = a + span + rng.range(380, 620);
+          break;
+        }
+      }
+      if (this.yetiLetter && s0 >= 300 && normal && s1 > this.next.yeti) {
+        const s = freeS(mid + 2);
+        this._pickup('letter', s, LANES[offRoute(s)], 1.9, { letter: this.yetiLetter, rad: 1.0 });
+        this.next.yeti = s + rng.range(260, 420);
+      }
+      if (s0 >= 1000 && normal && plan.lethalOk && s1 > this.next.plow && s1 - s0 > 40) {
+        const s = freeS(mid), l = rng.int(0, 2);
+        this._mk(plan, { kind: 'oncoming', s, sP: s, u: LANES[l], lane: l, vt: 9, ride: false, L: 12, ext: 74, plow: true, glow: this._pal(s).glow });
+        this.next.plow = s + rng.range(1100, 1700);
+      }
       if (this.boxes && s0 >= 100 && normal && s1 > this.next.box) {       // (surprise boxes / letters: only when a mode asks for them; the endless run credits rewards silently)
         const s = freeS(mid - 5);
         this._pickup('box', s, LANES[rng.int(0, 2)], 1.1);
@@ -2303,7 +2333,7 @@ KIND.strip = {
     if (inside && !ob.was && t >= ob.cdUntil) {
       ob.cdUntil = t + 0.6;
       const e = ev(events, 'pad');
-      e.kind = 'boost'; e.onBeat = Math.abs(this.phase) < 0.15 || this.phase > 0.85; e.power = ob.power || 1;
+      e.kind = 'boost'; e.onBeat = Math.abs(this.phase) < 0.15 || this.phase > 0.85; e.power = ob.power || 1; e.value = ob.chain ? 1 : 0;
     }
     ob.was = inside;
   },
@@ -2774,7 +2804,7 @@ Object.assign(Obstacles.prototype, {
     for (const d of this.deb) if (d.on) { d.on = false; this._release('box', d.idx); d.idx = -1; }
     this.pending.length = 0; this.platforms.length = 0; this.rowsLog.length = 0; this.warnQ.length = 0; this.byId.clear();
     this.maxExt = 4.6; this.gateChain = 0; this.nextBoulder = 1e9; this._bArmed = false;
-    this.next = { power: 260, gem: 520, box: 340, letter: 300 };
+    this.next = { power: 260, gem: 520, box: 340, letter: 300, chain: 420, yeti: 330, plow: 1000 };
     this._carry = null; this._clock = 0; this._nextCrit = this.track.level ? 130 : 160; this._teach = 0; this._breath = null; this._snowOwed = 0; this.tierBias = 0;
     if (this.critters) this.critters.reset();
     this.rng = makeRng((this.seed ^ (this.track.seed | 0) ^ 0xa5a5a5a5) >>> 0);
@@ -3004,9 +3034,10 @@ KIND.oncoming = {
       if (gap <= 0) ob.warned = true;
       else {
         const tc = gap / (ball.vs + ob.vt);
-        if (tc <= 1.5) { ob.warned = true; const e = ev(events, 'warn'); e.kind = 'oncoming'; e.lane = ob.lane; e.t = tc; }
+        if (tc <= (ob.plow ? 2 : 1.5)) { ob.warned = true; const e = ev(events, 'warn'); e.kind = 'oncoming'; e.lane = ob.lane; e.t = tc; e.value = ob.plow ? 1 : 0; }
       }
     }
+    if (ob.plow && !ob.dodged && this._cid === 'main' && ball.s > ob.cs + ob.L / 2 + 1) { ob.dodged = true; const e = ev(events, 'pickup'); e.kind = 'plowdodge'; }
     const H = this._aabb(ball, front, ob.cs + ob.L / 2, ob.u - 1.05, ob.u + 1.05, 0, ob.ht);
     if (H && (H.ds !== 0 || H.du !== 0)) this._hit(ob, ball, events, H.ds, H.du);
   },

@@ -101,7 +101,7 @@ export class World {
     this.recent = []; this.obsRecent = [];
     this.credit = 0; this.spent = 0; // food ledger: features and events spend from the same budget as ordinary stretches
     this.genD = 4; this.decorD = -70;
-    this.nextFeatureD = 230; this.nextEventD = CFG.firstEvent; this.nextGateD = CFG.firstGate; this.nextEnemyD = CFG.firstEnemy; this.nextBossD = CFG.firstBoss; this.eventNo = 0; this.lastEventKind = '';
+    this.nextFeatureD = 230; this.nextEventD = CFG.firstEvent; this.nextGateD = CFG.firstGate; this.nextEnemyD = CFG.firstEnemy; this.nextBossD = CFG.firstBoss; this.nextRivalD = CFG.firstRival; this.eventNo = 0; this.lastEventKind = '';
     this.cullT = 0;
     this.labels = [];
     this.onArrive = null;
@@ -213,6 +213,14 @@ export class World {
     const byR = (a, b) => a.r - b.r;
     food.sort(byR); obst.sort(byR); town.sort(byR); walkers.sort(byR); decorAll.sort(byR); trees.sort(byR);
     houses.sort(byR); this.houses = houses; this.food = food; this.obst = obst; this.town = town; this.walkers = walkers; this.decorPool = decorAll;
+    // late-game themed models: tier 6 city, tier 7 mountain, tier 8 planet (cumulative)
+    const TH = [['skyscraper', 'stadium', 'radio_tower', 'ferris_wheel'], ['castle', 'ship', 'airplane', 'wind_turbine'], ['rocket_pad', 'rock_big', 'hotel']];
+    this.themed = [];
+    for (let k = 0; k < TH.length; k++) {
+      const names = TH[k].concat(k ? this.themed[k - 1].names : []);
+      const list = obst.filter((o) => names.includes(o.type)).map((o) => ({ ...o, w: 1 }));
+      this.themed.push({ names, list });
+    }
     this.snackNames = ['pebble', 'gift', 'traffic_cone', 'penguin', 'bush_small', 'rabbit'].filter((n) => lib[n]);
     if (!this.snackNames.length) this.snackNames = food.slice(0, 4).map((e) => e.type);
   }
@@ -447,6 +455,16 @@ export class World {
     // enemies with HP bars: a group every ~170 m, a boss every ~800 m
     if (d > 140 && d >= this.nextBossD) { this.placeBoss(d + R.range(4, seg), gr, T, hw); this.nextBossD = d + CFG.bossGap; if (this.nextEnemyD < d + 60) this.nextEnemyD = d + 60; }
     else if (d > 140 && d >= this.nextEnemyD) { this.placeEnemies(d + R.range(0, seg * 0.5), gr, T, hw); this.nextEnemyD = d + R.range(CFG.enemyGap[0], CFG.enemyGap[1]) * (1 - 0.13 * Math.min(T, 4)); }
+    // late tiers: themed giants (city / mountain / planet) as extra food and obstacles
+    if (T >= 5 && inner <= 0) {
+      const th = this.themed[Math.min(T - 5, this.themed.length - 1)];
+      if (th && th.list.length) {
+        const n = R.int(1, 3);
+        for (let i = 0; i < n; i++) this.food1(R.range(0.3, 0.8), gr, R.range(-hw, hw), d + R.range(0, seg), hw, { list: th.list, sLo: 0.25, sHi: 4 });
+        if (R.chance(0.35 * seg / 20)) this.placeObstacle(d + R.range(0, seg), gr, T, hw);
+      }
+    }
+    if (d > 200 && d >= this.nextRivalD) { this.placeRival(d + R.range(10, seg), gr, T, hw); this.nextRivalD = d + R.range(CFG.rivalGap[0], CFG.rivalGap[1]); }
     // life: skiers / walkers racing or wandering around
     if (d > 90 && R.next() < 0.1 * seg / 12) this.patMovers(d, seg, gr, T, hw);
   }
@@ -539,6 +557,7 @@ export class World {
       { id: 'soldier', name: 'KARDAN ASKER', lib: pick('snowman', 'k_snowman_hat', 'k_snowman'), hp: 0.8, ai: 'throw', ratio: [0.9, 1.3], tint: [1, 0.62, 0.6], spd: 5 },
       { id: 'sled', name: 'KAR ARACI', lib: pick('snowmobile', 'k_tractor', 'car'), hp: 1.0, ai: 'chase', ratio: [1, 1.4], tint: [1, 0.78, 0.45], spd: 9 },
       { id: 'yeti', name: 'YETİ', lib: pick('yeti', 'snowman'), hp: 1.25, ai: 'chase', ratio: [1.05, 1.5], tint: [0.8, 0.88, 1], spd: 7 },
+      { id: 'robot', name: 'BUZ ROBOTU', lib: pick('robot'), hp: 2.2, ai: 'throw', ratio: [1.2, 1.7], tint: [0.8, 0.9, 1], spd: 6, boss: 'DEV ROBOT' },
       { id: 'golem', name: 'BUZ GOLEMİ', lib: pick('boulder', 'k_rock_snow', 'rock_big'), hp: 1.8, ai: 'throw', ratio: [1.2, 1.7], tint: [0.5, 0.85, 1], spd: 0 },
     ].filter((d) => d.lib);
   }
@@ -550,7 +569,7 @@ export class World {
     if (!p) return null;
     const hp = Math.max(8, p.r * CFG.hpPerR * def.hp * (boss ? 2 : 1) * (1 + 0.28 * Math.min(4, tierOf(this.genRad()))));
     p.enemy = {
-      id: def.id, name: boss ? 'DEV YETİ' : def.name, ai: boss ? 'boss' : def.ai, boss: !!boss,
+      id: def.id, name: boss ? (def.boss || 'DEV YETİ') : def.name, ai: boss ? 'boss' : def.ai, boss: !!boss,
       hp, max: hp, spd: def.spd * (boss ? 0.7 : 1), cd: 1.5 + Math.random() * 2, hitCd: 0, kbD: 0, kbX: 0, flash: 0, woke: false,
       tint: boss ? [1, 0.5, 0.46] : def.tint,
     };
@@ -564,7 +583,8 @@ export class World {
     const R = this.rng;
     const defs = this.enemyDefs();
     if (!defs.length) return;
-    const ti = Math.min(T, defs.length - 1);
+    const rb = T >= 5 ? defs.findIndex((e) => e.id === 'robot') : -1;
+    const ti = rb >= 0 ? rb : Math.min(T, defs.length - 1);
     const n = R.int(1 + (T >= 1 ? 1 : 0), 2 + T);
     const cx = R.chance(0.5) ? R.range(-hw * 0.12, hw * 0.12) : R.range(-hw * 0.6, hw * 0.6);
     for (let i = 0; i < n; i++) {
@@ -574,9 +594,26 @@ export class World {
     }
   }
 
+  // A rival snowball of about your size races down the slope: eat it if you are bigger, it shaves you if it is.
+  placeRival(d, gr, T, hw) {
+    const def = this.lib.rival_ball;
+    if (!def) return;
+    const R = this.rng;
+    const tr = gr * R.range(0.8, 1.3);
+    const s = clamp(tr / def.radius, 0.3, 40);
+    const x = R.range(-hw * 0.5, hw * 0.5);
+    const p = this.add('rival_ball', x, d + 30, { s, rot: 0, move: MOVE_ENEMY, tonK: 3 });
+    if (!p) return;
+    p.enemy = { id: 'rival', name: 'RAKİP KARTOPU', ai: 'rival', rival: true, boss: false, hp: 1, max: 1, spd: 8, cd: 0, hitCd: 0, kbD: 0, kbX: 0, flash: 0, woke: true, tint: [1, 1, 1], rcd: 0 };
+    p.tint = p.enemy.tint;
+    p.ox = x; p.od = p.d;
+    this.enemies.push(p);
+    this.zones.push({ d0: d + 5, d1: d + 55, kind: 'rival' });
+  }
+
   placeBoss(d, gr, T, hw) {
     const defs = this.enemyDefs();
-    const def = defs.find((e) => e.id === 'yeti') || defs[defs.length - 1];
+    const def = (T >= 5 ? defs.find((e) => e.id === 'robot') : null) || defs.find((e) => e.id === 'yeti') || defs[defs.length - 1];
     if (!def) return;
     const tr = gr * this.rng.range(2.4, 3) + 1;
     this.zones.push({ d0: d - 12, d1: d + 40, kind: 'boss' });
@@ -588,7 +625,8 @@ export class World {
     const R = this.rng;
     const q = R.chance(0.15) ? R.range(2.6, 3.6) : R.range(1.3, 2.5);
     const tr = q * gr;
-    const e = this.pick(this.obst, tr, 0.6, 1.7);
+    const th = T >= 5 && R.chance(0.65) ? this.themed[Math.min(T - 5, this.themed.length - 1)] : null;
+    const e = this.pick(th && th.list.length ? th.list : this.obst, tr, 0.6, th ? 3 : 1.7);
     if (!e) return;
     const s = clamp(tr / e.r * R.range(0.95, 1.08), 0.3, 22);
     const rad = e.r * s;
