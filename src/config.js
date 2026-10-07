@@ -139,7 +139,7 @@ export const CFG = {
     goldMul: 3, ironMul: 1.5,
     smashGrow: 0.5,
     parK: 0.9, lenK: 0.95, finalPad: 36, firstGate: 150, gateExp: 0.92, gatePre: 70,
-    bossVolley: [2.4, 3.2], bossHpK: 0.8,
+    bossVolley: [2.4, 3.2], bossHpK: 3.3,
     arenaMelt: 0.6,
     bossArena: true,                       // false: the boss level ends with a plain big gate (0.86 * rEnd)
     chaseNear: 45,                         // chase gap (m) that turns the screen edge red

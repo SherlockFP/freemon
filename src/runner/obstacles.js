@@ -1673,6 +1673,8 @@ Object.assign(Obstacles.prototype, {
       const onlyNow = !rows.length && o.firstOnly ? o.firstOnly : only;      // (the first row after a junction corner: single verb)
       // sliding walls: never right after a junction corner, never within 1.5 s of another hard row
       const slideOk = !o.firstOnly && !(lastR && lastR.pat === 'none') && !(lastR && (lastR.hard || lastR.lethal) && (s - lastR.s) / vs < 1.5) && (!lastR || (s - lastR.s) / vs >= 1.0);
+      const VT = this._vt || (this._vt = { turret: 1300, icegate: 1600, pensled: 2000 });
+      const vW = (k) => s < VT[k] - 150 ? 0 : s >= VT[k] ? 30 : 0.9;
       const wfn = (p) => {
         if (onlyNow && !onlyNow[p]) return 0;
         if (HARD_PAT[p] && hardN >= 3) return 0;
@@ -1705,9 +1707,11 @@ Object.assign(Obstacles.prototype, {
           case 'phrase': return phOn && tm === 0 && hardN <= 1 && room > 8 && dz >= 0.05 ? (0.3 + 9.0 * dz) * (tn < 1 ? 1.7 : tn > 1 ? 0.6 : 1) : 0;
           case 'critter': return wantCrit ? 90 : 0;
           // variety (from ~1.2 km, modest weights)
-          case 'icegate': return s >= 1200 && T.allows('duck') && dz >= 0.1 && room > 8 ? 0.7 : 0;
-          case 'turret': return s >= 1200 && dz >= 0.15 && !zone && room > 36 && persist.length === 0 && s + 36 <= lim && free0.length >= 2 && !tightRow ? 0.7 : 0;
-          case 'pensled': return s >= 1200 && dz >= 0.2 && !zone && room > 8 && persist.length === 0 && open3 && !tightRow ? 0.7 : 0;
+          // first sightings are guaranteed (turret ~1.3 km, gate ~1.6 km, sled ~2.0 km; the boost applies from the target on, wherever the rules allow, +-150 m),
+          // then each returns every 400-700 m
+          case 'icegate': return vW('icegate') * (T.allows('duck') && dz >= 0.05 && room > 8 ? 1 : 0);
+          case 'turret': return vW('turret') * (dz >= 0.05 && !zone && room > 24 && tmHard === 0 && s + 36 <= lim && free0.length >= 2 && !tightRow ? 1 : 0);
+          case 'pensled': return vW('pensled') * (dz >= 0.05 && !zone && room > 8 && tmHard === 0 && free0.length >= 2 && !tightRow ? 1 : 0);
           default: return 0;
         }
       };
@@ -1924,6 +1928,7 @@ Object.assign(Obstacles.prototype, {
         }
         case 'icegate': {
           this._mk(plan, { kind: 'icegate', s, u: 0, lo: 0, hi: NL - 1, per: Math.max(2.2, (diff > 0.6 ? 3 : 4) / hk), ph: rng.range(0, 1), ext: 2.4, glow: this._pal(s).glow });
+          VT.icegate = s + rng.range(400, 700);
           free = FULL; ext = 2.4; rowPat = 'duck';
           break;
         }
@@ -1933,11 +1938,13 @@ Object.assign(Obstacles.prototype, {
           const l = lanes[rng.int(0, lanes.length - 1)], sg = l === 0 ? -1 : l === NL - 1 ? 1 : (rng.chance(0.5) ? -1 : 1), sT = s + 30;
           this._mk(plan, { kind: 'turret', s: sT, u: sg * (piece.hw + 1.3), lane: l, ext: 60, glow: this._pal(s).glow });
           persist.push({ lane: l, s0: s - 3, s1: sT });
+          VT.turret = s + rng.range(400, 700);
           free = FULL & ~bit(l); ext = 3;
           break;
         }
         case 'pensled': {
           this._mk(plan, { kind: 'pensled', s, u: 0, hw: piece.hw, v: Math.min(4, 3.2 * Math.sqrt(hk)), ph: rng.range(0, 40), ext: 2, glow: this._pal(s).glow });
+          VT.pensled = s + rng.range(400, 700);
           free = FULL; ext = 2;
           break;
         }
@@ -3122,7 +3129,7 @@ Object.assign(Obstacles.prototype, {
     this.picks.length = 0;
     for (const b of this.dyn.slice()) this._freeDyn(b);
     for (const d of this.deb) if (d.on) { d.on = false; this._release('box', d.idx); d.idx = -1; }
-    this.pending.length = 0; this.platforms.length = 0; this.rowsLog.length = 0; this._lastRockS = undefined; this.warnQ.length = 0; this.byId.clear();
+    this.pending.length = 0; this.platforms.length = 0; this.rowsLog.length = 0; this._lastRockS = undefined; this._vt = null; this.warnQ.length = 0; this.byId.clear();
     this.maxExt = 4.6; this.gateChain = 0; this.nextBoulder = 1e9; this._bArmed = false;
     this.next = { power: 260, gem: 520, box: 340, letter: 300, chain: 420, yeti: 330, plow: 1000, tunnel: 900, slide: 380 };
     this._carry = null; this._clock = 0; this._nextCrit = this.track.level ? 130 : 160; this._teach = 0; this._breath = null; this._snowOwed = 0; this.tierBias = 0;
@@ -3768,11 +3775,13 @@ KIND.icegate = {
     ob.tough = 3; ob.color = 0xbfeaff; ob.hc = 1.6; ob.bb = 2.9; ob.seen = false; ob.low = false; ob.clang = false;
     const u0 = LANES[0] - 1.25, u1 = LANES[ob.hi] + 1.25, w = u1 - u0, gl = ob.glow || 0x7fe0ff;
     ob.w = w; ob.uc = (u0 + u1) / 2;
-    this._part(ob, 'box', 0x9fd8ff, u0 + 0.2, 1.75, 0, 0, 0.4, 3.5, 0.4); this._part(ob, 'box', 0x9fd8ff, u1 - 0.2, 1.75, 0, 0, 0.4, 3.5, 0.4);
+    this._part(ob, 'box', 0x3fb8ff, u0 + 0.2, 2.6, 0, 0, 0.6, 5.2, 0.6); this._part(ob, 'box', 0x3fb8ff, u1 - 0.2, 2.6, 0, 0, 0.6, 5.2, 0.6);
+    this._part(ob, 'box', 0xff9a2a, u0 + 0.2, 0.2, 0, 0, 1.0, 0.4, 1.0); this._part(ob, 'box', 0xff9a2a, u1 - 0.2, 0.2, 0, 0, 1.0, 0.4, 1.0);
+    this._part(ob, 'lamp', gl, u0 + 0.2, 5.4, 0, 0, 0.7, 0.7, 0.7); this._part(ob, 'lamp', gl, u1 - 0.2, 5.4, 0, 0, 0.7, 0.7, 0.7);
     this._part(ob, 'box', COL.dark, ob.uc, 3.55, 0, 0, w, 0.35, 0.4);
     this._part(ob, 'lamp', gl, u0 + 0.2, 3.85, 0, 0, 0.4, 0.4, 0.4); this._part(ob, 'lamp', gl, u1 - 0.2, 3.85, 0, 0, 0.4, 0.4, 0.4);
     ob.ch1 = this._part(ob, 'box', 0xd9eaf5, ob.uc - w * 0.3, 3.2, 0, 0, 0.06, 1, 0.06); ob.ch2 = this._part(ob, 'box', 0xd9eaf5, ob.uc + w * 0.3, 3.2, 0, 0, 0.06, 1, 0.06);
-    ob.bar = this._part(ob, 'ice', 0xcdeeff, ob.uc, 3.1, 0, 0, w - 0.7, 0.4, 0.5);
+    ob.bar = this._part(ob, 'lamp', 0x7ff3ff, ob.uc, 3.1, 0, 0, w - 0.7, 0.5, 0.6); ob.beatL = this._part(ob, 'lamp', 0xffffff, ob.uc, 4.6, 0, 0, 0.9, 0.9, 0.9);
     ob.l1 = this._part(ob, 'lamp', gl, u0 + 0.5, 3.1, 0, 0, 0.35, 0.35, 0.35); ob.l2 = this._part(ob, 'lamp', gl, u1 - 0.5, 3.1, 0, 0, 0.35, 0.35, 0.35);
     ob.u0 = u0; ob.u1 = u1;
   },
@@ -3780,7 +3789,8 @@ KIND.icegate = {
     const x = 0.5 + 0.5 * Math.cos(TAU * (b / ob.per + ob.ph)), bb = 1.15 + 1.75 * x, w = ob.w, hc = bb + 0.2;
     ob.bb = bb;
     if (x < 0.25 && !ob.low) { ob.low = true; ob.clang = true; } else if (x > 0.5) ob.low = false;
-    this._repart(ob.bar, ob.uc, hc, 0, 0, w - 0.7, 0.4, 0.5);
+    this._repart(ob.bar, ob.uc, hc, 0, 0, w - 0.7, 0.5, 0.6);
+    { const k = 0.35 + 0.65 * x; this._repart(ob.beatL, ob.uc, 4.6 + 0.5 * x, 0, 0, 0.5 + k, 0.5 + k, 0.5 + k); }
     const top = 3.4, ch = top - (bb + 0.4), mid = (top + bb + 0.4) / 2;
     this._repart(ob.ch1, ob.uc - w * 0.3, mid, 0, 0, 0.06, ch, 0.06); this._repart(ob.ch2, ob.uc + w * 0.3, mid, 0, 0, 0.06, ch, 0.06);
     this._repart(ob.l1, ob.u0 + 0.5, hc, 0, 0, 0.35, 0.35, 0.35); this._repart(ob.l2, ob.u1 - 0.5, hc, 0, 0, 0.35, 0.35, 0.35);
@@ -3820,6 +3830,7 @@ KIND.pensled = {
     if (!ob.seen && d > 0 && d < 45) { ob.seen = true; fxEv(events, 'pensled', 0); }
     if (!ob.honk && d > 0 && d < 32) { ob.honk = true; fxEv(events, 'pensled', 1); }
     this._pass(ob, ball, events, ob.cs, ob.cu, ob.hs, ob.hu, ob.ht);
+    if (ob.passDone && ob.over && !ob.rescued) { ob.rescued = true; fxEv(events, 'pensled', 2); }
     const H = this._aabb(ball, ob.cs - ob.hs, ob.cs + ob.hs, ob.cu - ob.hu, ob.cu + ob.hu, 0, ob.ht);
     if (H && (H.ds !== 0 || H.du !== 0)) this._hit(ob, ball, events, H.ds, H.du);
   },

@@ -25,6 +25,7 @@ const FLEE_ANG = [0.8, -0.8, 1.6, -1.6];
 const GS = 40, GN = 55; // food grid (GN * GS >= 2 * R)
 const KR = 0.3; // radius = KR * sqrt(mass)
 const MAXM = 60000;
+const BOSSM = 3600; // boss ball mass (fixed)
 const TITLES = [[0, 'Çömez'], [60, 'Kar Tanesi'], [150, 'Kartopu'], [400, 'Dev Kartopu'], [1000, 'Çığ'], [2500, 'Buzul'], [6000, 'Kış Kralı'], [15000, 'Efsane Yeti'], [35000, 'Kartopu Tanrısı']];
 const titleOf = (m) => { let k = 0; for (let i = 1; i < TITLES.length; i++) if (m >= TITLES[i][0]) k = i; return k; };
 const VIRR = 3, VIR_MIN = 130; // ice crystal radius / smallest mass that gets shattered
@@ -176,7 +177,7 @@ export class AgarMode {
     this.terrain = new Terrain(R); this.seed = 1; this.uTime = { value: 0 };
     this.storm = { on: false, x: 0, z: 0, dx: 0, dz: 0, t: 0, next: 40, r: 170 }; this.stormSndT = 0; this.rain = { st: 0, x: 0, z: 0, t: 0, next: 150 + Math.random() * 60, acc: 0 };
     this.zn = { st: 0, t: 0, cx: 0, cz: 0, r: R, rt: R * 0.42, next: 300 }; this.sessT = 0; this.wo = { st: 0, t: 0, next: 240 + Math.random() * 120, k: 0 }; this.dirCalm = 25;
-    this.av = { st: 0, t: 0, next: 150 + Math.random() * 60, a: 0, off: 0, w: 55, id: 0, rum: 0, s: 0 }; this.tipT = 0; this.tipDone = false;
+    this.av = { st: 0, t: 0, next: 150 + Math.random() * 60, a: 0, off: 0, w: 55, id: 0, rum: 0, s: 0 }; this.tipT = 0; this.tipDone = false; this.boss = { id: -1, hp: 0, max: 0, next: 280 + Math.random() * 40, hitCd: 0, t: 0 };
     this.titleIdx = 0; this.meZone = 0; this.lastMyMass = 0; this.botChatT = 20;
     this.chatLog = []; this.lastChat = 0;
     this.trN = 0;
@@ -535,7 +536,7 @@ export class AgarMode {
     this.genTerrain((Math.random() * 2147483647) | 0);
     this.zn.st = 0; this.zn.r = R; this.zn.next = 290 + Math.random() * 40;
     this.rain.st = 0; this.rain.next = 150 + Math.random() * 60; this.storm.on = false; this.storm.next = 35 + Math.random() * 25; this.stormA.visible = this.stormB.visible = false;
-    this.wo.st = 0; this.wo.k = 0; this.wo.next = 240 + Math.random() * 120; this.dirCalm = 25; this.av.st = 0; this.av.next = 150 + Math.random() * 60; for (const f of this.forts) { f.own = -1; f.prog = 0; f.cand = -1; }
+    this.wo.st = 0; this.wo.k = 0; this.wo.next = 240 + Math.random() * 120; this.dirCalm = 25; this.boss.id = -1; this.boss.next = 280 + Math.random() * 40; this.av.st = 0; this.av.next = 150 + Math.random() * 60; for (const f of this.forts) { f.own = -1; f.prog = 0; f.cand = -1; }
     this.trails.clear();
     for (let i = 0; i < FT; i++) { this.gRemove(i); this.fv[i] = 0; }
     this.ghead.fill(-1); this.fin.fill(0);
@@ -628,6 +629,7 @@ export class AgarMode {
     o.dx = Math.cos(Math.random() * 6.28); o.dz = Math.sin(Math.random() * 6.28);
     if (!o.bot && this.state !== 'title') this.seedAround(p.x, p.z, m);
     if (o.id === this.me && this.mp !== 'client' && this.state !== 'title') { this.sessT = this.time; for (let k = 4; k < NOWN; k++) { const b = this.owners[k]; if (!b.alive || !b.bot || b.human || b.cellN !== 1 || b.mass < 60 || Math.random() < 0.4) continue; const nm = 14 * Math.exp(Math.random() * 3.2); for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.o === b.id) { c.m = nm; c.r = KR * Math.sqrt(nm); } } b.mass = nm; } }
+    if (o.id === this.me && this.mp !== 'client' && this.state !== 'title') this.spawnPrey(o);
     if (o.id === this.me) { this.firstEat = false; this.lastRankToast = 0; this.rankBest = 99; }
   }
 
@@ -880,7 +882,7 @@ export class AgarMode {
         if (o.bot && !o.human && !o.away) { o.respawnT -= dt; if (o.respawnT <= 0 && o.wasAlive === false) this.spawnOwner(o, rnd(20, 45)); }
         continue;
       }
-      if (o.bot) { o.aiT -= dt; if (o.aiT <= 0) { o.aiT = 0.18 + Math.random() * 0.1; if (this.qLv > 0 && !o.human) { const fd = Math.abs(o.lx - this.camX) + Math.abs(o.lz - this.camZ); if (fd > this.camH * 1.8 + 60) o.aiT *= 3; } this.think(o); } }
+      if (o.boss) this.bossThink(o); else if (o.preyT > this.time && o.bot && !o.human) this.preyThink(o); else if (o.bot) { o.aiT -= dt; if (o.aiT <= 0) { o.aiT = 0.18 + Math.random() * 0.1; if (this.qLv > 0 && !o.human) { const fd = Math.abs(o.lx - this.camX) + Math.abs(o.lz - this.camZ); if (fd > this.camH * 1.8 + 60) o.aiT *= 3; } this.think(o); } }
       else if (o.human && o.human !== 'host' && this.time - o.seen > 8) { this.dropHuman(o.human); }
       if (o.boostT > 0) {
         o.trailT -= dt;
@@ -905,7 +907,7 @@ export class AgarMode {
       if (o.hideT > 0) continue;
       this.act[n++] = i;
       const zone = this.terrain.zone(c.x, c.z);
-      let sp = speedFor(c.m) * (o.speed > 0 ? 1.45 : 1) * (zone === 2 ? 0.62 : 1);
+      let sp = speedFor(c.m) * (o.speed > 0 ? 1.45 : 1) * (zone === 2 ? 0.62 : 1) * (o.preyT > this.time ? 0.72 : 1);
       let dx = o.dx, dz = o.dz, mg = o.mag;
       if (o.boostT > 0) { sp *= 2.4; dx = o.ldx; dz = o.ldz; mg = 1; }
       // ice: the velocity only slowly follows the steering (slide + momentum); everywhere else it snaps to it
@@ -954,6 +956,7 @@ export class AgarMode {
           }
           continue;
         }
+        { const oa = owners[ca.o], ob = owners[cb.o]; if (oa.boss || ob.boss) { this.bossContact(oa.boss ? ca : cb, oa.boss ? cb : ca, d2); continue; } }
         if (ca.m > cb.m * 1.25 && d2 < Math.pow(ca.r - cb.r * 0.4, 2)) this.eatCell(ca, cb);
         else if (cb.m > ca.m * 1.25 && d2 < Math.pow(cb.r - ca.r * 0.4, 2)) this.eatCell(cb, ca);
       }
@@ -989,7 +992,7 @@ export class AgarMode {
         }
       }
       this.props.interact(c, this.act[a], o, dt);
-      if (c.m >= VIR_MIN && o.shield <= 0) {
+      if (c.m >= VIR_MIN && o.shield <= 0 && !o.boss) {
         for (let v = 0; v < NVIR; v++) {
           if (!this.von[v]) continue;
           const dx = this.vx[v] - c.x, dz = this.vz[v] - c.z, lim = c.r - 0.9;
@@ -1041,8 +1044,107 @@ export class AgarMode {
     if (id === this.me) { if (kind === 'chime') this.audio?.chime?.(); else this.snd(kind, undefined, undefined, v); } else if (o.human && o.human !== 'host') { if (this.net) this.net.sendTo(o.human, { t: 'sfx', k: kind, v }); } else if (x !== undefined) this.snd(kind, x, z, 0.5);
   }
 
+  // ------------------------------------------------------------------ small prey bots near the player (first-minute 'hunt' moment)
+  spawnPrey(me) {
+    const cand = [];
+    for (let k = 4; k < NOWN; k++) { const b = this.owners[k]; if (b.alive && b.bot && !b.human && !b.boss && b.cellN === 1 && b.hideT <= 0 && b.mass < 400) cand.push(b); }
+    const want = Math.min(3, cand.length);
+    for (let n = 0; n < want; n++) {
+      const b = cand.splice((Math.random() * cand.length) | 0, 1)[0];
+      const a = (n / 3) * 6.2832 + Math.random() * 1.2, d = 24 + Math.random() * 28, x = me.cx + Math.cos(a) * d, z = me.cz + Math.sin(a) * d, nm = 9 + Math.random() * 4;
+      const k2 = x * x + z * z > (R - 8) * (R - 8) ? (R - 8) / Math.hypot(x, z) : 1, px = x * k2, pz = z * k2;
+      for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.o === b.id) { c.x = c.tx = px; c.z = c.tz = pz; c.px0 = c.lsx = px; c.pz0 = c.lsz = pz; c.m = nm; c.r = KR * Math.sqrt(nm); c.vx = c.vz = 0; } }
+      b.mass = nm; b.cx = b.lx = px; b.cz = b.lz = pz; b.preyT = this.time + 25; b.shield = 0;
+      if (n === 0) { b.realName = b.name; this.setName(b, '🎯 av', false); b.name = b.realName; b.hiT = this.time + 25; }
+    }
+    if (want) this.toast('Küçükleri ye!');
+  }
+  preyThink(o) {
+    const me = this.owners[this.me];
+    if (o.wanderT <= 0 || Math.hypot(o.tx - o.lx, o.tz - o.lz) < 5) { o.wanderT = 2 + Math.random() * 2; const a = Math.random() * 6.2832, d = 18 + Math.random() * 34; o.tx = me.cx + Math.cos(a) * d; o.tz = me.cz + Math.sin(a) * d; }
+    o.wanderT -= 0.016;
+    const dx = o.tx - o.lx, dz = o.tz - o.lz, dl = Math.hypot(dx, dz) + 0.001;
+    o.dx = dx / dl; o.dz = dz / dl; o.mag = 0.7; o.ldx = o.dx; o.ldz = o.dz;
+    if (o.hiT && this.time > o.hiT) { o.hiT = 0; this.setName(o, o.realName, false); }
+  }
+
+  // ------------------------------------------------------------------ MEVSIM BOSS TOPU (host-authoritative; rammed at boost speed it takes hits, then drops a pellet shower)
+  bossTick(dt) {
+    const b = this.boss;
+    if (this.mp === 'client' || this.state !== 'play') return;
+    if (b.id < 0) { b.next -= dt; if (b.next <= 0 && this.dirOk()) this.spawnBoss(); return; }
+    const o = this.owners[b.id];
+    if (!o || !o.boss || !o.alive) { this.endBoss(false); return; }
+    b.t += dt; if (b.hitCd > 0) b.hitCd -= dt;
+    o.shield = 0;
+    for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.o === o.id) c.m = BOSSM; }
+    if (b.t > 170) { this.pushFeed('BOSS TOPU kayboldu...'); this.endBoss(false); }
+  }
+  spawnBoss() {
+    const b = this.boss; let o = null;
+    for (let i = NOWN - 1; i >= 4 && !o; i--) { const q = this.owners[i]; if (q.bot && !q.human && q.away) o = q; }
+    for (let i = NOWN - 1; i >= 4 && !o; i--) { const q = this.owners[i]; if (q.bot && !q.human && i !== this.me) o = q; }
+    if (!o) { b.next = 30; return; }
+    if (!o.away) this.removeBot(o, false);
+    const me = this.owners[this.me], p = { x: 0, z: 0 };
+    for (let t = 0; t < 12; t++) { this.randPos(p, 90); if (!me.alive || Math.hypot(p.x - me.cx, p.z - me.cz) > 260) break; }
+    this.setColor(o, 0x7a3cff); this.setName(o, '👑💀 BOSS TOPU', false);
+    this.newCell(o, p.x, p.z, BOSSM);
+    o.boss = true; o.bot = true; o.human = null; o.away = false; o.alive = true; o.wasAlive = true; o.cellN = 1; o.mass = BOSSM; o.cx = o.lx = p.x; o.cz = o.lz = p.z; o.shield = 0; o.preyT = 0; o.hideT = 0;
+    o.dx = 0; o.dz = 1; o.mag = 0; o.tx = p.x; o.tz = p.z; o.wanderT = 0; o.aiT = 0;
+    b.id = o.id; b.t = 0; b.hitCd = 0; b.max = b.hp = 12 + 4 * (this.net ? this.net.clients.size : 0);
+    this.dirCalm = 40;
+    this.toast('BOSS TOPU GELİYOR!'); this.pushFeed('BOSS TOPU geldi! HIZLAN ile çarp, küçükleri yutar'); this.audio?.milestone?.(5);
+    if (this.net) this.net.broadcast({ t: 'own', i: o.id, n: o.name, c: o.col, h: 0 });
+  }
+  endBoss() {
+    const b = this.boss, o = this.owners[b.id];
+    b.id = -1; b.next = 270 + Math.random() * 60; this.dirCalm = 40;
+    if (o) { o.boss = false; this.removeBot(o, false); }
+  }
+  bossThink(o) {
+    o.aiT -= 0.016; if (o.aiT > 0) return; o.aiT = 0.25;
+    let best = null, bd = 190;
+    for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (!c.on || c.o === o.id || c.m * 1.25 > BOSSM) continue; const ow = this.owners[c.o]; if (ow.hideT > 0) continue; const d = Math.hypot(c.x - o.lx, c.z - o.lz) + (ow.bot ? 40 : 0); if (d < bd) { bd = d; best = c; } }
+    if (best) { o.tx = best.x; o.tz = best.z; }
+    else { o.wanderT -= 0.25; if (o.wanderT <= 0 || Math.hypot(o.tx - o.lx, o.tz - o.lz) < 20) { const p = this.tmpP || (this.tmpP = { x: 0, z: 0 }); this.randPos(p, 90); o.tx = p.x; o.tz = p.z; o.wanderT = 10; } }
+    const dx = o.tx - o.lx, dz = o.tz - o.lz, dl = Math.hypot(dx, dz) + 0.001;
+    o.dx = dx / dl; o.dz = dz / dl; o.mag = best ? 0.9 : 0.5; o.ldx = o.dx; o.ldz = o.dz;
+  }
+  bossContact(B, X, d2) {
+    const ox = this.owners[X.o], b = this.boss, d = Math.sqrt(d2) + 0.001, nx = (X.x - B.x) / d, nz = (X.z - B.z) / d;
+    if (ox.hideT > 0) return;
+    if (!ox.bot && ox.boostT > 0 && X.m >= 12) {
+      if (b.hitCd > 0) return;
+      b.hitCd = 0.7; b.hp--; ox.boostT = 0; X.vx += nx * 75; X.vz += nz * 75; ox.xpRun += 4;
+      this.sfxTo(X.o, 'crash', 0.9, X.x, X.z);
+      if (X.o === this.me) this.toast('VURDUN! ' + Math.max(0, b.hp) + ' kaldı');
+      if (b.hp <= 0) this.defeatBoss(B, ox);
+      return;
+    }
+    if (ox.boostT > 0) return;
+    if (d2 < Math.pow(B.r - X.r * 0.4, 2) && ox.shield <= 0) this.eatCell(B, X);
+    else { const rs = B.r + X.r, push = (rs - d) * 0.6; X.x += nx * push; X.z += nz * push; }
+  }
+  defeatBoss(B, killer) {
+    const cols = [0xffd35a, 0xff4f86, 0xb070ff, 0x3fa8ff, 0x2fd67a, 0xffffff];
+    for (let k = 0; k < 260; k++) { const a = Math.random() * 6.2832, d = Math.sqrt(Math.random()) * (B.r * 1.5 + 14); this.spawnPellet(B.x + Math.cos(a) * d, B.z + Math.sin(a) * d, 6, cols[k % cols.length]); }
+    killer.kills++; killer.xpRun += 120;
+    this.pushFeed('BOSS DÜŞTÜ! ' + killer.name + ' son vuruşu yaptı - peletler herkese!');
+    if (killer.id === this.me) { this.toast('BOSS DÜŞTÜ! Peletleri topla'); this.audio?.milestone?.(6); } else this.sfxTo(killer.id, 'chime', 1);
+    this.endBoss();
+  }
+  bossHud() {
+    const el = this.hud && this.hud.bb; if (!el) return;
+    const b = this.boss, on = b.id >= 0 && this.state === 'play';
+    if (!on) { if (el._on) { el.style.display = 'none'; el._on = 0; } return; }
+    if (!el._on) { el.style.display = 'block'; el._on = 1; el._k = ''; }
+    const k = b.hp + '/' + b.max;
+    if (k !== el._k) { el._k = k; el.lastChild.firstChild.style.width = Math.max(0, Math.round(100 * b.hp / Math.max(1, b.max))) + '%'; }
+  }
+
   // ------------------------------------------------------------------ event director: one big event at a time, >= 40 s calm between them
-  evBusy() { return this.av.st > 0 || this.rain.st > 0 || this.zn.st > 0 || this.storm.on || this.wo.st > 0; }
+  evBusy() { return this.boss.id >= 0 || this.av.st > 0 || this.rain.st > 0 || this.zn.st > 0 || this.storm.on || this.wo.st > 0; }
   dirOk() { return this.dirCalm <= 0 && !this.evBusy(); }
   dirTick(dt) { if (this.state !== 'play') return; if (this.evBusy()) this.dirCalm = 40; else if (this.dirCalm > 0) this.dirCalm -= dt; }
   // ------------------------------------------------------------------ GORUS FIRTINASI (whiteout blizzard; host-authoritative state, local fog)
@@ -1484,7 +1586,7 @@ export class AgarMode {
     let best = null, bs = 1e18;
     for (let i = 4; i < NOWN; i++) {
       const o = this.owners[i];
-      if (o.away || !o.bot || o.human || i === this.me) continue;
+      if (o.away || !o.bot || o.human || o.boss || i === this.me) continue;
       const sc = (o.alive ? o.mass : 0) * (0.6 + Math.random() * 0.8); // dead / small ones go first
       if (sc < bs) { bs = sc; best = o; }
     }
@@ -1960,7 +2062,7 @@ export class AgarMode {
     for (const [id, rec] of net.clients) {
       const o = this.owners.find((q) => q.human === id);
       if (!o || !rec.conn.open) continue;
-      net.sendTo(id, { t: 's', hn: net.clients.size + 1, pn: this.presentCount(), pd, st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], pr: [this.rain.st, Math.round(this.rain.x), Math.round(this.rain.z)], wo: [this.wo.st, Math.round(this.wo.t * 10) / 10], zn: [this.zn.st, Math.round(this.zn.cx), Math.round(this.zn.cz), Math.round(this.zn.r), Math.round(this.zn.rt), Math.round(this.zn.t * 10) / 10], fk, hd, c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
+      net.sendTo(id, { t: 's', hn: net.clients.size + 1, pn: this.presentCount(), pd, st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], pr: [this.rain.st, Math.round(this.rain.x), Math.round(this.rain.z)], wo: [this.wo.st, Math.round(this.wo.t * 10) / 10], bs: this.boss.id >= 0 ? [this.boss.id, this.boss.hp, this.boss.max] : 0, zn: [this.zn.st, Math.round(this.zn.cx), Math.round(this.zn.cz), Math.round(this.zn.r), Math.round(this.zn.rt), Math.round(this.zn.t * 10) / 10], fk, hd, c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
     }
   }
 
@@ -2007,6 +2109,7 @@ export class AgarMode {
     this.lastSnap = this.time;
     if (m.hn) this.humans = m.hn;
     if (m.pn) this.presentN = m.pn;
+    { const b = m.bs, bb = this.boss; for (const q of this.owners) q.boss = false; if (b) { bb.id = b[0]; bb.hp = b[1]; bb.max = b[2]; if (this.owners[b[0]]) this.owners[b[0]].boss = true; } else bb.id = -1; }
     if (m.wo) { const ow = this.wo.st; this.wo.st = m.wo[0] | 0; this.wo.t = +m.wo[1] || 0; if (this.wo.st === 1 && ow !== 1) this.toast('BEYAZ FIRTINA GELİYOR!'); }
     if (m.pr) { const pw = this.rain.st; this.rain.st = m.pr[0]; this.rain.x = m.pr[1]; this.rain.z = m.pr[2]; if (this.rain.st === 1 && pw !== 1) this.toast('PELET YAĞMURU GELİYOR!'); }
     if (m.st) { const sw = this.storm.on; this.storm.on = !!m.st[0]; this.storm.x = m.st[1]; this.storm.z = m.st[2]; if (this.storm.on && !sw) { this.pushFeed('❄ Kar fırtınası başladı!'); this.stormSndT = 0; } }
@@ -2072,7 +2175,7 @@ export class AgarMode {
     if (this.mp === 'client') this.clientSmooth(dt);
     else if (this.state === 'play' || this.state === 'dead' || this.state === 'title' || this.state === 'lobby') this.simulate(dt);
     this.props.updatePulls(dt);
-    this.avTick(dt); this.woTick(dt);
+    this.avTick(dt); this.woTick(dt); this.bossTick(dt); this.bossHud();
     // radii
     const k = Math.min(1, dt * 9);
     for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on) c.r += (KR * Math.sqrt(c.m) - c.r) * k; }
@@ -2124,7 +2227,7 @@ export class AgarMode {
     let ht = 120 * zf;
     if (fo) {
       const rEff = Math.max(KR * Math.sqrt(fo.mass), fo.ext * 0.8);
-      ht = me.alive ? Math.max(72 * zf, (16 + 7.5 * rEff) * zf * (0.78 + 0.22 * Math.min(1, (this.time - me.t0) / 50))) : Math.max(120 * zf, (16 + 7.5 * rEff) * zf);
+      ht = me.alive ? Math.max(52 * zf, (16 + 7.5 * rEff) * zf * (0.78 + 0.22 * Math.min(1, (this.time - me.t0) / 50))) : Math.max(120 * zf, (16 + 7.5 * rEff) * zf);
       const kk = Math.min(1, dt * (me.alive ? 6 : 1.5));
       this.camX += (fo.cx + (me.alive ? this.inp.dx * this.inp.mag * rEff * 0.5 : 0) - this.camX) * kk;
       this.camZ += (fo.cz + (me.alive ? this.inp.dz * this.inp.mag * rEff * 0.5 : 0) - this.camZ) * kk;
@@ -2406,6 +2509,7 @@ export class AgarMode {
       map: q('.ag-map'), mctx: q('.ag-map').getContext('2d'), boost: q('.boost'), cd: q('.cd'), bsplit: q('.split'),
     };
     { const w = document.createElement('div'); w.style.cssText = 'position:absolute;inset:0;pointer-events:none;opacity:0;z-index:3;will-change:opacity'; root.appendChild(w); this.hud.wo = w; }
+    { const w = document.createElement('div'); w.style.cssText = 'position:absolute;left:50%;top:46px;transform:translateX(-50%);width:min(300px,56vw);pointer-events:none;z-index:4;display:none;text-align:center;font:900 13px "Trebuchet MS",system-ui,sans-serif;color:#ffe9a8;text-shadow:0 1px 3px #000'; w.innerHTML = '<span>BOSS TOPU</span><div style="height:11px;margin-top:3px;border-radius:6px;background:rgba(20,10,40,.7);border:2px solid #ffd35a;overflow:hidden"><i style="display:block;height:100%;width:100%;background:linear-gradient(90deg,#b13cff,#ff4f86)"></i></div>'; root.appendChild(w); this.hud.bb = w; }
     q('.ag-lb .t').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); const c = this.hud.lbBox.classList.toggle('col'); q('.ag-lb .tg').textContent = c ? '▸' : '▾'; });
     const press = (el, fn) => {
       el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); this.audio?.init?.(); fn(); });
@@ -2486,7 +2590,7 @@ export class AgarMode {
     if (this.lbT <= 0) {
       this.lbT = 0.25;
       let n = 0;
-      for (let i = 0; i < NOWN; i++) if (this.owners[i].alive) this.lb[n++] = this.owners[i];
+      for (let i = 0; i < NOWN; i++) if (this.owners[i].alive && !this.owners[i].boss) this.lb[n++] = this.owners[i];
       this.lbN = n; this.lb.length = n;
       this.lb.sort(this._lbCmp);
       { const k0 = this.lb[0]; this.king = k0 && n >= 3 && k0.mass > 60 ? k0 : null; this.kingId = this.king ? this.king.id : -1; }

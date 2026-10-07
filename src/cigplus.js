@@ -1271,6 +1271,7 @@ export class CigGame {
   // ---- lifecycle
   reset() {
     const G = this.G, b = this.ball, w = this.world;
+    if (this.loot) { try { this.plus.group.remove(this.loot.grp); } catch { /* optional */ } this._lootHud(this.loot, false); this.loot = null; }
     const r0 = this.L ? this.L.r0 : CFG.startR;
     Object.assign(G, {
       state: 'play', targetX: 0, combo: 0, comboT: 0, swallowed: 0, townTons: 0, destroyed: 0,
@@ -1823,7 +1824,7 @@ export class CigGame {
     const G = this.G, b = this.ball, M = this.plus.mods, e = p.enemy;
     const target = this.targetSpeed();
     const mul = (this.powerT > 0 ? 3 : 1) * (M.plow ? 2 : 1);
-    const dmg = CFG.ramDmg * b.r * (0.7 + 0.3 * clamp(b.speed / Math.max(1, target), 0, 1.3)) * mul * (e.B ? (e.B.stun > 0 ? 2 : 0.6) : 1);   // bosses: big damage in the stun window, little outside it
+    const dmg = CFG.ramDmg * b.r * (0.7 + 0.3 * clamp(b.speed / Math.max(1, target), 0, 1.3)) * mul * (e.B ? (e.B.stun > 0 ? 1.6 : 0.15) : 1);   // bosses: big damage in the stun window, little outside it
     e.hp -= dmg;
     e.hitCd = 0.4; e.flash = 0.14; e.woke = true;
     e.kbD = Math.max(8, b.speed * 0.9); e.kbX = (dx >= 0 ? 1 : -1) * (3 + b.r * 0.4);
@@ -2597,32 +2598,43 @@ export class CigGame {
     const b = this.ball, L = this.L;
     if (this.loot || !L || !L.boss) return;
     const geo = new THREE.IcosahedronGeometry(1, 1);
-    const core = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffe27a }));
-    const halo = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.35, depthWrite: false }));
-    const grp = new THREE.Group(); grp.add(core); halo.scale.setScalar(1.8); grp.add(halo);
-    grp.frustumCulled = false;
+    const core = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xfff0a0 }));
+    const halo = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.4, depthWrite: false }));
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.8, 1, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0xfff2a0, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    const grp = new THREE.Group(); grp.add(core); halo.scale.setScalar(1.9); grp.add(halo);
+    beam.scale.set(1, 60, 1); beam.position.y = 30; grp.add(beam);
+    grp.frustumCulled = false; beam.frustumCulled = false;
     this.plus.group.add(grp);
-    this.loot = { grp, halo, d: b.d + 28, x: b.x, v: Math.max(10, b.speed * 0.95), t: 0, got: false, lost: false, boss: L.bossId };
-    this._msg(3, '✨ PATRON GANİMETİ! Küreyi yakala');
+    let hud = null;
+    try { hud = document.createElement('div'); hud.style.cssText = 'position:fixed;left:50%;top:22%;transform:translateX(-50%);z-index:30;pointer-events:none;padding:6px 14px;border-radius:18px;background:rgba(255,226,122,.92);color:#3a2a00;font:900 18px system-ui,sans-serif;box-shadow:0 3px 0 #8a6a00;white-space:nowrap'; document.body.appendChild(hud); } catch { hud = null; }
+    this.loot = { grp, halo, hud, d: b.d + 30, x: b.x, v: Math.max(9, b.speed * 0.8), t: 0, got: false, lost: false, boss: L.bossId };
+    this._msg(3, '✨ GANİMET!');
+  }
+  _lootHud(o, on) {
+    if (!o.hud) return;
+    if (!on) { try { o.hud.remove(); } catch { /* optional */ } o.hud = null; return; }
+    const b = this.ball, dx = o.x - b.x;
+    o.hud.textContent = (dx < -1.5 ? '◀ ' : dx > 1.5 ? '' : '▲ ') + '✨ GANİMET ' + Math.max(0, Math.round(o.d - b.d)) + 'm' + (dx > 1.5 ? ' ▶' : '');
   }
   _loot(dt) {
     const o = this.loot, b = this.ball, w = this.world, L = this.L;
     if (!o || o.got || o.lost) return;
     o.t += dt;
-    o.v += (b.speed * (o.t < 2.5 ? 0.9 : 0.62) - o.v) * Math.min(1, dt * 1.5);
+    o.v += (b.speed * (o.t < 3 ? 0.78 : 0.55) - o.v) * Math.min(1, dt * 1.5);
     o.d = Math.min(o.d + o.v * dt, L.length - 4);
-    const hw = w.halfWidth(o.d) * 0.6;
-    o.x = Math.sin(o.t * 0.9) * hw;
-    const r = 0.9 + b.r * 0.25, y = w.groundY(o.x, o.d) + r + 0.5 + Math.sin(o.t * 4) * 0.15;
+    const hw = w.halfWidth(o.d) * 0.5;
+    o.x = Math.sin(o.t * 0.7) * hw;
+    const r = 1.8 + b.r * 0.4, y = w.groundY(o.x, o.d) + r + 0.6 + Math.sin(o.t * 4) * 0.2;
     o.grp.position.set(o.x, y, -o.d); o.grp.scale.setScalar(r); o.grp.rotation.y = o.t * 2;
-    o.halo.scale.setScalar(1.8 + Math.sin(o.t * 6) * 0.2);
-    if (Math.abs(o.d - b.d) < b.r + r + 0.8 && Math.abs(o.x - b.x) < b.r + r + 1.2) {
-      o.got = true; this.G.lootGot = o.boss; this.plus.group.remove(o.grp);
+    o.halo.scale.setScalar(1.9 + Math.sin(o.t * 6) * 0.25);
+    this._lootHud(o, true);
+    if (Math.abs(o.d - b.d) < b.r + r + 1.2 && Math.abs(o.x - b.x) < b.r + r + 1.6) {
+      o.got = true; this.G.lootGot = o.boss; this.plus.group.remove(o.grp); this._lootHud(o, false);
       this.G.bonusTons += Math.max(30, 0.5 * this.snowTons()) * this._cm();
       this._h('burst', o.x, y, o.d, 22, 0xffe27a, 9, 0.35, 8); this._h('flash', 'gold'); this._h('sfx', 'milestone', 2); this._h('haptic', 'success');
       this._msg(2, '✨ GANİMET ALINDI!');
     } else if (b.d > o.d + 8 || (b.d >= L.length - 6 && o.d >= L.length - 5)) {
-      o.lost = true; this.plus.group.remove(o.grp); this._msg(1, 'Ganimet kayboldu...');
+      o.lost = true; this.plus.group.remove(o.grp); this._lootHud(o, false); this._msg(1, 'Ganimet kayboldu...');
     }
   }
 

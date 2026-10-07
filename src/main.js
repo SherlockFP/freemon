@@ -649,6 +649,10 @@ function playCigLevel(n, opts = {}) {
 }
 
 // arg: 1..30 or { daily: true }. opts: { retry, force (debug: ignore the locks) }
+// ÇIĞ EŞLİĞİ: consecutive mountain wins (no fail between) = +5% start size per level, max +25%
+const streakGet = () => { try { return Math.max(0, Math.min(5, parseInt(localStorage.getItem('cigStreak') || '0', 10) || 0)); } catch { return 0; } };
+const streakSet = (v) => { try { localStorage.setItem('cigStreak', String(Math.max(0, v | 0))); } catch { /* optional */ } };
+
 function startCigLevel(arg, opts = {}) {
   const daily = !!(arg && typeof arg === 'object' && arg.daily);
   const force = !!opts.force || DEBUG;
@@ -665,8 +669,11 @@ function startCigLevel(arg, opts = {}) {
   G.dailySeed = dailySeed();
   G.dailyNo = dailyNumber();
   const assist = !daily && save.cigLvFails(n) >= 3 ? 1 : 0;   // three losses in a row on the same mountain: a quiet helping hand
-  const plan = dagPlan(n, daily ? { daily: true, seed: G.dailySeed * 7919 + 13, dailyNo: G.dailyNo } : { assist });
+  const basePlan = dagPlan(n, daily ? { daily: true, seed: G.dailySeed * 7919 + 13, dailyNo: G.dailyNo } : { assist });
   meta.track('run_start', { mode: 'cigLevel', level: n, daily });
+  const streak = daily ? 0 : streakGet();
+  // dagPlan caches a frozen plan: apply the streak start bonus to a shallow copy
+  const plan = streak > 0 ? { ...basePlan, r0: basePlan.r0 * (1 + 0.05 * streak) } : basePlan;
   G.mode = 'cig';
   G.daily = daily;
   G.lv = plan;
@@ -681,6 +688,7 @@ function startCigLevel(arg, opts = {}) {
   lastPlusPlan = -1;
   ui.showPause(false);
   ui.startRun(plan.label);
+  if (streak > 0) { try { game._msg(2, '🔥 SERİ x' + streak + ' · +' + 5 * streak + '% BAŞLANGIÇ'); } catch { /* optional */ } }
   ensureLevelHud(plan);
   const showHint = plan.n <= 2 && (plan.n === 1 || (!G.hinted && (save.cigTut?.() ?? 0) < 3));
   ui.hint(showHint, 'sürükle · küçükleri ye, kapıyı kır');
@@ -714,7 +722,7 @@ function finishCigLevel() {
     G.lastEval = { win, stars, goalsMet };
     if (sim) return;
     const rec = daily ? null : save.recordCigLevel(n, { stars, tons: r.tons, size: 2 * G.finalR, time: st.time });
-    if (!daily) save.cigLvFailReset(n);
+    if (!daily) { save.cigLvFailReset(n); streakSet(streakGet() + 1); }
     const firstClear = !!(rec && rec.firstClear);
     const prev = rec ? rec.prevStars : 0;
     let coins = daily ? 20 + 4 * n : firstClear ? 25 + 4 * n + (plan.boss ? 100 : 0) : 5 + 2 * stars;
@@ -749,7 +757,7 @@ function finishCigLevel() {
   } else {
     G.lastEval = { win, stars: 0, goalsMet: [false, false, false] };
     if (sim) return;
-    if (!daily) save.cigLvFail(n);
+    if (!daily) { save.cigLvFail(n); streakSet(0); }
     save.recordRun(r.tons);
     meta.track('cig_end', { level: n, stars: 0, tons: r.tons, pct: Math.min(0.99, peakD / plan.length), reached: false, daily, theme: scenery.theme.id, endless: false });
     meta.track('cig_progress', { tons: r.tons, dist: peakD });

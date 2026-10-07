@@ -916,6 +916,20 @@ const CSS = `
 .fm-cgrow .tx b { font-size: 18px; line-height: 1.1; }
 .fm-cgrow .tx small { font-size: 13px; color: #5a7196; font-weight: 800; }
 .fm-cgrow.lock { opacity: 0.62; filter: saturate(0.5); }
+/* legibility: small text gets solid colours, no outline stacks */
+.fm-tag, .fm-ihead, .fm-sum, .fm-today .tl, .fm-cur .num, .fm-toast .tt, .fm-globe .glt, .fm-node .nm, .fm-node .bn, .fm-bonushd, .fm-acthero .t1, .fm-stamp, .fm-chip, .fm-xchip { text-shadow: none !important; -webkit-text-stroke: 0 !important; }
+.fm-today .tl { background: rgba(14, 24, 60, 0.7); padding: 3px 7px; border-radius: 9px; font-size: 11px; }
+.fm-ihead, .fm-sum { background: rgba(14, 24, 60, 0.55); padding: 3px 8px; border-radius: 9px; }
+.fm-node .stars b.on, .fm-cgn .stars b.on { text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6); }
+.fm-card .tx { font-size: 16px; color: #2a1d08; text-shadow: none !important; -webkit-text-stroke: 0; font-weight: 800; }
+.fm-card .cp, .fm-card .st { text-shadow: none; }
+.fm-shelf .hd { font-size: 14px; font-weight: 900; color: #14284a; text-shadow: none !important; -webkit-text-stroke: 0; }
+.fm-shcap { min-height: 15px; font-size: 12px; font-weight: 800; color: #14284a; text-shadow: none; text-align: center; }
+.fm-troph.lock { background: linear-gradient(180deg, #aeb6c4, #8a93a3); box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.35), 0 4px 0 #5d6574; cursor: pointer; color: transparent; text-shadow: none; filter: grayscale(1) brightness(0.55); opacity: 0.85; }
+.fm-troph.lock .lk { position: absolute; right: -4px; bottom: -4px; font-size: 11px; line-height: 1; color: #fff; }
+.fm-post { right: auto; top: auto; left: 76px; bottom: 20px; z-index: 3; }
+.fm-cfly { position: absolute; z-index: 120; font-size: 22px; pointer-events: none; text-shadow: none; animation: fmCoinFly 1s cubic-bezier(.5, 0, .8, .4) forwards; opacity: 0; }
+@keyframes fmCoinFly { 0% { opacity: 1; transform: translate(0, 0) scale(1); } 100% { opacity: 0; transform: translate(35vw, -70vh) scale(0.5); } }
 @media (prefers-reduced-motion: reduce) {
   .fm-main *, .fm-ov *, .fm-modal *, .fm-boxov *, .fm-plov *, .fm-resov *, .fm-toast { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
@@ -1149,6 +1163,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   const toastQ = [];
   let toastBusy = false;
   const toastSeen = new Map();
+  const toastOnce = new Set(); // each stamp toast at most once per session
 
   function pumpToast() {
     if (toastBusy || !toastQ.length) return;
@@ -1169,6 +1184,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   }
   function toast(t) {
     if (!t || !t.title) return;
+    if (/^Yeni damga/.test(t.title)) { const tk = `${t.title}|${t.sub || ''}`; if (toastOnce.has(tk)) return; toastOnce.add(tk); }
     if (toastQ.length >= 4) toastQ.splice(1, 1);
     toastQ.push(t);
     pumpToast();
@@ -1389,21 +1405,25 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const grid = el('div', 'fm-stamps');
     for (const x of list) grid.appendChild(add(el('div', `fm-stamp${x.got ? ' got' : ''}`), el('div', 'si', x.got ? x.icon : '❔'), el('div', 'sn', x.name), el('div', 'sd', x.desc)));
     const ach = ACHIEVEMENTS.map((d) => ({ d, pr: meta.progress(d.id) }));
-    const shelf = (title, items, cls) => {
+    const shelf = (title, items, cls, locked) => {
       const s = el('div', 'fm-shelf');
       const bd = el('div', 'fm-board');
-      if (!items.length) bd.appendChild(el('div', 'fm-empty', 'Henüz yok...'));
-      for (const it of items) { const t = el('div', `fm-troph ${cls}`, it.icon); t.title = it.name; bd.appendChild(t); }
-      add(s, el('div', 'hd', title), bd, el('div', 'fm-plank'));
+      const cap = el('div', 'fm-shcap', '');
+      for (const it of items) { const t = el('div', `fm-troph ${cls}`, it.icon); t.title = it.name; t.addEventListener('click', () => { cap.textContent = it.name; }); bd.appendChild(t); }
+      const lk = (locked || []).slice(0, Math.max(3, Math.min(5, 6 - items.length)));
+      for (const it of lk) { const t = el('div', `fm-troph lock ${cls}`, it.icon); t.title = `${it.name} (kilitli)`; t.appendChild(el('span', 'lk', '🔒')); t.addEventListener('click', () => { cap.textContent = `🔒 ${it.name}`; }); bd.appendChild(t); }
+      if (!items.length && !lk.length) bd.appendChild(el('div', 'fm-empty', 'Henüz yok...'));
+      add(s, el('div', 'hd', title), bd, el('div', 'fm-plank'), cap);
       return s;
     };
     p.list.appendChild(el('div', 'fm-note', 'ROZET RAFI'));
     const modeOf = (x) => (/^ARENA/.test(x.desc) ? 'ARENA' : /^(ÇIĞ|Gece|Günün)/.test(x.desc) ? 'ÇIĞ' : /^MACERA/.test(x.desc) ? 'MACERA' : 'YETİ RUSH');
     const groups = {};
-    for (const x of list) if (x.got) (groups[modeOf(x)] = groups[modeOf(x)] || []).push(x);
-    for (const k of ['YETİ RUSH', 'ÇIĞ', 'MACERA', 'ARENA']) p.list.appendChild(shelf(`${k} · ${(groups[k] || []).length} damga`, groups[k] || [], 'st'));
+    const lockedG = {};
+    for (const x of list) { const g = x.got ? groups : lockedG; (g[modeOf(x)] = g[modeOf(x)] || []).push(x); }
+    for (const k of ['YETİ RUSH', 'ÇIĞ', 'MACERA', 'ARENA']) p.list.appendChild(shelf(`${k} · ${(groups[k] || []).length} damga`, groups[k] || [], 'st', lockedG[k] || []));
     const doneA = ach.filter((x) => x.pr.done).map((x) => x.d);
-    p.list.appendChild(shelf(`BAŞARIMLAR · ${doneA.length}/${ach.length}`, doneA.slice(0, 40), 'ach'));
+    p.list.appendChild(shelf(`BAŞARIMLAR · ${doneA.length}/${ach.length}`, doneA.slice(0, 40), 'ach', ach.filter((x) => !x.pr.done && !x.d.secret).map((x) => x.d)));
     const next = ach.filter((x) => !x.pr.done && !x.d.secret && x.pr.goal > 1).sort((a, b) => b.pr.value / b.pr.goal - a.pr.value / a.pr.goal).slice(0, 3);
     if (next.length) {
       p.list.appendChild(el('div', 'fm-note', 'AÇILMAYA EN YAKIN 3'));
@@ -1420,6 +1440,17 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     return p;
   }
 
+  function coinFly(from) {
+    try {
+      const r0 = from.getBoundingClientRect(); const h = host.getBoundingClientRect();
+      for (let i = 0; i < 8; i++) {
+        const c = el('div', 'fm-cfly', '❄️');
+        c.style.left = `${r0.left - h.left + r0.width / 2 + (i - 4) * 8}px`; c.style.top = `${r0.top - h.top + r0.height / 2}px`; c.style.animationDelay = `${i * 60}ms`;
+        host.appendChild(c); setTimeout(() => c.remove(), 1300 + i * 60);
+      }
+    } catch { /* ignore */ }
+  }
+
   function openPostcard() {
     sfx('click');
     const p = openPanel({ id: 'post', title: 'YETİ POSTASI', pills: ['coins'] });
@@ -1433,7 +1464,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       const bt = button('fm-btn glow', 'KUPONU AL', () => {
         let g = null;
         try { g = meta.openPostcard(); } catch { /* ignore */ }
-        if (g) { sfx('confirm'); confetti(40); toast({ icon: '✉️', title: `+${g.coins} ❄️`, sub: 'Yeti Postası kuponu', kind: 'gold', ms: 2200 }); }
+        if (g) { sfx('confirm'); confetti(40); coinFly(bt); toast({ icon: '✉️', title: `+${g.coins} ❄️`, sub: 'Yeti Postası kuponu', kind: 'gold', ms: 2200 }); }
         bt.remove(); updateMain();
       });
       p.list.appendChild(bt);
@@ -2801,7 +2832,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.globeBdg = el('span', 'fm-bdg dot gold off', '!');
     r.globeLb = el('span', 'glt', 'KAR KÜRESİ');
     add(r.globe, r.globeIc, r.globeBdg, r.globeLb);
-    add(mid, hero, r.globe);
+    add(mid, hero, r.globe, r.post);
     root0.appendChild(mid);
     root0.appendChild(r.aura);
 
@@ -2861,7 +2892,6 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     sMis.ic.appendChild(r.xchip);
     r.bMis = sMis.bdg; r.bShop = sShop.bdg;
     bot.appendChild(add(el('div', 'fm-secrow'), sCig.b, sMap.b, sShop.b, sMis.b, sPass.b, sSet.b));
-    bot.appendChild(r.post);
     root0.appendChild(bot);
 
     host.appendChild(root0);

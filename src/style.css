@@ -894,7 +894,7 @@ html, body {
   background: radial-gradient(ellipse at center, rgba(8, 22, 48, 0.5) 0%, rgba(8, 22, 48, 0.3) 60%, rgba(8, 22, 48, 0) 100%);
   padding: 2px 18px; border-radius: 16px; -webkit-text-stroke: 0.6px rgba(8, 22, 48, 0.9); paint-order: stroke fill;
 }
-#cig-banner .cb-k, #cig-banner .cb-n { display: inline-block; }
+#cig-banner .cb-k, #cig-banner .cb-n { display: block; width: max-content; margin: 0 auto; }
 #toast-soft .ts { background: rgba(10, 25, 55, 0.94); }
 #banner, #cig-banner { contain: layout; }
 
@@ -907,3 +907,12 @@ html, body {
 #hud.cig-lvl .buffs { top: calc(var(--sat) + 110px); }
 #hud.cig-lvl ~ #toast-soft:not(.res) { top: calc(var(--sat) + 112px); }
 @media (max-height: 700px) { #hud.cig-lvl .hud-tons { font-size: 24px; top: calc(var(--sat) + 38px); } #cig-lv { top: calc(var(--sat) + 66px); } }
+
+/* legibility: text under ~16px uses solid colour on a backed pill, no outline stacks */
+.hud-yeti .yeti-lbl, .hud-flow .flow-lbl, .hud-progress .pt, .cig-hud .cg-row, .cig-hud .cg-tn, .hud-vitals .pips::before, .buff-card .bc-s, #cig-banner .cb-k {
+  text-shadow: none; -webkit-text-stroke: 0; paint-order: normal;
+}
+.hud-yeti .yeti-lbl, .hud-flow .flow-lbl, .hud-progress .pt, .cig-hud .cg-row, .hud-vitals .pips::before {
+  background: rgba(8, 22, 48, 0.72); padding: 1px 7px; border-radius: 9px; color: #fff;
+}
+.hud-flow .flow-lbl { color: #ffe27a; }

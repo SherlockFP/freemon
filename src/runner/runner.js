@@ -328,6 +328,7 @@ export class Runner {
     // ---- critters ----
     this.stompN = 0;
     this.stompTotal = 0;
+    this.penN = 0; this.penHist = []; this.penMeshes = this.penMeshes || [];   // KAR SÜRÜSÜ: little penguins following the ball
     this.snowChain = 0;
     this.snowT = -9;
 
@@ -446,7 +447,7 @@ export class Runner {
   get mult() {
     if (!this.buffs) return 1;
     // Combo is earned: flow (skill events only) adds +0.5 per point (x10 / x25 / x50 at 18 / 48 / 98); size counts for at most +2.
-    return (this.furyT > 0 ? 2 : 1) * (this.flow * 0.5 + scoreMult(Math.min(2, this.tier), 0, this.chainBonus(), this.dangerBonus(), this.riskBonus(),
+    return (this.furyT > 0 ? 2 : 1) * (this.flow * 0.5 + 0.1 * (this.penN || 0) + scoreMult(Math.min(2, this.tier), 0, this.chainBonus(), this.dangerBonus(), this.riskBonus(),
       (this.ctx.meta?.multiplier?.() ?? 1) - 1 + 0.15 * Math.min(5, this.perm.speed || 0), RCFG.multCap));
   }
 
@@ -546,6 +547,7 @@ export class Runner {
     this.rShown += (this.b.r - this.rShown) * Math.min(1, dt * 12);
     this.ctx.ball.setRadius(this.rShown);
     this.placeBall(false, dt);
+    this.updatePenguins(dt);
     this.updateYeti(dt);
     this.ctx.fx.update(dt, this.ctx.ball);
     this.updateCamera(rdt);
@@ -2174,6 +2176,58 @@ export class Runner {
     return true;
   }
 
+  // KAR SÜRÜSÜ: up to 5 tiny penguins queue behind the ball (each +0.1 on the multiplier); a crash scatters them.
+  addPenguin() {
+    if (this.penN >= 5) { this.score += 50 * this.mult; return; }
+    this.penN++;
+    this.float(`KAR SÜRÜSÜ x${this.penN}  +0.${this.penN}`, 'big');
+    this.ctx.audio.chime?.();
+  }
+
+  scatterPenguins() {
+    if (!this.penN) return;
+    const n = this.penN; this.penN = 0;
+    this.burst(6 + n * 2, 0x1a1d26, 3);
+    this.float('SÜRÜ DAĞILDI!', '');
+  }
+
+  penMesh(i) {
+    let g = this.penMeshes[i];
+    if (g) return g;
+    g = new THREE.Group();
+    const dark = new THREE.MeshStandardMaterial({ color: 0x1a1d26, roughness: 0.8 }), white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 }), org = new THREE.MeshStandardMaterial({ color: 0xff9a2a, roughness: 0.7 });
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), dark); body.scale.set(0.9, 1.1, 0.8); body.position.y = 0.55;
+    const belly = new THREE.Mesh(new THREE.SphereGeometry(0.4, 10, 8), white); belly.scale.set(0.85, 1, 0.5); belly.position.set(0, 0.5, 0.25);
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 6), org); beak.rotation.x = Math.PI / 2; beak.position.set(0, 0.8, 0.5);
+    g.add(body, belly, beak); g.scale.setScalar(0.55); g.visible = false;
+    this.ctx.scene.add(g); this.penMeshes[i] = g;
+    return g;
+  }
+
+  updatePenguins(dt) {
+    const b = this.b, t = this.time || 0;
+    const H = this.penHist || (this.penHist = []);
+    if (this.state === 'play') { H.push(b.s, b.u); if (H.length > 160) H.splice(0, 2); }
+    const tr = this.track;
+    for (let i = 0; i < 5; i++) {
+      const g = this.penMeshes[i] || (i < this.penN ? this.penMesh(i) : null);
+      if (!g) continue;
+      if (i >= this.penN || this.state !== 'play') { g.visible = false; continue; }
+      const lag = 2 * (4 + 5 * (i + 1));                    // samples back (H holds s,u pairs ~ one per frame)
+      const k = Math.max(0, H.length - 2 - lag);
+      let ps = H[k] - 0.0, pu = H[k + 1];
+      ps = Math.min(ps, b.s - 1.4 * (i + 1));
+      if (ps < 0) { g.visible = false; continue; }
+      const sf = tr.surfaceAt(ps, pu);
+      tr.toWorld(ps, pu, Math.max(0, sf === -Infinity ? 0 : sf) + Math.abs(Math.sin(t * 9 + i * 1.3)) * 0.25, _v2);
+      tr.frame(ps, _f2);
+      g.position.copy(_v2);
+      g.rotation.y = Math.atan2(_f2.tan.x, _f2.tan.z);
+      g.rotation.z = 0.12 * Math.sin(t * 9 + i * 1.3);
+      g.visible = true;
+    }
+  }
+
   crash(e) {
     const b = this.b;
     const { audio, platform, ui } = this.ctx;
@@ -2184,6 +2238,7 @@ export class Runner {
     this.ctx.meta?.track?.('crash', {});
     this.layersLost++;
     this.debris(e, 10);
+    this.scatterPenguins();
     // A second crash while the Yeti is right behind you: it catches you.
     if (this.stumbleT > 0 && !this.buffs.has('yetikov')) {
       this.stumbleHits = (this.stumbleHits || 1) + 1;
@@ -2279,6 +2334,7 @@ export class Runner {
         audio.whoosh?.(); this.kick += e.enter ? 3 : 1;
         break;
       case 'fx':
+        if (e.value === 2 && e.kind === 'pensled') { this.addPenguin(); break; }
         if (e.value === 1) { if (e.kind === 'turret') audio.pop?.(); else if (e.kind === 'icegate') audio.bump?.(); else if (e.kind === 'pensled') audio.chime?.(); }
         break;
       case 'warn':
@@ -2643,6 +2699,7 @@ export class Runner {
     const obs = this.obstacles;
     if (e.stomp) {
       obs.killCritter?.(e.id);
+      if (e.kind === 'penguin') this.addPenguin();
       this.stompN++;
       if (this.stompN >= 2) this.addFury(0.06);
       this.stompTotal++;
@@ -3451,6 +3508,8 @@ export class Runner {
   }
 
   dispose() {
+    for (const g of this.penMeshes || []) { this.ctx.scene.remove(g); g.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); }); }
+    this.penMeshes = [];
     this._rcpKill();
     this.stormEl?.remove(); this.stormEl = null;
     this.closeOut();
