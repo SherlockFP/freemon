@@ -972,7 +972,9 @@ const CSS = `
 .fm-todaywrap::before, .fm-todaywrap::after { display: none; }
 .fm-bigstar.on { animation-duration: 0.45s; }
 .fm-rgoals { gap: 4px; }
-.fm-rgoal { padding: 4px 10px; font-size: 13px; border-radius: 11px; }
+.fm-rgoal { padding: 6px 10px; font-size: 14px; border-radius: 11px; }
+.fm-rbtns .row { display: flex; gap: 12px; }
+.fm-rbtns .row .fm-btn { flex: 1 1 0; min-width: 0; width: auto; }
 .fm-rgoal .gs { font-size: 16px; }
 .fm-rgoal.miss .gs { color: rgba(255, 255, 255, 0.3); }
 @keyframes fmClaim { 0%, 100% { transform: scale(1) translateY(0); box-shadow: 0 0 6px 1px rgba(255, 154, 58, 0.6); } 12% { transform: scale(1.12) translateY(-3px); box-shadow: 0 0 16px 5px rgba(255, 207, 58, 0.95); } 24% { transform: scale(1) translateY(0); } 40% { box-shadow: 0 0 14px 4px rgba(255, 207, 58, 0.8); } 70% { box-shadow: 0 0 6px 1px rgba(255, 154, 58, 0.6); } }

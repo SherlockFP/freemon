@@ -1705,32 +1705,44 @@ export class AgarMode {
     this.deadT = 1.1;
     this.deadKiller = killer ? killer.name : '';
     this.deaths = (this.deaths || 0) + 1;
-    if (this.mp !== 'client' && this.deaths < 3) { this.ghostStart(o); this.deadT = 1e9; } // GÖLGE AV: soft elimination
+    if (this.mp !== 'client' && this.deaths < 3) { this.ghostStart(o, killer); this.deadT = 1e9; } // GÖLGE AV: soft elimination
     this.audio?.lose?.();
     this.platform?.haptic?.('heavy');
     this.bank(o);
   }
 
   /** GÖLGE AV: after being eaten you roam 10 s as a ghost, collect a few pellets, then respawn with that bonus mass */
-  ghostStart(o) {
-    this.ghost = { x: o.lx, z: o.lz, t: 10, bonus: 0, n: 0, ct: 0 };
+  ghostStart(o, killer) {
+    this.ghost = { x: o.lx, z: o.lz, t: 10, bonus: 0, n: 0, ct: 0, kl: killer && killer !== o ? killer : null, rev: false };
     this.bank(o);
     const el = document.createElement('div');
     el.className = 'ag-ghost';
     el.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;font-size:34px;filter:drop-shadow(0 0 8px #bfeaff);opacity:.85;z-index:5';
     el.textContent = '👻';
     const bar = document.createElement('div');
-    bar.style.cssText = 'position:absolute;left:50%;top:18%;transform:translateX(-50%);text-align:center;color:#eaf6ff;font:800 20px system-ui,sans-serif;text-shadow:0 2px 6px #0007;z-index:6;pointer-events:none';
-    const menu = document.createElement('button'); menu.type = 'button'; menu.className = 'ag-btn'; menu.textContent = 'MENÜ'; menu.style.cssText = 'pointer-events:auto;margin-top:8px;font-size:14px;padding:6px 16px';
+    bar.style.cssText = 'position:absolute;left:50%;top:30%;transform:translateX(-50%);text-align:center;color:#eaf6ff;font:800 15px system-ui,sans-serif;text-shadow:0 2px 6px #0007;z-index:6;pointer-events:none;background:rgba(10,20,40,.55);border-radius:16px;padding:6px 14px;white-space:nowrap';
+    const menu = document.createElement('button'); menu.type = 'button'; menu.className = 'ag-btn'; menu.textContent = 'MENÜ'; menu.style.cssText = 'pointer-events:auto;width:auto;min-width:0;display:inline-block;margin:8px 0 0 6px;font-size:13px;padding:6px 14px;opacity:.8';
+    const again = document.createElement('button'); again.type = 'button'; again.className = 'ag-btn'; again.textContent = 'TEKRAR DOĞ'; again.style.cssText = 'pointer-events:auto;width:auto;min-width:0;display:inline-block;margin-top:8px;font-size:15px;padding:7px 18px;font-weight:900';
+    again.addEventListener('click', (e) => { e.stopPropagation(); this.audio?.init?.(); this.ghostEnd(true); });
+    again.addEventListener('pointerdown', (e) => e.stopPropagation());
+    const rv = document.createElement('div'); rv.style.cssText = 'color:#ff6a6a;font-size:13px;margin-top:2px';
+    const kar = document.createElement('div'); kar.style.cssText = 'position:absolute;left:0;top:0;font-size:26px;color:#ff3a3a;text-shadow:0 2px 0 #3a0000,0 0 8px #ff2a2a;pointer-events:none;font-weight:900;z-index:6;opacity:0'; kar.textContent = '➤';
+    this.hud.root.append(kar); this.ghost.kar = kar; this.ghost.rv = rv;
+    this.foodMesh.material.transparent = true; this.foodMesh.material.opacity = 0.35; this.foodMesh.material.needsUpdate = true;
     menu.addEventListener('click', (e) => { e.stopPropagation(); this.ghostEnd(false); });
     menu.addEventListener('pointerdown', (e) => e.stopPropagation());
-    const lab = document.createElement('div'); bar.append(lab, menu);
+    const lab = document.createElement('div'); bar.append(lab, rv, again, menu);
+    if (this.ghost.kl) rv.textContent = 'İntikam: katiline dokun +10 kütle';
     this.hud.root.append(el, bar);
     this.ghost.el = el; this.ghost.bar = bar; this.ghost.lab = lab;
   }
+  ghostClean(g) {
+    this.ghost = null; g.el.remove(); g.bar.remove(); g.kar?.remove();
+    const m = this.foodMesh.material; m.transparent = false; m.opacity = 1; m.needsUpdate = true;
+  }
   ghostEnd(respawn) {
     const g = this.ghost; if (!g) return;
-    this.ghost = null; g.el.remove(); g.bar.remove();
+    this.ghostClean(g);
     this.inp.mag = 0;
     if (!respawn) { this.deadT = 0; return; } // MENÜ -> result screen
     const o = this.owners[this.me];
@@ -1741,7 +1753,7 @@ export class AgarMode {
   }
   ghostTick(dt) {
     const g = this.ghost; if (!g) return;
-    if (this.state !== 'dead') { this.ghost = null; g.el.remove(); g.bar.remove(); return; }
+    if (this.state !== 'dead') { this.ghostClean(g); return; }
     g.t -= dt;
     const i = this.inp, sp = 24;
     g.x += i.dx * i.mag * sp * dt; g.z += i.dz * i.mag * sp * dt;
@@ -1760,6 +1772,21 @@ export class AgarMode {
       }
     }
     g.lab.textContent = 'GÖLGE: ' + Math.max(0, Math.ceil(g.t)) + ' sn · +' + Math.round(g.bonus) + ' kütle';
+    const K = g.kl;
+    if (K && K.alive && K.cellN > 0) {
+      const kdist = Math.hypot(K.lx - g.x, K.lz - g.z);
+      if (kdist > K.maxR + 16) g.armed = true;  // ghost starts on the killer: must leave and come back
+      if (!g.rev && g.armed && kdist < K.maxR + 4) { g.rev = true; g.bonus += 10; g.rv.textContent = 'İNTİKAM ALINDI! +10 kütle'; g.rv.style.color = '#7dff9a'; this.snd('pellet'); }
+      let tx = K.lx, tz = K.lz, bm = -1;
+      for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.o === K.id && c.m > bm) { bm = c.m; tx = c.x; tz = c.z; } }
+      const cam = this._camera, w = this._pv3 || (this._pv3 = new THREE.Vector3()), W = this.sz.x || 1, H = this.sz.y || 1;
+      w.set(tx, 0, tz).project(cam);
+      let dx = w.x, dy = w.y; if (w.z > 1) { dx = -dx; dy = -dy; }
+      const k = Math.max(Math.abs(dx) / 0.9, Math.abs(dy) / 0.8, 1e-4), kk = Math.min(1, 1 / k * 1.0);
+      const on = !g.rev, px = (dx * (k > 1 || w.z > 1 ? 1 / k : 1) * 0.5 + 0.5) * W, py = (-dy * (k > 1 || w.z > 1 ? 1 / k : 1) * 0.5 + 0.5) * H;
+      g.kar.style.transform = 'translate(' + (px - 16) + 'px,' + (py - 16) + 'px) rotate(' + Math.atan2(-dy, dx) * 57.3 + 'deg)';
+      g.kar.style.opacity = on ? '1' : '0';
+    } else g.kar.style.opacity = '0';
     if (g.t <= 0) { this.ghostEnd(true); return; }
     const cam = this._camera, v = this._pv3 || (this._pv3 = new THREE.Vector3());
     v.set(g.x, 0.5, g.z).project(cam);

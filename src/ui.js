@@ -294,13 +294,25 @@ ${dist} m`; }
       const pr = Math.max(0, Math.min(1, distance / Math.max(1, distance + toRecord)));
       html = `<div class="rx-rec">REKORA ${fmtN(toRecord)} m KALDI!</div><div class="rx-prog"><b style="width:${Math.round(pr * 100)}%"></b></div>` + html;
     }
-    const q = this.nearQuest(p && p.missions);
-    if (q) html += `<div class="rx-line">Görev: ${q}</div>`;
-    if (note && !dly) html += `<div class="rx-line">${note}</div>`;
+    if (note && !dly && !(html.includes('rx-rec'))) html += `<div class="rx-line">${note}</div>`;
+    // ONE next-goal card: closest unfinished quest, else the next reward; full quest list behind a tap
+    let qRows = [];
+    try { const r = meta.missionsReport(); qRows = (r && r.rows) || []; } catch { qRows = []; }
+    if (!qRows.length && Array.isArray(p && p.missions)) qRows = p.missions.slice(0, 3);
+    qRows = qRows.slice(0, 3);
+    let nq = null, nf = -1;
+    for (const m of qRows) { if (m.done || !(m.goal > 0)) continue; const f = (m.value || 0) / m.goal; if (f > nf) { nf = f; nq = m; } }
+    if (nq) {
+      html += `<div class="rx-goal rx-next"><div class="rg-h">SIRADAKİ HEDEF</div><div class="rg-goal">${nq.icon || '📜'} ${nq.text} <b>${fmtN(Math.floor(nq.value || 0))}/${fmtN(nq.goal)}</b></div><div class="rg-b"><i class="gain" style="width:${Math.round(clamp01(nf) * 100)}%" data-to="${Math.round(clamp01(nf) * 100)}"></i></div></div>`;
+    } else html += this.goalBlock(coins, true);
+    if (mrep.html) {
+      const dn = qRows.filter((m) => m.done).length;
+      html += `<div class="rx-qtoggle">▸ Görevler ${dn}/${qRows.length}</div><div class="rx-qlist hidden">${mrep.html}</div>`;
+    }
     if (!isRec && tipTxt) html += `<div class="rx-dim">${tipTxt}</div>`;
-    html += mrep.html;
-    html += this.goalBlock(coins);
     ex.innerHTML = html;
+    const qt = ex.querySelector('.rx-qtoggle');
+    if (qt) qt.onclick = () => { const l = ex.querySelector('.rx-qlist'); const open = l.classList.toggle('hidden'); qt.textContent = qt.textContent.replace(/^[▸▾]/, open ? '▸' : '▾'); };
     ex.classList.toggle('hidden', !html);
     this.lastShareText = shareTxt;  // bottom PAYLAŞ uses it for the daily run
     const shb = ex.querySelector('.rx-share');
@@ -386,7 +398,7 @@ ${dist} m`; }
   }
 
   // The next thing coins can buy (a skin, a trail or an upgrade) as a progress bar.
-  goalBlock(gained = 0) {
+  goalBlock(gained = 0, compact = false) {
     gained = Math.max(0, Number(gained) || 0);
     let g = null;
     try { g = nextGoal(save); } catch { g = null; }
@@ -402,7 +414,8 @@ ${dist} m`; }
     if (dt && !(dt.goal > 0)) dt = null;
     if (li && !(li.need > 0)) li = null;
     if (!g && !li && !dt) return '';
-    let h = '<div class="rx-goal"><div class="rg-h">SONRAKİ ÖDÜL</div>';
+    if (compact) { if (g) { li = null; dt = null; } else if (li) dt = null; }
+    let h = `<div class="rx-goal${compact ? ' rx-next' : ''}"><div class="rg-h">${compact ? 'SIRADAKİ HEDEF' : 'SONRAKİ ÖDÜL'}</div>`;
     const bar = (from, to, cls = '') => `<div class="rg-b ${cls}"><i class="gain" style="width:${Math.round(clamp01(from) * 100)}%" data-to="${Math.round(clamp01(to) * 100)}"></i></div>`;
     if (g) {
       const left = Math.max(0, g.price - g.have);
