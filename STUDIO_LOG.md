@@ -905,3 +905,34 @@ Bu oyunlarda olup bizde eksik olanlar:
 **Kontrol**
 - Tutorial koşusundan sonraki koşuda atkı jetonları çıktı.
 - Statik kontrol ve duman testi hatasız geçti.
+
+## Tur 18 — Değerlendirme
+
+| Mod | Puan |
+|---|---|
+| Rush (yeni çıtaya göre) | 6.5 |
+| ÇIĞ | 7.5 |
+| Arena | 7.0 |
+| Menü | 7.0 |
+| **Genel** | **6.9** |
+
+Rush artık Subway Surfers ve Temple Run 2 ile kıyaslanıyor. Bu yüzden puan düştü, bu bekleniyordu.
+
+**Gelişmeli**
+- **Rush:**
+  - Koşu sırasında üst kısım (HUD) hâlâ kalabalık.
+  - Karakter kimliği zayıf: ekranda sadece bir top var.
+  - Yetenek çipi fark edilmiyor.
+- **ÇIĞ:**
+  - Boss ekranında 3 bant üst üste biniyor.
+  - Fırtınada top zor görünüyor.
+- **Arena:** botun kütlesi orta oyunda geriliyor (111 → 93).
+- **Menü:**
+  - BUGÜN şeridinde boş bir kare görünüyor.
+  - Sezon çipi kaydırınca arkada kalıyor.
+  - Dolap'ta ABİLİTE rozeti görünmüyor.
+
+**Yeni fikirler**
+- ÇIĞ: Buz Kıracak (hızla kalkan kırma).
+- Arena: Gölge Av (hayalet olarak toparlanma).
+- Menü: Atkı dolulukla sezon göstergesi.
