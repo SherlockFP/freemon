@@ -482,3 +482,44 @@ Hepsi push edildi.
 - Yeni: **BUGÜN** şeridi. Günün etkinlikleri (Kar Küresi, Yıldız Fırtınası, Yeti Pazarı, Günün Dağı) burada ve tek dokunuşla açılıyor.
 
 Kontrol: bot boss dağları 5, 10 ve 15'i kazandı, tüm modlar hatasız çalıştı.
+
+## Tur 9 — Değerlendirme
+
+| Mod | Puan |
+|---|---|
+| Rush | 7.8 |
+| ÇIĞ | 7.2 (+0.4) |
+| Arena | 6.4 |
+| Macera | 7.1 |
+| Menü | 7.3 |
+| **Genel** | **7.4** |
+
+Puan istikrarlı yükseliyor: 7 → 7.4.
+
+**Ne iyi**
+- Rush'ın sunumu.
+- ÇIĞ ortamlarının zenginliği.
+- Arena'da takım renkleri.
+- Güçlü marka görünümü.
+
+**Gelişmeli**
+- Rush'ta kombo hâlâ hızlı şişiyor.
+- Rush ve ÇIĞ'da üst üste binen bildirimler var (ETAP, kapı ve rakip mesajları aynı anda çıkıyor).
+- Arena'da kaya kümeleri hâlâ opak.
+- Menü:
+  - BUGÜN şeridi kesik görünüyor.
+  - Ana ekran kalabalık.
+  - Test sırasında MACERA butonu haritayı açmadı.
+
+**Yeni fikirler**
+- Rush: Fırtına Tüneli kombosu.
+- ÇIĞ:
+  - Ters Çığ: çığı kovala.
+  - Boss Tuzağı.
+- Arena:
+  - Kar Kralı Tacı.
+  - Gizli Yuva.
+- Macera:
+  - Yeti Günlüğü.
+  - Bölüm Mutasyonu.
+- Menü: Dönen Vitrin Kostümü.
