@@ -812,3 +812,38 @@ Her biri için ilk karşılaşmada ipucu gösteriliyor.
 - Kendi düzeltmemdeki bir yorum satırı bir kod satırını bozmuştu; düzeltildi.
 
 **Test**: ÇIĞ Dağ 3, 4, 5, 7, 9 ve 14 bot tarafından hatasız kazanıldı.
+
+## Tur 16 — Hata avı + değerlendirme
+
+Hiç çalışma zamanı hatası bulunmadı. Test edilenler:
+- Rush 3 km.
+- ÇIĞ 11 dağ ve 4 boss.
+- Arena 120 sn.
+- Macera 3 bölüm.
+- Tüm menü butonları.
+
+| Mod | Puan |
+|---|---|
+| Rush | **8.0** |
+| ÇIĞ | 7.5 |
+| Arena | 7.0 |
+| Macera | 7.3 |
+| Menü | 7.3 |
+| **Genel** | **7.6** |
+
+**🎯 Rush 8'e ulaştı.** Kurala göre çıta yeniden ayarlanıyor: artık Subway Surfers ve Temple Run 2 gibi en çok kazanan oyunlarla kıyaslanacak ve oyun 1'den başlıyormuş gibi değerlendirilecek.
+
+Bu oyunlarda olup bizde eksik olanlar:
+- yetenekli karakterler
+- sezon ve olay koleksiyonları
+- arkadaş skor tablosu
+- daha cilalı görseller
+
+**Gelişmeli**
+- ÇIĞ:
+  - Dağ 20-30 boss'larında erime ölümü var.
+  - Sonuç durumlarının adları tutarsız.
+- Arena: ilk dakikadan sonra büyüme yavaşlıyor.
+- Menü:
+  - "+" ve "🎁!" ikonları ne işe yaradığı belli olmayan, açıklamasız ikonlar.
+  - Kilitli özellikler hiç görünmüyor.
