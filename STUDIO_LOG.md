@@ -782,3 +782,33 @@ Her biri için ilk karşılaşmada ipucu gösteriliyor.
 - Tahtın silüeti okunmuyor.
 - Arena'da kütle kaybettikten sonra toparlanma hissi zayıf.
 - Dönen oyuncunun rekor satırında "—" görünüyor.
+
+## Tur 15 — Yapılanlar
+
+**ÇIĞ**
+- Boss çubuğu tek blok halinde: ad üstte, can değeri çubuğun içinde.
+- Boss dövüşü sürerken bölge bantları bekletiliyor.
+- Kardan Adam Tahtı kolay seçiliyor: bloklarda yüz ve renkli kontur var, en üstte altın taç, 70 m'lik ışık sütunu ve 👑 ikonu duruyor.
+- Ordu mesajı artık sırayla gösteriliyor.
+
+**Arena**
+- Boyut bandı artık üstte küçük bir bildirim olarak çıkıyor.
+- Yeni: **Toparlan**. Büyük kayıptan sonra 4 sn kalkan ve yakınında yem çıkıyor.
+- Yeni: **İntikam**. Seni yiyen oyuncu 20 sn boyunca haritada işaretli kalıyor; onu geri yersen bonus kazanıyorsun.
+
+**Rush**
+- Tüm yazılar elden geçirildi: ortada aynı anda tek büyük yazı oluyor.
+- Kanon sayacı artık bir çip olarak gösteriliyor.
+- Uzun bildirimler kısaltıldı.
+- Yeni: **Yeti Ekmeği 🥐**. Yeti çok yaklaşınca 3 sn çöreği kokluyor.
+
+**Menü**
+- Rush rekoru gerçek değeriyle gösteriliyor, örneğin "1.462 m".
+- Kademeli açılma tüm modları sayıyor.
+- İlk koşularda "Daha fazlası N koşu sonra açılıyor ✨" ipucu çıkıyor.
+
+**Kontrolde bulunanlar** (push edilmeden önce düzeltildi)
+- Ordu mesajı yine olmayan bir fonksiyonu çağırıyordu; bu sefer oyunla gerçek bağlantı kuruldu.
+- Kendi düzeltmemdeki bir yorum satırı bir kod satırını bozmuştu; düzeltildi.
+
+**Test**: ÇIĞ Dağ 3, 4, 5, 7, 9 ve 14 bot tarafından hatasız kazanıldı.
