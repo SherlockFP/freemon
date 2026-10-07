@@ -286,6 +286,10 @@ export class AgarMode {
     // continuous snow grooves + snowfall
     this.trails = new Trails(sc, CAP);
     this.snowfall = new Snowfall(sc, 2400);
+    // adaptive quality: 0 high, 1 medium, 2 low (frame-time EMA drives it)
+    this.qLv = -1; this.qEma = 16; this.qLast = 0; this.qBad = 0; this.qGood = 0; this.fmask = 0;
+    try { this.basePR = this.renderer.getPixelRatio ? this.renderer.getPixelRatio() : 1; } catch (e) { this.basePR = 1; }
+    this.setQuality(typeof window !== 'undefined' && ('ontouchstart' in window || (navigator.maxTouchPoints | 0) > 0) ? 1 : 0);
     // cells (+ soft blob shadows)
     const shTex = canvasTex(64, 64, (g, W, H) => { const gr = g.createRadialGradient(W / 2, H / 2, 2, W / 2, H / 2, W / 2); gr.addColorStop(0, 'rgba(25,55,100,0.55)'); gr.addColorStop(0.6, 'rgba(25,55,100,0.28)'); gr.addColorStop(1, 'rgba(25,55,100,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, H); });
     this.shadowMesh = mk(flat(), decal({ map: shTex }), CAP, false);
@@ -528,6 +532,7 @@ export class AgarMode {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    try { if (this.basePR && this.renderer.setPixelRatio) this.renderer.setPixelRatio(this.basePR); } catch (e) { /* ignore */ }
     clearInterval(this._brT); clearTimeout(this._tbT);
     if (this._escKey) window.removeEventListener("keydown", this._escKey);
     if (this.net) { try { this.net.close(); } catch { /* ignore */ } this.net = null; }
@@ -722,7 +727,7 @@ export class AgarMode {
         if (o.bot && !o.human && !o.away) { o.respawnT -= dt; if (o.respawnT <= 0 && o.wasAlive === false) this.spawnOwner(o, rnd(20, 45)); }
         continue;
       }
-      if (o.bot) { o.aiT -= dt; if (o.aiT <= 0) { o.aiT = 0.18 + Math.random() * 0.1; this.think(o); } }
+      if (o.bot) { o.aiT -= dt; if (o.aiT <= 0) { o.aiT = 0.18 + Math.random() * 0.1; if (this.qLv > 0 && !o.human) { const fd = Math.abs(o.lx - this.camX) + Math.abs(o.lz - this.camZ); if (fd > this.camH * 1.8 + 60) o.aiT *= 3; } this.think(o); } }
       else if (o.human && o.human !== 'host' && this.time - o.seen > 8) { this.dropHuman(o.human); }
       if (o.boostT > 0) {
         o.trailT -= dt;
@@ -778,7 +783,9 @@ export class AgarMode {
       for (let b = a + 1; b < n; b++) {
         const cb = cells[this.act[b]];
         if (!cb.on || !ca.on) continue;
-        const dx = cb.x - ca.x, dz = cb.z - ca.z, d2 = dx * dx + dz * dz, rs = ca.r + cb.r;
+        const dx = cb.x - ca.x, dz = cb.z - ca.z;
+        if (dx > 150 || dx < -150 || dz > 150 || dz < -150) continue;
+        const d2 = dx * dx + dz * dz, rs = ca.r + cb.r;
         if (d2 >= rs * rs) continue;
         if (ca.o === cb.o) {
           if (ca.merge > 0 || cb.merge > 0) {
@@ -1680,7 +1687,30 @@ export class AgarMode {
     this.updateHud(dt);
   }
 
+  setQuality(l) {
+    if (l === this.qLv) return;
+    this.qLv = l;
+    this.snowfall.setCap([2400, 1200, 500][l]);
+    this.trails.setCap([26000, 15000, 8000][l]);
+    this.props.setQuality([1, 0.8, 0.6][l], [12, 6, 3][l]);
+    this.fmask = [0, 1, 3][l];
+    this.qBad = this.qGood = 0;
+    try { if (this.renderer.setPixelRatio && this.basePR) this.renderer.setPixelRatio(l === 2 ? 1 : l === 1 ? Math.min(this.basePR, 1.25) : this.basePR); } catch (e) { /* ignore */ }
+  }
+
+  /** frame-time EMA: >22 ms for 2 s steps down, <15 ms for 5 s steps up */
+  adaptQuality(dt) {
+    const now = performance.now(), ft = this.qLast ? now - this.qLast : 16;
+    this.qLast = now;
+    if (ft > 250) return; // tab switch / hitch
+    this.qEma += (ft - this.qEma) * 0.08;
+    if (this.qEma > 22) { this.qBad += dt; this.qGood = 0; } else if (this.qEma < 15) { this.qGood += dt; this.qBad = 0; } else { this.qBad = this.qGood = 0; }
+    if (this.qBad > 2 && this.qLv < 2) this.setQuality(this.qLv + 1);
+    else if (this.qGood > 5 && this.qLv > 0) this.setQuality(this.qLv - 1);
+  }
+
   render(dt) {
+    this.adaptQuality(dt);
     const owners = this.owners, cells = this.cells;
     const me = owners[this.me];
     this.uTime.value = this.time;
@@ -1719,7 +1749,7 @@ export class AgarMode {
       for (let gz = gz0; gz <= gz1; gz++) {
         for (let i = this.ghead[gx * GN + gz]; i !== -1; i = this.fnext[i]) {
           const v = this.fv[i];
-          if (v <= 0) continue;
+          if (v <= 0 || (this.fmask && (i & this.fmask) !== 0 && v < 2)) continue;
           const sz = this.foodSize(v);
           wm(fa, fn * 16, this.fx[i], sz, this.fz[i], sz);
           fcc[fn * 3] = this.fcr[i]; fcc[fn * 3 + 1] = this.fcg[i]; fcc[fn * 3 + 2] = this.fcb[i];

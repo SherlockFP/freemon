@@ -44,6 +44,9 @@ export const SKINS = [
   { id: 'kofte', name: 'Köfte', rarity: 'common', price: 300, preview: { a: '#9b5528', b: '#43200d', c: '#5cc552', pattern: 'stripes' } },
   { id: 'karpuz', name: 'Karpuz', rarity: 'common', price: 300, preview: { a: '#7fd96c', b: '#1b6a31', pattern: 'stripes' } },
   { id: 'bowling', name: 'Bowling Topu', rarity: 'common', price: 300, preview: { a: '#3b2db0', b: '#0f0a30', c: '#43b9f0', pattern: 'bowl' } },
+  { id: 'mavikar', name: 'Mavi Kar', rarity: 'common', price: 140, preview: { a: '#9fd4ff', b: '#2f7dff', pattern: 'stripes' } },
+  { id: 'nane', name: 'Nane Şekeri', rarity: 'common', price: 190, preview: { a: '#ffffff', b: '#ff4d6a', pattern: 'swirl' } },
+  { id: 'cilek', name: 'Çilekli Kar', rarity: 'common', price: 260, preview: { a: '#ff7aa0', b: '#e0245a', c: '#fff2c8', pattern: 'dots' } },
   // ---- NADİR
   { id: 'yuz', name: 'Kardan Kafa', rarity: 'rare', price: 0, unlock: { stars: 6 }, preview: { a: '#ffffff', b: '#cfe2f7', c: '#ff7a1a', pattern: 'face' } },
   { id: 'penguen', name: 'Penguen Top', rarity: 'rare', price: 0, unlock: { stars: 10 }, preview: { a: '#26365c', b: '#f4f7fb', c: '#ff9a1a', pattern: 'penguin' } },
@@ -58,6 +61,7 @@ export const SKINS = [
   { id: 'zombi', name: 'Zombi Kafa', rarity: 'rare', price: 0, unlock: { secret: 'zombi' }, preview: { a: '#8fcf6a', b: '#4f7f3a', c: '#e8f0d0', pattern: 'zombie' } },
   // ---- EPİK
   { id: 'dunya', name: 'Mini Dünya', rarity: 'epic', price: 0, unlock: { stars: 18 }, preview: { a: '#2c78de', b: '#4cb050', c: '#ffffff', pattern: 'globe' } },
+  { id: 'gunbatimi', name: 'Gün Batımı', rarity: 'rare', price: 900, preview: { a: '#ffb347', b: '#7a2fd0', pattern: 'swirl' } },
   { id: 'ahtapot', name: 'Ahtapot', rarity: 'epic', price: 1100, preview: { a: '#a24ce0', b: '#6a2aa8', c: '#ffc6ea', pattern: 'octo' } },
   { id: 'lav', name: 'Lav Topu', rarity: 'epic', price: 1200, preview: { a: '#2e2834', b: '#ff7a1a', pattern: 'cracks', glow: true } },
   { id: 'hali', name: 'Kilim', rarity: 'epic', price: 1400, preview: { a: '#c1272d', b: '#1f2f66', c: '#e8b43a', pattern: 'kilim' } },
@@ -738,6 +742,33 @@ function skinKarpuz() {
     },
   });
   return { geometry, material: lambert(), puff: 0xff566c }; // red juice splash
+}
+
+// -- yeni kar topu renkleri / desenleri
+function paintSkin(fn, puff) {
+  const a = new THREE.Color(), b = new THREE.Color(), c = new THREE.Color();
+  const geometry = buildSphere({ detail: 5, shape: () => 0, paint: (x, y, z, col) => fn(x, y, z, col, a, b, c) });
+  return { geometry, material: lambert(), puff };
+}
+function skinMaviKar() {
+  return paintSkin((x, y, z, col, a, b) => { a.set(0xbfe2ff); b.set(0x2f7dff); col.copy(Math.sin(y * 9) > 0.2 ? b : a); }, 0x7fb8ff);
+}
+function skinNane() {
+  return paintSkin((x, y, z, col, a, b) => { a.set(0xffffff); b.set(0xff4d6a); col.copy(Math.sin(Math.atan2(z, x) * 4 + y * 5) > 0 ? b : a); }, 0xff8fa3);
+}
+function skinCilek() {
+  return paintSkin((x, y, z, col, a, b, c) => {
+    a.set(0xff7aa0); b.set(0xfff2c8);
+    const n = noise3(x * 6, y * 6, z * 6);
+    col.copy(n > 0.72 ? b : a);
+  }, 0xff7aa0);
+}
+function skinGunBatimi() {
+  return paintSkin((x, y, z, col, a, b, c) => {
+    a.set(0xffb347); b.set(0x7a2fd0); c.set(0xff5a7a);
+    const t = (y + 1) / 2;
+    col.copy(t < 0.5 ? a.lerp(c, t * 2) : c.lerp(b, (t - 0.5) * 2));
+  }, 0xff9a6a);
 }
 
 // -- disko: mirror tiles on a dark core, colour cycling in update() ------------------------------
@@ -2242,6 +2273,10 @@ function skinHali() {
 }
 
 const BUILDERS = {
+  mavikar: skinMaviKar,
+  nane: skinNane,
+  cilek: skinCilek,
+  gunbatimi: skinGunBatimi,
   classic: skinClassic,
   ice: skinIce,
   kofte: skinKofte,

@@ -128,6 +128,7 @@ const _tp = new THREE.Vector3();
 const _goal = { mode: 'cp', val: 0, frac: 0 };
 const _bi = { biome: null, index: 0, t: 0, next: null };   // biomeAt() scratch: read it right away, never keep it
 const RAGE_SKIP = new Set(['zipline', 'rail', 'loop', 'corkscrew']); // sections where the Yeti keeps its boulders
+const GLOW_KINDS = new Set(['star', 'x2', 'superjump', 'crystal', 'timewarp', 'ghost', 'risk', 'clone', 'helmet', 'magnet', 'rocket']);
 const FLIP_KINDS = new Set(['loop', 'corkscrew']);                   // the track really turns upside down here
 const ROUND_KINDS = new Set(['helix', 'halfpipe', 'tube', 'loop', 'corkscrew']);
 const DEG = Math.PI / 180;
@@ -397,6 +398,7 @@ export class Runner {
     this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.()?.nextLetter ?? null);
     this.yetiN = 0; this.dblT = 0; this.turboN = 0; this.turboT = 0;
     this.obstacles.setYetiLetter?.('Y');
+    this.boss = null; this.nextBossS = 1800; this.glowT = 0; this.camHelixK = 0; this.camInK = 0; this.track.bossHold = false;
 
     const ball = this.ctx.ball;
     ball.reset(b.r);
@@ -636,6 +638,7 @@ export class Runner {
     this.yetiTick(dt, top);
 
     this.rageTick(dt);
+    this.bossTick(dt);
     this.progression(dt);
     this.zoneTick();
     this.fogK += (this.fogTarget - this.fogK) * Math.min(1, dt * 2.5);
@@ -977,6 +980,7 @@ export class Runner {
   yetiTick(dt, top) {
     const b = this.b;
     const far = this.buffs.has('yetikov');
+    if (this.boss) { if (this.stumbleT > 0) this.stumbleT = Math.max(0, this.stumbleT - dt); this.gap = RCFG.yetiMax; return; }
     if (far) {
       // The repellent: no window, no hold — it drops back and stays far.
       this.stumbleT = 0;
@@ -1180,7 +1184,7 @@ export class Runner {
   // "YETİ ÖFKESİ": over the last rageLen m of every layer (from layer 2 on) the Yeti throws boulders at your lane (the
   // same throwBoulder path the boss zone uses). Survive without a crash → it gives up: bonus, and it falls back.
   rageOk() {
-    if (this.inZone === 'boss' || this.zip || this.grind || this.rocketT > 0 || this.jnNear) return false; // boss zone / rope / rail / corner already own the moment
+    if (this.boss || this.inZone === 'boss' || this.zip || this.grind || this.rocketT > 0 || this.jnNear) return false; // boss zone / rope / rail / corner already own the moment
     return !RAGE_SKIP.has(this.track.pieceAt(this.b.s)?.kind);
   }
 
@@ -1405,6 +1409,7 @@ export class Runner {
   updateGoal() {
     if (this.level) return;
     const ui = this.ctx.ui, s = this.b.s, r = this.rage;
+    if (this.boss && this.boss.ph !== 'out') { ui.runnerGoal?.('rage', 0, this.boss.ph === 'in' ? 1 : Math.max(0, 1 - this.boss.t / this.boss.dur)); return; }
     if (r) { ui.runnerGoal?.('rage', 0, (s - r.s0) / Math.max(1, r.B - r.s0)); return; }
     if (this.newRecT > 0) { ui.runnerGoal?.('new', 0, 1); return; }
     const g = goalFor(s, RCFG.layerLen, this.bestDist, this.passedDist, RCFG.recNear, _goal);
@@ -1666,7 +1671,106 @@ export class Runner {
       return;
     }
     this.obstacles.resolve?.(e.id, false);
+    if (e.soft && (this.obstacles.hk?.() ?? 1) < 2) { this.softHit(e); return; }
     this.hurt(e);
+  }
+
+  // A Yeti-phase hit (below high difficulty): a little size and speed, never a stumble window or death.
+  softHit(e) {
+    if (this.invulnT > 0 || this.ghostT > 0 || this.rocketT > 0) return;
+    if (this.absorbShield(e)) return;
+    const b = this.b;
+    this.grow -= 0.5;
+    if (this.grow < 0) { if (this.tier > 0) { this.tier--; this.grow += 1; this.syncRadius(); this.onMeltDrop?.(); } else this.grow = 0; }
+    b.vs *= 0.88; this.squash = Math.max(this.squash, 0.45); this.trauma = Math.min(1, this.trauma + 0.35);
+    this.invulnT = Math.max(this.invulnT, 0.9);
+    this.flow = Math.max(0, this.flow - 3); this.nearChain = 0;
+    this.debris(e, 10);
+    this.float('YETİ ATTI!', 'bad'); this.ctx.audio.crash?.(0.4); this.ctx.platform.haptic('medium');
+  }
+
+  // ---------- YETİ BOSS FAZI ----------
+  // Every ~2.5 km (first at 1.8 km) the Yeti roars, overtakes and runs AHEAD for ~20 s throwing telegraphed boulders back at
+  // the lanes (red landing disc >= 1.3 s, at most 1 / 2 ahead so a lane is always free). Survive: it falls behind, reward + a card.
+  bossSafe() {
+    const b = this.b;
+    if (this.state !== 'play' || this.jnNear || this.jnOpen || this.jnJ || this.zip || this.grind || this.wallRun || this.rocketT > 0 || this.stumbleT > 0 || this.rage || this.inZone || this.fallLock) return false;
+    const pc = this.track.pieceAt(b.s), L = RCFG.layerLen;
+    if (pc && (RAGE_SKIP.has(pc.kind) || ROUND_KINDS.has(pc.kind) || pc.kind === 'junction')) return false;
+    return this.layer < 2 || (Math.floor(b.s / L) + 1) * L - b.s > 120;
+  }
+
+  bossTick(dt) {
+    if (this.level) return;
+    const b = this.b, tr = this.track;
+    let B = this.boss;
+    if (!B) {
+      tr.bossHold = b.s > this.nextBossS - 420;       // no corners / loops / helixes generated for the stretch the Yeti owns
+      if (b.s < this.nextBossS || !this.bossSafe()) return;
+      const o0 = -Math.max(4, this.gap);
+      this.boss = B = { ph: 'in', t: 0, off: o0, off0: o0, throwT: 2.6, n: 0, crashes0: this.crashes, yu: 0, dur: 20 };
+      this.yetiHoldT = 0; this.stumbleT = 0;
+      this.roar(false);
+      this.queueBanner('YETİ ÖNÜNDE!', 5, 1.8, true);
+      this.ctx.audio.milestone?.(5);
+      return;
+    }
+    B.t += dt;
+    tr.bossHold = true;
+    const lo = LANES[0], hi = LANES[LANES.length - 1], sideU = b.u > 0 ? lo : hi, mid = (lo + hi) / 2;
+    if (B.ph === 'in') {
+      const k = Math.min(1, B.t / 2.4), e = k * k * (3 - 2 * k);
+      B.off = B.off0 + (22 - B.off0) * e; B.yu = sideU;
+      if (k >= 1) { B.ph = 'run'; B.t = 0; }
+    } else if (B.ph === 'run') {
+      B.off = 22 + Math.sin(B.t * 1.3) * 2; B.yu = mid + Math.sin(B.t * 0.9) * (hi - lo) * 0.3;
+      B.throwT -= dt;
+      if (B.throwT <= 0 && B.t < B.dur - 3) this.bossThrow(B);
+      if (B.t >= B.dur) { B.ph = 'out'; B.t = 0; B.off0 = B.off; }
+    } else {
+      const k = Math.min(1, B.t / 2.4), e = k * k * (3 - 2 * k);
+      B.off = B.off0 + (-14 - B.off0) * e; B.yu = sideU;
+      if (k >= 1) this.endBoss(true);
+    }
+  }
+
+  bossThrow(B) {
+    const b = this.b, NLn = LANES.length, hk = this.obstacles.hk?.() ?? 1;
+    let ahead = 0;
+    for (const d of (this.obstacles.dyn || [])) if (d.s > b.s - 3) ahead++;
+    if (ahead >= (NLn >= 4 ? 2 : 1) || this.stumbleT > 0 || this.zip || this.jnNear) { B.throwT = 0.4; return; }
+    const T = 2.0, sLand = b.s + b.vs * T + 10;
+    const pl = Math.round(this.lane + (NLn - 1) / 2);
+    const lane = Math.random() < 0.6 ? pl : (pl + 1 + ((Math.random() * (NLn - 1)) | 0)) % NLn;
+    if (this.obstacles.throwBoulder(lane, sLand, false, { soft: true, T, sStart: b.s + B.off }) < 0) { B.throwT = 0.7; return; }
+    B.n++;
+    B.throwT = (1.3 + Math.random() * 0.9) / Math.min(1.6, hk);
+    this.ctx.audio.bump?.(0.7); this.ctx.platform.haptic('warning');
+  }
+
+  endBoss(won) {
+    const B = this.boss;
+    if (!B) return;
+    this.boss = null;
+    this.track.bossHold = false;
+    this.nextBossS = this.b.s + (won ? 1900 : 1500);
+    if (!won) return;
+    this.gap = Math.min(RCFG.yetiMax, 14);
+    const bonus = Math.round(1000 * this.mult), coins = 120;
+    this.score += bonus; this.coins += coins;
+    this.queueBanner("YETİ'Yİ ATLATTIN!", 5, 1.8, true);
+    this.after(0.4, () => { this.float('+' + bonus.toLocaleString('tr-TR') + ' · +' + coins + ' ❄️', 'big'); });
+    this.ctx.audio.win?.(); this.ctx.platform.haptic('success');
+    this.mistBurst(18, 0xffd060, 5, 1.2);
+    this.grantBuff();
+    this.ctx.meta?.track?.('yeti_boss', { n: B.n, crashes: this.crashes - B.crashes0 });
+  }
+
+  // Power-up pickup: a brief glow burst + a pulse of the ball.
+  pickPulse(kind) {
+    this.glowT = 0.5; this.kick += 1.2;
+    const col = { star: 0xffe45a, x2: 0xffd24a, superjump: 0x7affb0, crystal: 0x9ae8ff, timewarp: 0xb48aff, ghost: 0xd8e8ff, risk: 0xff6a4a, clone: 0x7ad0ff, helmet: 0xffb050, magnet: 0xff7a7a, rocket: 0xffa040 }[kind] ?? 0xffffff;
+    this.mistBurst(12, col, 3.2, 1.1); this.burst?.(8, col, 4);
   }
 
   // A hit that is not smashed: invulnerable / ghost → nothing; a shield → absorbed; otherwise a crash (stumble).
@@ -1838,6 +1942,7 @@ export class Runner {
         this.finish();
         break;
       case 'near': {
+        if ((e.toughness || 0) < 2) break;
         this.nearChain = this.nearT > 0 ? this.nearChain + 1 : 1;
         this.nearT = 2.6;
         this.addFlow(4);
@@ -1982,6 +2087,7 @@ export class Runner {
     const b = this.b;
     const { audio, platform, ui } = this.ctx;
     const gold = this.buffs.has('altin');
+    if (GLOW_KINDS.has(e.kind) && !e.miss) this.pickPulse(e.kind);
     switch (e.kind) {
       case 'ring': {
         if (e.miss) { this.ringChain = 0; break; }
@@ -2266,6 +2372,7 @@ export class Runner {
   // ---------- death / result / revive ----------
   die(cause) {
     if (this.state !== 'play') return;
+    this.endBoss(false);
     const { ui, audio, platform } = this.ctx;
     this.zip = null;
     this.grind = null;
@@ -2518,7 +2625,9 @@ export class Runner {
     this.rollS = this.rollU = 0;
     ball.group.position.copy(_v);
     ball.x = _v.x; ball.y = _v.y; ball.d = -_v.z; ball.r = this.rShown;
-    ball.group.scale.set(sxz, sy, sxz);
+    const gp = this.glowT > 0 ? 1 + 0.2 * Math.sin(Math.min(1, this.glowT / 0.5) * Math.PI) : 1;
+    if (this.glowT > 0) this.glowT -= sdt;
+    ball.group.scale.set(sxz * gp, sy * gp, sxz * gp);
     this.juiceFrame(_f, _v, dt);
     this.updateClone();
     this.placeShadow();
@@ -2552,7 +2661,7 @@ export class Runner {
     }
     // Ribbon trail pressed into the snow (uses the equipped trail's material).
     this.updateTrail(f, pos);
-    this.ctx.ui.speedLines?.(playing ? Math.max(0, speedK - 0.1) / 0.9 + (this.rocketT > 0 ? 0.6 : 0) + (b.vs > RCFG.maxSpeed ? 0.4 : 0) : 0);
+    this.ctx.ui.speedLines?.(playing ? Math.min(1.4, Math.pow(Math.max(0, speedK - 0.2) / 0.8, 1.3) + (this.rocketT > 0 ? 0.5 : 0) + (b.vs > RCFG.maxSpeed ? 0.3 : 0)) : 0);
   }
 
   trailPush(x, y, z, rx, ry, rz, w, gap) {
@@ -2659,16 +2768,17 @@ export class Runner {
     // Only when it's really on the track (at the very start it would be clamped onto the start line, right in
     // front of the camera).
     // (It is also shown on the start line: the first metres extrapolate the track backwards so it looms right behind the ball.)
-    const show = this.state !== 'idle' && (this.b.s - this.gap > 1 || (this.gap < 12 && this.b.s < 40));
+    const show = this.state !== 'idle' && (this.boss ? this.b.s + this.boss.off > 1 : this.b.s - this.gap > 1 || (this.gap < 12 && this.b.s < 40));
     y.group.visible = show;
     this.avalanche.group.visible = show;
     if (!show) return;
     y.t += dt;
-    const gs = b.s - Math.max(-0.5, this.gap);
+    if (this.boss) this.avalanche.group.visible = false;
+    const gs = this.boss ? b.s + this.boss.off : b.s - Math.max(-0.5, this.gap);
     const tr = this.track;
     tr.frame(Math.max(0, gs), _f);
     // The Yeti tracks your lane with a lag and bounds along.
-    y.u += (b.u - y.u) * Math.min(1, dt * 2.5);
+    y.u += ((this.boss ? this.boss.yu : b.u) - y.u) * Math.min(1, dt * 2.5);
     const run = Math.abs(Math.sin(y.t * 7));
     const sf = tr.surfaceAt(gs, y.u);
     tr.toWorld(Math.max(0, gs), y.u, Math.max(0, sf === -Infinity ? 0 : sf) + run * 0.8, _v);
@@ -2741,9 +2851,17 @@ export class Runner {
     const cornerT = this.jnJ && b.s >= this.jnJ.s - 12 && b.s <= this.jnJ.s + 18 ? 1 : 0;
     this.cornerK += (cornerT - this.cornerK) * kfil(snap, cdt, 8);
 
+    // Helix / corkscrew: ride on the inside of the turn, close behind and low, so the camera never swings out into terrain or an upper pass.
+    const helT = kind === 'helix' || kind === 'corkscrew' ? 1 : 0;
+    this.camHelixK += (helT - this.camHelixK) * kfil(snap, cdt, 4);
+    const hk2 = this.camHelixK;
+    let inside = 0;
+    if (hk2 > 0.01) { tr.frame(b.s - 4, _f2); _x.copy(_f2.tan); tr.frame(b.s + 8, _f2); _ax.copy(_f2.tan).sub(_x); tr.frame(b.s, _f2); inside = clamp(_ax.dot(_f2.right) * 12, -1, 1); }
+    this.camInK += (inside - this.camInK) * kfil(snap, cdt, 3);
     let backT = 7.6 + r * 2.9 - this.closeK * 1.2 + 1.0 * speedK;
     let upT = 3.85 + r * 1.5 + this.closeK * 3.2 + curvK * 1.4 + pitchK * 1.5 + this.camRoundK * 0.8;
     let laT = 11 + 5 * speedK + 2 * this.closeK - 4 * this.cornerK;       // through a sharp corner: look a little shorter, swing a little slower
+    if (hk2 > 0.001) { backT += (5.6 + r * 1.8 - backT) * hk2; upT += (Math.min(upT, 2.9 + r * 1.1) - upT) * hk2; laT += (8 - laT) * hk2; }
     if (kind === 'tube') { upT = Math.min(upT, 4.6); backT = Math.min(backT, 7); }   // stay inside the 5.6 m tube (axis 4 m up)
     // Inside a vertical loop (a circle only 5.5-11 m in radius) the camera is a rigid chase rig in the BALL's own frame:
     // close behind (along the tangent), up toward the circle's centre, looking at the track a short way ahead.
@@ -2754,7 +2872,7 @@ export class Runner {
     this.camBackS += (backT - this.camBackS) * kfil(snap, cdt, 5);
     this.camUpH += (upT - this.camUpH) * kfil(snap, cdt, 5);
     this.camLa += (laT - this.camLa) * kfil(snap, cdt, 5);
-    this.camU += (b.u * 0.45 - this.camU) * kfil(snap, cdt, 9);
+    this.camU += (b.u * 0.45 + this.camInK * hk2 * 1.6 - this.camU) * kfil(snap, cdt, 9);
     if (this.camLookBiasT > 0) this.camLookBiasT -= dt;
     const biasT = this.camLookBiasT > 0 ? this.camLookBias : 0;
     this.camLookU += (b.u * 0.5 + biasT - this.camLookU) * kfil(snap, cdt, 6);

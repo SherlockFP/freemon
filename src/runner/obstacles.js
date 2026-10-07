@@ -2921,7 +2921,7 @@ Object.assign(Obstacles.prototype, {
       ob.passDone = true;
       if (!ob.hitDone && ob.tough > 0) {
         if (ob.over) { const e = ev(events, 'over'); e.toughness = ob.tough; e.s = cs; e.u = cu; }
-        else if (ob.minLat < 0.7) { const e = ev(events, 'near'); e.toughness = ob.tough; e.side = ob.nearSide; e.s = cs; e.u = cu; }
+        else if (ob.minLat < 0.4 && ob.tough >= 2) { const e = ev(events, 'near'); e.toughness = ob.tough; e.side = ob.nearSide; e.s = cs; e.u = cu; }
       }
     }
   },
@@ -3046,10 +3046,10 @@ Object.assign(Obstacles.prototype, {
    * A red shadow grows on the target 0.9 s before impact and a { type:'warn', kind:'boulder', lane, t } event is queued.
    * Unless `force`, the lane is moved away from lanes that would trap the player. Returns the lane used, or -1.
    */
-  throwBoulder(lane, s, force = false) {
+  throwBoulder(lane, s, force = false, opt = null) {
     let l = clamp(lane | 0, 0, NL - 1);
     if (!force) {
-      if (this.lastS < 2000 && this.dyn.length) return -1;      // max one boulder (flying or rolling) at a time in the first 2 km
+      if (!opt && this.lastS < 2000 && this.dyn.length) return -1;      // max one boulder (flying or rolling) at a time in the first 2 km
       if (this._forcedStretch(s - 6, s + 100)) return -1;
       const bad = this._trapMask(s - 8, s + 100);
       if (bad & bit6(l)) {
@@ -3061,8 +3061,8 @@ Object.assign(Obstacles.prototype, {
     const idx = this._alloc('ball');
     if (idx < 0) return -1;
     const dIdx = this._alloc('disc');
-    const sStart = this.lastS - 24;
-    const b = { id: this._id++, lane: l, u: LANES[l], sLand: s, t0: this.time, T: 1.5, sStart, phase: 0, s: sStart, h: 6, idx, dIdx, f: new Float64Array(12), fL: this._frameOf(s),
+    const sStart = opt && opt.sStart !== undefined ? opt.sStart : this.lastS - 24;
+    const b = { id: this._id++, lane: l, u: LANES[l], sLand: s, t0: this.time, T: (opt && opt.T) || 1.5, soft: !!(opt && opt.soft), sStart, phase: 0, s: sStart, h: 6, idx, dIdx, f: new Float64Array(12), fL: this._frameOf(s),
       warned: false, hits: {}, vr: Math.max(13, this.ballVs * 0.75), rot: 0, tRoll: 0 };
     this._col('ball', idx, COL.rock, 1);
     this._col('disc', dIdx, 0xff2a1a, 1);
@@ -3128,7 +3128,7 @@ Object.assign(Obstacles.prototype, {
       b.hits[this._cid] = true;
       const d = Math.sqrt(d2) || 1e-6, pen = rad - d, e = ev(events, 'hit');
       e.toughness = 5; e.s = b.s; e.u = b.u; e.h = b.h; e.color = COL.rock; e.id = b.id;
-      e.ball = this._cid;
+      e.ball = this._cid; e.soft = !!b.soft;
       e.ds = (ds / d) * pen; e.du = (du / d) * pen; e.headOn = e.ds < 0 && Math.abs(e.ds) >= 0.7 * Math.abs(e.du);
     }
   },
@@ -3401,7 +3401,7 @@ KIND.laser = {
         if (clr >= 0 && clr < ob.minLat) { ob.minLat = clr; ob.nearSide = v === 'low' ? 1 : -1; if (v === 'low') ob.over = true; }
       } else if (ds > 0.5) {
         ob.passDone = true;
-        if (!ob.hitDone && ob.minLat < 0.5) { const e = ev(events, 'near'); e.toughness = 5; e.side = ob.nearSide; e.s = ob.s; e.u = ball.u; }
+        if (!ob.hitDone && ob.minLat < 0.35) { const e = ev(events, 'near'); e.toughness = 5; e.side = ob.nearSide; e.s = ob.s; e.u = ball.u; }
         else if (!ob.hitDone && ob.over) { const e = ev(events, 'over'); e.toughness = 5; e.s = ob.s; e.u = ball.u; }
       }
       return;

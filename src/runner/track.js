@@ -254,6 +254,7 @@ export class Track {
 
   /** may the generator / obstacles use this set piece or mechanic? (campaign allowlist + features switches) */
   allows(name) {
+    if (this.bossHold && (name === 'junction' || name === 'loop' || name === 'corkscrew' || name === 'helix')) return false;     // Yeti boss phase: no corners / set pieces
     if (this.features[name] === false) return false;
     if (name === 'junction' && this.levelFeatures) {
       // campaign: junctions from level 11 on (level.features carries 'junction', or setLevel got the level id; the cumulative feature list

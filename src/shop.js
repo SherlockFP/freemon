@@ -732,7 +732,7 @@ export function openShop({ save, onClose, onSelect } = {}) {
   const head = h('div', 'cs-head');
   const titles = h('div', 'cs-titles');
   titles.appendChild(h('div', 'cs-title', 'DOLAP'));
-  titles.appendChild(h('div', 'cs-sub', 'ÖZELLEŞTİR'));
+  titles.appendChild(h('div', 'cs-sub', 'KAR TANESİYLE TOP VE İZ AL'));
   const coins = h('div', 'cs-coins');
   coins.appendChild(h('span', 'ico', '❄️'));
   const coinsNum = h('span', 'num', fmt(shownCoins));

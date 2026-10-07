@@ -208,6 +208,19 @@ const CSS = `
 .fm-mr .mb i { display: block; height: 100%; background: linear-gradient(90deg, #8dff9a, #2fc13f); }
 .fm-mr .mn { flex: none; min-width: 34px; text-align: right; font-size: 11px; color: #cfe2ff; }
 .fm-mr.done { background: rgba(255, 207, 58, 0.22); }
+.fm-mr.claim { background: rgba(255, 207, 58, 0.34); animation: fmGlowPulse 1.4s ease-in-out infinite; }
+.fm-mr.got { opacity: 0.6; }
+.fm-ichip.hot { background: linear-gradient(180deg, #ff9a52, var(--orange)); animation: fmGlowPulse 1.4s ease-in-out infinite; cursor: pointer; }
+@keyframes fmGlowPulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
+@keyframes fmIdleBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+.fm-main .fm-play { animation: fmIdleBob 2.6s ease-in-out infinite; }
+.fm-main .fm-arena .ico { display: inline-block; animation: fmIdleBob 3.1s ease-in-out infinite; }
+.fm-dt-row .fm-aico { font-size: 22px; }
+.fm-dt-t { font-size: 12px; color: #5a7196; text-align: center; margin: 4px 0 8px; letter-spacing: 0.06em; }
+.fm-rec { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; padding: 10px 12px; border-radius: 16px; border: 3px solid var(--ink); background: linear-gradient(180deg, #fff, #e6f0ff); color: var(--ink); text-shadow: none; box-shadow: 0 4px 0 var(--ink); margin-bottom: 8px; }
+.fm-rec h4 { grid-column: 1 / -1; margin: 0; font-size: 15px; }
+.fm-rec div { font-size: 12px; color: #5a7196; } .fm-rec b { display: block; font-size: 18px; color: var(--orange-dark); }
+@media (prefers-reduced-motion: reduce) { .fm-main .fm-play, .fm-main .fm-arena .ico, .fm-mr.claim, .fm-ichip.hot { animation: none; } }
 .fm-mr.done .mn { color: var(--gold); }
 .fm-mr.done .mb i { background: linear-gradient(90deg, #fff3a8, var(--gold)); }
 .fm-goal { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 10px; border: 2px dashed rgba(255, 255, 255, 0.28); width: 100%; background: none; cursor: pointer; font-size: 12.5px; color: #fff; text-align: left; }
@@ -1345,6 +1358,59 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
   // ---------------------------------------------------------------------------------------------- missions
 
+  // ---------------------------------------------------------------------------------------------- daily tasks + records
+
+  const fmtLeft = (ms) => { const m = Math.max(0, Math.ceil(ms / 60000)); return `${Math.floor(m / 60)} sa ${m % 60} dk`; };
+  function openDailyTasks() {
+    const p = openPanel({ id: 'dtasks', title: 'GÜNLÜK GÖREVLER', pills: ['coins', 'crystals'] });
+    function render() {
+      clear(p.list);
+      const dt = meta.dailyTasks();
+      p.setSub(dt.allClaimed ? 'HEPSİ TAMAM!' : 'HER GÜN 3 YENİ GÖREV');
+      for (const t of dt.tasks) {
+        const r = el('div', `fm-row fm-dt-row${t.done && !t.claimed ? ' done' : ''}`);
+        const mid = el('div', 'fm-amid');
+        add(mid, el('div', 'fm-an', t.text));
+        const b = el('div', 'fm-bar'); const fill = el('i');
+        setCss(fill, '--p', `${Math.round((t.value / t.goal) * 100)}%`);
+        b.appendChild(fill);
+        add(mid, add(el('div', 'fm-abar'), b, el('div', 'fm-bn', t.goal > 1 ? `${fmt(t.value)}/${fmt(t.goal)}` : (t.done ? '1/1' : '0/1'))));
+        add(mid, el('div', 'fm-ad', 'Ödül: ' + rewardLine(t.reward)));
+        add(r, el('div', 'fm-aico', t.icon), mid);
+        if (t.claimed) r.appendChild(el('div', 'fm-ok', '✓'));
+        else if (t.done) {
+          r.appendChild(button('fm-btn sm glow', 'AL', () => {
+            const g = meta.claimDailyTask(t.i);
+            if (!g) { sfx('error'); return; }
+            sfx('reward'); p.refreshPills(true);
+            if (cb.onReward) { try { cb.onReward('daily', g); } catch { /* ignore */ } }
+            render(); if (mainOpen) updateMain();
+          }));
+        }
+        p.list.appendChild(r);
+      }
+      p.list.appendChild(el('div', 'fm-dt-t', `Yenilenmesine ${fmtLeft(dt.nextInMs)} (gece yarısı)`));
+      const d = meta.daily();
+      const sr = el('div', 'fm-row');
+      add(sr, el('div', 'fm-aico', d.streak > 0 ? '🔥' : '🌱'), add(el('div', 'fm-amid'), el('div', 'fm-an', d.streak > 0 ? `${d.streak} günlük seri` : 'Günlük seri'), el('div', 'fm-ad', d.available ? 'Bugünün ödülü hazır!' : 'Bugünün ödülünü aldın')),
+        button(`fm-btn sm${d.available ? ' glow' : ''}`, d.available ? 'AL' : 'AÇ', () => openDaily()));
+      p.list.appendChild(sr);
+      const rc = meta.records();
+      p.list.appendChild(el('div', 'fm-sec', 'REKORLAR'));
+      const card = (title, rows) => { const c = el('div', 'fm-rec'); c.appendChild(el('h4', '', title)); for (const [k, v] of rows) add(c, add(el('div', '', k), el('b', '', v))); p.list.appendChild(c); };
+      card('❄️ YETİ RUSH', [['EN UZUN MESAFE', rc.yeti.dist > 0 ? fmtDist(rc.yeti.dist) : '-'], ['EN YÜKSEK SKOR', rc.yeti.score > 0 ? fmt(rc.yeti.score) : '-']]);
+      card('⛰️ ÇIĞ SONSUZ', [['EN ÇOK KAR', rc.cig.tons > 0 ? fmtTons(rc.cig.tons) : '-'], ['EN YÜKSEK BOYUT', rc.cig.tier >= 1 ? ['', 'Kartopu', 'Çığ', 'Mega Çığ', 'Felaket', 'Kıyamet'][Math.min(5, rc.cig.tier)] : '-']]);
+      card('⚔️ KARTOPU ARENA', [['EN BÜYÜK KÜTLE', rc.arena.mass > 0 ? fmt(rc.arena.mass) : '-'], ['TOPLAM KÜTLE', rc.arena.xp > 0 ? fmt(rc.arena.xp) : '-']]);
+      p.list.appendChild(el('div', 'fm-note', "Kar tanelerini Dolap'ta yeni toplara ve izlere harca."));
+      const dr = el('div', 'fm-row');
+      add(dr, el('div', 'fm-aico', '📜'), add(el('div', 'fm-amid'), el('div', 'fm-an', 'Çarpan görevleri'), el('div', 'fm-ad', 'Skor çarpanını büyüten görev seti')), button('fm-btn sm', 'AÇ', () => openMissions()));
+      p.list.appendChild(dr);
+    }
+    sfx('open');
+    render();
+    return p;
+  }
+
   function openMissions() {
     sfx('click');
     const p = openPanel({ id: 'missions', title: 'GÖREVLER', pills: ['coins', 'crystals'] });
@@ -2249,13 +2315,14 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     infoCard.tabIndex = 0;
     r.multChip = el('span', 'fm-ichip mult', '✖️ x1');
     r.streakChip = el('span', 'fm-ichip', '🔥 0');
-    add(infoCard, add(el('div', 'fm-ihead'), el('span', '', '📜 GÖREVLER'), add(el('div', 'fm-chips'), r.streakChip, r.multChip)));
+    add(infoCard, add(el('div', 'fm-ihead'), r.ihTitle = el('span', '', '📅 GÜNLÜK GÖREVLER'), add(el('div', 'fm-chips'), r.streakChip, r.multChip)));
     r.mrows = el('div', 'fm-mrows');
     infoCard.appendChild(r.mrows);
     r.goalBtn = button('fm-goal', '', () => { sfx('click'); if (cb.onShop) cb.onShop(); }, 'Sıradaki hedef');
     infoCard.appendChild(r.goalBtn);
-    infoCard.addEventListener('click', () => { sfx('click'); openMissions(); });
-    infoCard.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openMissions(); } });
+    infoCard.addEventListener('click', () => openDailyTasks());
+    infoCard.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDailyTasks(); } });
+    r.streakChip.addEventListener('click', (e) => { e.stopPropagation(); sfx('click'); openDaily(); });
     r.info = infoCard;
     root0.appendChild(infoCard);
 
@@ -2304,13 +2371,16 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
     // missions (3 compact rows)
     clear(r.mrows);
-    for (const m of meta.missions().slice(0, 3)) {
-      const row = el('div', `fm-mr${m.done ? ' done' : ''}`);
+    let dtl = { tasks: [], claimable: 0 };
+    try { dtl = meta.dailyTasks(); } catch { /* ignore */ }
+    r.ihTitle.textContent = dtl.claimable ? `🎁 ${dtl.claimable} ÖDÜL HAZIR` : '📅 GÜNLÜK GÖREVLER';
+    for (const m of dtl.tasks) {
+      const row = el('div', `fm-mr${m.claimed ? ' got done' : m.done ? ' done claim' : ''}`);
       const bar = el('span', 'mb');
       const fill = el('i');
       fill.style.width = `${Math.round(Math.max(0, Math.min(1, m.value / Math.max(1, m.goal))) * 100)}%`;
       bar.appendChild(fill);
-      add(row, el('span', 'mi', m.icon), el('span', 'mt', m.text), bar, el('span', 'mn', m.done ? '✓' : `${fmt(m.value)}/${fmt(m.goal)}`));
+      add(row, el('span', 'mi', m.icon), el('span', 'mt', m.text.replace(/^[^:]+: /, '')), bar, el('span', 'mn', m.claimed ? '✓' : m.done ? 'AL!' : (m.goal > 1 ? `${fmt(m.value)}/${fmt(m.goal)}` : '0/1')));
       r.mrows.appendChild(row);
     }
 
@@ -2320,8 +2390,8 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.dlBdg.className = `fm-bdg dot${db.available ? ' pulse' : ' off'}`;
     r.dl.classList.toggle('ready', !!db.available);
     r.dlStreak.textContent = db.streak > 0 ? `🔥${db.streak}` : '';
-    r.streakChip.textContent = `🔥 ${db.streak} gün`;
-    r.streakChip.style.display = db.streak > 0 ? '' : 'none';
+    r.streakChip.textContent = db.reward ? `🔥 ${db.streak} gün · AL` : `🔥 ${db.streak} gün`;
+    r.streakChip.classList.toggle('hot', !!db.reward);
 
     // next unlock goal
     let g = null;

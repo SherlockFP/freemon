@@ -485,6 +485,9 @@ export class ArenaProps {
   }
 
   // ------------------------------------------------------------------ katamari: props stuck on a ball
+  /** adaptive quality: dm = prop draw distance multiplier, so = stuck props drawn per other ball */
+  setQuality(dm, so) { this.distMul = dm; this.stuckOthers = so; }
+
   clearStuck(oid) { this.stN[oid] = 0; }
 
   bury(oid, r) {
@@ -541,9 +544,10 @@ export class ArenaProps {
     const R = this.R, tw = this.tw;
     this.vcx = camX; this.vhx = hx + 30; this.vz0 = zmin - 30; this.vz1 = zmax + 30;
     tw.fill(0);
-    const minR = camH * 0.0025, mx = hx + 50;
+    const dm = this.distMul || 1, minR = camH * 0.0025 * (dm < 1 ? 1.8 : 1), mx = (hx + 50) * dm;
+    const zc = (zmin + zmax) * 0.5, zh = (zmax - zmin) * 0.5 * dm + 50;
     const gx0 = clampN(((camX - mx + R) / PGS) | 0, 0, PGN - 1), gx1 = clampN(((camX + mx + R) / PGS) | 0, 0, PGN - 1);
-    const gz0 = clampN(((zmin - 50 + R) / PGS) | 0, 0, PGN - 1), gz1 = clampN(((zmax + 50 + R) / PGS) | 0, 0, PGN - 1);
+    const gz0 = clampN(((zc - zh + R) / PGS) | 0, 0, PGN - 1), gz1 = clampN(((zc + zh + R) / PGS) | 0, 0, PGN - 1);
     const arrs = this.arrs || (this.arrs = new Array(NT));
     for (let t = 0; t < NT; t++) arrs[t] = this.tmesh[t] ? this.tmesh[t].instanceMatrix.array : null;
     for (let gx = gx0; gx <= gx1; gx++) {
@@ -588,7 +592,7 @@ export class ArenaProps {
       if (!c || !c.on || c.o !== i) continue;
       const mine = o === me;
       if (!mine && (Math.abs(c.x - camX) > hx + 20 || c.z < zmin - 20 || c.z > zmax + 20)) continue;
-      const n = this.bury(i, c.r), base = i * STK, from = Math.max(0, n - (mine ? STK : 12));
+      const n = this.bury(i, c.r), base = i * STK, from = Math.max(0, n - (mine ? STK : (this.stuckOthers || 12)));
       const cqx = c.qx, cqy = c.qy, cqz = c.qz, cqw = c.qw;
       for (let k = from; k < n; k++) {
         const idx = base + k, t = this.stT[idx], a = arrs[t];

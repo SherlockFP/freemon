@@ -23,7 +23,10 @@ export class Trails {
     g.setDrawRange(0, 0);
     this.mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     this.mesh.frustumCulled = false; this.mesh.renderOrder = 3; scene.add(this.mesh);
+    this.maxv = MAXV;
   }
+
+  setCap(v) { this.maxv = Math.min(MAXV, v); }
 
   clear() { this.cnt.fill(0); this.head.fill(0); this.mesh.geometry.setDrawRange(0, 0); }
 
@@ -64,7 +67,7 @@ export class Trails {
       const li = b + (start + cn - 1) % P;
       if (Math.abs(this.px[li] - camX) > hx + m || this.pz[li] < zmin - m || this.pz[li] > zmax + m) continue;
       const total = m2 + (live ? 1 : 0);
-      if (total < 2 || nv + total * NV > MAXV) continue;
+      if (total < 2 || nv + total * NV > this.maxv) continue;
       const base = nv;
       for (let k = 0; k < total; k++) {
         let x, z, r, age;
@@ -134,15 +137,17 @@ export class Snowfall {
     this.pts = new THREE.Points(g, mat);
     this.pts.frustumCulled = false; this.pts.renderOrder = 8;
     scene.add(this.pts);
-    this.inten = 0.65; this.t = 0;
+    this.inten = 0.65; this.t = 0; this.cap = count;
   }
+
+  setCap(n) { this.cap = Math.min(this.N, n); }
 
   /** heavy: 0..1 extra intensity (storm). H = camera height, asp = viewport aspect, pxH = viewport pixel height */
   update(dt, time, camX, camZ, H, asp, fov, pxH, heavy) {
     this.t = time;
     const tgt = 0.65 + heavy * 0.35 + 0.08 * Math.sin(time * 0.17); // slow natural gusts
     this.inten += (tgt - this.inten) * Math.min(1, dt * 0.8);
-    const N = this.N, cnt = Math.min(N, (N * Math.min(1, this.inten)) | 0);
+    const N = this.cap, cnt = Math.min(N, (N * Math.min(1, this.inten)) | 0);
     const hsx = Math.max(H * (0.9 * asp + 0.25), 40) , hsz = H * 0.95, top = H * 0.85;
     const ix = 1 / (2 * hsx), iz = 1 / (2 * hsz), fall = (3.5 + H * 0.1) * (1 + heavy * 0.7) / top;
     const windX = (0.05 + heavy * 0.25) * H * 0.06, u = this.u, v = this.v, w = this.w, ph = this.ph, sp = this.sp, pos = this.pos;

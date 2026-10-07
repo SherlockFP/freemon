@@ -851,6 +851,7 @@ export const meta = {
     const d = data && typeof data === 'object' ? data : EMPTY;
     const newly = [];
     try { handle(event, d, newly); } catch { /* telemetry must never break gameplay */ }
+    try { dtOn(event, d); } catch { /* ignore */ }
     return newly.length ? newly : NONE;
   },
   on(name, cb) {
@@ -1231,3 +1232,118 @@ export const meta = {
   // ---- testing hooks ----
   _setRandom(fn) { rand = typeof fn === 'function' ? fn : Math.random; },
 };
+
+// =================================================================================================== daily tasks (GÜNLÜK GÖREVLER)
+// 3 tasks a day (one per mode family), own storage key so the main save format is untouched. Refresh at local midnight.
+// Arena has no meta events: its tasks are derived from localStorage ('patpat.agar.xp' delta, 'patpat.agar.best' record).
+const DT_KEY = 'patpat.dtask.v1';
+const AGAR_BEST = 'patpat.agar.best', AGAR_XP = 'patpat.agar.xp';
+const R3 = [{ coins: 80 }, { coins: 120 }, { coins: 100, crystals: 1 }];
+const DT_TPL = [
+  { id: 'y_dist', mode: 'yeti', icon: '📏', goals: [1200, 2000, 3000], text: (g) => `YETİ RUSH: tek koşuda ${fmtN(g)} m koş`, rw: R3 },
+  { id: 'y_stomp', mode: 'yeti', icon: '🦶', goals: [8, 15, 25], text: (g) => `YETİ RUSH: toplam ${g} yaratık ez`, rw: R3 },
+  { id: 'y_turn', mode: 'yeti', icon: '↪️', goals: [6, 12, 20], text: (g) => `YETİ RUSH: ${g} kavşakta dön`, rw: R3 },
+  { id: 'c_tier', mode: 'cig', icon: '🌋', goals: [2, 3, 4], text: (g) => `ÇIĞ SONSUZ: ${TIER_NAMES[g]} boyutuna ulaş`, rw: R3 },
+  { id: 'c_eat', mode: 'cig', icon: '🍽️', goals: [150, 300, 600], text: (g) => `ÇIĞ SONSUZ: ${fmtN(g)} şey ez`, rw: R3 },
+  { id: 'a_xp', mode: 'arena', icon: '⚔️', goals: [300, 800, 2000], text: (g) => `ARENA: ${fmtN(g)} kütle kazan (yem + rakip)`, rw: R3 },
+  { id: 'a_mass', mode: 'arena', icon: '🔴', goals: [1, 1, 1], text: () => 'ARENA: kütle rekorunu kır', rw: R3 },
+];
+let DT = null;
+const dtLs = (k) => { try { const v = globalThis.localStorage && globalThis.localStorage.getItem(k); return v ? parseFloat(v) || 0 : 0; } catch { return 0; } };
+function dtSave() { try { if (globalThis.localStorage) globalThis.localStorage.setItem(DT_KEY, JSON.stringify(DT)); } catch { /* ignore */ } }
+function dtRoll() {
+  const key = dateKey();
+  if (!DT) {
+    let p = null;
+    try { p = JSON.parse((globalThis.localStorage && globalThis.localStorage.getItem(DT_KEY)) || 'null'); } catch { p = null; }
+    DT = isObj(p) && Array.isArray(p.t) ? p : { day: '', t: [] };
+  }
+  if (DT.day === key && DT.t.length === 3 && DT.t.every((k) => isObj(k) && DT_TPL.some((x) => x.id === k.id))) return;
+  let h = 2166136261;
+  for (const c of key + 'pp') { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+  h >>>= 0;
+  const r = () => { h = (Math.imul(h, 1664525) + 1013904223) >>> 0; return h / 4294967296; };
+  const t = [];
+  for (const mode of ['yeti', 'cig', 'arena']) {
+    const pool = DT_TPL.filter((x) => x.mode === mode);
+    const tpl = pool[Math.floor(r() * pool.length)];
+    t.push({ id: tpl.id, g: Math.min(2, Math.floor(r() * 3)), v: 0, c: 0 });
+  }
+  DT = { day: key, t, ax: dtLs(AGAR_XP), ab: dtLs(AGAR_BEST) };
+  dtSave();
+}
+function dtSet(k, v) {
+  const tpl = DT_TPL.find((x) => x.id === k.id);
+  const g = tpl.goals[Math.max(0, Math.min(2, num(k.g)))];
+  const nv = Math.min(g, Math.max(num(k.v), v));
+  if (nv === k.v) return false;
+  k.v = nv;
+  return true;
+}
+function dtOn(ev, d) {
+  dtRoll();
+  if (ev === 'cig_tier' || ev === 'cig_endless_end') {
+    const tr = Number.isFinite(d.tier) ? d.tier : tierFromName(d.name || d.tierName);
+    try { if (tr > dtLs('patpat.cig.besttier')) globalThis.localStorage.setItem('patpat.cig.besttier', String(tr)); } catch { /* ignore */ }
+  }
+  let ch = false;
+  for (const k of DT.t) {
+    let v = null;
+    switch (k.id) {
+      case 'y_dist': if (ev === 'endless_end') v = nz(d.distance); break;
+      case 'y_stomp': if (ev === 'stomp') v = k.v + 1; break;
+      case 'y_turn': if (ev === 'turn') v = k.v + 1; break;
+      case 'c_tier': if (ev === 'cig_tier') v = Number.isFinite(d.tier) ? d.tier : tierFromName(d.name); else if (ev === 'cig_endless_end') v = Number.isFinite(d.tier) ? d.tier : tierFromName(d.tierName); break;
+      case 'c_eat': if (ev === 'swallow') v = k.v + 1; break;
+      default: break;
+    }
+    if (v !== null && dtSet(k, v)) ch = true;
+  }
+  if (ch) dtSave();
+}
+function dtSyncArena() {
+  dtRoll();
+  const xp = dtLs(AGAR_XP), b = dtLs(AGAR_BEST);
+  let ch = false;
+  if (xp < DT.ax) { DT.ax = xp; ch = true; }
+  if (b < DT.ab) { DT.ab = b; ch = true; }
+  for (const k of DT.t) {
+    if (k.id === 'a_xp' && dtSet(k, xp - DT.ax)) ch = true;
+    if (k.id === 'a_mass' && b > DT.ab && dtSet(k, 1)) ch = true;
+  }
+  if (ch) dtSave();
+}
+Object.assign(meta, {
+  // -> { tasks: [{ i, id, mode, icon, text, value, goal, done, claimed, reward }], claimable, allClaimed, nextInMs }
+  dailyTasks() {
+    try { dtSyncArena(); } catch { /* ignore */ }
+    const tasks = DT.t.map((k, i) => {
+      const tpl = DT_TPL.find((x) => x.id === k.id);
+      const g = Math.max(0, Math.min(2, num(k.g)));
+      const goal = tpl.goals[g];
+      return { i, id: k.id, mode: tpl.mode, icon: tpl.icon, text: tpl.text(goal), value: Math.floor(num(k.v)), goal, done: k.v >= goal, claimed: !!k.c, reward: tpl.rw[g] };
+    });
+    return { tasks, claimable: tasks.filter((t) => t.done && !t.claimed).length, allClaimed: tasks.every((t) => t.claimed), nextInMs: msToMidnight() };
+  },
+  claimDailyTask(i) {
+    try {
+      const t = meta.dailyTasks().tasks[i];
+      if (!t || !t.done || t.claimed) return null;
+      DT.t[i].c = 1;
+      const given = grant(t.reward);
+      dtSave();
+      persistNow();
+      return given;
+    } catch { return null; }
+  },
+  // per-mode records for the menu records panel
+  records() {
+    let cig = { tons: 0, dist: 0 };
+    try { if (sv && sv.cigEndlessBest) cig = sv.cigEndlessBest() || cig; } catch { /* ignore */ }
+    return {
+      yeti: { dist: S.st.bestDist, score: S.st.bestScore },
+      cig: { tons: num(cig.tons), dist: num(cig.dist), tier: dtLs('patpat.cig.besttier') },
+      arena: { mass: dtLs(AGAR_BEST), xp: dtLs(AGAR_XP) },
+    };
+  },
+});
