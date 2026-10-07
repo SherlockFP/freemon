@@ -378,3 +378,46 @@ Hepsi push edildi.
 
 **Menü**
 - Ana ekrandaki boş ✨ satırı ve kesik "0/100" sorunu düzeldi. Satır artık "Pembe İz kilidi 0/100" gösteriyor.
+
+## Tur 7 — Değerlendirme
+
+| Mod | Puan |
+|---|---|
+| Rush | 7.8 |
+| ÇIĞ | 6.8 |
+| Arena | 6.2 |
+| Macera | 7.1 |
+| Menü | 7.4 |
+| **Genel** | **7.2** |
+
+Genel puan istikrarlı yükseliyor (7 → 7.2).
+
+**Ne iyi**
+- Rush'ın ilk dakikası net ve heyecanlı.
+- Ölüm ekranı mükemmel.
+- ÇIĞ Dağ 18 manzarası zengin.
+- Arena renkli.
+- Macera haritası okunur.
+
+**Gelişmeli**
+- Rush:
+  - Kombo çok hızlı şişiyor: 15. saniyede x15 oluyor.
+  - Biyom geçişleri sert.
+  - Ölüm ekranında "1.200 / 0" hatası var ve bir satır kırpılıyor.
+- ÇIĞ:
+  - Dağ 4'te bant ve uyarı mesajları üst üste biniyor.
+  - "EKİP TOPU" yazısı yerde kalıyor.
+  - Soluk karın üstünde yazı kontrastı düşük.
+- Arena:
+  - Büyük çatılar oyuncuyu ve yiyeceği gizliyor.
+  - Büyüme hissi ölçülmeli.
+- Menü:
+  - İki "x1" rozeti birbirine karışıyor.
+  - Macera'da kilitli düğümler hiçbir şey anlatmıyor.
+
+**Yeni fikirler**
+- Rush: Çığ Rüzgârı.
+- ÇIĞ: Domino Çam, Isınan Top.
+- Arena: Pelet Fırtınası, Sürü Modu.
+- Macera: Yıldız Fırtınası.
+- Menü: Yeti Pazarı, Dostlar Duvarı.
