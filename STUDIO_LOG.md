@@ -1024,3 +1024,9 @@ Genel 7.2 · Rush 7.1 · ÇIĞ 6.8 · Arena 6.6 · Menü 7.1 — çökme yok.
 - Menü: BUGÜN en fazla 3 çip + "+N" açıcı (ekran görüntüsüyle doğrulandı, temiz).
 - Arena: tehdit (kırmızı) / av (yeşil) halkaları + kenar okları; "Sonraki sıra: +X kütle"; korumada sıra yerine KORUMA; zemin parlaması azaltıldı + doku. Ben: oyuncu artık büyük hücrelerin yanında doğmuyor (lider dibinde doğma görüldü), taç ışını oyuncuya yakınken soluyor.
 - Smoke: tüm modlar hatasız.
+
+## Döngü 23 — değerlendirme
+Genel 7.3 · Rush 7.2 · ÇIĞ 7.1 · Arena 6.6 · Menü 7.1 — çökme yok.
+- İyi: Rush sonuç ekranı dolu ve cilalı (TEKRAR baskın); ÇIĞ 3 yıldız + kriterler + SONRAKİ DAĞ net; arena GÖLGE AV yumuşak eleme.
+- Gelişmeli: Rush sonuçta ~7 bar, alt üçte bir boş; ÇIĞ TEKRAR/DAĞLAR sıkışık; arena gölge görünümü gürültülü, GÖLGE yazısı öldürme akışıyla çakışıyor, sadece MENÜ var.
+- Fikirler: gölgeyle katiline "intikam oku"; Rush'ta rekor hayaleti.
