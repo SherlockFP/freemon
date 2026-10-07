@@ -2613,6 +2613,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const chips = (Array.isArray(d.chips) ? d.chips.slice() : []).concat(rewardChips(rw));
     if (chips.length) {
       const rc = el('div', 'fm-rchips');
+      { const n = chips.length, cols = n <= 3 ? n : (n === 6 ? 3 : 2); rc.style.cssText = `display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:6px;justify-items:stretch;width:min(calc(100% - 24px),380px);margin-left:auto;margin-right:auto`; }
       chips.forEach((c, i) => {
         const ch = el('div', `fm-rchip${/^(👕|✨)/.test(c) ? ' gold' : ''}`, c);
         ch.style.animationDelay = `${900 + i * 160}ms`;
@@ -2630,6 +2631,10 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
 
     { const gb = goalBlockEl(rw.coins || d.coins); if (gb) ov.appendChild(gb); }
     const done = (fn) => () => { sfx('confirm'); closeResult(); if (fn) { try { fn(); } catch { /* ignore */ } } };
+    if (lv && stars < 3) {
+      const mi = lv.goals.findIndex((g, i) => !met[i]);
+      if (mi >= 0 && lv.goals[mi].text) ov.appendChild(el('div', 'fm-rspecial', `⭐ ${mi + 1}. yıldız: ${lv.goals[mi].text}`));
+    }
     const btns = el('div', 'fm-rbtns');
     if (d.hasNext) btns.appendChild(button('fm-btn big green', LB.next || 'SONRAKİ BÖLÜM ▶', done(h.onNext)));
     btns.appendChild(add(el('div', 'row'), button('fm-btn blue', LB.retry || '↻ TEKRAR', done(h.onRetry)), button('fm-btn', LB.map ? '⛰️ ' + LB.map : '🗺️ HARİTA', done(h.onMap))));
@@ -3115,7 +3120,14 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       try { const vt = vitrinInfo(save); if (vt && !vt.owned) chips.push(['⭐', 'Vitrin', false, () => { try { localStorage.setItem('patpat.shopTab', 'skin'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]); } catch { /* ignore */ }
       r.today.appendChild(el('span', 'tl', 'BUGÜN'));
       clear(r.tdots);
-      for (const c of chips) {
+      // priority: hot first, then Sezon, Günün Rush'ı, others (stable); show 3, rest behind a +N chip
+      const isHot = (c) => (c.sez ? c.hot : c[2]);
+      const rank = (c) => (isHot(c) ? 0 : c.sez ? 1 : /Rush/.test(c[1]) ? 2 : 3);
+      const ordered = chips.map((c, i) => ({ c, i })).sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i).map((o) => o.c);
+      const MAXC = 3;
+      const expanded = !!r._tExp && ordered.length > MAXC;
+      const shown = expanded ? ordered : ordered.slice(0, MAXC);
+      for (const c of shown) {
         if (c.sez) {
           const b = button(`fm-tchip fm-sz${c.hot ? ' hot' : ''}`, '', () => { sfx('click'); c.fn(); }, 'Sezon Avı');
           const NS = 'http://www.w3.org/2000/svg', C = 2 * Math.PI * 9;
@@ -3134,6 +3146,10 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
           const [ic, tx, hot, fn] = c;
           r.today.appendChild(button(`fm-tchip${hot ? ' hot' : ''}`, `${ic} ${tx}`, () => { sfx('click'); fn(); }));
         }
+        r.tdots.appendChild(el('i'));
+      }
+      if (ordered.length > MAXC) {
+        r.today.appendChild(button('fm-tchip', expanded ? '−' : `+${ordered.length - MAXC}`, () => { sfx('click'); r._tExp = !r._tExp; try { updateMain(); } catch { /* ignore */ } }));
         r.tdots.appendChild(el('i'));
       }
       r.tScroll(); setTimeout(() => { try { r.tScroll(); } catch { /* ignore */ } }, 60);
@@ -3232,7 +3248,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const left = Math.max(0, 2 - runs);
     r.ftHint.textContent = left > 0 ? `Daha fazlası ${left} koşu sonra açılıyor ✨` : (runs < 3 ? 'Daha fazlası 1 koşu sonra açılıyor ✨' : '');
     let tight = false; try { tight = window.innerHeight < 700; } catch { /* ignore */ }
-    r.ftHint.style.display = on && runs < 3 && !tight ? '' : 'none';
+    r.ftHint.style.display = 'none'; void tight;
     sh(r.twrap, runs >= 2, 'today');
     sh(r.globe, runs >= 3, 'globe');
     sh(r.post, runs >= 3, 'post');

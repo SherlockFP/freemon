@@ -1279,6 +1279,7 @@ export class CigGame {
 
   // ---- lifecycle
   reset() {
+    this._starNudge = null;
     const G = this.G, b = this.ball, w = this.world;
     if (this.loot) { try { this.plus.group.remove(this.loot.grp); } catch { /* optional */ } this._lootHud(this.loot, false); this.loot = null; }
     const r0 = this.L ? this.L.r0 : CFG.startR;
@@ -2644,7 +2645,21 @@ export class CigGame {
     }
   }
 
+  // one-shot "star is close" nudge per goal (size within 10% of the star-2 target, or a count goal one away)
+  _starNear() {
+    const L = this.L, st = this.stats;
+    if (!L || !L.stars) return;
+    const done = this._starNudge || (this._starNudge = {});
+    const hit = (key) => { if (done[key]) return; done[key] = 1; this._msg(2, '⭐ YILDIZA AZ KALDI!'); };
+    if (L.r2 > 0 && this.ball.r >= 0.9 * L.r2 && this.ball.r < L.r2) hit('size');
+    const g = L.stars[2];
+    if (!g) return;
+    const cnt = { chain: [st.maxMul, g.mul], crates: [st.crates, g.count], gold: [st.gold, g.count], statues: [st.statues, g.count] }[g.kind];
+    if (cnt && cnt[1] > 1 && (cnt[0] | 0) === cnt[1] - 1) hit('g3');
+  }
+
   _levelTick(dt) {
+    this._starNear();
     const G = this.G;
     if (G.surgeT > 0) G.surgeT -= dt;
     if (G.stripT > 0) G.stripT -= dt;

@@ -290,7 +290,10 @@ ${dist} m`; }
       shareTxt = `🏔 PATPAT Günün Rush'ı #${dly.num} — ${fmtN(distance)} m` + ((this._bestCombo || 0) >= 3 ? ` 🔥x${this._bestCombo}` : '');
       html += `<div class="rx-line">GÜNÜN RUSH'I #${dly.num}: ${fmtN(distance)} m${dm > distance ? ` · EN İYİ ${fmtN(dm)} m` : ''}</div>`;
     }
-    if (!isRec && toRecord > 0 && distance >= 50) html = `<div class="rx-rec">REKORA ${fmtN(toRecord)} m KALDI!</div>` + html;
+    if (!isRec && toRecord > 0 && distance >= 50) {
+      const pr = Math.max(0, Math.min(1, distance / Math.max(1, distance + toRecord)));
+      html = `<div class="rx-rec">REKORA ${fmtN(toRecord)} m KALDI!</div><div class="rx-prog"><b style="width:${Math.round(pr * 100)}%"></b></div>` + html;
+    }
     const q = this.nearQuest(p && p.missions);
     if (q) html += `<div class="rx-line">Görev: ${q}</div>`;
     if (note && !dly) html += `<div class="rx-line">${note}</div>`;
@@ -1194,6 +1197,8 @@ ${dist} m`; }
   toastSoft(text, opts) {
     if (!text) return;
     const prio = (opts && opts.prio) || (/REKOR|GÖREV|ÇARPAN|Yeni damga|YENİ/i.test(text) ? 2 : 1);
+    const hot = this.el.hud && this._cmN > 3 && this.el.hud.classList.contains('rush');
+    if (prio < 2 && hot) return;   // no info toasts while a combo runs
     this._say('t', { text: String(text), prio, ms: 1250, drop: !!(opts && opts.drop), show: () => this._toastNow(text, opts) });
   }
   _toastNow(text, opts) {

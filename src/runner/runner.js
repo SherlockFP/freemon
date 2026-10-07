@@ -127,6 +127,7 @@ const _x = new THREE.Vector3();
 const _ax = new THREE.Vector3();
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 const _tp = new THREE.Vector3();
+const _yp = new THREE.Vector3();
 const _goal = { mode: 'cp', val: 0, frac: 0 };
 const _bi = { biome: null, index: 0, t: 0, next: null };   // biomeAt() scratch: read it right away, never keep it
 const RAGE_SKIP = new Set(['zipline', 'rail', 'loop', 'corkscrew']); // sections where the Yeti keeps its boulders
@@ -539,7 +540,7 @@ export class Runner {
     if (this.hitStop > 0) { this.hitStop -= rdt; dt *= 0.06; }
     if (this.warpT > 0) { this.warpT -= rdt; dt *= 0.5; }
     // The first moments of a death run in slow motion so the read-out lands.
-    if (this.state === 'dying') { if (this.deadT < 0.12) dt *= 0.02; else if (this.deadT < 0.4) dt *= 0.2; }
+    if (this.state === 'dying') { if (this.deadT < 0.12) dt *= 0.02; else if (this.deadT < 0.7) dt *= 0.4; }
     // Countdown before the chase starts (2 s the first time, 1 s on retries): the world is frozen.
     if (this.countT > 0) {
       const before = Math.ceil(this.countT);
@@ -1024,7 +1025,7 @@ export class Runner {
     const b = this.b, ui = this.ctx.ui;
     if (this.meltGraceT > 0) this.meltGraceT -= dt;
     const melting = this.meltK > 0 && this.time >= RCFG.meltGrace && this.meltGraceT <= 0
-      && !this.zip && this.rocketT <= 0 && !this.buffs.has('donma');
+      && !this.zip && this.rocketT <= 0 && this.invulnT <= 0 && !this.buffs.has('donma');
     if (melting) {
       this.grow -= meltRate(this.tier, b.s, RCFG, this.meltK) * dt;
       if (this.grow < 0) {
@@ -2672,7 +2673,7 @@ export class Runner {
 
   // Warm ground (volcano / desert): extra melt on top of hunger.
   drainSoft(x) {
-    if (this.meltK <= 0) return;
+    if (this.meltK <= 0 || this.invulnT > 0) return;
     this.grow -= x;
     if (this.grow < 0) {
       if (this.tier > 0) { this.tier--; this.grow += 1; this.onMeltDrop(); }
@@ -3436,6 +3437,9 @@ export class Runner {
   // ---- first-encounter tips: once ever per mechanic (localStorage), max one per 8 s, never in danger ----
   tip(key, text, slow) {
     if (this.state !== 'play' || this.tipCd > 0 || this.countT > 0 || this.bannerT > 0 || this.ctx.ui.annBusy?.() || (this.zone && this.zone.announced && this.b.s - this.zone.from < 60) || (this.time - this.floatT < 1.5 && this.floatPri >= 2)) return false;
+    if ((this.ctx.ui._cmN || 0) > 3) return false;     // no tips in a combo / at speed
+    let runs = 0; try { runs = this.ctx.meta?.stats?.().runs || 0; } catch (e) { runs = 0; }
+    if (runs >= 2 && this.b.s > 400) return false;      // tips are for new players
     if (this.stumbleT > 0 || this.gap < 9 || this.boss || this.rage || this.hungerWarn || this.zip || this.grind) return false;
     let seen = this.tipsSeen;
     if (!seen) {
@@ -3629,6 +3633,8 @@ export class Runner {
     this.camInK += (inside - this.camInK) * kfil(snap, cdt, 3);
     let backT = 7.6 + r * 2.9 - this.closeK * 1.2 + 1.0 * speedK;
     let upT = 3.85 + r * 1.5 + this.closeK * 3.2 + curvK * 1.4 + pitchK * 1.5 + this.camRoundK * 0.8;
+    const dk = this.state === 'dying' && this.cause !== 'fall' ? clamp(this.deadT / 0.9, 0, 1) : 0;   // death pull-back: ease back and up
+    if (dk > 0) { const e = dk * dk * (3 - 2 * dk); backT += 5 * e; upT += 3 * e; }
     let laT = 11 + 5 * speedK + 2 * this.closeK - 4 * this.cornerK;       // through a sharp corner: look a little shorter, swing a little slower
     if (hk2 > 0.001) { backT += (5.6 + r * 1.8 - backT) * hk2; upT += (Math.min(upT, 2.9 + r * 1.1) - upT) * hk2; laT += (8 - laT) * hk2; }
     if (kind === 'tube') { upT = Math.min(upT, 4.6); backT = Math.min(backT, 7); }   // stay inside the 5.6 m tube (axis 4 m up)
@@ -3675,6 +3681,13 @@ export class Runner {
       const gy = this.env.groundAt(_v.x, _v.z, b.s);
       if (gy !== null && _v.y < gy + 2) _v.y += Math.min(6, gy + 2 - _v.y);
     }
+    if (dying && this.cause !== 'fall' && this.yeti?.group?.visible) {
+      // never inside the Yeti's bounding sphere: push the camera out (and a touch up), and keep ball + Yeti both in frame
+      const gsY = b.s - Math.max(-0.5, this.gap + (this.baitBonus || 0));
+      tr.toWorld(gsY, b.u, 0, _yp); tr.frame(gsY, _f2); _yp.addScaledVector(_f2.up, 2);
+      const YR = 4.2, dx = _v.x - _yp.x, dy = _v.y - _yp.y, dz = _v.z - _yp.z, dl = Math.hypot(dx, dy, dz) || 1e-3;
+      if (dl < YR) { const k = YR / dl; _v.set(_yp.x + dx * k, _yp.y + dy * k + (YR - dl) * 0.5, _yp.z + dz * k); }
+    }
     // Look target: a point on the track ahead (the lead term cancels the filter's lag at speed).
     const laS = b.s + this.camLa + (snap ? 0 : b.vs * 0.1);
     tr.toWorld(laS, this.camLookU, 0, _look);
@@ -3687,7 +3700,10 @@ export class Runner {
       if (dl > 0.5) { const e = (dl + this.camLa) / dl, bx = _v.x + dx * e, bz = _v.z + dz * e, w = 0.85 * (1 - 2 * lk); _look.x += (bx - _look.x) * w; _look.z += (bz - _look.z) * w; }
     }
     if (lk > 0.001) _look.lerp(this.ctx.ball.group.position, lk);
-    if (dying) _look.copy(this.ctx.ball.group.position);
+    if (dying) {
+      _look.copy(this.ctx.ball.group.position);
+      if (this.cause === 'yeti' && this.yeti?.group?.visible) _look.lerp(_yp, 0.3 * clamp(this.deadT / 0.6, 0, 1));
+    }
     this.camPos.copy(_v);
     this.camLook.lerp(_look, snap ? 1 : 1 - Math.exp(-cdt * (10 - 3 * this.cornerK)));
     this.camUp.lerp(_x, snap ? 1 : 1 - Math.exp(-cdt * (7 + 9 * lk)));

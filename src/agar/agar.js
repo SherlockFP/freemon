@@ -236,9 +236,9 @@ export class AgarMode {
     sc.add(dl);
     // ground: a tiling snow texture (subtle variation, faint blue shadows, soft grid)
     this.groundTex = canvasTex(512, 512, (g, W, H) => {
-      g.fillStyle = '#d3e6fb'; g.fillRect(0, 0, W, H);
+      g.fillStyle = '#c2d8f2'; g.fillRect(0, 0, W, H);
       const T = W / 4; // 4x4 snow tiles, checkered tint
-      for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) { g.fillStyle = (a + b) & 1 ? 'rgba(255,255,255,0.7)' : 'rgba(130,175,235,0.42)'; g.fillRect(a * T, b * T, T, T); }
+      for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) { g.fillStyle = (a + b) & 1 ? 'rgba(240,246,255,0.55)' : 'rgba(130,175,235,0.42)'; g.fillRect(a * T, b * T, T, T); }
       for (let i = 0; i < 160; i++) {
         const x = Math.random() * W, y = Math.random() * H, r = 10 + Math.random() * 34;
         const gr = g.createRadialGradient(x, y, 0, x, y, r);
@@ -246,10 +246,11 @@ export class AgarMode {
         g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
       }
       for (let i = 0; i < 500; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(160,195,235,0.35)' : 'rgba(255,255,255,0.8)'; g.fillRect(Math.random() * W, Math.random() * H, 2 + Math.random() * 3, 2 + Math.random() * 3); }
+      { const im = g.getImageData(0, 0, W, H), d = im.data; for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - 0.5) * 16; d[i] += n; d[i + 1] += n; d[i + 2] += n * 0.8; } g.putImageData(im, 0, 0); }
       g.strokeStyle = 'rgba(95,140,195,0.55)'; g.lineWidth = 3;
       for (let i = 0; i <= 4; i++) { const q = i === 4 ? W - 1.5 : i * T + 1.5; g.beginPath(); g.moveTo(q, 0); g.lineTo(q, H); g.stroke(); g.beginPath(); g.moveTo(0, q); g.lineTo(W, q); g.stroke(); }
     }, 40);
-    const gm = new THREE.Mesh(new THREE.CircleGeometry(R, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: this.groundTex }));
+    const gm = new THREE.Mesh(new THREE.CircleGeometry(R, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: this.groundTex, color: 0xd2dcea }));
     sc.add(gm);
     const sea = new THREE.Mesh(new THREE.CircleGeometry(6000, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x4f90c9 }));
     sea.position.y = -0.6;
@@ -629,7 +630,18 @@ export class AgarMode {
       for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.m > m * 0.8 && (c.x - p.x) * (c.x - p.x) + (c.z - p.z) * (c.z - p.z) < 900) { ok = false; break; } }
       if (ok) break;
     }
-    if (!o.bot && o.id === this.me && this.state !== 'title' && this.mp !== 'client') { const f = this.forts[(Math.random() * this.forts.length) | 0], a0 = Math.atan2(-f.z, -f.x) + (Math.random() - 0.5) * 1.2, dd = FR + 34; p.x = f.x + Math.cos(a0) * dd; p.z = f.z + Math.sin(a0) * dd; }
+    if (!o.bot && o.id === this.me && this.state !== 'title' && this.mp !== 'client') {
+      // fort-side spawn, but never next to a big cell (spawning beside the leader felt unfair)
+      let best = -1, bx = p.x, bz = p.z;
+      for (let t = 0; t < 12; t++) {
+        const f = this.forts[(Math.random() * this.forts.length) | 0], a0 = Math.atan2(-f.z, -f.x) + (Math.random() - 0.5) * 1.2, dd = FR + 34, x = f.x + Math.cos(a0) * dd, z = f.z + Math.sin(a0) * dd;
+        let near = 1e9;
+        for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (!c.on || c.m < m * 2) continue; const sd = 45 + 5 * Math.sqrt(c.m); const d = Math.hypot(c.x - x, c.z - z) - sd; if (d < near) near = d; }
+        if (near > best) { best = near; bx = x; bz = z; }
+        if (near > 0) break;
+      }
+      p.x = bx; p.z = bz;
+    }
     this.newCell(o, p.x, p.z, m);
     this.props.clearStuck(o.id);
     if (o.id === this.me) { this.titleIdx = 0; this.msIdx = 0; }
@@ -2521,7 +2533,7 @@ export class AgarMode {
     { const sh = this.meShadow; if (me.alive) { sh.visible = true; sh.position.set(me.lx + me.maxR * 0.08, 0.4, me.lz + me.maxR * 0.14); sh.scale.setScalar(me.maxR * 1.32 + 1); } else sh.visible = false;
       const pr = this.pulseRing; if (this.pulseT >= 0 && me.alive) { this.pulseT += 0.016; const q = this.pulseT / 1.1; if (q >= 1) { this.pulseT = -1; pr.visible = false; } else { pr.visible = true; pr.position.set(me.lx, 0.7, me.lz); pr.scale.setScalar(me.maxR * (1.2 + q * 3.5) + 2); pr.material.opacity = 0.9 * (1 - q); } } else pr.visible = false; }
     const cr = this.crown;
-    if (king && king.alive) { const cs = Math.max(king.maxR * 1.1, camH * 0.06); { const bm = this.beam, bh = camH * 1.6, bw = Math.max(king.maxR * 0.5, camH * 0.012); bm.visible = true; bm.position.set(king.lx, bh * 0.5, king.lz); bm.scale.set(bw, bh, bw); bm.material.opacity = 0.26 + 0.1 * Math.sin(this.time * 4); } cr.visible = true; cr.position.set(king.lx, king.maxR * 2 + cs * 0.5, king.lz); cr.scale.setScalar(cs); if (this.qLv < 2) cr.rotation.y = this.time * 1.6; } else { cr.visible = false; if (this.beam) this.beam.visible = false; }
+    if (king && king.alive) { const cs = Math.max(king.maxR * 1.1, camH * 0.06); { const bm = this.beam, bh = camH * 1.6, bw = Math.max(king.maxR * 0.5, camH * 0.012); bm.visible = true; bm.position.set(king.lx, bh * 0.5, king.lz); bm.scale.set(bw, bh, bw); const kd = me.alive ? Math.hypot(king.lx - me.lx, king.lz - me.lz) / (camH * 0.9) : 1; bm.material.opacity = (0.26 + 0.1 * Math.sin(this.time * 4)) * Math.min(1, Math.max(0.15, kd * kd)); } cr.visible = true; cr.position.set(king.lx, king.maxR * 2 + cs * 0.5, king.lz); cr.scale.setScalar(cs); if (this.qLv < 2) cr.rotation.y = this.time * 1.6; } else { cr.visible = false; if (this.beam) this.beam.visible = false; }
     this.burRingM.opacity = 0.45 + 0.25 * Math.sin(this.time * 3);
     this.discover(me, king, camH);
     {
@@ -2567,6 +2579,38 @@ export class AgarMode {
       }
     }
     ar.style.opacity = showAr ? '1' : '0';
+    // threat / prey cues
+    { let TR = this._thr;
+      if (!TR) { TR = this._thr = { rings: [], ars: [], gm: new THREE.RingGeometry(0.9, 1, 40).rotateX(-Math.PI / 2) }; }
+      let ri = 0, ai = 0;
+      if (play && me.alive) {
+        const mm = me.maxM, dg = Math.max(60, me.maxR * 7);
+        for (let k = 0; k < NOWN; k++) {
+          const o = this.owners[k]; if (o === me || !o.alive || o.cellN < 1 || o.hideT > 0) continue;
+          const dx = o.lx - me.lx, dz = o.lz - me.lz, d = Math.sqrt(dx * dx + dz * dz) - o.maxR - me.maxR;
+          const thr = o.maxM > mm * 1.25, prey = !thr && !o.boss && mm > o.maxM * 1.25;
+          if (!thr && !prey) continue;
+          if (d > (thr ? dg : dg * 0.5)) continue;
+          if (ri < 10) {
+            let r = TR.rings[ri];
+            if (!r) { r = TR.rings[ri] = new THREE.Mesh(TR.gm, new THREE.MeshBasicMaterial({ color: 0xff3a3a, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide })); this._scene.add(r); }
+            r.visible = true; r.material.color.setHex(thr ? 0xff3a3a : 0x5cff8a); r.material.opacity = thr ? 0.55 + 0.35 * Math.sin(this.time * 9) : 0.4;
+            r.position.set(o.lx, 0.5, o.lz); r.scale.setScalar(o.maxR * 1.12 + 1); ri++;
+          }
+          if (thr && ai < 3) {
+            v.set(o.lx, 0, o.lz).project(cam);
+            if (v.z > 1 || Math.abs(v.x) > 0.92 || Math.abs(v.y) > 0.88) {
+              let e = TR.ars[ai]; if (!e) { e = TR.ars[ai] = document.createElement('div'); e.style.cssText = 'position:absolute;left:0;top:0;font-size:22px;color:#ff3a3a;text-shadow:0 2px 0 #3a0000,0 0 8px #ff0000;pointer-events:none;font-weight:900;z-index:3;display:none'; e.textContent = '➤'; hud.root.appendChild(e); }
+              let ex = v.x, ey = v.y; if (v.z > 1) { ex = -ex; ey = -ey; }
+              const kk = Math.max(Math.abs(ex) / 0.9, Math.abs(ey) / 0.8, 1e-4), px = (ex / kk * 0.5 + 0.5) * W, py = (-ey / kk * 0.5 + 0.5) * H;
+              e.style.display = 'block'; e.style.transform = 'translate(' + (px - 12) + 'px,' + (py - 12) + 'px) rotate(' + Math.atan2(-ey, ex) * 57.3 + 'deg)'; ai++;
+            }
+          }
+        }
+      }
+      for (let q = ri; q < TR.rings.length; q++) TR.rings[q].visible = false;
+      for (let q = ai; q < TR.ars.length; q++) TR.ars[q].style.display = 'none';
+    }
     for (let i = L.length - 1; i >= 0; i--) { const l = L[i]; if (this.time > l.until || !play) { l.el.remove(); L.splice(i, 1); continue; }
       v.set(l.x, l.y, l.z).project(cam); const vis = v.z < 1 && Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05;
       l.el.style.opacity = vis ? '1' : '0'; if (vis) l.el.style.transform = 'translate(' + ((v.x * 0.5 + 0.5) * W) + 'px,' + ((-v.y * 0.5 + 0.5) * H) + 'px) translate(-50%,-100%)'; }
@@ -2633,7 +2677,7 @@ export class AgarMode {
     root.id = 'ag-root';
     root.className = 'ag-root';
     root.innerHTML =
-      '<div class="ag-tl"><div class="ag-mass"><div class="r1"><b class="m">0</b><span class="ag-rank"><b>-</b></span></div><small class="tt"></small><div class="ag-lvl"><span class="lv">Sv 1</span><div class="bar"><i></i></div></div></div>' +
+      '<div class="ag-tl"><div class="ag-mass"><div class="r1"><b class="m">0</b><span class="ag-rank"><b>-</b></span></div><small class="tt"></small><small class="rg" style="display:block;font-size:10px;color:#ffe9a8;font-weight:900"></small><div class="ag-lvl"><span class="lv">Sv 1</span><div class="bar"><i></i></div></div></div>' +
       '<div class="ag-room"></div><div class="ag-feed"></div><div class="ag-chips"></div></div>' +
       '<div class="ag-tr"><div class="ag-lb"><div class="t"><span>LİDERLER</span><span class="ag-online">🟢<span class="on">0</span></span><span class="tg">▾</span></div><div class="rows"></div></div><canvas class="ag-map" width="84" height="84"></canvas></div><div class="ag-zn"></div>' +
       '<div class="ag-stick"><i></i></div><div class="ag-toast" style="top:64px;font-size:15px;text-shadow:0 2px 0 #0a2a4a;pointer-events:none"></div><div class="ag-avw" style="position:absolute;left:0;right:0;top:12%;text-align:center;font-size:34px;font-weight:900;color:#ff5a4d;text-shadow:0 3px 0 #3a0a0a,2px 2px 0 #3a0a0a,-2px 2px 0 #3a0a0a;pointer-events:none;opacity:0;transition:opacity .2s"></div><div class="ag-tip" style="position:absolute;left:8%;right:8%;bottom:26%;text-align:center;font-size:17px;color:#fff;background:rgba(10,42,74,.7);border-radius:14px;padding:10px 14px;pointer-events:none;opacity:0;transition:opacity .4s"></div><div class="ag-arrow" style="position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;opacity:0;transition:opacity .4s"><div style="position:absolute;left:-14px;top:-150px;font-size:34px;color:#ffe066;opacity:.7">▲</div></div>' +
@@ -2656,7 +2700,7 @@ export class AgarMode {
     tier.innerHTML = '<div style="font-size:20px;color:#ffe066">YENİ BÖLGE!</div><div style="font-size:48px;font-weight:900"></div><div style="font-size:15px;color:#cfe8ff"></div>';
     root.appendChild(tier);
     this.hud = {
-      tier, root, rows, chips, feeds, mass: q('.m'), tt: q('.tt'), lv: q('.lv'), bar: q('.bar i'), online: q('.on'), room: q('.ag-room'), rank: q('.ag-rank b'), stick: q('.ag-stick'), knob: q('.ag-stick i'), toast: q('.ag-toast'), av: q('.ag-avw'), zn: q('.ag-zn'), lbBox: q('.ag-lb'), tip: q('.ag-tip'), arrow: q('.ag-arrow'),
+      tier, root, rows, chips, feeds, mass: q('.m'), tt: q('.tt'), rg: q('.rg'), lv: q('.lv'), bar: q('.bar i'), online: q('.on'), room: q('.ag-room'), rank: q('.ag-rank b'), stick: q('.ag-stick'), knob: q('.ag-stick i'), toast: q('.ag-toast'), av: q('.ag-avw'), zn: q('.ag-zn'), lbBox: q('.ag-lb'), tip: q('.ag-tip'), arrow: q('.ag-arrow'),
       map: q('.ag-map'), mctx: q('.ag-map').getContext('2d'), boost: q('.boost'), cd: q('.cd'), bsplit: q('.split'),
     };
     { const w = document.createElement('div'); w.style.cssText = 'position:absolute;inset:0;pointer-events:none;opacity:0;z-index:3;will-change:opacity'; root.appendChild(w); this.hud.wo = w; }
@@ -2777,7 +2821,11 @@ export class AgarMode {
         this.prevRank = myRank;
       } else this.prevRank = 99;
       if (this.state === 'play' && this.lb[0]) { this.sumT += 0.25; if (this.sumT >= 300) { this.sumT = 0; this.toast('En büyük: ' + this.lb[0].name + ' · Sen: ' + (myRank >= 0 ? '#' + (myRank + 1) : '-')); } }
-      h.rank.textContent = myRank >= 0 ? '#' + (myRank + 1) + '/' + n : '-';
+      { const pr = me.alive && me.prot && me.shield > 0;
+        h.rank.textContent = pr ? 'KORUMA' : myRank >= 0 ? '#' + (myRank + 1) + '/' + n : '-';
+        let g = '';
+        if (me.alive && this.state === 'play') { if (myRank > 0) g = 'Sonraki sıra: +' + fmtM(Math.max(1, Math.ceil(this.lb[myRank - 1].mass - me.mass))) + ' kütle'; else if (myRank === 0) g = 'Zirvedesin!'; }
+        if (h.rg.textContent !== g) h.rg.textContent = g; }
       h.online.textContent = String(this.mp === 'client' && this.presentN ? this.presentN : this.presentCount());
       if (myRank >= 0 && this.state === 'play' && myRank + 1 < me.bestRank) me.bestRank = myRank + 1;
       if (myRank >= 0 && this.state === 'play' && me.alive) {

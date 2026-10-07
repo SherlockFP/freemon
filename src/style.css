@@ -997,3 +997,5 @@ html, body {
 #result .btn.next.revive.rv-ring::after { content: ''; position: absolute; inset: -4px; border-radius: 18px; border: 4px solid #fff; animation: rvRing 3s linear forwards; pointer-events: none; }
 @keyframes rvRing { 0% { clip-path: inset(0 0 0 0); } 100% { clip-path: inset(0 100% 0 0); opacity: 0.2; } }
 #result .btn.retry { font-size: 30px; padding: 15px 0; }
+.res-extra .rx-prog { height: 5px; margin: 5px auto 8px; width: 70%; max-width: 260px; border-radius: 3px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
+.res-extra .rx-prog b { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, #7fd4ff, #ffd34a); }
