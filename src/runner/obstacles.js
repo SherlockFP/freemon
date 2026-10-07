@@ -286,7 +286,7 @@ const POOLS = {
   beam: ['beamBox', 'glow', 220],
 };
 // pickup kind -> pool
-const PICK_POOL = { flake: 'flake', snow: 'ball', x2: 'star', gem: 'gem', crystal: 'crystal', box: 'gift', letter: 'letter', magnet: 'magnet', helmet: 'helmet', rocket: 'rocket', superjump: 'spring', timewarp: 'timewarp', ghost: 'ghost', risk: 'risk', clone: 'clone', cannon: 'rocket', bait: 'gem' };
+const PICK_POOL = { flake: 'flake', snow: 'ball', x2: 'star', gem: 'gem', crystal: 'crystal', box: 'gift', letter: 'letter', magnet: 'magnet', helmet: 'helmet', rocket: 'rocket', superjump: 'spring', timewarp: 'timewarp', ghost: 'ghost', risk: 'risk', clone: 'clone', cannon: 'rocket', bait: 'gem', bread: 'gem' };
 
 export function pulseOf(phase) {
   const p = phase > 0.5 ? phase - 1 : phase, a = 1 - Math.abs(p) / 0.3;
@@ -705,7 +705,7 @@ export class Obstacles {
       k.sh = this._alloc('shadow');                                                            // contact shadow: the pile reads on white snow
       if (k.sh >= 0) { this._col('shadow', k.sh, 0xffffff); this._set('shadow', k.sh, f, u, 0.025, 0, 0, 1.9, 1, 1.9); }
     } else if (kind === 'flake') this._col('flake', idx, COL.flake);
-    else this._col(pool, idx, kind === 'bait' ? 0xff9a4a : 0xffffff);      // (BALIK YEMİ: an orange gem)
+    else this._col(pool, idx, kind === 'bait' ? 0xff9a4a : kind === 'bread' ? 0xd9a05b : 0xffffff);      // (BALIK YEMİ: an orange gem; SICAK ÇÖREK: a warm tan one)
     this.picks.push(k);
     return k;
   }
@@ -2387,6 +2387,11 @@ Object.assign(Obstacles.prototype, {
         const s = freeS(mid + 5);
         this._pickup('bait', s, LANES[rng.chance(0.5) ? offRoute(s) : laneOf(route(s))], 1.2, { sc: 1.5, rad: 0.8 });
         this.next.bait = s + rng.range(900, 1400);
+      }
+      if (!T.level && s0 >= 800 && normal && !plan.zone && s1 > (this.next.bread ?? 800)) {      // YETİ EKMEĞİ: rare warm bread, after 800 m
+        const s = freeS(mid - 5);
+        this._pickup('bread', s, LANES[rng.chance(0.5) ? offRoute(s) : laneOf(route(s))], 1.2, { sc: 1.5, rad: 0.8 });
+        this.next.bread = s + rng.range(1000, 1500);
       }
       if (kind !== 'junction' && (normal || apex)) this._gems(plan, route, s0 + 4, s1 - 3, apex);
       // mini mechanics: speed-pad chain, Y-E-T-I letters, snowplow head-on

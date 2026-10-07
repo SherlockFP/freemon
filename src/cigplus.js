@@ -555,7 +555,7 @@ export class CigPlus {
       const a = this.armies[i];
       if (!a.woke && active && b.d > a.d - 90) {
         a.woke = true;
-        this._call('float', 'KARDAN ADAM ORDUSU!', 'big');
+        if (this.game?._msg) this.game._msg(2, 'KARDAN ADAM ORDUSU!'); else this._call('float', 'KARDAN ADAM ORDUSU!', 'big');
         this._call('sfx', 'rumble');
       }
       for (let j = 0; j < a.members.length; j++) {
@@ -1251,7 +1251,7 @@ export class CigGame {
     this.L = level || null;
     this._afkAcc = 0;
     this._next = null;
-    this.world = world; this.ball = ball; this.plus = plus; this.G = G; this.host = host;
+    this.world = world; this.ball = ball; this.plus = plus; if (plus) plus.game = this; this.G = G; this.host = host;
     this.auto = false;
     this.bot = { mode: 'greedy', latency: 0.3, noise: 0.5, queue: [], tick: 0, rw: 0 };
     this.hudT = 0;
@@ -1363,6 +1363,7 @@ export class CigGame {
       const m = q[i];
       if (m.pri === 1 && G.t - m.t > 3) { q.splice(i--, 1); continue; }
       if (m.pri === 2 && G.t - m.t > 10) { q.splice(i--, 1); continue; }
+      if (m.str == null && this.plus.bossFx && !this.plus.bossFx.dead) continue;   // tier banners wait until the boss fight is over
       if (bi < 0 || m.pri > q[bi].pri) bi = i;
     }
     if (bi < 0) return;
@@ -1711,6 +1712,7 @@ export class CigGame {
     const tw = p.throne.tw;
     if (tw.hit) return;
     tw.hit = true;
+    if (tw.deco) tw.deco.visible = false;
     this._msg(2, 'TAHT SARSILIYOR!');
     this._h('sfx', 'rumble');
     for (const t of tw.blocks) {

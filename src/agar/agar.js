@@ -1412,6 +1412,8 @@ export class AgarMode {
     this.owners[pred.o].xpRun += prey.m;
     prey.on = false;
     po.killer = pred.o;
+    if (prey.o === this.me && pred.o !== this.me) { this.revId = pred.o; this.revT = this.time + 20; }
+    else if (pred.o === this.me && prey.o === this.revId && this.time < (this.revT || 0)) { pred.m = Math.min(MAXM, pred.m + prey.m * 0.25); this.revT = 0; this.revId = -1; this.toast('İNTİKAM ALINDI! +bonus'); this.audio?.milestone?.(3); }
     this.sfxTo(pred.o, 'gulp', 1, pred.x, pred.z);
   }
 
@@ -2002,11 +2004,11 @@ export class AgarMode {
     this.btn(c, 'MENÜ', () => this.showTitle());
   }
 
-  toast(t) {
+  toast(t, ms) {
     const el = this.hud.toast;
     el.textContent = t; el.classList.add('on');
     clearTimeout(this._tt);
-    this._tt = setTimeout(() => el.classList.remove('on'), 1800);
+    this._tt = setTimeout(() => el.classList.remove('on'), ms || 1800);
   }
 
   // ------------------------------------------------------------------ multiplayer: host
@@ -2499,11 +2501,7 @@ export class AgarMode {
   }
 
   tierBanner(t) {
-    const el = this.hud.tier;
-    el.children[1].textContent = TIER_NAMES[t]; el.children[2].textContent = TIER_HINT[t] || '';
-    el.style.opacity = '1'; el.style.transform = 'scale(1)';
-    clearTimeout(this._tbT);
-    this._tbT = setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'scale(.6)'; }, 2600);
+    this.toast('🔼 ' + TIER_NAMES[t] + ' boyutu!' + (TIER_HINT[t] ? ' ' + TIER_HINT[t] : ''), 2000);
     this.camKick = 0.35;
     if (this.mp !== 'client') this.owners[this.me].xpRun += 25 * t;
     this.audio?.milestone?.(Math.min(6, t + 1));
@@ -2513,9 +2511,20 @@ export class AgarMode {
   /** per-frame watchers: terrain-entry sounds, size titles, storm rumble */
   watch(dt) {
     const me = this.owners[this.me];
+    if (!me.alive || this.state !== 'play') this._pm = 0;
     if (me.alive && this.state === 'play') {
       const z = this.terrain.zone(me.lx, me.lz);
       if (z !== this.meZone) { this.meZone = z; if (z === 2) this.snd('deep'); else if (z === 1) this.snd('slide'); }
+      if (this._pm > 0 && me.mass < this._pm * 0.6 && this.time > (this._cbT || 0)) {
+        this._cbT = this.time + 8;
+        if (this.mp !== 'client') {
+          me.shield = Math.max(me.shield, 4);
+          const ux = me.cx, uz = me.cz, hex = FOOD_PAL[(Math.random() * FOOD_PAL.length) | 0];
+          for (let k = 0; k < 14; k++) { const a = Math.random() * 6.2832, d = 8 + Math.random() * 10, px = ux + Math.cos(a) * d, pz = uz + Math.sin(a) * d; if (px * px + pz * pz < (R - 4) * (R - 4)) this.spawnPellet(px, pz, 2, hex); }
+        }
+        this.toast('TOPARLAN! 🛡️', 2000);
+      }
+      this._pm = me.mass;
       const ct = tierOfM(me.mass);
       if (ct > this.cigTier) { this.cigTier = ct; this.tierBanner(ct); }
       const ti = titleOf(me.mass);
@@ -2751,6 +2760,7 @@ export class AgarMode {
       this._mapSeed = this.seed;
     }
     g.drawImage(this._mapBg, 0, 0);
+    if (this.revId >= 0 && this.time < (this.revT || 0)) { const ro = this.owners[this.revId]; if (ro && ro.alive) { const rx = c0 + ro.cx * sc, rz = c0 + ro.cz * sc; g.fillStyle = '#ff2a2a'; g.strokeStyle = '#fff'; g.lineWidth = 1; g.beginPath(); g.arc(rx, rz, 3.2, 0, 6.2832); g.fill(); g.stroke(); g.fillStyle = '#fff'; g.font = '700 7px sans-serif'; g.textAlign = 'center'; g.fillText('İNTİKAM', Math.min(W - 16, Math.max(16, rx)), Math.max(8, rz - 5)); g.textAlign = 'start'; } }
     const wr = this.wo.k > 0.35 && me.alive ? Math.max(6, this.woVis() * sc * 1.3) : 0;
     if (wr) { g.save(); g.beginPath(); g.arc(c0 + me.cx * sc, c0 + me.cz * sc, wr, 0, 6.2832); g.clip(); }
     if (this.rain.st) { const rx = c0 + this.rain.x * sc, rz = c0 + this.rain.z * sc, pu = 0.6 + 0.4 * Math.sin(this.time * 8); g.strokeStyle = this.rain.st === 1 ? 'rgba(255,220,60,' + pu + ')' : '#ffd23f'; g.fillStyle = 'rgba(255,210,60,0.35)'; g.lineWidth = 2; g.beginPath(); g.arc(rx, rz, Math.max(5, 65 * sc), 0, 6.2832); g.fill(); g.stroke(); }

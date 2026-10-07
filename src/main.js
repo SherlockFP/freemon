@@ -1127,13 +1127,16 @@ function ensureBars() {
   bossEl = document.createElement('div');
   bossEl.style.cssText = 'position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 78px);transform:translateX(-50%);width:min(82vw,420px);display:none;text-align:center;font:800 13px system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7);letter-spacing:.06em;';
   const nm = document.createElement('div');
+  nm.style.cssText = 'line-height:16px;height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
   const track = document.createElement('div');
-  track.style.cssText = 'margin-top:3px;height:13px;border-radius:7px;background:rgba(10,16,32,.72);border:2px solid #fff;overflow:hidden;';
+  track.style.cssText = 'position:relative;margin-top:4px;height:20px;border-radius:10px;background:rgba(10,16,32,.72);border:2px solid #fff;overflow:hidden;';
   const bf = document.createElement('i');
   bf.style.cssText = 'display:block;height:100%;width:100%;background:linear-gradient(#ff8a5b,#d4202f);transform-origin:left center;';
-  track.appendChild(bf);
+  const num = document.createElement('span');
+  num.style.cssText = 'position:absolute;left:0;right:0;top:0;line-height:16px;font-size:12px;';
+  track.appendChild(bf); track.appendChild(num);
   bossEl.appendChild(nm); bossEl.appendChild(track);
-  bossEl._nm = nm; bossEl._bf = bf;
+  bossEl._nm = nm; bossEl._bf = bf; bossEl._num = num;
   barRoot.appendChild(bossEl);
   document.body.appendChild(barRoot);
 }
@@ -1173,10 +1176,31 @@ function updateEnemyBars() {
   for (let i = n; i < BAR_N; i++) if (barPool[i].on) { barPool[i].on = false; barPool[i].el.style.display = 'none'; }
   if (boss) {
     bossEl.style.display = 'block'; bossEl.style.top = G.lv ? 'calc(env(safe-area-inset-top,0px) + 152px)' : 'calc(env(safe-area-inset-top,0px) + 78px)';
-    bossEl._nm.textContent = boss.enemy.name + '  ' + Math.max(0, Math.ceil(boss.enemy.hp)) + ' / ' + Math.ceil(boss.enemy.max);
+    bossEl._nm.textContent = boss.enemy.name;
+    bossEl._num.textContent = Math.max(0, Math.ceil(boss.enemy.hp)) + ' / ' + Math.ceil(boss.enemy.max);
     bossEl._bf.style.transform = 'scaleX(' + clamp(boss.enemy.hp / boss.enemy.max, 0, 1).toFixed(3) + ')';
     ui.el.hint.classList.add('hidden');   // boss HP bar up: no generic hint line
   } else bossEl.style.display = 'none';
+  // 👑 icon above the standing throne tower, so it is noticed from afar
+  {
+    let tw = null;
+    const th = world.thrones;
+    if (th) for (let i = 0; i < th.length; i++) { const t = th[i]; if (!t.hit && !t.done && t.crownPos && t.crownPos.d - ball.d > -4 && t.crownPos.d - ball.d < 260) { tw = t; break; } }
+    let el = crownEl;
+    if (!el && tw) { el = crownEl = document.createElement('div'); el.style.cssText = 'position:absolute;left:0;top:0;font-size:34px;line-height:1;pointer-events:none;filter:drop-shadow(0 0 8px #ffd860);'; el.textContent = '👑'; barRoot.appendChild(el); }
+    if (el) {
+      if (!tw) el.style.display = 'none';
+      else {
+        const c = tw.crownPos;
+        _v.set(c.x, c.y + c.r * 1.6 + 1.5, -c.d).project(camera);
+        if (_v.z > 1 || Math.abs(_v.x) > 1.1 || _v.y < -1.1 || _v.y > 1.2) el.style.display = 'none';
+        else {
+          el.style.display = 'block';
+          el.style.transform = 'translate(' + ((_v.x * 0.5 + 0.5) * W - 17).toFixed(1) + 'px,' + ((-_v.y * 0.5 + 0.5) * H - 17 + 4 * Math.sin(performance.now() * 0.004)).toFixed(1) + 'px) scale(' + (1 + 0.12 * Math.sin(performance.now() * 0.007)).toFixed(2) + ')';
+        }
+      }
+    }
+  }
   // trap icons (pooled DOM): 🧊 / 🪞 / ❄ floating above each ready trap
   const TR = boss && plus && plus.bossFx && !plus.bossFx.dead ? plus.bossFx.traps : null;
   for (let i = 0; i < 3; i++) {
@@ -1192,6 +1216,7 @@ function updateEnemyBars() {
   }
 }
 const trapEls = [];
+let crownEl = null;
 
 // ---------- loop ----------
 let last = performance.now();

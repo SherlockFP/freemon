@@ -1332,10 +1332,45 @@ export class World {
       p.y += y; y += p.h * 0.85;
       _p.set(p.x, p.y, -p.d); _q.setFromAxisAngle(_up, p.rot); _s.setScalar(p.s); _m.compose(_p, _q, _s); _m.toArray(p.m);
       p.throne = { tw, i };
-      p.tint = i === tw.n - 1 ? [1.35, 1.15, 0.5] : [1.08, 1.05, 0.95];
+      p.tint = i === tw.n - 1 ? [1.5, 1.3, 0.55] : i % 2 ? [1.05, 1.18, 1.5] : [1.4, 1.4, 1.45];
       tw.blocks.push(p);
     }
     const top = tw.blocks[tw.blocks.length - 1];
+    if (top) {
+      // visual dressing (hidden by CigPlus._throneStart when the tower topples): blue/white outlines, faces, gold crown, glow + light pillar
+      const deco = new THREE.Group(); tw.deco = deco;
+      const gold = new THREE.MeshBasicMaterial({ color: 0xffc933, fog: false });
+      const dark = new THREE.MeshBasicMaterial({ color: 0x14202e });
+      const orange = new THREE.MeshBasicMaterial({ color: 0xff7a1a });
+      for (let i = 0; i < tw.blocks.length; i++) {
+        const p = tw.blocks[i], cy = p.y + p.h * 0.5, R = p.r || p.h * 0.5;
+        const ol = new THREE.Mesh(new THREE.SphereGeometry(R * 1.07, 14, 10), new THREE.MeshBasicMaterial({ color: i % 2 ? 0x4aa8ff : 0xffffff, side: THREE.BackSide }));
+        ol.position.set(p.x, cy, -p.d); deco.add(ol);
+        const fz = -p.d + R * 0.92;
+        for (const sx of [-1, 1]) {
+          const eye = new THREE.Mesh(new THREE.SphereGeometry(R * 0.09, 8, 6), dark);
+          eye.position.set(p.x + sx * R * 0.26, cy + R * 0.2, fz - R * 0.1); deco.add(eye);
+        }
+        const nose = new THREE.Mesh(new THREE.ConeGeometry(R * 0.08, R * 0.38, 8), orange);
+        nose.rotation.x = Math.PI / 2; nose.position.set(p.x, cy + R * 0.02, fz + R * 0.1); deco.add(nose);
+      }
+      const R = top.r || top.h * 0.5, ty = top.y + top.h;
+      const crown = new THREE.Group(); crown.position.set(top.x, ty + R * 0.12, -top.d);
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.55, R * 0.5, R * 0.3, 12), gold); band.position.y = R * 0.15; crown.add(band);
+      for (let k = 0; k < 5; k++) {
+        const a = (k / 5) * 6.283, sp = new THREE.Mesh(new THREE.ConeGeometry(R * 0.13, R * 0.4, 6), gold);
+        sp.position.set(Math.cos(a) * R * 0.45, R * 0.5, Math.sin(a) * R * 0.45); crown.add(sp);
+      }
+      const glowM = new THREE.MeshBasicMaterial({ color: 0xffd860, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+      const glow = new THREE.Mesh(new THREE.SphereGeometry(R * 1.4, 12, 8), glowM); glow.position.y = R * 0.3; crown.add(glow);
+      deco.add(crown);
+      const pil = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.35, R * 0.7, 70, 12, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0xffd860, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+      pil.position.set(top.x, ty + 35, -top.d); pil.frustumCulled = false; pil.renderOrder = 4; deco.add(pil);
+      tw.crownPos = { x: top.x, y: ty, d: top.d, r: R };
+      (this.thrones || (this.thrones = [])).push(tw);
+      this.group.add(deco);
+    }
     if (top) this.tagObstacle(top, '👑 TAHT · YIK!');
     tw.n = tw.blocks.length;
     this.zones.push({ d0: it.start - 4, d1: it.start + it.len + 6, kind: 'plus' });

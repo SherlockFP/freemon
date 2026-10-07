@@ -2940,7 +2940,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.multChip.textContent = `✖️ ×${mult} ÇARPAN`;
 
     const bd = bestOf();
-    r.bestV.textContent = bd > 0 ? fmtDist(bd) : 'İLK KOŞU?';
+    const cigB = (() => { try { return save.cigEndlessBest ? save.cigEndlessBest() : null; } catch { return null; } })();
+    const ccB = (() => { try { return save.cigCleared() | 0; } catch { return 0; } })();
+    r.bestV.textContent = bd > 0 ? `${fmt(bd)} m` : 'İLK KOŞU?';
     let cig = { tons: 0, dist: 0 };
     try { cig = save && save.cigEndlessBest ? save.cigEndlessBest() : cig; } catch { /* ignore */ }
     let cc = 0, cs = 0;
@@ -2979,7 +2981,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     let gr0 = false; try { gr0 = meta.globeReady(); } catch { /* ignore */ }
     const att = (db.available || dtl.claimable) ? 'reward' : gr0 ? 'globe' : bd <= 0 ? 'first' : '';
     r.root.setAttribute('data-att', att);
-    if (bd <= 0 && att !== 'first') r.bestV.textContent = '—';
+    if (bd <= 0 && att !== 'first') r.bestV.textContent = (ccB > 0 || (cigB && cigB.tons > 0)) ? 'RUSH\'I DENE!' : 'İLK KOŞU?';
     // compact daily card: 1-line summary when done or on short screens (tap to expand)
     {
       const nT = dtl.tasks.length, nDone = dtl.tasks.filter((m) => m.claimed).length;
@@ -3086,6 +3088,14 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
         if (!node._newWired) { node._newWired = true; node.addEventListener('click', () => { lsSet('patpat.new.' + key, '1'); node.classList.remove('fm-new'); }, true); }
       }
     };
+    if (!r.ftHint) {
+      r.ftHint = el('div', 'fm-fthint');
+      r.ftHint.style.cssText = 'position:absolute;left:0;right:0;bottom:calc(10px + env(safe-area-inset-bottom,0px));text-align:center;font-size:12px;font-weight:800;color:#fff;opacity:.8;text-shadow:0 1px 3px rgba(0,0,0,.55);pointer-events:none;z-index:3';
+      r.root.appendChild(r.ftHint);
+    }
+    const left = Math.max(0, 2 - runs);
+    r.ftHint.textContent = left > 0 ? `Daha fazlası ${left} koşu sonra açılıyor ✨` : (runs < 3 ? 'Daha fazlası 1 koşu sonra açılıyor ✨' : '');
+    r.ftHint.style.display = on && runs < 3 ? '' : 'none';
     sh(r.twrap, runs >= 2, 'today');
     sh(r.globe, runs >= 3, 'globe');
     sh(r.post, runs >= 3, 'post');

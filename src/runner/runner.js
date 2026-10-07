@@ -406,7 +406,7 @@ export class Runner {
     this.ctx.meta?.track?.('run_start', { mode: 'endless' });
     this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.()?.nextLetter ?? null);
     this.yetiN = 0; this.dblT = 0; this.turboN = 0; this.turboT = 0;
-    this.bait = 0; this.baitT = 0; this.baitBonus = 0; this.baitTap = -9; this.baitChip();
+    this.bait = 0; this.baitT = 0; this.baitBonus = 0; this.baitTap = -9; this.baitChip(); this.bread = 0; this.breadChip(); this.cannonChip();
     this.obstacles.setYetiLetter?.('Y');
     this.bossIntro = 0; this.ghostPassed = false; this.ghostRec = null; this.ghostLen = 0;
     this.initGhost();
@@ -690,7 +690,7 @@ export class Runner {
   // KAR KANONU: auto-fires a snowball every 0.3 s at the nearest breakable blocker ahead in the ball's lane (5 shots, 25 s).
   cannonTick(dt) {
     this.cannonT -= dt; this.cannonCd -= dt;
-    if (this.cannonT <= 0) { this.cannonN = 0; this.float('KANON BİTTİ', ''); return; }
+    if (this.cannonT <= 0) { this.cannonN = 0; this.cannonChip(); return; }
     if (this.cannonCd > 0 || this.grind || this.zip) return;
     const b = this.b, o = this.obstacles.snipe?.(b.s, b.u, 26 + b.vs * 0.25);
     if (!o) return;
@@ -705,8 +705,8 @@ export class Runner {
     this.smashes++; this.addFlow(1.5); this.score += 40 * Math.max(1, o.tough) * this.mult;
     audio.crash?.(0.5); platform.haptic('light');
     this.kick += 1; this.trauma = Math.min(1, this.trauma + 0.1);
-    this.float(this.cannonN > 0 ? `KARTOPU! ${this.cannonN} KALDI` : 'KANON BİTTİ', '');
     if (this.cannonN <= 0) this.cannonT = 0;
+    this.cannonChip();
   }
 
   // YETİ ÖFKESİ meter: near misses + stomp chains fill it (~8 near misses); full -> 5 s of snowball rain, invulnerable, score x2.
@@ -936,7 +936,7 @@ export class Runner {
     if (this.rocketT > 0 || this.zip) { this.jnDone = true; return; }
     if (this.jnTut && this.jnTutMiss < 2) {
       this.jnTutMiss++;
-      this.float('BİR DAHAKİNE KAYDIR!', 'bad');
+      this.float('KAYDIR!', 'bad');
       return;
     }
     if (this.absorbShield(null)) {
@@ -1074,9 +1074,10 @@ export class Runner {
     if (this.baitT > 0) {                      // the Yeti is busy eating the bait
       this.baitT -= dt;
       if (!this.boss) { this.baitBonus += b.vs * dt; this.stumbleT = 0; this.yetiHoldT = 0; }
-      if (this.baitT <= 0) { this.baitT = 0; this.float('YETİ DOYDU!', ''); }
+      if (this.baitT <= 0) this.baitT = 0;
       if (!this.boss) return;
     } else if (this.baitBonus > 0) this.baitBonus = Math.max(0, this.baitBonus - (this.baitBonus > 12 ? 14 : 1.5) * dt);
+    if (this.bread && !this.boss && this.baitT <= 0 && this.gap <= 6) this.useBread();
     if (this.bait > 0 && !this.boss && this.stumbleT > 0 && this.stumbleHits >= 2) this.useBait(true);     // about to be caught: auto-use
     const far = this.buffs.has('yetikov');
     if (this.boss) { if (this.stumbleT > 0) this.stumbleT = Math.max(0, this.stumbleT - dt); this.gap = RCFG.yetiMax; return; }
@@ -1114,11 +1115,43 @@ export class Runner {
     if (this.boss) this.boss.baitSkip = 1;
     this.stumbleT = 0; this.stumbleHits = 0; this.yetiHoldT = 0;
     this.roar(true); this.ctx.audio.chime?.(); this.ctx.platform.haptic('success');
-    this.float(auto ? '🐟 YEM OTOMATİK!' : '🐟 AFİYET OLSUN!', 'big');
-    this.after?.(0.5, () => { if (this.state === 'play') this.float('😋 HAM HAM!', ''); });
+    this.float('🐟 AFİYET OLSUN!', 'big');
     this.baitChip();
     this.ctx.meta?.track?.('bait_use', { auto: !!auto, boss: !!this.boss });
     return true;
+  }
+
+  /** YETİ EKMEĞİ: a warm bread held (max 1); auto-used when the Yeti is within 6 m: it stops to sniff it for 3 s (gap +10 m). */
+  useBread() {
+    if (!this.bread || this.baitT > 0 || this.state !== 'play') return false;
+    this.bread = 0; this.baitT = 3; this.baitBonus = Math.max(this.baitBonus, 10);
+    this.stumbleT = 0; this.stumbleHits = 0; this.yetiHoldT = 0;
+    this.roar(true); this.ctx.audio.chime?.(); this.ctx.platform.haptic('success');
+    this.float('🥐 YETİ KOKLUYOR', 'big');
+    this.breadChip();
+    return true;
+  }
+
+  _chipEl(key, bottom) {
+    let el = this[key];
+    if (!el) {
+      el = this[key] = document.createElement('div');
+      el.style.cssText = `position:fixed;left:12px;bottom:${bottom}%;z-index:30;padding:6px 11px;border-radius:16px;background:rgba(20,40,70,.8);color:#fff;font:700 15px system-ui,sans-serif;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.35)`;
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  breadChip() {
+    if (!this.bread && !this._breadEl) return;
+    const el = this._chipEl('_breadEl', 41);
+    el.style.display = this.bread ? 'block' : 'none';
+    el.textContent = '🥐 SICAK ÇÖREK';
+  }
+  cannonChip() {
+    if (!this._cannonEl && !(this.cannonN > 0)) return;
+    const el = this._chipEl('_cannonEl', 27);
+    el.style.display = this.cannonN > 0 ? 'block' : 'none';
+    el.textContent = '❄️ KANON ×' + Math.max(0, this.cannonN);
   }
 
   baitChip() {
@@ -1214,7 +1247,7 @@ export class Runner {
       else tele = true;
       if (this.gustDir !== g.dir && this.gustK < 0.05) this.gustDir = g.dir;
       if (tele || want > 0) this.gustDir = g.dir;
-      if (tele && !this.gustWarn) { this.gustWarn = true; this.tip('wind', 'RÜZGÂR: ters yöne kaydır!', false); this.float(g.dir < 0 ? '◀ ÇIĞ RÜZGÂRI' : 'ÇIĞ RÜZGÂRI ▶', 'big'); }
+      if (tele && !this.gustWarn) { this.gustWarn = true; this.float(g.dir < 0 ? '◀ ÇIĞ RÜZGÂRI' : 'ÇIĞ RÜZGÂRI ▶', 'big'); }
     } else this.gustWarn = false;
     this.gustK += (want - this.gustK) * Math.min(1, dt * 4);
     if (!(tele || want > 0)) return;
@@ -1670,7 +1703,7 @@ export class Runner {
       this.clone = { mesh, u: this.b.u, vu: 0, events: [], ball: { id: 'clone', s: 0, u: 0, h: 0, r: 0, vs: 0, size: 1 } };
     }
     this.ctx.audio.milestone(3);
-    this.float('İKİZ TOP! ÇARPAN +2', 'big');
+    this.float('İKİZ TOP!', 'big');
   }
 
   endClone(popped) {
@@ -2330,7 +2363,7 @@ export class Runner {
         if (Math.random() < 0.5) this.mistBurst(1, 0xcdeeff, 2.5, 0.7);
         break;
       case 'tunnel':
-        if (e.enter && this.tunnelMsgT <= 0) { this.float('TÜNEL! IŞIKLARI TAKİP ET', 'big'); this.tunnelMsgT = 5; }
+        if (e.enter && this.tunnelMsgT <= 0) { this.float('TÜNEL!', 'big'); this.tunnelMsgT = 5; }
         audio.whoosh?.(); this.kick += e.enter ? 3 : 1;
         break;
       case 'fx':
@@ -2369,7 +2402,7 @@ export class Runner {
         this.score += bonus;
         const cm = this.chainBonus();
         if (this.stumbleT > 0) this.ctx.meta?.track?.('close_call', {});
-        if (cm > 0) this.float(`KIL PAYI +${bonus} · ZİNCİR +${cm}`, 'big');
+        if (cm > 0) this.float(`KIL PAYI +${bonus}`, 'big');
         this.punch = Math.min(1.5, this.punch + 0.6);
         this.kick += 3;
         this.mistBurst(6, 0xbfe6ff, 4, 0.9);
@@ -2579,9 +2612,14 @@ export class Runner {
         this.float('SÜPER ZIPLAMA!', 'big');
         this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'superjump' });
         break;
+      case 'bread':
+        if (this.bread) { this.score += 300 * this.mult; ui.toastSoft?.('🥐 Çörek dolu'); }
+        else { this.bread = 1; this.breadChip(); this.float('🥐 SICAK ÇÖREK', 'big'); }
+        audio.star(2); platform.haptic('success');
+        break;
       case 'bait':
         if (this.bait >= 2) { this.score += 300 * this.mult; ui.toastSoft?.('🐟 Yem dolu (2/2)'); }
-        else { this.bait++; this.baitChip(); ui.toastSoft?.('🐟 BALIK YEMİ! Yeti yakınken aşağı-aşağı'); }
+        else { this.bait++; this.baitChip(); ui.toastSoft?.('🐟 BALIK YEMİ!'); }
         audio.star(2); platform.haptic('success');
         break;
       case 'gem':
@@ -2606,12 +2644,12 @@ export class Runner {
           this.yetiN++;
           audio.milestone(4); platform.haptic('success');
           const got = 'YETİ'.slice(0, this.yetiN).split('').join('-');
-          if (this.yetiN < 4) { ui.toastSoft?.(got + '-…'); this.float(got, 'big'); this.obstacles.setYetiLetter?.('YETİ'[this.yetiN]); }
+          if (this.yetiN < 4) { this.float(got, 'big'); this.obstacles.setYetiLetter?.('YETİ'[this.yetiN]); }
           else {
             this.obstacles.setYetiLetter?.(null);
             this.addFlakes(500 * this.mult); this.score += 2000 * this.mult; this.dblT = 15;
             ui.buffAdd?.('yeti', '❄️', 'ÇİFT SKOR', 15);
-            this.float('YETİ TAMAM!', 'big'); ui.toastSoft?.('YETİ TAMAM!');
+            this.float('YETİ TAMAM!', 'big');
           }
           break;
         }
@@ -2637,7 +2675,7 @@ export class Runner {
       case 'risk':
         this.riskT = 10;
         audio.milestone(5);
-        this.float('RİSK MODU! HIZ ↑ ÇARPAN +4', 'big');
+        this.float('RİSK MODU!', 'big');
         this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'risk' });
         break;
       case 'clone':
@@ -2665,7 +2703,7 @@ export class Runner {
         this.cannonN = 5; this.cannonT = 25; this.cannonCd = 0.5;
         this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'cannon' });
         audio.milestone(3); platform.haptic('success');
-        this.float('KAR KANONU! 5 ATIŞ', 'big');
+        this.float('KAR KANONU!', 'big'); this.cannonChip();
         break;
       case 'rocket':
         this.rocketT = this.dur('rocket');
@@ -3223,7 +3261,7 @@ export class Runner {
   // ball over the trail — never on the strip of track the player is reading.
   // ---- first-encounter tips: once ever per mechanic (localStorage), max one per 8 s, never in danger ----
   tip(key, text, slow) {
-    if (this.state !== 'play' || this.tipCd > 0 || this.countT > 0) return false;
+    if (this.state !== 'play' || this.tipCd > 0 || this.countT > 0 || (this.time - this.floatT < 1.5 && this.floatPri >= 2)) return false;
     if (this.stumbleT > 0 || this.gap < 9 || this.boss || this.rage || this.hungerWarn || this.zip || this.grind) return false;
     let seen = this.tipsSeen;
     if (!seen) {
@@ -3270,6 +3308,7 @@ export class Runner {
 
   float(text, cls) {
     const pri = FLOAT_PRI[cls] ?? 1;
+    if (this.bannerT > 0 && pri < 3) return;      // one big centre text at a time: a banner owns the slot
     const lastSame = this.floatSeen.get(text);
     if (lastSame !== undefined && this.time - lastSame < (pri >= 3 ? 1.5 : 4)) return;   // repeat throttle
     const since = this.time - this.floatT;
