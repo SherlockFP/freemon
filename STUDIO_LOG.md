@@ -243,3 +243,36 @@ Skorlar sabit kaldı. En büyük engel ekranın üstündeki kalabalık: KOMBO, g
 - ÇIĞ'da küçük kapı çipi, erime dengesi ve yer işaretleri.
 - Arena'da 60 sn güvenlik, kalabalık başlangıç ve renkli zemin.
 - Ana menüde pasaport ve menü düzeltmeleri.
+
+## Tur 4 — Yapılanlar
+
+Hepsi push edildi.
+
+**HUD (Rush)**
+- Üst kısım sabit bir düzene geçti: skor, altında [KOMBO] [xN] çipleri, en altta ince barlar.
+- Buff ikonu tek slottan, sağ üstten gösteriliyor.
+- Bildirimler tek şeritte, aynı anda en fazla 1 tane.
+- Ekranın %22'sinin altına hiçbir şey taşmıyor, yol temiz.
+
+**Rush**
+- 2,2 km'deki düşüş adil hale getirildi: altıgen deliklerde orta şerit artık hep sağlam.
+- Delik ve boşluklardan önce hıza göre en az 1-1,5 sn uyarı süresi var, ok bantları eklendi.
+- Ritim şeridi parlak kenar çizgileriyle görünür oldu.
+- Bot 3,6 km'yi düşmeden geçti.
+
+**ÇIĞ**
+- Kapı tabelası küçüldü.
+- HUD tek satıra indi.
+- Kapı öncesine "kar yağışı" kurtarma alanı eklendi, ayrıca "BÜYÜMEN LAZIM!" uyarısı.
+- Her yaklaşık 150 m'de yer işareti kümeleri var.
+- Erken dağlarda kamera daha yakın.
+
+**Arena**
+- 60 sn koruma.
+- Bir kalenin yanında, yemek halkası ve botlarla doğuyorsun.
+- Pastel zemin ve kaleler arası yollar.
+
+**Menü**
+- Ana ekrana 🛂 Pasaport butonu geldi.
+- Alt menü artık başka öğelerin üstüne binmiyor.
+- "Görünüm: NORMAL" ve "Yeni damga: …!" metinleri düzeltildi.
