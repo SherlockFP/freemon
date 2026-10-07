@@ -1377,8 +1377,28 @@ if (DEBUG) {
 async function boot() {
   try { Object.assign(lib, await loadModels()); } catch (e) { console.warn(e); }
   applySkin(save.selected('skin'));
+  // FTUE: existing saves count as done; a brand-new player gets a 2 s splash, then YETİ RUSH right away.
+  let ftueNew = false;
+  try {
+    if (localStorage.getItem('patpat.ftue') === null) {
+      if (save.runsTotal() > 0) localStorage.setItem('patpat.ftue', '1');
+      else { localStorage.setItem('patpat.ftueGate', 'on'); ftueNew = !params.has('play') && !params.has('cig') && !params.has('endless') && !DEBUG; }
+    }
+  } catch { /* ignore */ }
   toMenu();
   updateCamera(0, true);
+  if (ftueNew) {
+    const sp = document.createElement('div');
+    sp.className = 'ftue-splash';
+    sp.innerHTML = '<div class="fs-logo">PATPAT</div><div class="fs-sub">YETİ</div><div class="fs-tap">DOKUN VE OYNA</div>';
+    document.body.appendChild(sp);
+    let gone = false;
+    const startedAt = G.runNo;
+    // only auto-start if nothing else was started meanwhile (e.g. a mode launched while the splash was up)
+    const go = () => { if (gone) return; gone = true; sp.classList.add('out'); setTimeout(() => sp.remove(), 350); if (G.runNo === startedAt && G.mode !== 'runner' && G.mode !== 'agar') startEndless(); };
+    sp.addEventListener('pointerdown', go);
+    setTimeout(go, 2000);
+  }
   try { (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => { loadEndless().catch(() => {}); }); } catch { /* optional */ }
   if (params.has('play') || params.has('cig')) {
     const cp = params.get('cig');

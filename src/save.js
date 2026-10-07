@@ -108,6 +108,7 @@ export const save = {
   },
 
   // ---- endless mode ----
+  runsTotal: () => (data.runs || 0) + (data.runner?.runs || 0) + (data.cig?.endless?.runs || 0),
   runnerBest: () => data.runner?.best || 0,
   runnerBestDist: () => data.runner?.bestDist || 0,
   // Returns this run's rank among the player's top-10 runs (1-based), or 0 if it didn't make the list.

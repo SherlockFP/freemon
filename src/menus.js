@@ -2884,7 +2884,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const sShop = secBtn('c-shop', '👕', 'Dolap', () => { if (cb.onShop) cb.onShop(); });
     const sMis = secBtn('c-mis', '📜', 'Görevler', () => openMissions());
     const sPass = secBtn('c-pass', '🛂', 'PASAPORT', () => { try { localStorage.setItem('patpat.stampsSeen', String(meta.stamps().filter((x) => x.got).length)); } catch { /* ignore */ } openPassport(); updateMain(); });
-    r.passBdg = sPass.bdg;
+    r.passBdg = sPass.bdg; r.sPass = sPass.b;
     r.post = button('fm-post', '✉️', () => { sfx('click'); openPostcard(); }, 'Yeti Postası');
     r.postBdg = el('span', 'fm-bdg dot off', '!'); r.post.appendChild(r.postBdg);
     const sSet = secBtn('c-set', '⚙️', 'Ayarlar', () => openSettings());
@@ -3064,6 +3064,75 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       if (!shown) { shown = true; continue; }
       b.classList.add('off');
     }
+    try { applyFtue(r); } catch { /* ignore */ }
+  }
+
+  // ============================================================================================ first-time user experience
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
+  function ftueRuns() { try { return save.runsTotal ? save.runsTotal() : 99; } catch { return 99; } }
+  function applyFtue(r) {
+    const gate = lsGet('patpat.ftueGate') === 'on';
+    if (!gate) return;
+    const runs = ftueRuns();
+    if (runs >= 4) lsSet('patpat.ftueGate', 'off');
+    const on = runs < 4;
+    const sh = (node, ok, key) => {
+      if (!node) return;
+      node.style.display = on && !ok ? 'none' : '';
+      node.classList.remove('fm-new');
+      if (ok && on && lsGet('patpat.new.' + key) !== '1') {
+        node.classList.add('fm-new');
+        if (!node._newWired) { node._newWired = true; node.addEventListener('click', () => { lsSet('patpat.new.' + key, '1'); node.classList.remove('fm-new'); }, true); }
+      }
+    };
+    sh(r.twrap, runs >= 2, 'today');
+    sh(r.globe, runs >= 3, 'globe');
+    sh(r.post, runs >= 3, 'post');
+    sh(r.sPass, runs >= 3, 'pass');
+    if (runs >= 1 && lsGet('patpat.ftue') !== '1' && !r._ftueBusy) ftueFirstRun(r);
+  }
+  function ftueFirstRun(r) {
+    r._ftueBusy = true;
+    const ov = el('div', 'fm-ftue');
+    const card = el('div', 'fm-ftcard');
+    ov.appendChild(card);
+    const finish = () => { lsSet('patpat.ftue', '1'); ov.remove(); r._ftueBusy = false; };
+    const coach = () => {
+      const steps = [
+        ['🏂', 'OYNA', 'Büyük düğme: Yeti Rush koşusu. Kaydır, zıpla, kar topla!'],
+        ['⚔️', 'KARTOPU ARENA', 'Botlara karşı dev haritada büyü, arkadaşlarınla oda kur.'],
+        ['⛰️', 'ÇIĞ / MACERA', 'Çığ dağları ve macera haritası: yıldız topla, yeni şeyler aç.'],
+      ];
+      let i = 0;
+      const draw = () => {
+        clear(card);
+        const [ic, t, d] = steps[i];
+        add(card, el('div', 'ftc-step', `${i + 1}/${steps.length}`), el('div', 'ftc-ic', ic), el('div', 'ftc-t', t), el('div', 'ftc-d', d));
+        const row = el('div', 'ftc-row');
+        row.appendChild(button('ftc-skip', 'GEÇ', () => { sfx('click'); finish(); }));
+        row.appendChild(button('ftc-go', i < steps.length - 1 ? 'İLERİ ▶' : 'BAŞLA!', () => { sfx('click'); if (++i >= steps.length) finish(); else draw(); }));
+        card.appendChild(row);
+      };
+      draw();
+    };
+    if (lsGet('patpat.ftueCeleb') === '1') coach();
+    else {
+      lsSet('patpat.ftueCeleb', '1');
+      let bonus = 60;
+      try { save.addCoins(bonus); } catch { bonus = 0; }
+      let tease = null;
+      try { tease = SKINS.filter((x) => x.price > 0 && !(x.unlock && (x.unlock.stars || x.unlock.secret)) && !save.isOwned('skin', x.id)).sort((a, b) => a.price - b.price)[0]; } catch { /* ignore */ }
+      let have = 0; try { have = save.coins; } catch { /* ignore */ }
+      add(card, el('div', 'ftc-ic', '🎉'), el('div', 'ftc-t', 'İLK KOŞUN!'), el('div', 'ftc-d', `İlk kar taneleri cebinde. Hoş geldin bonusu: +${bonus} ❄️`));
+      if (tease) {
+        const bar = el('span', 'gb'); const f = el('i'); f.style.width = `${Math.min(100, Math.round(have / tease.price * 100))}%`; bar.appendChild(f);
+        add(card, add(el('div', 'ftc-skin'), el('b', '', `👕 ${tease.name}`), bar, el('small', '', have >= tease.price ? 'Dolapta seni bekliyor!' : `${fmt(have)}/${fmt(tease.price)} ❄️ · bir sonraki koşuda!`)));
+      }
+      card.appendChild(add(el('div', 'ftc-row'), button('ftc-go', 'SÜPER!', () => { sfx('confirm'); coach(); })));
+      try { confetti(70); sfx('confirm'); } catch { /* ignore */ }
+    }
+    r.root.appendChild(ov);
   }
 
   // ============================================================================================ easter eggs (UI side)

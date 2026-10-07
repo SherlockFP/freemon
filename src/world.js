@@ -666,6 +666,7 @@ export class World {
       case 'iceWall': return this.placeIceWall(it, gr, hw);
       case 'statues': return this.placeStatues(it, gr, hw);
       case 'domino': return this.placeDomino(it, gr, hw);
+      case 'throne': return this.placeThrone(it, gr, hw);
       case 'secret': return this.placeSecret(it, gr, hw);
       case 'ramp': return this.placeRamp(d, gr, T, hw);
       case 'patch': return this.placePatch(d, gr, T, hw);
@@ -1311,6 +1312,32 @@ export class World {
       row.trees.push(p);
     }
     row.n = row.trees.length;
+    this.zones.push({ d0: it.start - 4, d1: it.start + it.len + 6, kind: 'plus' });
+    return it.len;
+  }
+
+  // KARDAN ADAM TAHTI: a tall stack of snowman blocks in a side area, crowned on top. Hitting any block topples everything above it
+  // (see CigGame._throneStart); each fallen block = growth + combo, the crown = bonus + star goal. Never blocks the main path.
+  placeThrone(it, gr, hw) {
+    const def = this.lib.snowman; if (!def) return it.len;
+    const d = it.start + it.len * 0.5, hwL = this.halfWidth(d);
+    const tw = { blocks: [], n: 5, got: 0, hit: false, done: false };
+    const s0 = clamp(gr * 0.55 / def.radius, 0.3, 24);
+    const x = clamp(it.side * hwL * 0.62, -hwL + s0 * def.radius + 1, hwL - s0 * def.radius - 1);
+    let y = 0;
+    for (let i = 0; i < tw.n; i++) {
+      const s = s0 * (1 - i * 0.1);
+      const p = this.add('snowman', x + (i % 2 ? 0.25 : -0.25) * s0, d + i * 0.02, { s, rot: this.rng.range(0, 6.28), tonK: 1.3 });
+      if (!p) continue;
+      p.y += y; y += p.h * 0.85;
+      _p.set(p.x, p.y, -p.d); _q.setFromAxisAngle(_up, p.rot); _s.setScalar(p.s); _m.compose(_p, _q, _s); _m.toArray(p.m);
+      p.throne = { tw, i };
+      p.tint = i === tw.n - 1 ? [1.35, 1.15, 0.5] : [1.08, 1.05, 0.95];
+      tw.blocks.push(p);
+    }
+    const top = tw.blocks[tw.blocks.length - 1];
+    if (top) this.tagObstacle(top, '👑 TAHT · YIK!');
+    tw.n = tw.blocks.length;
     this.zones.push({ d0: it.start - 4, d1: it.start + it.len + 6, kind: 'plus' });
     return it.len;
   }

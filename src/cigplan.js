@@ -51,7 +51,7 @@ export const INTRO = {
 const STAR3 = { 1: 'nobounce', 2: 'crates', 3: 'nobounce', 4: 'secret', 5: 'nohit', 6: 'chain', 7: 'rival', 8: 'nohit', 9: 'gold', 10: 'time', 11: 'crates', 12: 'chain' };
 
 // metres of track a part needs (everything the part places stays inside [start, start + len])
-const RES = { crateLine: 44, crateWall: 64, iceWall: 48, ramp: 95, mush: 90, army: 60, town: 90, golden: 50, patch: 100, rival: 70, cannon: 90, bridge: 130, fork: 92, pickup: 14, strip: 14, gate: 84, arena: 170, statues: 66, secret: 92, domino: 40 };
+const RES = { crateLine: 44, crateWall: 64, iceWall: 48, ramp: 95, mush: 90, army: 60, town: 90, golden: 50, patch: 100, rival: 70, cannon: 90, bridge: 130, fork: 92, pickup: 14, strip: 14, gate: 84, arena: 170, statues: 66, secret: 92, domino: 40, throne: 58 };
 const GAP = 25;
 
 // hand-made stage lists for the first ten mountains (CL crate line, CW crate wall, IW ice wall, RMP ramp, MSH mushrooms,
@@ -263,6 +263,8 @@ function build(n, daily, assist, opts) {
     // DOMİNO ÇAM: one pine row per mountain from DAĞ 2
     if (!arenaStage && n >= 2 && i === Math.min(2, S - 1)) parts.unshift({ kind: 'domino', len: RES.domino });
     if (!arenaStage && !daily && n >= 3 && i === Math.min(1, S - 1)) parts.unshift({ kind: 'statues', len: RES.statues });
+    // KARDAN ADAM TAHTI: a toppled-snowman tower in a side area (from DAĞ 3, never boss / TERS mountains)
+    if (!arenaStage && !daily && !boss && !ters && n >= 3 && i === Math.min(2, S - 1)) parts.unshift({ kind: 'throne', len: RES.throne });
     // GİZLİ KAR TÜNELİ: a cracked ice wall at the slope edge (about one per mountain, from DAĞ 4)
     if (!arenaStage && n >= 4 && i === Math.min(1, S - 1)) parts.unshift({ kind: 'secret', len: RES.secret });
     if (!arenaStage) {
@@ -327,6 +329,9 @@ function build(n, daily, assist, opts) {
       p.count = n < 6 ? 3 : n < 15 ? 4 : 5;
       p.side = rng.sign();
       P.hasStatues = p.count;
+    } else if (p.kind === 'throne') {
+      p.side = rng.sign();
+      P.hasThrone = 1;
     } else if (p.kind === 'secret') {
       p.side = rng.sign();
       P.hasSecret = 1;
@@ -399,6 +404,7 @@ function makeStars(P, n, daily, boss, items) {
     if (hasRival) pool.push('rival');
     if (P.hasStatues) pool.push('statues');
     if (P.hasSecret) pool.push('secret');
+    if (P.hasThrone) pool.push('throne');
     kind = pool[(5 * n + Math.floor(n / 3)) % pool.length];
   }
   // (kinds that need a part this mountain does not have fall back to something that always works)
@@ -406,6 +412,7 @@ function makeStars(P, n, daily, boss, items) {
   if (kind === 'crates' && P.crates.total < 4) kind = 'nobounce';
   if (kind === 'rival' && !hasRival) kind = 'nohit';
   if (kind === 'statues' && !P.hasStatues) kind = 'nobounce';
+  if (kind === 'throne' && !P.hasThrone) kind = 'nohit';
   if (kind === 'secret' && !P.hasSecret) kind = 'nobounce';
   const s3 = { star: 3, kind };
   switch (kind) {
@@ -416,6 +423,7 @@ function makeStars(P, n, daily, boss, items) {
     case 'crates': s3.count = Math.min(P.crates.total, P.crates.target3); s3.text = `${s3.count} kasa kır`; break;
     case 'gold': s3.count = P.crates.gold; s3.text = `Tüm altın kasaları kır (${s3.count})`; break;
     case 'rival': s3.text = 'Rakip kartopunu yut'; break;
+    case 'throne': s3.text = 'KARDAN ADAM TAHTINI yık'; break;
     case 'secret': s3.text = 'GİZLİ YOLU bul'; break;
     case 'statues': s3.count = P.hasStatues; s3.text = `HEYKEL SERİSİ: ${s3.count} heykelin hepsini yık`; break;
     default: s3.text = 'Dağı bitir';
@@ -441,6 +449,7 @@ export function evalStars(P, st) {
       case 'gold': b3 = (st.gold | 0) >= s3.count; break;
       case 'rival': b3 = (st.rivalEaten | 0) > 0; break;
       case 'statues': b3 = (st.statues | 0) >= s3.count; break;
+      case 'throne': b3 = (st.throne | 0) >= 1; break;
       case 'secret': b3 = (st.secret | 0) >= 1; break;
       default: b3 = true;
     }

@@ -1464,7 +1464,7 @@ export class CigGame {
     let best = null, bestD = 1e9;
     for (let i = 0; i < _near.length; i++) {
       const p = _near[i];
-      if (!p.alive || p.tag || p.move !== MOVE_NONE || p.kind === 'chunk' || p.decor || p.enemy || p.crate || p.statue || p.domino || p.r <= b.r * CFG.smashRatio || this._edible(p)) continue;
+      if (!p.alive || p.tag || p.move !== MOVE_NONE || p.kind === 'chunk' || p.decor || p.enemy || p.crate || p.statue || p.domino || p.throne || p.r <= b.r * CFG.smashRatio || this._edible(p)) continue;
       const dd = p.d - b.d;
       if (dd < 8 || dd > look) continue;
       if (Math.abs(p.x - b.x) > b.r + p.r * CFG.contactK + 4) continue;
@@ -1531,7 +1531,7 @@ export class CigGame {
   }
 
   _edible(p) {
-    if (p.enemy || p.crate || p.statue || p.domino) return false;
+    if (p.enemy || p.crate || p.statue || p.domino || p.throne) return false;
     return p.kind === 'chunk' || p.r <= this.ball.r * CFG.eatRatio * this.plus.eatMulFor(p);
   }
 
@@ -1561,7 +1561,7 @@ export class CigGame {
       if (dist > contact) continue;
       if (M.ghost) continue;
       // small / medium: smash straight through (partial growth); power or rocket: smash anything; too big: glance off sideways
-      if (M.plow || pw || p.domino || p.r <= b.r * CFG.smashRatio) { this._smash(p, true); continue; }
+      if (M.plow || pw || p.domino || (p.throne && p.r <= b.r * CFG.smashRatio * 1.3) || p.r <= b.r * CFG.smashRatio) { this._smash(p, true); continue; }
       this._deflect(p, dx, dd, dist, contact);
     }
   }
@@ -1669,6 +1669,7 @@ export class CigGame {
     this._h('track', 'smash', {});
     if (p.statue) this._statueBroken(p);
     if (p.domino) this._dominoStart(p);
+    if (p.throne) this._throneStart(p);
     if (grow) this._tierCheck();
   }
 
@@ -1684,6 +1685,7 @@ export class CigGame {
     if (row.trees.length < 2) this._dominoDone(row);
   }
   _dominoFell(t) {
+    if (t.throne) { this._throneFell(t); return; }
     const row = t.domino && t.domino.row, b = this.ball;
     if (!row) return;
     row.got++;
@@ -1703,6 +1705,40 @@ export class CigGame {
     this._h('sfx', 'milestone', 2);
     this._h('haptic', 'success');
     this.G.shake += 0.3;
+  }
+
+  _throneStart(p) {
+    const tw = p.throne.tw;
+    if (tw.hit) return;
+    tw.hit = true;
+    this._msg(2, 'TAHT SARSILIYOR!');
+    this._h('sfx', 'rumble');
+    for (const t of tw.blocks) {
+      if (t === p || !t.alive || t.throne.i < p.throne.i) continue;
+      this.world.topple(t, 0.12 + 0.2 * (t.throne.i - p.throne.i), (t.throne.i % 2 ? 1 : -1) * (Math.sign(t.x - p.x) || 1));
+    }
+    this._throneFell(p, true);
+  }
+  _throneFell(t, direct) {
+    const tw = t.throne.tw, b = this.ball;
+    tw.got++;
+    const gain = CFG.growK * 0.06 * b.r ** 3 * this._band();
+    if (gain > 0) this._grow(b.r ** 3 + gain);
+    this.G.destroyed += 1;
+    this.G.combo = this.G.comboT > 0 ? this.G.combo + 1 : 1; this.G.comboT = CFG.comboWindow;
+    this._h('burst', t.x, t.y + t.h * 0.4, t.d, 8, 0xffffff, 5, 0.2 + t.r * 0.05, 5);
+    if (this.G.t - (this._domSfxT || -9) > 0.1) { this._domSfxT = this.G.t; this._h('sfx', 'crash', 0.35); }
+    this._text('BLOK x' + tw.got, t, 'big', true);
+    if (t.throne.i === tw.n - 1 && !tw.done) {
+      tw.done = true;
+      this._grow(b.r ** 3 * 1.2);
+      this.stats.throne = (this.stats.throne | 0) + 1;
+      this.G.destroyed += 4;
+      this._msg(3, '👑 TAHT YIKILDI! BONUS');
+      this._h('sfx', 'milestone', 2);
+      this._h('haptic', 'success');
+      this.G.shake += 0.4;
+    }
   }
 
   _statueBroken(p) {
@@ -3120,7 +3156,7 @@ export class CigGame {
 
 function newStats() {
   return { eats: 0, bumps: 0, gates: 0, gatesBroken: 0, maxCombo: 0, goldens: 0, waves: 0, tierT: [], stalls: 0, chunksEaten: 0, kills: 0, bosses: 0, smashes: 0,
-    bounces: 0, hits: 0, crates: 0, gold: 0, maxChain: 0, maxMul: 1, rivalEaten: 0, time: 0, statues: 0, secret: 0 };
+    bounces: 0, hits: 0, crates: 0, gold: 0, maxChain: 0, maxMul: 1, rivalEaten: 0, time: 0, statues: 0, secret: 0, throne: 0 };
 }
 
 const _stickPos = new THREE.Vector3();
@@ -3131,6 +3167,7 @@ const TIPS = {
   fork: 'Yol ayrımı: riskli taraf ödüllü, güvenli taraf sakin.',
   statues: 'Tüm heykelleri yık: seri bonusu kazan!',
   secret: 'Çatlak buz duvar: yeterince büyüksen parlar, kır!',
+  throne: 'Kardan adam tahtına çarp: bloklar devrilsin, tacı yık!',
   domino: 'İlk ağaca çarp: domino gibi devrilsin!',
   riders: 'Art arda 3 kardan adam ye: EKİP TOPU üstüne biner!',
 };

@@ -176,6 +176,7 @@ export class AgarMode {
     this.lastLevel = 1;
     this.terrain = new Terrain(R); this.seed = 1; this.uTime = { value: 0 };
     this.storm = { on: false, x: 0, z: 0, dx: 0, dz: 0, t: 0, next: 40, r: 170 }; this.stormSndT = 0; this.rain = { st: 0, x: 0, z: 0, t: 0, next: 150 + Math.random() * 60, acc: 0 };
+    this.duel = { on: false, a: -1, b: -1, ia: -1, ib: -1, cx: 0, cz: 0, nx: 1, nz: 0, r: 20, s: 0, t: 0, cd: 12, bt: [0, 0] };
     this.zn = { st: 0, t: 0, cx: 0, cz: 0, r: R, rt: R * 0.42, next: 300 }; this.sessT = 0; this.wo = { st: 0, t: 0, next: 240 + Math.random() * 120, k: 0 }; this.dirCalm = 25;
     this.av = { st: 0, t: 0, next: 150 + Math.random() * 60, a: 0, off: 0, w: 55, id: 0, rum: 0, s: 0 }; this.tipT = 0; this.tipDone = false; this.boss = { id: -1, hp: 0, max: 0, next: 280 + Math.random() * 40, hitCd: 0, t: 0 };
     this.titleIdx = 0; this.meZone = 0; this.lastMyMass = 0; this.botChatT = 20;
@@ -854,7 +855,7 @@ export class AgarMode {
     this.props.tick(dt);
     this.nearTick(dt);
     this.botChatTick(dt);
-    if (this.mp !== 'client') { this.fortTick(dt); this.zoneTick(dt); }
+    if (this.mp !== 'client') { this.fortTick(dt); this.zoneTick(dt); this.duelTick(dt); }
     if (this.mp !== 'client' && this.state === 'play') this.popTick(dt);
     // local player input
     const me = owners[this.me];
@@ -905,6 +906,7 @@ export class AgarMode {
       if (!c.on) continue;
       const o = owners[c.o];
       if (o.hideT > 0) continue;
+      if (this.duel.on && (i === this.duel.ia || i === this.duel.ib)) continue;
       this.act[n++] = i;
       const zone = this.terrain.zone(c.x, c.z);
       let sp = speedFor(c.m) * (o.speed > 0 ? 1.45 : 1) * (zone === 2 ? 0.62 : 1) * (o.preyT > this.time ? 0.72 : 1);
@@ -957,6 +959,7 @@ export class AgarMode {
           continue;
         }
         { const oa = owners[ca.o], ob = owners[cb.o]; if (oa.boss || ob.boss) { this.bossContact(oa.boss ? ca : cb, oa.boss ? cb : ca, d2); continue; } }
+        if (this.mp !== 'client' && !this.duel.on && this.duel.cd <= 0 && this.duelTry(ca, cb, d2)) continue;
         if (ca.m > cb.m * 1.25 && d2 < Math.pow(ca.r - cb.r * 0.4, 2)) this.eatCell(ca, cb);
         else if (cb.m > ca.m * 1.25 && d2 < Math.pow(cb.r - ca.r * 0.4, 2)) this.eatCell(cb, ca);
       }
@@ -1344,6 +1347,59 @@ export class AgarMode {
     const o = bots[(Math.random() * bots.length) | 0];
     this.chatAdd(o.name, o.col, BOT_CHAT[(Math.random() * BOT_CHAT.length) | 0]);
     if (this.net) this.net.broadcast({ t: 'chat', n: o.name, c: o.col, x: this.chatLog[this.chatLog.length - 1].x });
+  }
+
+  // KARTOPU GÜREŞİ: similar-mass head-on collision -> 6 s ring duel (host-authoritative)
+  duelTry(ca, cb, d2) {
+    const oa = this.owners[ca.o], ob = this.owners[cb.o];
+    if (this.state !== 'play' || oa.shield > 0 || ob.shield > 0 || oa.hideT > 0 || ob.hideT > 0 || oa.boss || ob.boss) return false;
+    const hi = Math.max(ca.m, cb.m), lo = Math.min(ca.m, cb.m);
+    if (lo < 25 || hi > lo * 1.15) return false;
+    const rs = ca.r + cb.r; if (d2 > rs * rs * 0.7) return false;
+    const d = Math.sqrt(d2) + 0.001, nx = (cb.x - ca.x) / d, nz = (cb.z - ca.z) / d;
+    const rv = ((ca.mvx + ca.vx) - (cb.mvx + cb.vx)) * nx + ((ca.mvz + ca.vz) - (cb.mvz + cb.vz)) * nz;
+    if (rv < 14) return false;
+    if (!oa.human && !ob.human && oa.id !== this.me && ob.id !== this.me && Math.random() < 0.6) { this.duel.cd = 6; return false; }
+    const D = this.duel;
+    D.on = true; D.a = ca.o; D.b = cb.o; D.ia = this.cells.indexOf(ca); D.ib = this.cells.indexOf(cb);
+    D.cx = (ca.x + cb.x) / 2; D.cz = (ca.z + cb.z) / 2; D.nx = nx; D.nz = nz; D.r = (ca.r + cb.r) * 1.15 + 7; D.s = 0; D.t = 6; D.bt[0] = D.bt[1] = 0;
+    ca.mvx = ca.mvz = ca.vx = ca.vz = cb.mvx = cb.mvz = cb.vx = cb.vz = 0;
+    this.sfxTo(ca.o, 'merge', 0.8); this.sfxTo(cb.o, 'merge', 0.8);
+    if (ca.o === this.me || cb.o === this.me) this.toast('GÜREŞ! Rakibe doğru it, HIZLAN ile patlat');
+    return true;
+  }
+  duelTick(dt) {
+    const D = this.duel;
+    if (!D.on) { if (D.cd > 0) D.cd -= dt; return; }
+    const ca = this.cells[D.ia], cb = this.cells[D.ib], oa = this.owners[D.a], ob = this.owners[D.b];
+    if (!ca.on || !cb.on || ca.o !== D.a || cb.o !== D.b || !oa.alive || !ob.alive || this.state !== 'play') { D.on = false; D.cd = 15; return; }
+    D.t -= dt;
+    const push = (o, sg, k) => {
+      if (o.bot && !o.human && o.id !== this.me) { o.dx = sg * D.nx; o.dz = sg * D.nz; o.mag = 0.55 + 0.35 * Math.sin(this.time * 2.3 + o.id * 1.7); if (o.boostCd <= 0 && o.mass > 40 && Math.random() < dt * 0.7) this.boost(o); }
+      const dd = o.dx * sg * D.nx + o.dz * sg * D.nz;
+      let p = 0.5 + 0.9 * Math.max(0, dd) * (o.mag || 0);
+      if (o.boostT > D.bt[k] + 0.05) p += 3.5; // boost burst
+      D.bt[k] = o.boostT;
+      return p;
+    };
+    const pa = push(oa, 1, 0), pb = push(ob, -1, 1);
+    D.s = clampN(D.s + (pa - pb) * dt * 0.33, -1, 1);
+    const half = (ca.r + cb.r) * 0.45, sh = D.s * (D.r - half - Math.max(ca.r, cb.r)) * 0.95;
+    ca.x = D.cx + D.nx * (-half + sh); ca.z = D.cz + D.nz * (-half + sh);
+    cb.x = D.cx + D.nx * (half + sh); cb.z = D.cz + D.nz * (half + sh);
+    ca.mvx = ca.mvz = cb.mvx = cb.mvz = 0;
+    if (Math.abs(D.s) >= 1 || D.t <= 0) {
+      D.on = false; D.cd = 25;
+      const w = D.s > 0.2 ? 0 : D.s < -0.2 ? 1 : -1;
+      if (w >= 0) {
+        const win = w ? cb : ca, los = w ? ca : cb, wo = this.owners[win.o], lo = this.owners[los.o];
+        const take = los.m * 0.3; los.m -= take; win.m = Math.min(MAXM, win.m + take);
+        this.pushFeed(wo.name + ', ' + lo.name + accSuffix(lo.name) + ' güreşte yendi!');
+        if (win.o === this.me) { this.toast('GÜREŞİ KAZANDIN! +kütle'); this.audio?.milestone?.(2); }
+      } else this.pushFeed(oa.name + ' ve ' + ob.name + ' güreşte berabere kaldı');
+      for (const c of [ca, cb]) { const k = c === ca ? -1 : 1; c.vx = D.nx * k * 22; c.vz = D.nz * k * 22; }
+      oa.shield = Math.max(oa.shield, 1.2); ob.shield = Math.max(ob.shield, 1.2);
+    }
   }
 
   eatCell(pred, prey) {
@@ -2062,7 +2118,7 @@ export class AgarMode {
     for (const [id, rec] of net.clients) {
       const o = this.owners.find((q) => q.human === id);
       if (!o || !rec.conn.open) continue;
-      net.sendTo(id, { t: 's', hn: net.clients.size + 1, pn: this.presentCount(), pd, st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], pr: [this.rain.st, Math.round(this.rain.x), Math.round(this.rain.z)], wo: [this.wo.st, Math.round(this.wo.t * 10) / 10], bs: this.boss.id >= 0 ? [this.boss.id, this.boss.hp, this.boss.max] : 0, zn: [this.zn.st, Math.round(this.zn.cx), Math.round(this.zn.cz), Math.round(this.zn.r), Math.round(this.zn.rt), Math.round(this.zn.t * 10) / 10], fk, hd, c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
+      net.sendTo(id, { t: 's', hn: net.clients.size + 1, pn: this.presentCount(), pd, st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], pr: [this.rain.st, Math.round(this.rain.x), Math.round(this.rain.z)], wo: [this.wo.st, Math.round(this.wo.t * 10) / 10], du: this.duel.on ? [this.duel.a, this.duel.b, Math.round(this.duel.cx), Math.round(this.duel.cz), Math.round(this.duel.r), Math.round(this.duel.s * 100) / 100, Math.round(this.duel.t * 10) / 10] : 0, bs: this.boss.id >= 0 ? [this.boss.id, this.boss.hp, this.boss.max] : 0, zn: [this.zn.st, Math.round(this.zn.cx), Math.round(this.zn.cz), Math.round(this.zn.r), Math.round(this.zn.rt), Math.round(this.zn.t * 10) / 10], fk, hd, c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
     }
   }
 
@@ -2110,6 +2166,7 @@ export class AgarMode {
     if (m.hn) this.humans = m.hn;
     if (m.pn) this.presentN = m.pn;
     { const b = m.bs, bb = this.boss; for (const q of this.owners) q.boss = false; if (b) { bb.id = b[0]; bb.hp = b[1]; bb.max = b[2]; if (this.owners[b[0]]) this.owners[b[0]].boss = true; } else bb.id = -1; }
+    { const u = m.du, D = this.duel; if (u) { D.on = true; D.a = u[0]; D.b = u[1]; D.cx = u[2]; D.cz = u[3]; D.r = u[4]; D.s = u[5]; D.t = u[6]; } else D.on = false; D.ia = D.ib = -1; }
     if (m.wo) { const ow = this.wo.st; this.wo.st = m.wo[0] | 0; this.wo.t = +m.wo[1] || 0; if (this.wo.st === 1 && ow !== 1) this.toast('BEYAZ FIRTINA GELİYOR!'); }
     if (m.pr) { const pw = this.rain.st; this.rain.st = m.pr[0]; this.rain.x = m.pr[1]; this.rain.z = m.pr[2]; if (this.rain.st === 1 && pw !== 1) this.toast('PELET YAĞMURU GELİYOR!'); }
     if (m.st) { const sw = this.storm.on; this.storm.on = !!m.st[0]; this.storm.x = m.st[1]; this.storm.z = m.st[2]; if (this.storm.on && !sw) { this.pushFeed('❄ Kar fırtınası başladı!'); this.stormSndT = 0; } }
@@ -2553,8 +2610,27 @@ export class AgarMode {
     press(this.hud.bsplit, () => this.doSplit());
   }
 
+  duelHud() {
+    const D = this.duel, h = this.hud;
+    if (!h.duelEl) {
+      const w = document.createElement('div'); w.style.cssText = 'position:absolute;left:50%;top:38%;transform:translateX(-50%);width:min(220px,50vw);pointer-events:none;z-index:4;display:none;text-align:center;font:900 12px "Trebuchet MS",system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px #000';
+      w.innerHTML = '<span>GÜREŞ</span><div style="position:relative;height:10px;margin-top:2px;border-radius:6px;background:#e8584a;border:2px solid #fff;overflow:hidden"><i style="display:block;height:100%;width:50%;background:#4ab0ff"></i></div><div style="display:flex;justify-content:space-between;font-size:10px"><b></b><b></b></div>';
+      h.root.appendChild(w); h.duelEl = w; h.duelBar = w.querySelector('i'); h.duelN = w.querySelectorAll('b');
+      const rg = new THREE.Mesh(new THREE.RingGeometry(0.93, 1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd35a, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+      rg.position.y = 0.8; rg.renderOrder = 6; rg.visible = false; this._scene.add(rg); h.duelRing = rg;
+    }
+    const on = D.on && this.state === 'play';
+    h.duelEl.style.display = on ? 'block' : 'none'; h.duelRing.visible = on;
+    if (!on) return;
+    const oa = this.owners[D.a], ob = this.owners[D.b];
+    h.duelRing.position.x = D.cx; h.duelRing.position.z = D.cz; h.duelRing.scale.setScalar(D.r);
+    h.duelBar.style.width = ((D.s + 1) * 50).toFixed(0) + '%';
+    h.duelN[0].textContent = oa.name; h.duelN[1].textContent = ob.name;
+  }
+
   updateHud(dt) {
     const h = this.hud, me = this.owners[this.me];
+    this.duelHud();
     this.hudT -= dt; this.lbT -= dt; this.mapT -= dt;
     if (this.state === 'play' && !this.tipDone) {
       if (this.tipT === 0 && lsGet(TIP_KEY, '') === '1') this.tipDone = true;
