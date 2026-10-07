@@ -523,3 +523,41 @@ Puan istikrarlı yükseliyor: 7 → 7.4.
   - Yeti Günlüğü.
   - Bölüm Mutasyonu.
 - Menü: Dönen Vitrin Kostümü.
+
+## Tur 9 — Yapılanlar
+
+Hepsi push edildi.
+
+**Arayüz**
+- Tek bir duyuru sıralayıcısı var. Ekranda aynı anda tek orta mesaj ve tek üst bildirim çıkıyor.
+- Mesajlar öncelik sırasına göre geliyor, aralarında en az 1,2 sn boşluk var, aynı mesaj tekrar edilmiyor ve "hayalet" yazı kalmıyor.
+- ÇIĞ HUD'u ekranın %13'üne indi.
+
+**Rush**
+- Kombo şişmesinin kaynağı arayüzdeki tahmin sayacıydı. Artık gerçek beceri sayacı kullanılıyor: en fazla 0,7 sn'de +1 artıyor ve isabet alınca kırılıyor.
+- Yeni: **Fırtına Tüneli**. Her km'nin son 100 m'sini hasarsız geçersen "TEMİZ GEÇİŞ!" alırsın, kombo ikiye katlanır.
+
+**ÇIĞ**
+- Tüm yazılar mesaj kuyruğundan geçiyor.
+- İpucu sadece Dağ 1-2'de gösteriliyor.
+- Yeni: **Ters Çığ** (Dağ 7, 14, 21…). Çığ önden kaçıyor, sen onu kovalayıp yakalıyorsun.
+
+**Arena**
+- Kayalar, kristaller ve kale duvarları oyuncunun önündeyse şeffaflaşıyor.
+- Kendi topunun altında altın renkli bir halka ve ▼ işareti var.
+- Yeni: **Kar Kralı Tacı**. Liderin başında taç oluyor; onu yiyen +%25 bonus alıyor, botlar da krala saldırıyor.
+
+**Menü**
+- BUGÜN kaydırmalı bir karusel oldu.
+- Görevler tek satıra katlanabiliyor.
+- Aynı anda tek dikkat rozeti gösteriliyor.
+- Yeni: **Vitrin**. 3 günde bir değişen, %15 indirimli bir kostüm.
+
+**Kontrolde bulunan ve düzeltilen hatalar**
+- Ana menü açılırken çöküyordu (görev özeti satırı tanımlanmadan önce kullanılıyordu).
+- ÇIĞ'daki "Kardan adam ordusu" mesajı çöküyordu.
+
+Bot ÇIĞ Dağ 5, 7 (Ters Çığ) ve 14'ü kazandı.
+
+**Tur 10 için not**
+- BUGÜN çiplerindeki yazılar çok küçük ve okunmuyor.
