@@ -13,7 +13,7 @@
 // Importing this module never touches `document`; everything happens inside createMenus().
 import { SKINS, TRAILS, setGoldBall } from './skins.js';
 import { ACHIEVEMENTS, EGGS, DAILY_REWARDS, UPGRADES, SLED_PACK } from './meta.js';
-import { ACTS, LEVELS, levelById } from './campaign.js';
+import { ACTS, LEVELS, levelById, BONUS } from './campaign.js';
 import { dagPlan, DAG_COUNT, planBrief } from './cigplan.js';
 import { nextGoal } from './shop.js';
 import { hideBoot, runnerDeathText } from './ui.js';
@@ -247,15 +247,15 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) { .fm-main .fm-play, .fm-main .fm-arena .ico, .fm-mr.claim, .fm-ichip.hot { animation: none; } }
 .fm-mr.done .mn { color: var(--gold); }
 .fm-mr.done .mb i { background: linear-gradient(90deg, #fff3a8, var(--gold)); }
-.fm-goal { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 10px; border: 2px dashed rgba(255, 255, 255, 0.28); width: 100%; background: none; cursor: pointer; font-size: 12.5px; color: #fff; text-align: left; }
-.fm-goal .gi { flex: none; font-size: 15px; line-height: 1; }
-.fm-goal .gn { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.01em; text-shadow: none; }
-.fm-goal .gb { flex: none; width: 54px; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
-.fm-goal .gb i { display: block; height: 100%; background: linear-gradient(90deg, #ffe066, #ff9a3a); }
-.fm-goal .gc { flex: none; font-size: 11.5px; color: var(--gold); text-shadow: none; white-space: nowrap; }
-.fm-goal.ready { border-color: #8dff9a; }
-.fm-goal.ready .gc { color: #8dff9a; }
-.fm-goal.ready .gb i { background: linear-gradient(90deg, #8dff9a, #2fc13f); }
+.fm-hgoal { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 10px; border: 2px dashed rgba(255, 255, 255, 0.28); width: 100%; background: none; cursor: pointer; font-size: 12.5px; color: #fff; text-align: left; }
+.fm-hgoal .gi { flex: none; font-size: 15px; line-height: 1; }
+.fm-hgoal .gn { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.01em; text-shadow: none; }
+.fm-hgoal .gb { flex: none; width: 54px; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
+.fm-hgoal .gb i { display: block; height: 100%; background: linear-gradient(90deg, #ffe066, #ff9a3a); }
+.fm-hgoal .gc { flex: none; font-size: 11.5px; color: var(--gold); text-shadow: none; white-space: nowrap; }
+.fm-hgoal.ready { border-color: #8dff9a; }
+.fm-hgoal.ready .gc { color: #8dff9a; }
+.fm-hgoal.ready .gb i { background: linear-gradient(90deg, #8dff9a, #2fc13f); }
 
 /* ---- bottom: OYNA (straight into YETİ RUSH) + 5 small buttons ---- */
 .fm-bot { flex: none; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 0 14px calc(var(--sab, env(safe-area-inset-bottom, 0px)) + 14px); }
@@ -325,7 +325,7 @@ const CSS = `
 }
 @media (max-height: 680px) {
   .fm-info { margin-bottom: 14px; padding: 5px 8px 6px; }
-  .fm-goal { display: none; }
+  .fm-hgoal { display: none; }
   .fm-mrows .fm-mr:nth-child(n+3) { display: none; }
   .fm-ihead { display: none; }
   .fm-sb .lb { font-size: 10px; }
@@ -534,6 +534,14 @@ const CSS = `
 .fm-node.cur { --nc1: #a6ec6a; --nc2: #35c46a; --nsh: #1e8a49; animation: fmNode 1s ease-in-out infinite alternate; }
 .fm-node.lk { --nc1: #b8c3d4; --nc2: #8392aa; --nsh: #55647e; filter: saturate(0.6); }
 .fm-node.lk .n { opacity: 0.85; font-size: 19px; }
+.fm-node.bonus { width: 50px; height: 50px; --nc1: #e9b8ff; --nc2: #a24cff; --nsh: #5a1fa8; animation: fmBonusGlow 1.4s ease-in-out infinite alternate; }
+.fm-node.bonus.lk { --nc1: #9a8fb0; --nc2: #6c6285; --nsh: #3f3656; animation: none; }
+.fm-node.bonus.done { --nc1: #ffe27a; --nc2: #ffae00; --nsh: #b36f00; animation: none; }
+.fm-node.bonus .bn { position: absolute; left: 50%; top: -17px; transform: translateX(-50%); font-size: 10px; letter-spacing: 0.06em; white-space: nowrap; color: #fff; text-shadow: var(--ol-sm); }
+@keyframes fmBonusGlow { from { box-shadow: 0 5px 0 var(--nsh), 0 0 6px 1px rgba(200, 120, 255, 0.5); } to { box-shadow: 0 5px 0 var(--nsh), 0 0 18px 6px rgba(220, 150, 255, 0.95); } }
+.fm-path .bbr { stroke: #d89bff; stroke-width: 4px; stroke-dasharray: 2 9; opacity: 0.9; }
+.fm-bonushd { flex: none; margin: 0 auto 4px; padding: 4px 12px; border-radius: 12px; border: 2.5px solid var(--ink); background: linear-gradient(180deg, #b36bff, #7a35d6); color: #fff; font-size: 12.5px; text-shadow: var(--ol-sm); text-align: center; white-space: nowrap; }
+.fm-bonushd.full { background: linear-gradient(180deg, #ffe27a, #ffae00); color: var(--ink); text-shadow: none; }
 .fm-node.boss { width: 82px; height: 82px; font-size: 38px; --nc1: #ff8a7a; --nc2: #e0392b; --nsh: #8a1a12; }
 .fm-node.boss.done { --nc1: #ffe27a; --nc2: #ff9a00; --nsh: #b36f00; }
 .fm-node.boss.lk { --nc1: #a99aa0; --nc2: #7c6a74; --nsh: #4a3a44; }
@@ -1962,7 +1970,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     sfx('open');
     const camp = campInfo();
     const A = ACTS[lv.act - 1];
-    const locked = lv.id > camp.unlocked;
+    const locked = lv.bonus ? lv.bonusN > camp.bonusOpen : lv.id > camp.unlocked;
     const best = meta.levelBest ? meta.levelBest(lv.id) : null;
     const back = el('div', 'fm-lback');
     back.addEventListener('click', () => { sfx('close'); closeCard(); });
@@ -1973,7 +1981,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     setCss(lbig, '--ca', A.colors.a);
     setCss(lbig, '--cb', A.colors.b);
     const head = el('div', 'fm-lhead');
-    add(head, lbig, add(el('div', ''), el('div', 'l1', `BÖLÜM ${lv.id}${lv.boss ? ' · BOSS' : ''} · ${A.name.toLocaleUpperCase('tr-TR')}`), el('div', 'l2', lv.name)),
+    add(head, lbig, add(el('div', ''), el('div', 'l1', lv.bonus ? `✨ GİZLİ ROTA ${lv.bonusN} · ${A.name.toLocaleUpperCase('tr-TR')}` : `BÖLÜM ${lv.id}${lv.boss ? ' · BOSS' : ''} · ${A.name.toLocaleUpperCase('tr-TR')}`), el('div', 'l2', lv.name)),
       button('fm-x', '✕', () => { sfx('close'); closeCard(); }, 'Kapat'));
     card.appendChild(head);
     const goals = el('div', 'fm-lgoals');
@@ -1985,7 +1993,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     if (lv.intro) card.appendChild(add(el('div', 'fm-lintro'), el('span', 'ii', lv.intro.icon), el('span', '', lv.intro.text)));
     if (best) card.appendChild(el('div', 'fm-lbest', `REKOR ${'⭐'.repeat(best.stars)}${'☆'.repeat(3 - best.stars)} · %${best.flakesPct} kar tanesi${best.time ? ` · ${Math.floor(best.time / 60)}:${String(best.time % 60).padStart(2, '0')}` : ''}`));
     if (locked) {
-      card.appendChild(el('div', 'fm-llock', `🔒 Önce ${camp.unlocked}. bölümü bitir`));
+      card.appendChild(el('div', 'fm-llock', lv.bonus ? `🔒 ${lv.bonusN * camp.bonusStep} ⭐ topla (${camp.totalStars}/${lv.bonusN * camp.bonusStep})` : `🔒 Önce ${camp.unlocked}. bölümü bitir`));
       const b = button('fm-btn big lock', 'KİLİTLİ', () => { b.classList.add('fm-shake'); sfx('error'); setTimeout(() => b.classList.remove('fm-shake'), 340); });
       card.appendChild(b);
     } else {
@@ -2052,6 +2060,29 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       n.addEventListener('click', (e) => { e.stopPropagation(); if (p.dragged) return; openLevelCard(p, lv); });
       path.appendChild(n);
     }
+    // GİZLİ ROTA branch(es) hanging off this act's base level
+    for (const bl of BONUS) {
+      if (bl.act !== act) continue;
+      const bi = bl.idx - 1, bx = PTS[bi][0], by = PTS[bi][1];
+      const nx = bx > 50 ? bx - 27 : bx + 27, ny = Math.min(94, by + 9);
+      const open = bl.bonusN <= camp.bonusOpen;
+      const st = camp.stars[bl.id] || 0;
+      const svg = path.querySelector && path.querySelector('svg');
+      if (svg && typeof document.createElementNS === 'function') {
+        const br = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        br.setAttribute('class', 'bbr');
+        br.setAttribute('d', `M ${bx} ${by} L ${nx} ${ny}`);
+        svg.appendChild(br);
+      }
+      const n = el('button', `fm-node bonus ${open ? (st ? 'done' : 'cur') : 'lk'}`);
+      n.setAttribute('type', 'button');
+      n.setAttribute('aria-label', `${bl.name}${st ? `, ${st} yıldız` : open ? '' : `, kilitli: ${bl.bonusN * camp.bonusStep} yıldız gerek`}`);
+      n.style.left = `${nx}%`; n.style.top = `${ny}%`;
+      add(n, el('span', 'n', open ? '✨' : '🔒'), el('span', 'bn', 'GİZLİ ROTA'));
+      if (open) { const stars = el('span', 'stars'); for (let k = 1; k <= 3; k++) stars.appendChild(el('b', k <= st ? 'on' : '', '★')); n.appendChild(stars); }
+      n.addEventListener('click', (e) => { e.stopPropagation(); if (p.dragged) return; openLevelCard(p, bl); });
+      path.appendChild(n);
+    }
     inner.appendChild(path);
     page.appendChild(inner);
     return page;
@@ -2081,7 +2112,8 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const vp = el('div', 'fm-viewport');
     const track = el('div', 'fm-track');
     vp.appendChild(track);
-    add(body, nav, vp);
+    const bhd = el('div', 'fm-bonushd');
+    add(body, bhd, nav, vp);
 
     function render() {
       const camp = campInfo();
@@ -2090,6 +2122,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       applyAct(false);
       dotEls.forEach((d, i) => { d.className = `${i === p.act ? 'on' : ''}${i * LEVELS_PER_ACT + 1 > camp.unlocked ? ' lk' : ''}`.trim(); });
       p.setSub(`⭐ ${camp.totalStars}/${camp.maxStars}`);
+      const step = camp.bonusStep || 15, cnt = camp.bonusCount || BONUS.length, open = camp.bonusOpen || 0;
+      bhd.classList.toggle('full', open >= cnt);
+      bhd.textContent = open >= cnt ? `✨ Tüm Gizli Rotalar açık (${cnt}/${cnt})` : `${camp.totalStars}/${(open + 1) * step} ★ → Gizli Rota ${open + 1}`;
     }
     function applyAct(animate) {
       track.classList.toggle('drag', !animate);
@@ -2581,7 +2616,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     add(infoCard, add(el('div', 'fm-ihead'), r.ihTitle = el('span', '', '📅 GÜNLÜK GÖREVLER'), add(el('div', 'fm-chips'), r.streakChip, r.multChip)));
     r.mrows = el('div', 'fm-mrows');
     infoCard.appendChild(r.mrows);
-    r.goalBtn = button('fm-goal', '', () => { sfx('click'); if (cb.onShop) cb.onShop(); }, 'Sıradaki hedef');
+    r.goalBtn = button('fm-hgoal', '', () => { sfx('click'); if (cb.onShop) cb.onShop(); }, 'Sıradaki hedef');
     infoCard.appendChild(r.goalBtn);
     infoCard.addEventListener('click', () => openDailyTasks());
     infoCard.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDailyTasks(); } });

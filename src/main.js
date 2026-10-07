@@ -708,7 +708,7 @@ function finishCigLevel() {
   if (!sim) { ui.buffClear?.(); ui.hungerHide?.(); ui.cigReset?.(); ui.speedLines?.(0); ui.el.hud.classList.add('hidden'); }   // (the menu card replaces the HUD)
   G.state = 'result';
   if (win) {
-    const goalsMet = evalStars(plan, { finished: true, finalR: G.finalR, bounces: st.bounces, hits: st.hits, crates: st.crates, gold: st.gold, maxMul: st.maxMul, time: st.time, rivalEaten: st.rivalEaten, statues: st.statues });
+    const goalsMet = evalStars(plan, { finished: true, finalR: G.finalR, bounces: st.bounces, hits: st.hits, crates: st.crates, gold: st.gold, maxMul: st.maxMul, time: st.time, rivalEaten: st.rivalEaten, statues: st.statues, secret: st.secret });
     const stars = Math.max(1, goalsMet.filter(Boolean).length);
     G.lastEval = { win, stars, goalsMet };
     if (sim) return;

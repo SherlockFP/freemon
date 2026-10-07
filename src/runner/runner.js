@@ -70,7 +70,7 @@ export const RCFG = {
   meltRamp: 4000,
   meltGrace: 4,          // s: no melting at the start of a run
   // Buff cards.
-  buffFirst: [24, 32],   // first card of a run
+  buffFirst: [29, 31],   // first card of a run
   buffEvery: [45, 60],   // then one every ... seconds of play (and at every checkpoint)
   // Junctions.
   juncMinSecs: 0.9,      // the turn window is never shorter than this (seconds at the current speed)
@@ -402,6 +402,7 @@ export class Runner {
     this.ctx.meta?.track?.('run_start', { mode: 'endless' });
     this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.()?.nextLetter ?? null);
     this.yetiN = 0; this.dblT = 0; this.turboN = 0; this.turboT = 0;
+    this.bait = 0; this.baitT = 0; this.baitBonus = 0; this.baitTap = -9; this.baitChip();
     this.obstacles.setYetiLetter?.('Y');
     this.bossIntro = 0; this.ghostPassed = false; this.ghostRec = null; this.ghostLen = 0;
     this.initGhost();
@@ -595,7 +596,11 @@ export class Runner {
     this.targetU = this.lane * RCFG.laneW;
     if (!counting && !this.wallRun) {
       if (input.consumeJump()) { ui.hint(false); this.jumpBufT = RCFG.jumpBuf; }
-      if (input.consumeDive()) this.dive();
+      if (input.consumeDive()) {
+        const now = this.time, dbl = this.bait > 0 && now - this.baitTap < 0.4;      // down, down: drop the bait
+        this.baitTap = now;
+        if (dbl && this.useBait(false)) this.baitTap = -9; else this.dive();
+      }
       if (input.consumeDoubleTap()) this.trySled();
     }
     this.tickJump(dt);
@@ -1057,6 +1062,13 @@ export class Runner {
   // ---------- the Yeti ----------
   yetiTick(dt, top) {
     const b = this.b;
+    if (this.baitT > 0) {                      // the Yeti is busy eating the bait
+      this.baitT -= dt;
+      if (!this.boss) { this.baitBonus += b.vs * dt; this.stumbleT = 0; this.yetiHoldT = 0; }
+      if (this.baitT <= 0) { this.baitT = 0; this.float('YETİ DOYDU!', ''); }
+      if (!this.boss) return;
+    } else if (this.baitBonus > 0) this.baitBonus = Math.max(0, this.baitBonus - (this.baitBonus > 12 ? 14 : 1.5) * dt);
+    if (this.bait > 0 && !this.boss && this.stumbleT > 0 && this.stumbleHits >= 2) this.useBait(true);     // about to be caught: auto-use
     const far = this.buffs.has('yetikov');
     if (this.boss) { if (this.stumbleT > 0) this.stumbleT = Math.max(0, this.stumbleT - dt); this.gap = RCFG.yetiMax; return; }
     if (far) {
@@ -1085,9 +1097,37 @@ export class Runner {
     if (this.gap < 8 && this.roarT <= 0) { this.roarT = 4; this.roar(true); }
   }
 
+  /** BALIK YEMİ: drops the bait; the Yeti stops to eat it for 3 s (gap +12 m and more, no stumble window); in the boss phase it skips the next throw. */
+  useBait(auto) {
+    if (this.bait <= 0 || this.baitT > 0 || this.state !== 'play') return false;
+    if (!(this.boss || this.stumbleT > 0 || this.gap < 9)) return false;
+    this.bait--; this.baitT = 3; this.baitBonus = Math.max(this.baitBonus, 12);
+    if (this.boss) this.boss.baitSkip = 1;
+    this.stumbleT = 0; this.stumbleHits = 0; this.yetiHoldT = 0;
+    this.roar(true); this.ctx.audio.chime?.(); this.ctx.platform.haptic('success');
+    this.float(auto ? '🐟 YEM OTOMATİK!' : '🐟 AFİYET OLSUN!', 'big');
+    this.after?.(0.5, () => { if (this.state === 'play') this.float('😋 HAM HAM!', ''); });
+    this.baitChip();
+    this.ctx.meta?.track?.('bait_use', { auto: !!auto, boss: !!this.boss });
+    return true;
+  }
+
+  baitChip() {
+    let el = this._baitEl;
+    if (!this.bait) { if (el) el.style.display = 'none'; return; }
+    if (!el) {
+      el = this._baitEl = document.createElement('div');
+      el.style.cssText = 'position:fixed;left:12px;bottom:34%;z-index:30;padding:6px 11px;border-radius:16px;background:rgba(20,40,70,.8);color:#fff;font:700 15px system-ui,sans-serif;pointer-events:auto;touch-action:manipulation;box-shadow:0 2px 8px rgba(0,0,0,.35)';
+      el.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); this.useBait(false); });
+      document.body.appendChild(el);
+    }
+    el.style.display = 'block';
+    el.textContent = '🐟 BALIK YEMİ ×' + this.bait;
+  }
+
   /** A stumble: the Yeti is right behind you for a while; a second crash inside the window catches you. */
   openStumble() {
-    if (this.buffs.has('yetikov')) return;
+    if (this.buffs.has('yetikov') || this.baitT > 0) return;
     const layerK = Math.min(4, this.layer);
     this.stumbleMax = Math.min(6, RCFG.stumbleWin + 0.25 * layerK) * (1 - 0.04 * Math.min(5, this.perm.yeti || 0));
     if (this.stumbleT <= 0) this.stumbleHits = 1;
@@ -1576,7 +1616,7 @@ export class Runner {
     ui.runnerStats(this.score, this.coins, this.mult, prog, Math.round(this.b.s), label);
     if ((this._progT = (this._progT || 0) + 1) % 30 === 0) this.ctx.meta?.track?.('run_progress', { distance: Math.round(this.b.s), coins: this.coins });
     const v = this._vit, y = this._yeti;
-    v.tier = this.tier; v.grow = this.grow; v.gap = this.gap;
+    v.tier = this.tier; v.grow = this.grow; v.gap = Math.min(RCFG.yetiMax, this.gap + (this.baitBonus || 0));
     v.helmet = this.helmet; v.helmetT = this.helmetT; v.magnet = this.magnetT > 0 || this.buffs.has('miknatis'); v.rocket = this.rocketT > 0;
     v.x2 = this.x2T > 0; v.superjump = this.superT > 0 || this.buffs.has('yay'); v.sled = this.sledT > 0; v.sledCd = this.sledCdT;
     y.mode = this.stumbleT > 0 ? 'stumble' : this.yetiHoldT > 0 ? 'hold' : null;
@@ -1908,7 +1948,7 @@ export class Runner {
     } else if (B.ph === 'run') {
       B.off = 22 + Math.sin(B.t * 1.3) * 2; B.yu = mid + Math.sin(B.t * 0.9) * (hi - lo) * 0.3;
       B.throwT -= dt;
-      if (B.throwT <= 0 && B.t < B.dur - 3) this.bossThrow(B);
+      if (B.throwT <= 0 && B.t < B.dur - 3 && this.baitT <= 0) this.bossThrow(B);
       if (B.t >= B.dur) { B.ph = 'out'; B.t = 0; B.off0 = B.off; }
     } else {
       const k = Math.min(1, B.t / 2.4), e = k * k * (3 - 2 * k);
@@ -1919,6 +1959,7 @@ export class Runner {
 
   bossThrow(B) {
     const b = this.b, NLn = LANES.length, hk = this.obstacles.hk?.() ?? 1;
+    if (B.baitSkip) { B.baitSkip = 0; B.throwT = 2.6 + Math.random() * 1.8; return; }     // the Yeti was eating: this throw is skipped
     let ahead = 0;
     for (const d of (this.obstacles.dyn || [])) if (d.s > b.s - 3) ahead++;
     if (ahead >= 1 || this.stumbleT > 0 || this.zip || this.jnNear) { B.throwT = 0.4; return; }
@@ -2355,6 +2396,11 @@ export class Runner {
         this.float('SÜPER ZIPLAMA!', 'big');
         this.powerups = (this.powerups || 0) + 1; this.ctx.meta?.track?.('powerup', { kind: 'superjump' });
         break;
+      case 'bait':
+        if (this.bait >= 2) { this.score += 300 * this.mult; ui.toastSoft?.('🐟 Yem dolu (2/2)'); }
+        else { this.bait++; this.baitChip(); ui.toastSoft?.('🐟 BALIK YEMİ! Yeti yakınken aşağı-aşağı'); }
+        audio.star(2); platform.haptic('success');
+        break;
       case 'gem':
       case 'crystal':
         this.crystals++;              // the revive currency, credited the moment you grab it (a soft toast, no popup)
@@ -2573,6 +2619,7 @@ export class Runner {
 
   // ---------- death / result / revive ----------
   die(cause) {
+    if (this._baitEl) this._baitEl.style.display = 'none';
     if (this.state !== 'play') return;
     this.saveGhost();
     this.endBoss(false);
@@ -2996,18 +3043,20 @@ export class Runner {
     // Only when it's really on the track (at the very start it would be clamped onto the start line, right in
     // front of the camera).
     // (It is also shown on the start line: the first metres extrapolate the track backwards so it looms right behind the ball.)
-    const show = this.state !== 'idle' && (this.boss ? this.b.s + this.boss.off > 1 : this.b.s - this.gap > 1 || (this.gap < 12 && this.b.s < 40));
+    const gapV = this.gap + (this.baitBonus || 0);
+    const show = this.state !== 'idle' && (this.boss ? this.b.s + this.boss.off > 1 : this.b.s - gapV > 1 || (gapV < 12 && this.b.s < 40));
     y.group.visible = show;
     this.avalanche.group.visible = show;
     if (!show) return;
     y.t += dt;
     if (this.boss) this.avalanche.group.visible = false;
-    const gs = this.boss ? b.s + this.boss.off : b.s - Math.max(-0.5, this.gap);
+    const gs = this.boss ? b.s + this.boss.off : b.s - Math.max(-0.5, gapV);
+    const eat = this.baitT > 0 ? Math.min(1, (3 - this.baitT) * 5, this.baitT * 5) : 0;
     const tr = this.track;
     tr.frame(Math.max(0, gs), _f);
     // The Yeti tracks your lane with a lag and bounds along.
     y.u += ((this.boss ? this.boss.yu : b.u) - y.u) * Math.min(1, dt * 2.5);
-    const run = Math.abs(Math.sin(y.t * 7));
+    const run = Math.abs(Math.sin(y.t * 7)) * (1 - eat);
     const sf = tr.surfaceAt(gs, y.u);
     tr.toWorld(Math.max(0, gs), y.u, Math.max(0, sf === -Infinity ? 0 : sf) + run * 0.8, _v);
     if (gs < 0) _v.addScaledVector(_f.tan, gs);       // behind the start line: follow the tangent back
@@ -3015,12 +3064,12 @@ export class Runner {
     _m.makeBasis(_x, _f.up, _f.tan);
     _q.setFromRotationMatrix(_m);
     // Lean in and pump: tilt forward with the stride.
-    const lean = 0.25 + Math.sin(y.t * 7) * 0.08;
+    const lean = 0.25 + Math.sin(y.t * 7) * 0.08 * (1 - eat) + eat * (0.55 + Math.sin(y.t * 16) * 0.12);   // head down, chomp chomp
     _q2.setFromAxisAngle(_ax.set(1, 0, 0), lean);
     y.mesh.quaternion.copy(_q).multiply(_q2);
     y.mesh.position.copy(_v);
-    const sc = y.scale * (1 + Math.sin(y.t * 14) * 0.03);
-    y.mesh.scale.set(sc, sc * (1 - run * 0.06), sc);
+    const sc = y.scale * (1 + Math.sin(y.t * 14) * 0.03 + eat * Math.sin(y.t * 16) * 0.06);
+    y.mesh.scale.set(sc, sc * (1 - run * 0.06 - eat * Math.abs(Math.sin(y.t * 8)) * 0.12), sc);
 
     // A wall of powder rolls behind it.
     const av = this.avalanche;
@@ -3203,6 +3252,7 @@ export class Runner {
       this.recFlag = null;
     }
     ui.speedLines?.(0);
+    if (this._baitEl) { this._baitEl.remove(); this._baitEl = null; }
     for (const o of [this.avalanche, this.yeti]) {
       if (!o) continue;
       this.ctx.scene.remove(o.group);

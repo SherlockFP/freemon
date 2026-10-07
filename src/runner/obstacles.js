@@ -285,7 +285,7 @@ const POOLS = {
   beam: ['beamBox', 'glow', 220],
 };
 // pickup kind -> pool
-const PICK_POOL = { flake: 'flake', snow: 'ball', x2: 'star', gem: 'gem', crystal: 'crystal', box: 'gift', letter: 'letter', magnet: 'magnet', helmet: 'helmet', rocket: 'rocket', superjump: 'spring', timewarp: 'timewarp', ghost: 'ghost', risk: 'risk', clone: 'clone', cannon: 'rocket' };
+const PICK_POOL = { flake: 'flake', snow: 'ball', x2: 'star', gem: 'gem', crystal: 'crystal', box: 'gift', letter: 'letter', magnet: 'magnet', helmet: 'helmet', rocket: 'rocket', superjump: 'spring', timewarp: 'timewarp', ghost: 'ghost', risk: 'risk', clone: 'clone', cannon: 'rocket', bait: 'gem' };
 
 export function pulseOf(phase) {
   const p = phase > 0.5 ? phase - 1 : phase, a = 1 - Math.abs(p) / 0.3;
@@ -704,7 +704,7 @@ export class Obstacles {
       k.sh = this._alloc('shadow');                                                            // contact shadow: the pile reads on white snow
       if (k.sh >= 0) { this._col('shadow', k.sh, 0xffffff); this._set('shadow', k.sh, f, u, 0.025, 0, 0, 1.9, 1, 1.9); }
     } else if (kind === 'flake') this._col('flake', idx, COL.flake);
-    else this._col(pool, idx, 0xffffff);
+    else this._col(pool, idx, kind === 'bait' ? 0xff9a4a : 0xffffff);      // (BALIK YEMİ: an orange gem)
     this.picks.push(k);
     return k;
   }
@@ -1451,8 +1451,8 @@ const lethalK = (d) => (d < 0.18 ? 0 : 0.4 + 1.7 * smooth((d - 0.18) / 0.62));  
 const HARD_PAT = { double: 1, train: 1, mover: 1, rolling: 1, beat: 1, swing: 1, oncoming: 1, slide: 1, combo: 1, laser: 1, missile: 1, phrase: 1 };
 const LETHAL_KIND = { oncoming: 1, slidewall: 1, missile: 1 };
 const SINGLE_VERB = { single: 1, low: 1, duck: 1, rest: 1 };            // round sections (loop, corkscrew, helix, half-pipe, tube): one verb per row
-const TEACH = [{ s: 80, pat: 'single' }, { s: 124, pat: 'critter' }, { s: 160, pat: 'low' }, { s: 240, pat: 'duck' }];
-const TEACH_END = 300;
+const TEACH = [{ s: 80, pat: 'single' }, { s: 124, pat: 'critter' }, { s: 160, pat: 'low' }, { s: 205, pat: 'pad' }, { s: 262, pat: 'parade' }, { s: 305, pat: 'duck' }];   // first minute: gentle intro, a pad jump over a flake arc (~14 s), a critter parade to stomp (~19 s)
+const TEACH_END = 320;
 // patterns that can never leave a free lane out of reach when the previous row is < 0.5 s behind (see _rows: tightRow)
 const TIGHT_OK = ['single', 'low', 'duck', 'slide', 'swing', 'ice', 'conveyor', 'rail', 'rest', 'laser', 'critter'];
 // a row that asks for a jump / duck (a jump needs ~0.6 s of air + landing: no jump or duck row may follow within that time)
@@ -1996,6 +1996,18 @@ Object.assign(Obstacles.prototype, {
       } else if (pat === 'duck') {
         this._mk(plan, { kind: 'overhead', s, lo: 0, hi: NL - 1, hb: 1.2, u: 0, ext: 2.4, glow: this._pal(s).glow });
         free = FULL; ext = 1.5; route = 1;
+      } else if (pat === 'pad') {
+        const lane = NL >> 1, fl = this._arcFlakes(plan, s + 1.2, LANES[lane], this.jumpPadV);
+        this._pad(plan, 'jump', s, lane);
+        free = FULL; ext = fl / 2 + 7; route = lane; pat = 'rest';
+        plan.rows.push({ s: s + fl / 2, ext, free, jump: false, route, pat, tm: 0, ph: 0, pi: 0, lethal: false, hard: false, hardN: 0, vert: false });
+        this._carry = { s: s + fl / 2, ext, route, free, jump: false, pat, lethal: false, hardN: 0, persist: [], ph: null };
+        continue;
+      } else if (pat === 'parade') {
+        const g = this._critterGroup(plan, { rng, diff: 0 }, s, ALLL, FULL, NL >> 1, { parade: true });
+        if (!g) continue;
+        free = g.free; ext = g.ext; route = ALLL.find((l) => free & bit(l)) ?? (NL >> 1);
+        this._nextCrit = Math.max(this._nextCrit, s + 10 * this.track.speedAt(s));
       } else if (pat === 'critter') {
         const g = this._critterGroup(plan, { rng, diff: 0 }, s, ALLL, FULL, NL >> 1, { teach: true });
         if (!g) continue;
@@ -2026,7 +2038,7 @@ Object.assign(Obstacles.prototype, {
     else if (others.length) laneA = others[rng.int(0, others.length - 1)];
     else return null;
     const used = [laneA];
-    let n = opt.teach ? 1 : s < 400 ? rng.int(1, 2) : d < 0.25 ? rng.int(2, 3) : rng.int(3, 5);
+    let n = opt.teach ? 1 : opt.parade ? 4 : s < 400 ? rng.int(1, 2) : d < 0.25 ? rng.int(2, 3) : rng.int(3, 5);
     const spacing = clamp(0.54 * (vs - vc), 4, 22);
     // before a lane-forcing piece / junction corner the whole parade (+ ~3 s of walking) has to fit in the free stretch; before a plain piece it may flow on
     if (!opt.teach && c && c.plain === false && c.room !== undefined) {
@@ -2034,7 +2046,7 @@ Object.assign(Obstacles.prototype, {
       if (fit < 1) return null;
       n = Math.min(n, fit);
     }
-    const hop = !opt.teach && (NL > 3 ? rng.chance(0.85) : d >= 0.12 && rng.chance(0.4 + 0.3 * d));
+    const hop = !opt.teach && !opt.parade && (NL > 3 ? rng.chance(0.85) : d >= 0.12 && rng.chance(0.4 + 0.3 * d));
     let hopTo = -1;
     if (hop) { hopTo = (NL > 3 ? [laneA - 2, laneA - 1, laneA + 1, laneA + 2] : [laneA - 1, laneA + 1]).filter((l) => l >= 0 && l < NL && l !== prevRoute && free0.indexOf(l) >= 0)[0] ?? -1; if (hopTo >= 0) used.push(hopTo); }
     const second = !opt.teach && !hop && n >= 3 && d >= 0.3 && rng.chance(0.35) ? free0.find((l) => l !== laneA && l !== prevRoute) : undefined;
@@ -2339,6 +2351,11 @@ Object.assign(Obstacles.prototype, {
         const sc = freeS(mid + 6), l = rng.int(0, NL - 1), sg = rng.chance(0.5) ? 1 : -1;
         this._mk(plan, { kind: 'snowball', s: sc, u: LANES[l], lane: l, uT: sg * (hwFor(NL) + 0.9), sT: sc + 9, ext: 60 });
         this.next.sball = sc + rng.range(NL > 3 ? 150 : 260, NL > 3 ? 280 : 420);
+      }
+      if (!T.level && s0 >= 1000 && normal && !plan.zone && s1 > (this.next.bait ?? 1000)) {      // BALIK YEMİ: rare, after 1 km
+        const s = freeS(mid + 5);
+        this._pickup('bait', s, LANES[rng.chance(0.5) ? offRoute(s) : laneOf(route(s))], 1.2, { sc: 1.5, rad: 0.8 });
+        this.next.bait = s + rng.range(900, 1400);
       }
       if (kind !== 'junction' && (normal || apex)) this._gems(plan, route, s0 + 4, s1 - 3, apex);
       // mini mechanics: speed-pad chain, Y-E-T-I letters, snowplow head-on

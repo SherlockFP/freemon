@@ -10,7 +10,7 @@
 // corrupted blob falls back to a fresh state. Importing this module never touches `document` / `localStorage`.
 // Rewards that touch the shop economy (❄️, skins, trails) go through the `save` object handed to init().
 import { SKINS, TRAILS } from './skins.js';
-import { ACTS, CAMPAIGN_SIZE, LEVELS_PER_ACT, levelById, evalGoals } from './campaign.js';
+import { ACTS, CAMPAIGN_SIZE, LEVELS_PER_ACT, levelById, evalGoals, BONUS_COUNT, BONUS_STARS, bonusReward } from './campaign.js';
 
 const KEY = 'freemon.meta.v1';
 const MAX_MULT = 30;
@@ -202,12 +202,12 @@ for (const id of ACH_IDS) for (const ev of RULES[id].on) (BY_EVENT[ev] || (BY_EV
 
 function campStars(S) {
   let n = 0;
-  for (const k in S.c.stars) n += S.c.stars[k];
+  for (const k in S.c.stars) if (+k <= CAMPAIGN_SIZE) n += S.c.stars[k];
   return n;
 }
 function campCleared(S) {
   let n = 0;
-  for (const k in S.c.stars) if (S.c.stars[k] > 0) n++;
+  for (const k in S.c.stars) if (+k <= CAMPAIGN_SIZE && S.c.stars[k] > 0) n++;
   return n;
 }
 
@@ -363,18 +363,18 @@ function sanitize(p) {
   }
   if (isObj(p.c)) {
     const C = s.c;
-    if (isObj(p.c.stars)) for (let id = 1; id <= CAMPAIGN_SIZE; id++) { const v = Math.min(3, Math.floor(nz(p.c.stars[id]))); if (v > 0) C.stars[id] = v; }
+    if (isObj(p.c.stars)) for (let id = 1; id <= CAMPAIGN_SIZE + BONUS_COUNT; id++) { const v = Math.min(3, Math.floor(nz(p.c.stars[id]))); if (v > 0) C.stars[id] = v; }
     if (isObj(p.c.b)) {
-      for (let id = 1; id <= CAMPAIGN_SIZE; id++) {
+      for (let id = 1; id <= CAMPAIGN_SIZE + BONUS_COUNT; id++) {
         const e = p.c.b[id];
         if (Array.isArray(e)) C.b[id] = [Math.min(100, Math.floor(nz(e[0]))), Math.floor(nz(e[1]))];
       }
     }
-    if (isObj(p.c.g)) for (let id = 1; id <= CAMPAIGN_SIZE; id++) { const v = Math.floor(nz(p.c.g[id])) & 7; if (v) C.g[id] = v; }
-    if (isObj(p.c.seen)) for (let id = 1; id <= CAMPAIGN_SIZE; id++) if (p.c.seen[id]) C.seen[id] = 1;
+    if (isObj(p.c.g)) for (let id = 1; id <= CAMPAIGN_SIZE + BONUS_COUNT; id++) { const v = Math.floor(nz(p.c.g[id])) & 7; if (v) C.g[id] = v; }
+    if (isObj(p.c.seen)) for (let id = 1; id <= CAMPAIGN_SIZE + BONUS_COUNT; id++) if (p.c.seen[id]) C.seen[id] = 1;
     for (const k of ['chest', 'perfect']) if (Array.isArray(p.c[k])) for (let i = 0; i < 10; i++) C[k][i] = p.c[k][i] ? 1 : 0;
     let hi = 0;
-    for (const k in C.stars) hi = Math.max(hi, +k);
+    for (const k in C.stars) if (+k <= CAMPAIGN_SIZE) hi = Math.max(hi, +k);
     C.unlocked = Math.max(1, Math.min(CAMPAIGN_SIZE, Math.max(Math.floor(nz(p.c.unlocked)), hi + 1)));
   }
   if (p.mode === 'camp' || p.mode === 'endless' || p.mode === 'cig' || p.mode === 'daily') s.mode = p.mode;
@@ -1230,6 +1230,7 @@ export const meta = {
     return {
       unlocked: C.unlocked, current: Math.min(CAMPAIGN_SIZE, C.unlocked), stars, totalStars: campStars(S), maxStars: CAMPAIGN_SIZE * 3,
       cleared: campCleared(S), done: campCleared(S) >= CAMPAIGN_SIZE,
+      bonusOpen: Math.min(BONUS_COUNT, Math.floor(campStars(S) / BONUS_STARS)), bonusStep: BONUS_STARS, bonusCount: BONUS_COUNT,
       actDone: (act) => (C.stars[Math.max(1, Math.min(10, act | 0)) * LEVELS_PER_ACT] || 0) > 0,
       actStars: (act) => { let n = 0; for (let i = 1; i <= LEVELS_PER_ACT; i++) n += C.stars[(act - 1) * LEVELS_PER_ACT + i] || 0; return n; },
     };
@@ -1257,12 +1258,14 @@ export const meta = {
     const firstClear = prev === 0;
     const newStars = Math.max(0, stars - prev);
     const wasEndless = meta.endlessUnlocked();
+    if (lv.bonus && Math.floor(campStars(S) / BONUS_STARS) < lv.bonusN) return null;   // route not open yet
     C.stars[id] = Math.max(prev, stars);
     const b = C.b[id] || (C.b[id] = [0, 0]);
     b[0] = Math.max(b[0], Math.round(Math.max(0, Math.min(1, num(st.flakesPct))) * 100));
     const tm = Math.round(num(st.time));
     if (tm > 0 && (!b[1] || tm < b[1])) b[1] = tm;
     if (id < CAMPAIGN_SIZE) C.unlocked = Math.max(C.unlocked, id + 1);
+    const bonusRw = lv.bonus && firstClear ? grant(bonusReward(lv.bonusN)) : null;
     // which goals were met: from stats.goalsMet / stats via campaign.evalGoals, else the first N goals
     let met = Array.isArray(st.goalsMet) ? st.goalsMet : (Object.keys(st).length ? evalGoals(lv, st) : null);
     let mask = 0;
@@ -1270,15 +1273,16 @@ export const meta = {
     else mask = (1 << stars) - 1;
     if (mask) C.g[id] = (C.g[id] || 0) | mask;
 
-    const parts = [grant({ coins: (firstClear ? 25 + Math.round(id * 1.2) : 5) + newStars * 20 })];
+    const parts = [grant({ coins: lv.bonus ? 10 + newStars * 30 : (firstClear ? 25 + Math.round(id * 1.2) : 5) + newStars * 20 })];
     let chest = null;
+    if (bonusRw) { chest = bonusRw; parts.push(bonusRw); }
     if (lv.boss && firstClear && !C.chest[lv.act - 1]) {
       C.chest[lv.act - 1] = 1;
       chest = grant(ACT_CHEST[lv.act - 1]);
       parts.push(chest);
     }
     let perfect = false;
-    if (!C.perfect[lv.act - 1]) {
+    if (!lv.bonus && !C.perfect[lv.act - 1]) {
       let all = true;
       for (let i = 1; i <= LEVELS_PER_ACT; i++) if ((C.stars[(lv.act - 1) * LEVELS_PER_ACT + i] || 0) < 3) { all = false; break; }
       if (all) { C.perfect[lv.act - 1] = 1; perfect = true; parts.push(grant({ crystals: 2, boxes: 1 })); }
@@ -1288,14 +1292,14 @@ export const meta = {
       for (const k of ['coins', 'crystals', 'boxes']) if (p[k]) out[k] = (out[k] || 0) + p[k];
       for (const k of ['skin', 'trail', 'converted']) if (p[k]) out[k] = p[k];
     }
-    addXp(20 + stars * 15 + (lv.boss && firstClear ? 60 : 0));
+    addXp(20 + stars * 15 + (lv.boss && firstClear ? 60 : 0) + (lv.bonus ? 40 : 0));
     const newly = [];
     derive(newly);
     persistNow();
     const nowEndless = meta.endlessUnlocked();
     return Object.assign(out, {
       id, act: lv.act, boss: lv.boss, stars: C.stars[id], earned: stars, newStars, firstClear, chest, perfect,
-      actDone: C.stars[lv.act * LEVELS_PER_ACT] > 0, next: id < CAMPAIGN_SIZE ? id + 1 : 0,
+      actDone: C.stars[lv.act * LEVELS_PER_ACT] > 0, next: id < CAMPAIGN_SIZE ? id + 1 : 0, bonus: !!lv.bonus,
       endlessUnlocked: nowEndless, justUnlockedEndless: nowEndless && !wasEndless, achievements: newly,
     });
   },

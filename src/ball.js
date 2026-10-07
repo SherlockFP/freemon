@@ -30,6 +30,7 @@ export class Ball {
     this.visK = 1; this.visT = 1;  // visual-only size factor (the giant power)
     this.stuck = {}; // type → { mesh, items: [], t }
     this.stuckT = 0;
+    this.riders = []; this.flee = []; this.rt = 0;   // EKİP TOPU: mini snowmen riding on top (max 3) + ones that ran away
     this.reset(0.55);
   }
 
@@ -45,8 +46,31 @@ export class Ball {
     this.pp = 0; this.pv = 0; this.sq = 0; this.sqv = 0;
     this.hopY = 0; this.hopV = 0; this.hopping = false;
     this.visK = 1; this.visT = 1;
+    this.setRiders(0);
+    for (const f of this.flee) f.m.parent && f.m.parent.remove(f.m);
+    this.flee.length = 0;
     this.applyScale();
     this.group.scale.set(1, 1, 1);
+  }
+
+  // ---- EKİP TOPU: cute mini snowmen on top of the ball
+  riderN() { return this.riders.length; }
+  setRiders(n) {
+    while (this.riders.length > n) this.group.remove(this.riders.pop());
+    while (this.riders.length < n) { const m = makeRider(); this.group.add(m); this.riders.push(m); }
+  }
+  // the last rider is knocked off: it hops away to the side and shrinks out
+  dropRider() {
+    const m = this.riders.pop();
+    if (!m) return;
+    this.group.remove(m);
+    const par = this.group.parent;
+    if (!par) return;
+    m.position.copy(this.group.position).add(_v.set(m.userData.ox * this.r, this.r * 0.95, 0));
+    m.scale.setScalar(m.userData.sc);
+    par.add(m);
+    const side = m.userData.ox < 0 ? -1 : m.userData.ox > 0 ? 1 : (Math.random() < 0.5 ? -1 : 1);
+    this.flee.push({ m, vx: side * (5 + Math.random() * 2), vy: 5, vz: -this.speed * 0.2, t: 0, gy: this.y - this.r * 0.9, s0: m.userData.sc });
   }
 
   applyScale() {
@@ -98,6 +122,32 @@ export class Ball {
       if (Math.abs(this.visT - this.visK) < 0.002) this.visK = this.visT;
     }
     this.applyScale();
+    this.tickRiders(dt);
+  }
+
+  tickRiders(dt) {
+    this.rt += dt;
+    const rr = this.r * this.visK, sc = Math.max(0.3, Math.min(2.4, 0.3 * this.r + 0.15));
+    for (let i = 0; i < this.riders.length; i++) {
+      const m = this.riders[i], u = m.userData, tgt = RIDER_SLOT[i];
+      u.pop = Math.min(1, u.pop + dt * 5);
+      u.ox = tgt[0];
+      const bob = Math.abs(Math.sin(this.rt * 6 + i * 2.1)) * 0.22 * sc;
+      m.position.set(tgt[0] * rr, tgt[1] * rr * 0.97 + bob + (1 - u.pop) * sc, tgt[2] * rr);
+      u.sc = sc * (0.6 + 0.4 * u.pop);
+      m.scale.set(u.sc * (1 + 0.06 * Math.sin(this.rt * 12 + i)), u.sc * (1 - 0.06 * Math.sin(this.rt * 12 + i)), u.sc);
+      m.rotation.y = Math.sin(this.rt * 3 + i) * 0.35;
+    }
+    for (let i = this.flee.length - 1; i >= 0; i--) {
+      const f = this.flee[i], h = Math.min(dt, 0.033);
+      f.t += h;
+      f.vy -= 24 * h;
+      f.m.position.x += f.vx * h; f.m.position.y += f.vy * h; f.m.position.z += f.vz * h;
+      if (f.m.position.y < f.gy) { f.m.position.y = f.gy; f.vy = f.t < 1.2 ? 3.5 : 0; }
+      f.m.scale.setScalar(f.s0 * Math.max(0, 1 - Math.max(0, f.t - 1.4) / 0.8));
+      f.m.rotation.y += h * 9;
+      if (f.t > 2.2) { f.m.parent && f.m.parent.remove(f.m); this.flee.splice(i, 1); }
+    }
   }
 
   setRadius(r) {
@@ -220,6 +270,26 @@ export class Ball {
     for (const k in this.stuck) n += this.stuck[k].items.length;
     return n;
   }
+}
+
+const RIDER_SLOT = [[0, 1, 0.05], [-0.52, 0.85, 0.1], [0.52, 0.85, 0.1]];
+let _rg = null;
+function makeRider() {
+  if (!_rg) {
+    _rg = {
+      sph: new THREE.SphereGeometry(1, 10, 8), cone: new THREE.ConeGeometry(0.12, 0.5, 6), hat: new THREE.CylinderGeometry(0.38, 0.38, 0.5, 8),
+      white: new THREE.MeshLambertMaterial({ color: 0xffffff }), orange: new THREE.MeshLambertMaterial({ color: 0xff8a1f }),
+      dark: new THREE.MeshLambertMaterial({ color: 0x2b3a67 }),
+    };
+  }
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(_rg.sph, _rg.white); body.scale.setScalar(0.5); body.position.y = 0.5;
+  const head = new THREE.Mesh(_rg.sph, _rg.white); head.scale.setScalar(0.36); head.position.y = 1.2;
+  const nose = new THREE.Mesh(_rg.cone, _rg.orange); nose.rotation.x = Math.PI / 2; nose.position.set(0, 1.2, 0.4); nose.scale.setScalar(0.8);
+  const hat = new THREE.Mesh(_rg.hat, _rg.dark); hat.position.y = 1.62; hat.scale.set(0.8, 0.6, 0.8);
+  g.add(body, head, nose, hat);
+  g.userData = { ox: 0, sc: 1, pop: 0 };
+  return g;
 }
 
 function makeSnowGeometry() {

@@ -96,6 +96,7 @@ export class World {
     this.events = [];
     this.zones = [];
     this.specialQueue = [];
+    this.secrets = [];   // cracked-ice walls (glow when you are big enough)
     this.boxItems = [];
     this.trans = [];     // width transitions {d0, d1, from, to, tier}
     this.hw0 = CFG.tierWidth[0] / 2;
@@ -661,6 +662,7 @@ export class World {
       case 'crateWall': return this.placeCrateWall(it, gr, hw);
       case 'iceWall': return this.placeIceWall(it, gr, hw);
       case 'statues': return this.placeStatues(it, gr, hw);
+      case 'secret': return this.placeSecret(it, gr, hw);
       case 'ramp': return this.placeRamp(d, gr, T, hw);
       case 'patch': return this.placePatch(d, gr, T, hw);
       case 'town': return this.placeTown(d, gr, T, hw);
@@ -1288,6 +1290,40 @@ export class World {
     }
     this.zones.push({ d0: it.start - 4, d1: it.start + it.len + 6, kind: 'plus' });
     return it.len;
+  }
+
+  // GİZLİ KAR TÜNELİ: a cracked ice wall hugging the slope edge. CigGame._breakCrate opens the bonus lane (openSecret) when it breaks.
+  placeSecret(it, gr, hw) {
+    const d = it.start + 10, pr = planAt(this.lvl, d), hwL = this.halfWidth(d + 8);
+    const rad = clamp(1.3 * crateRadius(pr), 1.3, 4.2);
+    const x = it.side * (hwL - rad * 0.8);
+    const p = this.crateAt(x, d, rad, 'iron', pr);
+    if (!p) return it.len;
+    p.crate.secret = { side: it.side, gr, pr, open: false };
+    p.tint = SECRET_DIM.slice();
+    this.tagObstacle(p, '❄ ÇATLAK BUZ · ' + fmtDiam(2 * p.crate.need) + ' m');
+    this.secrets.push(p);
+    // a few crumbs along the edge as a hint
+    const T = tierOf(gr);
+    for (let i = 0; i < 4; i++) this.food1(clamp(this.rollQ(T) * 0.8, 0.12, 0.5), gr, x - it.side * (rad + 1.2), d - 18 + i * 4, hwL, { spacing: 0.1 });
+    this.zones.push({ d0: it.start - 4, d1: it.start + it.len, kind: 'plus' });
+    return it.len;
+  }
+
+  // the wall broke: a 60-80 m lane of gold crates and food along the same edge (it rejoins the slope at the end)
+  openSecret(p) {
+    const s = p.crate.secret, R = this.rng;
+    if (!s || s.open) return 0;
+    s.open = true;
+    const len = R.int(62, 80), T = tierOf(s.gr), ct = Math.min(3.4, 0.55 * s.pr) * 1.15;
+    let n = 0;
+    for (let i = 0; i < 16; i++) {
+      const d = p.d + 8 + i * ((len - 12) / 15), hwL = this.halfWidth(d);
+      const x = s.side * (hwL - clamp(0.9 * s.gr + 1.2, 2, hwL * 0.5)) + Math.sin(i * 0.7) * 0.6;
+      if (i % 5 === 2) { if (this.crateAt(clamp(x, -hwL + ct + 0.5, hwL - ct - 0.5), d, ct, 'gold', s.pr)) n++; }
+      else this.food1(clamp(this.rollQ(T) * 0.9, 0.12, 0.7), s.gr, x, d, hwL, { spacing: 0.1 });
+    }
+    return len;
   }
 
   placeIceWall(it, gr, hw) {
@@ -2045,7 +2081,7 @@ const _qx = new THREE.Quaternion();
 const _rx = new THREE.Vector3(1, 0, 0);
 
 const GATE_SKIN = { ice: [0xbfdcf7, 0xd8ecff], wall: [0xc9b8a6, 0xb09a86], big: [0xffffff, 0xf1e6c8] };
-const CRATE_PLAIN = [1, 1, 1], CRATE_IRON = [0.62, 0.68, 0.8];
+const CRATE_PLAIN = [1, 1, 1], CRATE_IRON = [0.62, 0.68, 0.8], SECRET_DIM = [0.7, 0.9, 1.15];
 
 // (re)draw a label sprite's canvas: dark pill, coloured outline, white text shrunk to fit
 function drawLabel(spr, text, color) {

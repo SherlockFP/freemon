@@ -219,7 +219,7 @@ export class Track {
     this._lastSet = '';
     // Temple Run junctions: earliest corner of the next one (endless: ~350 m, tutorial: 300 m), live junction list (junctionAt), blocked ranges
     this._juncs = []; this._jid = 0;
-    this._nextCorner = this.tutorial ? 300 : 350;
+    this._nextCorner = this.tutorial ? 300 : 640;      // first corner at ~45 s
     this._lastCorner = -1e9;
     this.juncBlock = [];
     this._tt = [0];            // design-time table (seconds to run s = 0..k at speedAt): timeAt()
@@ -1574,7 +1574,7 @@ Object.assign(Track.prototype, {
     };
     const B = rng.range(8, 12) * DEG;
     p.rollAt = (t) => dir * B * trapW(clamp((t * p.len - (La - 3)) / (Lc + 6), 0, 1), 0.35);
-    const sC = s0 + La, win = Math.max(0.9 * this.speedAt(sC), 1.1 * this.vGen(sC));
+    const sC = s0 + La, win = Math.max(0.9 * this.speedAt(sC), 1.1 * this.vGen(sC)) * (sC < 1000 ? 1.45 : 1);   // generous first corner
     p.junction = { id: 0, s0: sC - win, s: sC, dir, sEnd: sC + Lc, Lc, R: (Lc * (1 - a)) / mag, win, La, Le };
   },
 

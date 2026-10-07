@@ -152,7 +152,25 @@ function build() {
 
 export const LEVELS = build();
 
-export const levelById = (id) => LEVELS[(Math.floor(Number(id)) || 0) - 1] || null;
+// GİZLİ ROTA: bonus levels (ids 101..106), one per BONUS_STARS campaign stars. Same generator output as a base level, but harder/longer.
+export const BONUS_STARS = 15;
+export const BONUS_BASE = [20, 35, 50, 65, 80, 95];
+export const BONUS_COUNT = BONUS_BASE.length;
+export const BONUS = BONUS_BASE.map((baseId, i) => {
+  const b = LEVELS[baseId - 1];
+  const id = CAMPAIGN_SIZE + 1 + i;
+  return {
+    ...b, id, bonus: true, bonusN: i + 1, after: baseId, name: `Gizli Rota ${i + 1}`, boss: false, seed: seedFor(id * 7 + 13),
+    length: Math.round((b.length * 1.15) / 10) * 10, hardness: Math.round(Math.min(2.2, b.hardness * 1.3 + 0.1) * 100) / 100, startTier: 0,
+    intro: null, goals: b.goals.map((g) => ({ ...g })),
+  };
+});
+export const bonusReward = (n) => ({ coins: 150 + 100 * n, crystals: 1 + Math.floor(n / 2) });
+
+export const levelById = (id) => {
+  const n = Math.floor(Number(id)) || 0;
+  return n > CAMPAIGN_SIZE ? BONUS[n - CAMPAIGN_SIZE - 1] || null : LEVELS[n - 1] || null;
+};
 export const actOf = (idOrLevel) => {
   const id = typeof idOrLevel === 'object' && idOrLevel ? idOrLevel.id : idOrLevel;
   return ACTS[Math.ceil((Number(id) || 1) / LEVELS_PER_ACT) - 1] || ACTS[0];

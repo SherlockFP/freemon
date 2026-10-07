@@ -16,6 +16,7 @@ const NOWN = 52; // owners (players + bots): up to 8 humans, the rest are bots
 const FOOD = 24000, SPARE = 800, FT = FOOD + SPARE; // permanent pellets + slots for boost-trail pellets
 const NVIR = 90, NPUP = 40;
 const FR = 26; // kar kalesi radius
+const PAINT_R = 90;
 const FORT_POS = [[0, -520], [450, 260], [-450, 260]];
 const GS = 40, GN = 55; // food grid (GN * GS >= 2 * R)
 const KR = 0.3; // radius = KR * sqrt(mass)
@@ -932,7 +933,9 @@ export class AgarMode {
             const dx = this.fx[i] - c.x, dz = this.fz[i] - c.z, d2 = dx * dx + dz * dz;
             if (d2 < r2) {
               const v = this.fv[i];
-              c.m = Math.min(MAXM, c.m + (o.bot && this.time - this.sessT < 120 ? v * 0.5 : v)); o.xpRun += v;
+              let pv = o.bot && this.time - this.sessT < 120 ? v * 0.5 : v;
+              for (const f of this.forts) if (f.pa > 0.5 && f.pc === c.o) { const px = this.fx[i] - f.x, pz = this.fz[i] - f.z; if (px * px + pz * pz < PAINT_R * PAINT_R) { pv *= 1.2; break; } }
+              c.m = Math.min(MAXM, c.m + pv); o.xpRun += v;
               if (c.o === this.me) { this.snd('pellet'); if (!this.firstEat && this.state === 'play') { this.firstEat = true; this.toast('İLK YEMEK! 🎉'); this.audio?.milestone?.(1); } }
               if (i < FOOD) { const p = this.tmpP || (this.tmpP = { x: 0, z: 0 }); this.foodPos(p); this.foodPlace(i, p.x, p.z, this.baseVal(i)); } else this.foodPlace(i, 0, 0, 0);
             } else if (pull && d2 < p2) {
@@ -1008,14 +1011,14 @@ export class AgarMode {
     if (s.t <= 0) { s.on = false; s.next = 80 + Math.random() * 60; }
   }
 
-  /** KAR FIRTINASI: every ~5 min the playable circle shrinks toward a glowing centre for 60 s (host-authoritative) */
+  /** BUZ ÇEMBERİ: every ~5 min the playable circle shrinks toward a glowing centre for 60 s (host-authoritative) */
   zoneTick(dt) {
     const z = this.zn;
     if (z.st === 0) {
       z.next -= dt;
       if (z.next <= 0 && this.state === 'play') {
         z.st = 1; z.t = 8; z.rt = R * 0.42; const a = Math.random() * 6.2832, d = Math.random() * R * 0.3; z.cx = Math.cos(a) * d; z.cz = Math.sin(a) * d; z.r = R;
-        this.pushFeed('❄ KAR FIRTINASI! Çember daralıyor'); this.audio?.milestone?.(3);
+        this.pushFeed('❄ BUZ ÇEMBERİ! Çember daralıyor'); this.audio?.milestone?.(3);
       }
       return;
     }
@@ -1025,7 +1028,7 @@ export class AgarMode {
     if (z.t < 12) z.r = R - (R - z.rt) * sm(z.t / 12);
     else if (z.t < 48) z.r = z.rt;
     else if (z.t < 60) z.r = z.rt + (R - z.rt) * sm((z.t - 48) / 12);
-    else { z.st = 0; z.r = R; z.next = 270 + Math.random() * 60; this.pushFeed('Kar fırtınası dindi'); }
+    else { z.st = 0; z.r = R; z.next = 270 + Math.random() * 60; this.pushFeed('Buz çemberi çözüldü'); }
   }
 
   buildZone() {
@@ -1246,7 +1249,9 @@ export class AgarMode {
       const cvs = document.createElement('canvas'); cvs.width = 512; cvs.height = 64;
       const tex = new THREE.CanvasTexture(cvs);
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false })); sp.position.y = 38; sp.scale.set(60, 7.5, 1); sp.visible = false;
-      g.add(wall, tw, base, fill, pole, flag, sp); sc.add(g);
+      const paint = new THREE.Mesh(new THREE.CircleGeometry(PAINT_R, 40).rotateX(-Math.PI / 2), mat(0xffffff, 0)); paint.position.y = 0.15; paint.renderOrder = 2; paint.visible = false;
+      g.add(paint, wall, tw, base, fill, pole, flag, sp); sc.add(g);
+      f.paint = paint; f.pa = 0; f.pc = -1;
       f.fill = fill; f.flag = flag; f.sp = sp; f.tex = tex;
     }
   }
@@ -1881,7 +1886,7 @@ export class AgarMode {
     if (m.hn) this.humans = m.hn;
     if (m.pn) this.presentN = m.pn;
     if (m.st) { const sw = this.storm.on; this.storm.on = !!m.st[0]; this.storm.x = m.st[1]; this.storm.z = m.st[2]; if (this.storm.on && !sw) { this.pushFeed('❄ Kar fırtınası başladı!'); this.stormSndT = 0; } }
-    if (m.zn) { const z = this.zn, was = z.st; z.st = m.zn[0]; z.cx = m.zn[1]; z.cz = m.zn[2]; z.r = m.zn[3]; z.rt = m.zn[4]; z.t = m.zn[5]; if (z.st === 1 && was !== 1) this.pushFeed('❄ KAR FIRTINASI! Çember daralıyor'); }
+    if (m.zn) { const z = this.zn, was = z.st; z.st = m.zn[0]; z.cx = m.zn[1]; z.cz = m.zn[2]; z.r = m.zn[3]; z.rt = m.zn[4]; z.t = m.zn[5]; if (z.st === 1 && was !== 1) this.pushFeed('❄ BUZ ÇEMBERİ! Çember daralıyor'); }
     if (m.fk) this.forts.forEach((f, i) => { const ow = m.fk[i * 2]; if (ow !== f.own && ow >= 0) this.fortTaken(ow); f.own = ow; f.prog = m.fk[i * 2 + 1] / 100; });
     const cells = this.cells;
     for (let i = 0; i < CAP; i++) cells[i].killer = 0; // 0 = not seen this snapshot
@@ -2097,6 +2102,8 @@ export class AgarMode {
     }
     for (const f of this.forts) {
       const ho = f.own >= 0 ? owners[f.own] : null, col = ho ? ho.col : 0xffffff, k = Math.max(0.01, f.prog);
+      { const held = ho && f.prog >= 1; if (held) f.pc = f.own; f.pa = clampN(f.pa + (held ? 1 : -1) * dt / (held ? 20 : 6), 0, 1);
+        if (f.pa > 0 && f.pc >= 0) { f.paint.visible = true; f.paint.material.color.setHex(owners[f.pc].col); f.paint.material.opacity = 0.32 * f.pa; } else f.paint.visible = false; }
       f.fill.scale.set(k, 1, k); f.fill.material.color.setHex(ho ? col : 0xdff3ff);
       f.flag.material.color.setHex(ho ? col : 0xff4d4d); f.flag.position.y = 12 + 13 * (ho ? f.prog : 0);
       const a = ho ? accSuffix(ho.name) : '', txt = ho ? ho.name + (a.includes("'y") ? a.replace("'y", "'n") : a) + 'n KALESİ' : '';
@@ -2334,7 +2341,7 @@ export class AgarMode {
     }
     {
       const z = this.zn; let txt = '', col = '#8ff4ff';
-      if (z.st === 1) txt = '❄ KAR FIRTINASI! Çember ' + Math.ceil(z.t) + ' sn sonra daralıyor';
+      if (z.st === 1) txt = '❄ BUZ ÇEMBERİ! Çember ' + Math.ceil(z.t) + ' sn sonra daralıyor';
       else if (z.st === 2) { const out = me.alive && Math.hypot(me.cx - z.cx, me.cz - z.cz) > z.r; if (out) { txt = '⚠ ÇEMBERİN DIŞINDASIN! Kütle eriyor'; col = '#ff6b5e'; } else txt = '❄ Çemberin içinde kal · ' + Math.max(1, Math.ceil(60 - z.t)) + ' sn'; }
       if (txt !== h.zn._t) { h.zn._t = txt; h.zn.textContent = txt; h.zn.style.opacity = txt ? '1' : '0'; }
       if (txt && h.zn._c !== col) { h.zn._c = col; h.zn.style.color = col; }
@@ -2356,6 +2363,7 @@ export class AgarMode {
     g.globalAlpha = 1;
     if (this.storm.on) { g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1.5; g.beginPath(); g.arc(c0 + this.storm.x * sc, c0 + this.storm.z * sc, this.storm.r * sc, 0, 6.2832); g.stroke(); }
     if (this.zn.st > 0) { const z = this.zn; g.strokeStyle = z.st === 1 ? '#ff6b5e' : '#6ff2ff'; g.lineWidth = 1.5; g.beginPath(); g.arc(c0 + z.cx * sc, c0 + z.cz * sc, (z.st === 1 ? z.rt : z.r) * sc, 0, 6.2832); g.stroke(); }
+    for (const f of this.forts) if (f.pa > 0 && f.pc >= 0) { g.fillStyle = '#' + ('000000' + this.owners[f.pc].col.toString(16)).slice(-6); g.globalAlpha = 0.35 * f.pa; g.beginPath(); g.arc(c0 + f.x * sc, c0 + f.z * sc, PAINT_R * sc, 0, 6.2832); g.fill(); g.globalAlpha = 1; }
     for (const f of this.forts) {
       const fo = f.own >= 0 ? this.owners[f.own] : null;
       g.fillStyle = fo ? '#' + ('000000' + fo.col.toString(16)).slice(-6) : 'rgba(255,255,255,0.5)'; g.strokeStyle = '#fff'; g.lineWidth = 1;

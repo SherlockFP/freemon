@@ -1222,7 +1222,7 @@ export class CigGame {
     b.reset(r0);
     b.y = w.groundY(0, 0) + b.r * 0.92;
     b.speed = CFG.startSpeed * (this.L ? this.L.speedK * 1.2 : 1);
-    this._afkAcc = 0; this._next = null;
+    this._afkAcc = 0; this._next = null; this._snowT = [];
     this.progT = 0; this.progD = 0;
     this.wave.on = false; this.wave.warned = false; this.wave.calm = 0; this.wave.n = 0;
     this.stats = newStats();
@@ -1292,6 +1292,7 @@ export class CigGame {
     w.tintR = b.r; w.tintEat = CFG.eatRatio * M.eatMul;
     this._events();
     this._labelAhead(dt);
+    this._secretGlow();
     if (G.comboT <= 0 && G.combo) { G.combo = 0; this._comboUi(0); }
 
     // steering: first-order follower on the finger target (no lag spring)
@@ -1491,8 +1492,10 @@ export class CigGame {
       b.stick(q.def, _stickPos, q.s0, 0.6);
     } else this.stats.chunksEaten++;
     G.combo = G.comboT > 0 ? G.combo + 1 : 1;
-    G.comboT = CFG.comboWindow;
-    G.swallowed += q.mass * M.tonMul * (q.tonK || 1) * (1 + 0.02 * Math.min(G.combo, 50)) * this._cm(); // a long chain is worth up to double
+    const rid = b.riderN();   // EKİP TOPU: each rider = +10% combo time and score
+    G.comboT = CFG.comboWindow * (1 + 0.1 * rid);
+    G.swallowed += q.mass * M.tonMul * (q.tonK || 1) * (1 + 0.02 * Math.min(G.combo, 50)) * this._cm() * (1 + 0.1 * rid);
+    if (!chunk && /snowman/i.test(q.type)) this._crew(); // a long chain is worth up to double
     if (G.combo > this.stats.maxCombo) this.stats.maxCombo = G.combo;
     this.stats.eats++;
     this._comboUi(G.combo);
@@ -1512,6 +1515,28 @@ export class CigGame {
     if (label && q.r > b.r * 0.5) this._text(`${label}!`, q, q.r > b.r * 0.75 ? 'big' : '');
     else if (G.combo > 0 && G.combo % 15 === 0) this._text(`x${G.combo}!`, b, 'big');
     this._tierCheck();
+  }
+
+  // EKİP TOPU: 3+ snowmen swallowed within 3 s -> a mini snowman climbs on top of the ball (max 3)
+  _crew() {
+    const G = this.G, b = this.ball, a = this._snowT || (this._snowT = []);
+    a.push(G.t);
+    while (a.length && G.t - a[0] > 3) a.shift();
+    if (a.length < 3 || b.riderN() >= 3) return;
+    a.length = 0;
+    b.setRiders(b.riderN() + 1);
+    b.punch(0.05);
+    this._text(`EKİP TOPU! ${b.riderN()}/3`, b, 'big', true);
+    this._h('sfx', 'pop', 1, 20);
+    this._h('haptic', 'medium');
+    this._h('burst', b.x, b.y + b.r, b.d, 10, 0xffffff, 4, 0.2, 5);
+  }
+  _dropRider() {
+    const b = this.ball;
+    if (!b.riderN()) return;
+    b.dropRider();
+    this._h('toast', 'Ekip düştü! Kaçıyor...');
+    this._h('burst', b.x, b.y + b.r, b.d, 8, 0xffffff, 5, 0.2, 5);
   }
 
   _comboUi(n) {
@@ -1587,6 +1612,7 @@ export class CigGame {
     b.speed *= 0.95;
     if (ratio > 1.6 && !this.plus.consumeShield()) {
       this._loseSnow(lerp(0.03, 0.1, clamp((ratio - 1.6) / 2, 0, 1)));
+      this._dropRider();
       G.combo = 0; this._comboUi(0);
     }
     this.stats.bumps++;
@@ -1976,7 +2002,7 @@ export class CigGame {
     const have = b.r, need = g.minR;
     const shield = this.plus.consumeShield();
     g.bounces++; this.stats.bounces++;
-    if (!shield) this._loseSnow(lerp(K.bounceLoss[0], K.bounceLoss[1], clamp((1 - ratio) / 0.4, 0, 1)), true);
+    if (!shield) { this._loseSnow(lerp(K.bounceLoss[0], K.bounceLoss[1], clamp((1 - ratio) / 0.4, 0, 1)), true); this._dropRider(); }
     if (G.state !== 'play') return;   // (melted away)
     const back = clamp(12 + 0.5 * have, K.bounceBack[0], K.bounceBack[1]);
     if (g.supplyLeft > 0) { g.supplyLeft--; this._gateSupply(g, back); }
@@ -2073,6 +2099,7 @@ export class CigGame {
     }
     w.kill(p);
     G.destroyed++;
+    if (c.secret) { this._secretOpen(p); return; }
     this.stats.crates++;
     if (c.gold) this.stats.gold++;
     const mul = this._chainHit(1);
@@ -2089,6 +2116,35 @@ export class CigGame {
     G.shake += 0.12;
     b.speed *= b.r < 0.8 * p.r ? 0.93 : 0.99;
     this._h('track', 'smash', {});
+  }
+
+  // GİZLİ KAR TÜNELİ: the cracked wall broke -> the bonus lane appears
+  _secretOpen(p) {
+    const G = this.G, b = this.ball;
+    const len = this.world.openSecret(p);
+    this.stats.secret = (this.stats.secret | 0) + 1;
+    this._h('toast', 'GİZLİ YOL!');
+    this._text('GİZLİ YOL!', p, 'big', true);
+    this._h('sfx', 'crash', 0.6);
+    this._h('haptic', 'heavy');
+    G.shake += 0.3;
+    this._h('burst', p.x, p.y + p.h * 0.5, p.d, 18, 0xbfe6ff, 8, 0.3, 7);
+    this._h('burst', p.x, p.y + p.h * 0.5, p.d, 8, 0xffd54a, 6, 0.2, 6);
+    this._h('track', 'secret', { len });
+    b.speed *= 0.98;
+  }
+
+  // cracked walls glow (and pulse) once the ball is big enough to smash them
+  _secretGlow() {
+    const w = this.world, b = this.ball, a = w.secrets;
+    if (!a || !a.length) return;
+    const k = 1.1 + 0.5 * Math.sin(this.G.t * 6);
+    for (let i = a.length - 1; i >= 0; i--) {
+      const p = a[i];
+      if (!p.alive) { a.splice(i, 1); continue; }
+      if (Math.abs(p.d - b.d) > 140) continue;
+      if (b.r >= p.crate.need) { const t = p.tint; t[0] = 1.2 + 0.4 * k; t[1] = 1.5 + 0.5 * k; t[2] = 1.9 + 0.5 * k; }
+    }
   }
 
   // per frame: paint the gates ahead (red / amber / green) and remember the next barrier for the HUD
@@ -2623,7 +2679,7 @@ export class CigGame {
 
 function newStats() {
   return { eats: 0, bumps: 0, gates: 0, gatesBroken: 0, maxCombo: 0, goldens: 0, waves: 0, tierT: [], stalls: 0, chunksEaten: 0, kills: 0, bosses: 0, smashes: 0,
-    bounces: 0, hits: 0, crates: 0, gold: 0, maxChain: 0, maxMul: 1, rivalEaten: 0, time: 0, statues: 0 };
+    bounces: 0, hits: 0, crates: 0, gold: 0, maxChain: 0, maxMul: 1, rivalEaten: 0, time: 0, statues: 0, secret: 0 };
 }
 
 const _stickPos = new THREE.Vector3();
