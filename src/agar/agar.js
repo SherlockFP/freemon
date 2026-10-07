@@ -170,7 +170,7 @@ export class AgarMode {
     this.lb = []; this.lbN = 0;
     this.lastLevel = 1;
     this.terrain = new Terrain(R); this.seed = 1; this.uTime = { value: 0 };
-    this.storm = { on: false, x: 0, z: 0, dx: 0, dz: 0, t: 0, next: 40, r: 170 }; this.stormSndT = 0;
+    this.storm = { on: false, x: 0, z: 0, dx: 0, dz: 0, t: 0, next: 40, r: 170 }; this.stormSndT = 0; this.rain = { st: 0, x: 0, z: 0, t: 0, next: 150 + Math.random() * 60, acc: 0 };
     this.zn = { st: 0, t: 0, cx: 0, cz: 0, r: R, rt: R * 0.42, next: 300 }; this.sessT = 0;
     this.av = { st: 0, t: 0, next: 150 + Math.random() * 60, a: 0, off: 0, w: 55, id: 0, rum: 0, s: 0 }; this.tipT = 0; this.tipDone = false;
     this.titleIdx = 0; this.meZone = 0; this.lastMyMass = 0; this.botChatT = 20;
@@ -502,7 +502,7 @@ export class AgarMode {
     this.fs = 1;
     this.genTerrain((Math.random() * 2147483647) | 0);
     this.zn.st = 0; this.zn.r = R; this.zn.next = 290 + Math.random() * 40;
-    this.storm.on = false; this.storm.next = 35 + Math.random() * 25; this.stormA.visible = this.stormB.visible = false;
+    this.rain.st = 0; this.rain.next = 150 + Math.random() * 60; this.storm.on = false; this.storm.next = 35 + Math.random() * 25; this.stormA.visible = this.stormB.visible = false;
     this.av.st = 0; this.av.next = 150 + Math.random() * 60; for (const f of this.forts) { f.own = -1; f.prog = 0; f.cand = -1; }
     this.trails.clear();
     for (let i = 0; i < FT; i++) { this.gRemove(i); this.fv[i] = 0; }
@@ -814,7 +814,7 @@ export class AgarMode {
   // ------------------------------------------------------------------ simulation (single player + host)
   simulate(dt) {
     const owners = this.owners, cells = this.cells;
-    this.stormTick(dt);
+    this.stormTick(dt); this.rainTick(dt);
     this.props.tick(dt);
     this.nearTick(dt);
     this.botChatTick(dt);
@@ -982,6 +982,22 @@ export class AgarMode {
     if (id === this.me) { if (kind === 'chime') this.audio?.chime?.(); else this.snd(kind, undefined, undefined, v); } else if (o.human && o.human !== 'host') { if (this.net) this.net.sendTo(o.human, { t: 'sfx', k: kind, v }); } else if (x !== undefined) this.snd(kind, x, z, 0.5);
   }
 
+  // ------------------------------------------------------------------ pellet rain (PELET YAĞMURU)
+  rainTick(dt) {
+    const r = this.rain;
+    if (this.mp === 'client' || this.state !== 'play') return;
+    if (r.st === 0) {
+      r.next -= dt;
+      if (r.next <= 0) { const a = Math.random() * 6.2832, d = Math.sqrt(Math.random()) * (R - 140); r.x = Math.cos(a) * d; r.z = Math.sin(a) * d; r.st = 1; r.t = 5; this.toast('PELET YAĞMURU GELİYOR!'); this.pushFeed('Pelet yağmuru geliyor! Haritadaki işarete koş'); this.audio?.milestone?.(2); }
+      return;
+    }
+    r.t -= dt;
+    if (r.st === 1) { if (r.t <= 0) { r.st = 2; r.t = 8; r.acc = 0; this.toast('PELETLER YAĞIYOR!'); } return; }
+    r.acc += dt * 45;
+    const hex = [0xff4f86, 0xffc400, 0x2fd67a, 0x3fa8ff, 0xb070ff];
+    while (r.acc >= 1) { r.acc--; const a = Math.random() * 6.2832, d = Math.sqrt(Math.random()) * 65; this.spawnPellet(r.x + Math.cos(a) * d, r.z + Math.sin(a) * d, 6, hex[(Math.random() * 5) | 0]); }
+    if (r.t <= 0) { r.st = 0; r.next = 150 + Math.random() * 60; }
+  }
   // ------------------------------------------------------------------ snow storm
   stormTick(dt) {
     const s = this.storm;
@@ -1838,7 +1854,7 @@ export class AgarMode {
     for (const [id, rec] of net.clients) {
       const o = this.owners.find((q) => q.human === id);
       if (!o || !rec.conn.open) continue;
-      net.sendTo(id, { t: 's', hn: net.clients.size + 1, pn: this.presentCount(), pd, st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], zn: [this.zn.st, Math.round(this.zn.cx), Math.round(this.zn.cz), Math.round(this.zn.r), Math.round(this.zn.rt), Math.round(this.zn.t * 10) / 10], fk, c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
+      net.sendTo(id, { t: 's', hn: net.clients.size + 1, pn: this.presentCount(), pd, st: [this.storm.on ? 1 : 0, Math.round(this.storm.x), Math.round(this.storm.z)], pr: [this.rain.st, Math.round(this.rain.x), Math.round(this.rain.z)], zn: [this.zn.st, Math.round(this.zn.cx), Math.round(this.zn.cz), Math.round(this.zn.r), Math.round(this.zn.rt), Math.round(this.zn.t * 10) / 10], fk, c, fd, v, p, me: [o.shield, o.magnet, o.speed, o.boostCd, o.kills, o.xpRun, o.maxMass] });
     }
   }
 
@@ -1885,6 +1901,7 @@ export class AgarMode {
     this.lastSnap = this.time;
     if (m.hn) this.humans = m.hn;
     if (m.pn) this.presentN = m.pn;
+    if (m.pr) { const pw = this.rain.st; this.rain.st = m.pr[0]; this.rain.x = m.pr[1]; this.rain.z = m.pr[2]; if (this.rain.st === 1 && pw !== 1) this.toast('PELET YAĞMURU GELİYOR!'); }
     if (m.st) { const sw = this.storm.on; this.storm.on = !!m.st[0]; this.storm.x = m.st[1]; this.storm.z = m.st[2]; if (this.storm.on && !sw) { this.pushFeed('❄ Kar fırtınası başladı!'); this.stormSndT = 0; } }
     if (m.zn) { const z = this.zn, was = z.st; z.st = m.zn[0]; z.cx = m.zn[1]; z.cz = m.zn[2]; z.r = m.zn[3]; z.rt = m.zn[4]; z.t = m.zn[5]; if (z.st === 1 && was !== 1) this.pushFeed('❄ BUZ ÇEMBERİ! Çember daralıyor'); }
     if (m.fk) this.forts.forEach((f, i) => { const ow = m.fk[i * 2]; if (ow !== f.own && ow >= 0) this.fortTaken(ow); f.own = ow; f.prog = m.fk[i * 2 + 1] / 100; });
@@ -2063,7 +2080,7 @@ export class AgarMode {
     this.cellMesh.count = n; this.shadowMesh.count = n;
     this.cellMesh.instanceMatrix.needsUpdate = true; this.cellMesh.instanceColor.needsUpdate = true; this.shadowMesh.instanceMatrix.needsUpdate = true;
     this.trails.build(this.time, cells, this.camX, this.camZ, hx, zmin, zmax);
-    this.props.render(this.camX, this.camH, hx, zmin, zmax, cells, owners, me);
+    this.props.render(this.camX, this.camH, hx, zmin, zmax, cells, owners, me, this.camZ);
     {
       const st0 = this.storm; let heavy = 0;
       if (st0.on) { const d = Math.hypot(this.camX - st0.x, this.camZ - st0.z); heavy = clampN(1.4 - d / (st0.r * 1.2), 0, 1); }
@@ -2361,6 +2378,7 @@ export class AgarMode {
     for (let i = 0; i < NDEEP; i++) { g.beginPath(); g.arc(c0 + T.deep[i * 3] * sc, c0 + T.deep[i * 3 + 1] * sc, Math.max(1, T.deep[i * 3 + 2] * sc), 0, 6.2832); g.fill(); }
     if (this.patches) for (const p of this.patches) { g.fillStyle = '#' + ('000000' + p[3].toString(16)).slice(-6); g.globalAlpha = 0.28; g.beginPath(); g.arc(c0 + p[0] * sc, c0 + p[1] * sc, Math.max(1, p[2] * sc), 0, 6.2832); g.fill(); }
     g.globalAlpha = 1;
+    if (this.rain.st) { const rx = c0 + this.rain.x * sc, rz = c0 + this.rain.z * sc, pu = 0.6 + 0.4 * Math.sin(this.time * 8); g.strokeStyle = this.rain.st === 1 ? 'rgba(255,220,60,' + pu + ')' : '#ffd23f'; g.fillStyle = 'rgba(255,210,60,0.35)'; g.lineWidth = 2; g.beginPath(); g.arc(rx, rz, Math.max(5, 65 * sc), 0, 6.2832); g.fill(); g.stroke(); }
     if (this.storm.on) { g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1.5; g.beginPath(); g.arc(c0 + this.storm.x * sc, c0 + this.storm.z * sc, this.storm.r * sc, 0, 6.2832); g.stroke(); }
     if (this.zn.st > 0) { const z = this.zn; g.strokeStyle = z.st === 1 ? '#ff6b5e' : '#6ff2ff'; g.lineWidth = 1.5; g.beginPath(); g.arc(c0 + z.cx * sc, c0 + z.cz * sc, (z.st === 1 ? z.rt : z.r) * sc, 0, 6.2832); g.stroke(); }
     for (const f of this.forts) if (f.pa > 0 && f.pc >= 0) { g.fillStyle = '#' + ('000000' + this.owners[f.pc].col.toString(16)).slice(-6); g.globalAlpha = 0.35 * f.pa; g.beginPath(); g.arc(c0 + f.x * sc, c0 + f.z * sc, PAINT_R * sc, 0, 6.2832); g.fill(); g.globalAlpha = 1; }

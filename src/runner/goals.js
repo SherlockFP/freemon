@@ -45,3 +45,20 @@ export function goalFor(s, layerLen, best, passed, near, out) {
   out.frac = (s - k * layerLen) / layerLen;
   return out;
 }
+
+/**
+ * ÇIĞ RÜZGÂRI: deterministic crosswind schedule (so the obstacle spawner and the runner agree). From 1500 m, one slot per 520 m,
+ * 75% of them hold a gust (95-150 m, ~4-6 s). Returns the shared { s0, s1, dir } (dir -1 / +1 = the side it blows toward) or null.
+ */
+const _gust = { s0: 0, s1: 0, dir: 1 };
+const gh = (k, n) => { const x = Math.sin(k * 127.1 + n * 311.7) * 43758.5453; return x - Math.floor(x); };
+export function gustAt(s, lead = 0) {
+  if (s + lead < 1500) return null;
+  const k = Math.floor((s + lead - 1500) / 520);
+  for (let kk = k; kk >= Math.max(0, k - 1); kk--) {
+    if (gh(kk, 1) > 0.75) continue;
+    const s0 = 1500 + kk * 520 + 120 + gh(kk, 2) * 220, s1 = s0 + 95 + gh(kk, 3) * 55;
+    if (s + lead >= s0 - 4 && s <= s1 + 4) { _gust.s0 = s0; _gust.s1 = s1; _gust.dir = gh(kk, 4) < 0.5 ? -1 : 1; return _gust; }
+  }
+  return null;
+}

@@ -23,6 +23,7 @@ import * as THREE from 'three';
 import { makeRng } from '../rng.js';
 import { LANES, LANE_W, setLanes, laneOf, hwFor } from './track.js';
 import { Critters } from './critters.js';
+import { gustAt } from './goals.js';
 
 const PI = Math.PI, TAU = PI * 2;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -1651,7 +1652,7 @@ Object.assign(Obstacles.prototype, {
       if (!rm) rm = f0m;
       const tightRow = rm !== f0m, vq = lastR && vertRow(lastR) && (s - lastR.s) / vs < 0.62;
       const hardN = (lastR && lastR.hardN) || 0;
-      plan.lethalOk = !o.noLethal && diff >= 0.18 && !(lastR && lastR.lethal && s < 2500) && hardN < 2 && !(lastR && lastR.lethal && (s - lastR.s) / vs < 1.6);   // no two lethal rows in a row in the first km, none after 3 hard rows (never in round sections)
+      plan.lethalOk = !o.noLethal && !gustAt(s, 50) && diff >= 0.18 && !(lastR && lastR.lethal && s < 2500) && hardN < 2 && !(lastR && lastR.lethal && (s - lastR.s) / vs < 1.6);   // no two lethal rows in a row in the first km, none after 3 hard rows (never in round sections)
       plan.rowLethal = false; plan.rowRock = false;
       const pats = ['single', 'double', 'low', 'train', 'mover', 'rolling', 'beat', 'swing', 'ice', 'melt', 'conveyor', 'rail', 'oncoming', 'duck', 'slide', 'combo', 'laser', 'missile', 'phrase', 'critter', 'rest'];
       const nk0 = T._q && T._q[0], forcedNext = hardEnd || nk0 === 'narrow' || nk0 === 'split' || nk0 === 'hexHoles' || nk0 === 'gapRamp' || nk0 === 'gapJump' || nk0 === 'skiJump' || nk0 === 'chasm' || nk0 === 'iceBridge' || nk0 === 'zipline' || nk0 === 'loop' || nk0 === 'finish';

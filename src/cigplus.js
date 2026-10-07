@@ -1204,6 +1204,7 @@ export class CigGame {
     this.wave = { on: false, d: 0, v: 0, t: 0, warned: false, mesh: null, calm: 0, n: 0 };
     this.stats = newStats();
     this.world.onArrive = (q) => this._arrive(q);
+    this.world.onTopple = (t) => this._dominoFell(t);
     this._wireHooks();
   }
 
@@ -1279,19 +1280,50 @@ export class CigGame {
     if (fn) fn.call(this.host, a, b, c, d, e, f, g, h, i, j);
   }
 
+  // ---- message queue: every ÇIĞ callout (toast / tier banner) goes through here. One visible at a time;
+  // priority 3 danger > 2 milestone > 1 info. Info is dropped when stale; danger jumps ahead of everything waiting
+  // (and replaces a visible info toast), a visible milestone is allowed to finish first.
+  _msg(pri, str, a, b) {
+    const q = this._mq || (this._mq = []);
+    const key = str == null ? 'tier' + a : str;
+    for (let i = 0; i < q.length; i++) if (q[i].key === key) return;
+    if (this._mCur && this._mCur.key === key) return;
+    q.push({ pri, str, a, b, key, t: this.G.t });
+    if (pri === 3) for (let i = q.length - 2; i >= 0; i--) if (q[i].pri === 1) q.splice(i, 1);
+    if (pri === 3 && this._mCur && this._mCur.pri === 1) this._mCur = null;
+    this._msgTick();
+  }
+  _msgTick() {
+    const G = this.G, q = this._mq;
+    if (this._mCur && G.t >= this._mCur.until) this._mCur = null;
+    if (this._mCur || !q || !q.length) return;
+    let bi = -1;
+    for (let i = 0; i < q.length; i++) {
+      const m = q[i];
+      if (m.pri === 1 && G.t - m.t > 3) { q.splice(i--, 1); continue; }
+      if (m.pri === 2 && G.t - m.t > 10) { q.splice(i--, 1); continue; }
+      if (bi < 0 || m.pri > q[bi].pri) bi = i;
+    }
+    if (bi < 0) return;
+    const m = q.splice(bi, 1)[0];
+    if (m.str == null) this._h('tier', m.a, m.b); else this._h('toast', m.str);
+    this._mCur = { pri: m.pri, key: m.key, until: G.t + (m.pri === 3 ? 2.2 : m.str == null ? 2.8 : m.pri === 2 ? 2.4 : 1.7) };
+  }
+
   // ---- main per-frame entry (dt already includes time scale); steerM = meters the target moved this frame
   update(dt, steerM = 0) {
     const G = this.G, b = this.ball, w = this.world, M = this.plus.mods;
     G.t += dt;
     G.bumpCd -= dt; G.recoverT -= dt; G.momentumT -= dt;
     G.comboT -= dt; G.gateSlow = (G.gateSlow || 0) - dt;
-    if (this.powerT > 0) { this.powerT -= dt; if (this.powerT <= 0) { this.powerT = 0; if (!this.L) this._h('toast', 'Güç bitti'); } }
+    if (this.powerT > 0) { this.powerT -= dt; if (this.powerT <= 0) { this.powerT = 0; if (!this.L) this._msg(1, 'Güç bitti'); } }
     this.plus.boost = this.powerT + (G.stripT > 0 ? 1 : 0);
     this._afk(dt);
     if (this.L) this._levelTick(dt);
     w.tintR = b.r; w.tintEat = CFG.eatRatio * M.eatMul;
     this._events();
     this._labelAhead(dt);
+    this._msgTick();
     this._secretGlow();
     if (G.comboT <= 0 && G.combo) { G.combo = 0; this._comboUi(0); }
 
@@ -1351,7 +1383,7 @@ export class CigGame {
         msg = b.r >= g.minR * 0.97 ? `⛔ KAPI ÖNÜNDE (${need} m): yıkabilirsin!` : `⛔ KAPI ÖNÜNDE: ${need} m olmalısın, ye ve büyü!`;
       }
       if (!msg) continue;
-      this._h('toast', msg);
+      this._msg(1, msg);
       this._h('haptic', 'light');
     }
   }
@@ -1369,7 +1401,7 @@ export class CigGame {
     let best = null, bestD = 1e9;
     for (let i = 0; i < _near.length; i++) {
       const p = _near[i];
-      if (!p.alive || p.tag || p.move !== MOVE_NONE || p.kind === 'chunk' || p.decor || p.enemy || p.crate || p.statue || p.r <= b.r * CFG.smashRatio || this._edible(p)) continue;
+      if (!p.alive || p.tag || p.move !== MOVE_NONE || p.kind === 'chunk' || p.decor || p.enemy || p.crate || p.statue || p.domino || p.r <= b.r * CFG.smashRatio || this._edible(p)) continue;
       const dd = p.d - b.d;
       if (dd < 8 || dd > look) continue;
       if (Math.abs(p.x - b.x) > b.r + p.r * CFG.contactK + 4) continue;
@@ -1436,7 +1468,7 @@ export class CigGame {
   }
 
   _edible(p) {
-    if (p.enemy || p.crate || p.statue) return false;
+    if (p.enemy || p.crate || p.statue || p.domino) return false;
     return p.kind === 'chunk' || p.r <= this.ball.r * CFG.eatRatio * this.plus.eatMulFor(p);
   }
 
@@ -1466,7 +1498,7 @@ export class CigGame {
       if (dist > contact) continue;
       if (M.ghost) continue;
       // small / medium: smash straight through (partial growth); power or rocket: smash anything; too big: glance off sideways
-      if (M.plow || pw || p.r <= b.r * CFG.smashRatio) { this._smash(p, true); continue; }
+      if (M.plow || pw || p.domino || p.r <= b.r * CFG.smashRatio) { this._smash(p, true); continue; }
       this._deflect(p, dx, dd, dist, contact);
     }
   }
@@ -1512,7 +1544,7 @@ export class CigGame {
     this._h('burst', q.x, q.y, q.d, 2 + Math.min(4, Math.round(q.r / Math.max(0.3, b.r) * 6)), 0xffffff, 1.5 + Math.min(4, q.r), 0.08 + Math.min(0.2, q.r * 0.06), 3);
     if (!chunk) this._h('track', 'swallow', { type: q.type });
     const label = LABEL[q.type];
-    if (label && q.r > b.r * 0.5) this._text(`${label}!`, q, q.r > b.r * 0.75 ? 'big' : '');
+    if (label && q.r > b.r * 0.5 && q.r > b.r * 0.62) { const seen = this._seen || (this._seen = new Set()); if (!seen.has(q.type)) { seen.add(q.type); this._text(`${label}!`, q, ''); } }
     else if (G.combo > 0 && G.combo % 15 === 0) this._text(`x${G.combo}!`, b, 'big');
     this._tierCheck();
   }
@@ -1526,7 +1558,7 @@ export class CigGame {
     a.length = 0;
     b.setRiders(b.riderN() + 1);
     b.punch(0.05);
-    this._text(`EKİP TOPU! ${b.riderN()}/3`, b, 'big', true);
+    this._msg(1, `EKİP TOPU ${b.riderN()}/3`);
     this._h('sfx', 'pop', 1, 20);
     this._h('haptic', 'medium');
     this._h('burst', b.x, b.y + b.r, b.d, 10, 0xffffff, 4, 0.2, 5);
@@ -1535,7 +1567,7 @@ export class CigGame {
     const b = this.ball;
     if (!b.riderN()) return;
     b.dropRider();
-    this._h('toast', 'Ekip düştü! Kaçıyor...');
+    this._msg(1, 'Ekip düştü! Kaçıyor...');
     this._h('burst', b.x, b.y + b.r, b.d, 8, 0xffffff, 5, 0.2, 5);
   }
 
@@ -1546,6 +1578,7 @@ export class CigGame {
 
   // Floating callouts are rare on purpose (max ~1 per second); `imp` ones (power names, gates) may follow after 0.35 s.
   _text(str, at, cls = '', imp = false) {
+    if (this._mCur && this._mCur.pri >= 2 && cls !== 'bad') return;   // one message at a time: a visible banner/danger wins
     if (this.G.t - this.lastTextT < (imp ? 0.35 : 0.9)) return;
     this.lastTextT = this.G.t;
     this._h('text', str, at, cls);
@@ -1570,10 +1603,44 @@ export class CigGame {
     this._h('puff', p.x + (Math.random() - 0.5) * p.r, p.y + p.h * 0.15, -p.d, (Math.random() - 0.5) * 3, 1.4, -2.5, 0.7 + p.r * 0.6, 0.8, 0xf4f8ff, 0.5);
     if (G.t - (this._smashSfxT || -9) > 0.08) { this._smashSfxT = G.t; this._h('sfx', 'crash', 0.3); this._h('haptic', 'medium'); }
     G.shake += 0.12;
-    if (grow && p.r > b.r * 0.9 && LABEL[p.type]) this._text(LABEL[p.type] + ' EZİLDİ!', p, '');
+    if (grow && p.r > b.r * 0.9 && LABEL[p.type] && !p.domino) { const seen = this._seen || (this._seen = new Set()); if (!seen.has('s' + p.type)) { seen.add('s' + p.type); this._text(LABEL[p.type] + ' EZİLDİ!', p, ''); } }
     this._h('track', 'smash', {});
     if (p.statue) this._statueBroken(p);
+    if (p.domino) this._dominoStart(p);
     if (grow) this._tierCheck();
+  }
+
+  // DOMİNO ÇAM: smashing one pine topples the rest of its row in a chain (away from the hit tree); each fall pays growth.
+  _dominoStart(p) {
+    const row = p.domino.row;
+    if (row.hit) return;
+    row.hit = true; row.got = 1;
+    for (const t of row.trees) {
+      if (t === p || !t.alive) continue;
+      this.world.topple(t, 0.18 + 0.17 * Math.abs(t.domino.i - p.domino.i), Math.sign(t.x - p.x) || 1);
+    }
+    if (row.trees.length < 2) this._dominoDone(row);
+  }
+  _dominoFell(t) {
+    const row = t.domino && t.domino.row, b = this.ball;
+    if (!row) return;
+    row.got++;
+    const gain = CFG.growK * 0.05 * b.r ** 3 * this._band();
+    if (gain > 0) this._grow(b.r ** 3 + gain);
+    this.G.destroyed += 1;
+    this._h('burst', t.x, t.y + t.h * 0.3, t.d, 8, 0xffffff, 5, 0.2 + t.r * 0.05, 5);
+    if (this.G.t - (this._domSfxT || -9) > 0.1) { this._domSfxT = this.G.t; this._h('sfx', 'crash', 0.35); }
+    this._text('DOMİNO x' + row.got + '!', t, 'big', true);
+    if (row.got >= row.n) this._dominoDone(row);
+  }
+  _dominoDone(row) {
+    if (row.done) return;
+    row.done = true;
+    this._grow(this.ball.r ** 3 * 1.05);
+    this._msg(2, 'DOMİNO x' + row.got + '!');
+    this._h('sfx', 'milestone', 2);
+    this._h('haptic', 'success');
+    this.G.shake += 0.3;
   }
 
   _statueBroken(p) {
@@ -1587,7 +1654,7 @@ export class CigGame {
       set.done = true;
       this._grow(b.r ** 3 * 1.12);
       this.G.destroyed += 5;
-      this._h('toast', 'HEYKEL SERİSİ! Tüm heykeller yıkıldı');
+      this._msg(2, 'HEYKEL SERİSİ! Tüm heykeller yıkıldı');
       this._h('sfx', 'crash', 0.6);
       this.G.shake += 0.4;
     }
@@ -1671,7 +1738,7 @@ export class CigGame {
       this._h('hitStop', 0.09); G.shake += 0.8;
       this._h('sfx', 'crash', 0.7); this._h('sfx', 'milestone', 2); this._h('haptic', 'success'); this._h('flash', 'gold');
       this._text(e.roll ? 'TOP YUTULDU!' : 'RAKİP YUTULDU!', p, 'big', true);
-      if (!e.roll) { this._h('toast', '+' + fmtTonsShort(xp) + ' XP'); this.stats.rivalEaten++; }
+      if (!e.roll) { this._msg(1, '+' + fmtTonsShort(xp) + ' XP'); this.stats.rivalEaten++; }
       if (this.L) this._chainHit(2);
       this._tierCheck();
       return;
@@ -1729,7 +1796,7 @@ export class CigGame {
     this._h('haptic', 'success');
     this._h('flash', e.boss ? 'milestone' : 'gold');
     this._text(e.boss ? e.name + ' YENİLDİ!' : e.name + ' EZİLDİ!', p, 'big', true);
-    if (!this.L || e.boss) this._h('toast', '+' + fmtTonsShort(xp) + ' XP');
+    if (!this.L || e.boss) this._msg(1, '+' + fmtTonsShort(xp) + ' XP');
     this._h('track', 'enemy_kill', { id: e.id, boss: e.boss });
     if (e.boss) this._power();
     if (this.L) { this._chainHit(e.boss ? 5 : 2); if (e.boss) this._bossDown(); }
@@ -1759,7 +1826,7 @@ export class CigGame {
       }
       if (!e.woke && dd < 95) {
         e.woke = true;
-        if (e.boss) { this._h('toast', '⚠ ' + e.name + ' GELİYOR!'); this._h('sfx', 'rumble'); this._h('haptic', 'warning'); }
+        if (e.boss) { this._msg(3, '⚠ ' + e.name + ' GELİYOR!'); this._h('sfx', 'rumble'); this._h('haptic', 'warning'); }
       }
       if (!e.woke) continue;
       if (dd > b.r + p.r && dd < 75 && e.spd > 0) {
@@ -1795,7 +1862,7 @@ export class CigGame {
     p.rot = Math.atan2(dx, 30) * 0.5;
     // the rival is a snowball: it rolls (visual wobble) and grows a little as it races
     p.s = p.s0 || (p.s0 = p.s);
-    if (!e.grown && dd < 80) { e.grown = true; this._h('toast', bigger ? '⚠ RAKİP KARTOPU SENDEN BÜYÜK: kaç!' : '⚪ RAKİP KARTOPU: yakalayıp ye!'); }
+    if (!e.grown && dd < 80) { e.grown = true; this._msg(3, bigger ? '⚠ RAKİP KARTOPU SENDEN BÜYÜK: kaç!' : '⚪ RAKİP KARTOPU: yakalayıp ye!'); }
   }
 
   // a ball rolled across the track by a cannon: straight line, bigger = red, smaller = white; gone once it leaves the track
@@ -1824,7 +1891,7 @@ export class CigGame {
     p.d = clamp(p.d, A.d0, A.d1);
     if (!e.woke && b.d > A.d0 - 25) {
       e.woke = true;
-      this._h('toast', '⚠ ' + e.name + ' GELİYOR!');
+      this._msg(3, '⚠ ' + e.name + ' GELİYOR!');
       this._h('sfx', 'rumble');
       this._h('haptic', 'warning');
     }
@@ -1868,7 +1935,7 @@ export class CigGame {
     this._h('haptic', 'success');
     this._h('burst', b.x, b.y, b.d, 24, 0xffd45a, 10 + b.r, 0.3 + b.r * 0.05, 7);
     this._text('GÜÇLENDİN!', b, 'big', true);
-    if (!this.L) this._h('toast', '💪 GÜÇLENDİN! hızlan, her şeyi ez');
+    if (!this.L) this._msg(1, '💪 GÜÇLENDİN! hızlan, her şeyi ez');
   }
 
   _loseSnow(frac, noScatter = false) {
@@ -1937,7 +2004,7 @@ export class CigGame {
       for (let k = 0; k < 6; k++) this._h('burst', b.x + (k - 2.5) * g.hw * 0.25, b.y, g.d, 6, 0xd8ecff, 8, 0.55, 7);
       this._h('flash', 'milestone');
       this._text('KAPI KIRILDI!', b, 'big', true);
-      this._h('toast', '+' + fmtTonsShort(bonus) + ' bonus');
+      this._msg(2, '+' + fmtTonsShort(bonus) + ' bonus');
       this._h('track', 'gate', { ok: true });
       this._power();
       this._tierCheck();
@@ -1991,7 +2058,7 @@ export class CigGame {
     if (fin) {
       G.finalBroken = true; G.finalR = b.r;
       G.timeScale = 0.55;
-    } else this._h('toast', '✓ ETAP ' + (g.i + 1));   // short and small; the HUD chip is the source of truth
+    } else this._msg(1, '✓ ETAP ' + (g.i + 1));   // short and small; the HUD chip is the source of truth
     this._tierCheck();
   }
 
@@ -2046,7 +2113,7 @@ export class CigGame {
     this._h('haptic', 'medium');
     b.squash(0.2);
     this._h('burst', b.x, b.y, g.d, 8, 0xd8ecff, 6, 0.4, 5);
-    if (!this._lockedMsg) { this._lockedMsg = true; this._h('toast', 'KİLİTLİ: patronu yen'); }
+    if (!this._lockedMsg) { this._lockedMsg = true; this._msg(1, 'KİLİTLİ: patronu yen'); }
   }
 
   // a half-width ice wall that is too strong for you: slide off through the open side (no snow lost)
@@ -2123,7 +2190,7 @@ export class CigGame {
     const G = this.G, b = this.ball;
     const len = this.world.openSecret(p);
     this.stats.secret = (this.stats.secret | 0) + 1;
-    this._h('toast', 'GİZLİ YOL!');
+    this._msg(2, 'GİZLİ YOL!');
     this._text('GİZLİ YOL!', p, 'big', true);
     this._h('sfx', 'crash', 0.6);
     this._h('haptic', 'heavy');
@@ -2171,13 +2238,13 @@ export class CigGame {
     if (g.locked || g.kind === 'mini' || !this.L) return;
     const left = g.d - b.d;
     if (left < 0 || left > 300) return;
-    if (!g._hint && b.r < 0.8 * g.minR) { g._hint = true; this._h('toast', 'BÜYÜMEN LAZIM! Kapıya kadar ye ve büyü'); }
+    if (!g._hint && b.r < 0.8 * g.minR) { g._hint = true; this._msg(1, 'BÜYÜMEN LAZIM! Kapıya kadar ye ve büyü'); }
     if (!g._rain && left <= 200 && left > 125) {
       g._rain = true;
       const target = 0.85 * g.minR, R3 = target ** 3 - b.r ** 3;
       if (R3 > 0) {
         w.supplyChunks(b.x * 0.5, g.d - 195, g.d - 125, R3 / CFG.growK / CFG.chunkGain, 14);
-        this._h('toast', '❄️ Kar yağışı! Önündeki karı topla');
+        this._msg(1, '❄️ Kar yağışı! Önündeki karı topla');
       }
     }
   }
@@ -2210,7 +2277,7 @@ export class CigGame {
       e.seen = true;
       if (g.locked) continue;   // the boss has its own bar
       const need = fmtD(g.minR * 2), ok = this._readyOf(g) === 2;
-      this._h('toast', (g.kind === 'final' ? 'FİNAL KAPISI' : 'ETAP ' + (g.i + 1) + '/' + L.S) + ' · ⛔ ' + need + ' m ' + (ok ? 'kırabilirsin' : 'gerekli'));
+      this._msg(1, (g.kind === 'final' ? 'FİNAL KAPISI' : 'ETAP ' + (g.i + 1) + '/' + L.S) + ' · ⛔ ' + need + ' m ' + (ok ? 'kırabilirsin' : 'gerekli'));
       this._h('haptic', 'light');
     }
   }
@@ -2320,7 +2387,7 @@ export class CigGame {
       if (this._gateNear(120)) return;   // wait: one message at a time, the gate sign goes first
       W.on = true; W.d = b.d - C.gap0; W.v = C.k * target; W.t = 0; W.calm = 0; W.warnT = 1; W.n++;
       this.stats.waves++;
-      this._h('toast', 'ÇIĞ ARKANDAN GELİYOR!');
+      this._msg(3, 'ÇIĞ ARKANDAN GELİYOR!');
       this._h('sfx', 'rumble');
       this._h('haptic', 'warning');
     }
@@ -2345,7 +2412,7 @@ export class CigGame {
       if (G.slowT > CFG.waveT) {
         W.on = true; W.d = b.d - CFG.waveGap; W.v = 0; W.t = 0; W.calm = 0; W.warnT = 0.8; W.n++;
         this.stats.waves++;
-        this._h('toast', '⚠ ÇIĞ GELİYOR!');
+        this._msg(3, '⚠ ÇIĞ GELİYOR!');
         this._h('sfx', 'rumble');
         this._h('haptic', 'warning');
         this._h('flash', 'milestone');
@@ -2365,7 +2432,7 @@ export class CigGame {
     W.warnT -= dt;
     if (W.warnT <= 0 && gap < 80) {
       W.warnT = 2.6;
-      this._h('toast', '⚠ ÇIĞ YAKLAŞIYOR: hızlan, yemeye devam et!');
+      this._msg(3, '⚠ ÇIĞ YAKLAŞIYOR: hızlan, yemeye devam et!');
       if (gap < 35) this._h('flash', 'hit');
     }
     if ((W.t | 0) !== (W._lt | 0) && gap < 40) { W._lt = W.t; G.shake += 0.15; this._h('haptic', 'light'); }
@@ -2428,7 +2495,7 @@ export class CigGame {
       this.stats.tierT[G.tier] = +G.t.toFixed(1);
       this.world.setTier(G.tier, b.d);
       if (this.L) G.surgeT = CFG.lvl.surgeT;
-      this._h('tier', name, G.tier);
+      this._msg(2, null, name, G.tier);
       this._h('track', 'cig_tier', { tier: G.tier + 1, name });
       this._h('track', 'milestone', { level: G.tier, r: b.r });
       this._h('sfx', 'milestone', G.tier);
@@ -2456,7 +2523,7 @@ export class CigGame {
     this._h('flash', 'milestone');
     G.shake += 0.4;
     this._text('ALTIN KARTOPU!', b, 'big', true);
-    this._h('toast', `🌟 +${fmtTonsShort(bonus)}`);
+    this._msg(2, `🌟 +${fmtTonsShort(bonus)}`);
     this._tierCheck();
   }
 
@@ -2506,10 +2573,10 @@ export class CigGame {
     // chase the record: a soft nudge near it, a proper cheer when it falls
     if (this.bestTons > 0 && G.state === 'play' && !this.L) {
       const t = this.totalTons();
-      if (!this._recNear && t > this.bestTons * 0.9) { this._recNear = true; if (t <= this.bestTons) this._h('toast', '🏆 Rekora ramak kaldı!'); }
+      if (!this._recNear && t > this.bestTons * 0.9) { this._recNear = true; if (t <= this.bestTons) this._msg(2, '🏆 Rekora ramak kaldı!'); }
       if (!this._recHit && t > this.bestTons) {
         this._recHit = true;
-        this._h('toast', '🏆 YENİ REKOR!');
+        this._msg(2, '🏆 YENİ REKOR!');
         this._h('haptic', 'success');
         this._h('sfx', 'milestone', 3);
         this._h('flash', 'gold');

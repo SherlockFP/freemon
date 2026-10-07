@@ -800,7 +800,7 @@ html, body {
 .res-extra .rx-goal .rg-sub em { font-style: normal; color: #7dff9a; font-weight: 900; }
 .res-extra .rx-goal .rg-b i.gain { transition: width 1.1s cubic-bezier(.2, .8, .2, 1); }
 .res-extra .rx-goal .rg-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 800; color: #cfe6ff; }
-.res-extra .rx-goal .rg-row span { flex: 0 0 auto; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res-extra .rx-goal .rg-row span { flex: 0 1 auto; min-width: 0; max-width: 52%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .res-extra .rx-goal .rg-row .rg-b { flex: 1; height: 6px; }
 .res-extra .rx-goal .rg-row b { color: #fff; font-weight: 900; white-space: nowrap; }
 .hud-goal.fury { border-color: #ff6a1a; box-shadow: 0 0 10px rgba(255, 106, 26, 0.7); }
@@ -885,3 +885,6 @@ html, body {
 #banner:empty { display: none; }
 #banner.runner .b { opacity: 1; }
 .hud-vitals .pips::before { content: 'BOYUT'; align-self: center; margin-right: 3px; font-size: 9px; font-weight: 900; letter-spacing: 0.08em; color: #fff; text-shadow: 0 1px 0 var(--ink), 1px 1px 0 var(--ink), -1px 1px 0 var(--ink); }
+
+/* in-world floating texts: dark outline so they read on pale snow */
+.float { text-shadow: 0 2px 0 #0a2a4a, 2px 0 0 #0a2a4a, -2px 0 0 #0a2a4a, 0 -2px 0 #0a2a4a, 0 3px 6px rgba(0, 20, 50, 0.55); }

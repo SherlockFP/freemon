@@ -53,6 +53,35 @@ export function nextGoal(sv) {
   return { ...pick, have, frac: Math.max(0, Math.min(1, have / pick.price)), ready: have >= pick.price };
 }
 
+// ---- YETI PAZARI: 3 weekly offers seeded by the ISO week (same for everyone, refreshes Monday 00:00 local) ----
+function isoWeekInfo(d = new Date()) {
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = (t.getDay() + 6) % 7; // Mon=0
+  t.setDate(t.getDate() - day + 3); // Thursday of this week
+  const year = t.getFullYear();
+  const jan4 = new Date(year, 0, 4);
+  const week = 1 + Math.round(((t - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+  const next = new Date(d.getFullYear(), d.getMonth(), d.getDate() - day + 7);
+  return { key: year + '-W' + week, seed: year * 100 + week, msLeft: Math.max(0, next - d) };
+}
+function seededPick(arr, seed) { return arr.length ? arr[(Math.imul(seed, 2654435761) >>> 0) % arr.length] : null; }
+const BUNDLES = [{ cr: 3, coins: 1500 }, { cr: 5, coins: 2800 }, { cr: 4, coins: 2100 }];
+function weeklyOffers(sv, wk) {
+  const gate = (it) => it.price > 0 && !(it.unlock && (it.unlock.stars || it.unlock.secret));
+  const sPick = seededPick(SKINS.filter(gate), wk.seed);
+  const tPick = seededPick(TRAILS.filter(gate), wk.seed + 7);
+  const b = BUNDLES[wk.seed % BUNDLES.length];
+  const out = [];
+  if (sPick) out.push({ id: 'w-skin', kind: 'skin', item: sPick, icon: '👕', name: sPick.name, price: Math.round(sPick.price * 0.6), was: sPick.price, cur: 'coins', tag: '%40 İNDİRİM' });
+  out.push({ id: 'w-bundle', kind: 'bundle', icon: '❄️', name: b.coins.toLocaleString('tr-TR') + ' ❄️ Paketi', price: b.cr, cur: 'crystals', coins: b.coins, tag: 'HAFTALIK PAKET' });
+  if (tPick) out.push({ id: 'w-trail', kind: 'trail', item: tPick, icon: '✨', name: tPick.name, price: Math.round(tPick.price * 0.6), was: tPick.price, cur: 'coins', tag: '%40 İNDİRİM' });
+  return out;
+}
+const pzKey = (wk) => 'patpat.pazar.' + wk.key;
+function pzBought(wk) { try { return JSON.parse(localStorage.getItem(pzKey(wk)) || '[]'); } catch { return []; } }
+function pzMark(wk, id) { try { const a = pzBought(wk); if (!a.includes(id)) a.push(id); localStorage.setItem(pzKey(wk), JSON.stringify(a)); } catch { /* ignore */ } }
+const fmtLeft = (ms) => { const m = Math.floor(ms / 60000), d = Math.floor(m / 1440), hh = Math.floor((m % 1440) / 60), mm = m % 60; return d > 0 ? d + 'g ' + hh + 'sa' : hh + 'sa ' + String(mm).padStart(2, '0') + 'dk'; };
+
 const STYLE_ID = 'cig-shop-style';
 
 const CSS = `
@@ -748,12 +777,15 @@ export function openShop({ save, onClose, onSelect } = {}) {
   const tabSkin = h('button', 'cs-tab on', 'TOPLAR');
   const tabTrail = h('button', 'cs-tab', 'İZLER');
   const tabPower = h('button', 'cs-tab', 'GÜÇLER');
+  const tabPazar = h('button', 'cs-tab', 'PAZAR');
+  tabPazar.setAttribute('type', 'button');
   tabSkin.setAttribute('type', 'button');
   tabTrail.setAttribute('type', 'button');
   tabPower.setAttribute('type', 'button');
   tabs.appendChild(tabSkin);
   tabs.appendChild(tabTrail);
   tabs.appendChild(tabPower);
+  tabs.appendChild(tabPazar);
 
   const goalBox = h('div', 'cs-goal');
   const scroll = h('div', 'cs-scroll');
@@ -904,6 +936,7 @@ export function openShop({ save, onClose, onSelect } = {}) {
 
   function render(popId, bought) {
     renderGoal();
+    if (kind === 'pazar') { renderPazar(); return; }
     if (kind === 'power') { renderPower(); return; }
     if (plist.parentNode) { plist.remove(); scroll.appendChild(grid); }
     const list = sortCatalog(kind === 'skin' ? SKINS : TRAILS);
@@ -966,12 +999,57 @@ export function openShop({ save, onClose, onSelect } = {}) {
     scroll.scrollTop = keep;
   }
 
+  // ---- YETI PAZARI ----
+  let pzTimer = 0;
+  function renderPazar() {
+    if (grid.parentNode) { grid.remove(); scroll.appendChild(plist); }
+    const keep = scroll.scrollTop;
+    plist.innerHTML = '';
+    const wk = isoWeekInfo();
+    const bought = pzBought(wk);
+    const hd = h('div', 'cs-sec', 'YETİ PAZARI');
+    const left = h('span', '', '  ⏳ ' + fmtLeft(wk.msLeft));
+    hd.appendChild(left);
+    plist.appendChild(hd);
+    clearInterval(pzTimer);
+    pzTimer = setInterval(() => { if (closed || kind !== 'pazar') { clearInterval(pzTimer); return; } const w = isoWeekInfo(); left.textContent = '  ⏳ ' + fmtLeft(w.msLeft); if (w.key !== wk.key) renderPazar(); }, 30000);
+    for (const o of weeklyOffers(save, wk)) {
+      const done = bought.includes(o.id) || (o.kind !== 'bundle' && save.isOwned(o.kind, o.item.id));
+      const afford = o.cur === 'crystals' ? save.crystals() >= o.price : save.coins >= o.price;
+      const desc = o.kind === 'bundle' ? o.tag + ' · 💎 ' + o.price + ' karşılığı' : o.tag + ' · eski fiyat ❄️ ' + fmt(o.was);
+      const row = h('div', 'cs-up');
+      row.appendChild(h('div', 'ui', o.icon));
+      const mid = h('div', 'um');
+      mid.appendChild(h('div', 'un', o.name));
+      mid.appendChild(h('div', 'ud', desc));
+      row.appendChild(mid);
+      const btn = h('button', done ? 'cs-btn on' : 'cs-btn' + (afford ? '' : ' poor'), done ? (o.kind === 'bundle' ? 'ALINDI ✓' : 'SENDE ✓') : o.cur === 'crystals' ? '💎 ' + o.price : '❄️ ' + fmt(o.price));
+      btn.setAttribute('type', 'button');
+      if (!done) btn.addEventListener('click', () => {
+        let ok = false;
+        try {
+          ok = afford && (o.cur === 'crystals' ? save.spendCrystals(o.price) : save.spend(o.price));
+          if (ok) { if (o.kind === 'bundle') save.addCoins(o.coins); else save.own(o.kind, o.item.id); pzMark(wk, o.id); }
+        } catch { ok = false; }
+        if (!ok) { anim(row, 'shake', 340); sfx(); return; }
+        sfx();
+        showCoins(save.coins, true);
+        renderPazar();
+      });
+      row.appendChild(btn);
+      plist.appendChild(row);
+    }
+    plist.appendChild(h('div', 'cs-sec', 'Her pazartesi yeni teklifler gelir.'));
+    scroll.scrollTop = keep;
+  }
+
   function setTab(k) {
     if (k === kind) return;
     kind = k;
     tabSkin.classList.toggle('on', k === 'skin');
     tabTrail.classList.toggle('on', k === 'trail');
     tabPower.classList.toggle('on', k === 'power');
+    tabPazar.classList.toggle('on', k === 'pazar');
     scroll.scrollTop = 0;
     sfx();
     render();
@@ -980,6 +1058,7 @@ export function openShop({ save, onClose, onSelect } = {}) {
   tabSkin.addEventListener('click', () => setTab('skin'));
   tabTrail.addEventListener('click', () => setTab('trail'));
   tabPower.addEventListener('click', () => setTab('power'));
+  tabPazar.addEventListener('click', () => setTab('pazar'));
 
   // ---- close ----
   const onKey = (e) => { if (e.key === 'Escape') close(); };
@@ -989,6 +1068,7 @@ export function openShop({ save, onClose, onSelect } = {}) {
     if (activeClose === close) activeClose = null;
     document.removeEventListener('keydown', onKey);
     if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf);
+    clearInterval(pzTimer);
     root.remove();
     if (onClose) onClose();
   }

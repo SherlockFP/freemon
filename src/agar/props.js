@@ -77,6 +77,8 @@ export class ArenaProps {
     this.tcount = new Int32Array(NT); this.tcap = new Int32Array(NT); this.tw = new Int32Array(NT); this.tprev = new Int32Array(NT);
     this.thx = new Float32Array(NT); this.thz = new Float32Array(NT); this.tr = new Float32Array(NT); this.th = new Float32Array(NT); this.tmass = new Float32Array(NT);
     this.defT = 0;
+    this.fmat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.25, depthWrite: false });
+    this.fmesh = new Array(NT).fill(null); this.fw = new Int32Array(NT); this.fprev = new Int32Array(NT); this.fcap = 40;
     // suction (flying props)
     this.npl = 0;
     this.plProp = new Int32Array(PULLCAP); this.plT = new Uint8Array(PULLCAP); this.plCell = new Int16Array(PULLCAP); this.plOwn = new Int16Array(PULLCAP);
@@ -540,7 +542,8 @@ export class ArenaProps {
   }
 
   // ------------------------------------------------------------------ render
-  render(camX, camH, hx, zmin, zmax, cells, owners, me) {
+  render(camX, camH, hx, zmin, zmax, cells, owners, me, camZ) {
+    if (camZ === undefined) camZ = (zmin + zmax) * 0.5;
     const R = this.R, tw = this.tw;
     this.vcx = camX; this.vhx = hx + 30; this.vz0 = zmin - 30; this.vz1 = zmax + 30;
     tw.fill(0);
@@ -549,6 +552,8 @@ export class ArenaProps {
     const gx0 = clampN(((camX - mx + R) / PGS) | 0, 0, PGN - 1), gx1 = clampN(((camX + mx + R) / PGS) | 0, 0, PGN - 1);
     const gz0 = clampN(((zc - zh + R) / PGS) | 0, 0, PGN - 1), gz1 = clampN(((zc + zh + R) / PGS) | 0, 0, PGN - 1);
     const arrs = this.arrs || (this.arrs = new Array(NT));
+    const fw = this.fw; fw.fill(0);
+    const capH = camH * 0.3, fmesh = this.fmesh;
     for (let t = 0; t < NT; t++) arrs[t] = this.tmesh[t] ? this.tmesh[t].instanceMatrix.array : null;
     for (let gx = gx0; gx <= gx1; gx++) {
       for (let gz = gz0; gz <= gz1; gz++) {
@@ -556,9 +561,19 @@ export class ArenaProps {
           if (!this.pra[i] || this.prr[i] < minR) continue;
           const t = this.prt[i], a = arrs[t];
           if (!a) continue;
+          let ps = this.prs[i];
+          const th = this.th[t] * ps;
+          if (th > capH) ps *= capH / th; // never let one prop swallow the view
+          const pxi = this.prx[i], pzi = this.prz[i], pr = Math.max(this.thx[t], this.thz[t]) * ps * 0.8, ph = this.th[t] * ps;
+          if (Math.abs(pxi - camX) < pr + 3 + camH * 0.04 && pzi - pr < camZ + ph * 0.6 + 3 && pzi + pr > camZ - 3) {
+            let fm = fmesh[t];
+            if (!fm) { fm = fmesh[t] = new THREE.InstancedMesh(this.tdef[t].geometry, this.fmat, this.fcap); fm.instanceMatrix.setUsage(THREE.DynamicDrawUsage); fm.frustumCulled = false; fm.count = 0; fm.visible = false; fm.renderOrder = 3; fm.userData.keepGeo = true; this.scene.add(fm); }
+            const fk = fw[t];
+            if (fk < this.fcap) { wmy(fm.instanceMatrix.array, fk * 16, pxi, 0, pzi, ps, this.pcs[i], this.psn[i]); fw[t] = fk + 1; continue; }
+          }
           const k = tw[t];
           if (k >= this.tcap[t]) continue;
-          wmy(a, k * 16, this.prx[i], 0, this.prz[i], this.prs[i], this.pcs[i], this.psn[i]);
+          wmy(a, k * 16, pxi, 0, pzi, ps, this.pcs[i], this.psn[i]);
           tw[t] = k + 1;
         }
       }
@@ -616,6 +631,8 @@ export class ArenaProps {
         attr.clearUpdateRanges(); attr.addUpdateRange(0, Math.max(1, k) * 16); attr.needsUpdate = true;
       }
       this.tprev[t] = k;
+      const fm = fmesh[t];
+      if (fm) { const f = fw[t]; fm.count = f; fm.visible = f > 0; if (f > 0 || this.fprev[t] > 0) { fm.instanceMatrix.clearUpdateRanges(); fm.instanceMatrix.addUpdateRange(0, Math.max(1, f) * 16); fm.instanceMatrix.needsUpdate = true; } this.fprev[t] = f; }
     }
   }
 }

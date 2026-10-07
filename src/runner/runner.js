@@ -7,7 +7,7 @@ import { BuffSet, rollBuff, BUFF_LEN, DESTRUCTION, destructionTier } from './per
 import { music } from './music.js';
 import { RhythmLane } from './rhythm.js';
 import { patchMaterial } from '../shaders.js';
-import { scoreMult, chainBonus, dangerBonus, checkpointReward, rageScale, goalFor, meltRate } from './goals.js';
+import { gustAt, scoreMult, chainBonus, dangerBonus, checkpointReward, rageScale, goalFor, meltRate } from './goals.js';
 
 // YETİ RUSH — endless Temple-Run-style downhill run (RUNNER.md).
 // Core loop: the ball's SIZE is its health AND its hunger. It melts all the time; snow piles refill it, so you steer for
@@ -297,6 +297,7 @@ export class Runner {
     this.flow = 0;
     this.flowLvl = 0;
     this.flowT = 0;
+    this.gustK = 0; this.gustDir = 1; this.gustWarn = false; this.gustSndT = 0;
     this.bestDist = save.runnerBestDist?.() ?? 0;
     this.bestScore = save.runnerBest?.() ?? 0;
     this.passedDist = this.bestDist < 50;
@@ -442,8 +443,9 @@ export class Runner {
   // RCFG.multCap); permanent progression (mission sets, upgrades) sits on top of the cap. No more compounding.
   get mult() {
     if (!this.buffs) return 1;
-    return (this.furyT > 0 ? 2 : 1) * scoreMult(this.tier, this.flowLvl, this.chainBonus(), this.dangerBonus(), this.riskBonus(),
-      (this.ctx.meta?.multiplier?.() ?? 1) - 1 + 0.15 * Math.min(5, this.perm.speed || 0), RCFG.multCap);
+    // Combo is earned: flow (skill events only) adds +0.5 per point (x10 / x25 / x50 at 18 / 48 / 98); size counts for at most +2.
+    return (this.furyT > 0 ? 2 : 1) * (this.flow * 0.5 + scoreMult(Math.min(2, this.tier), 0, this.chainBonus(), this.dangerBonus(), this.riskBonus(),
+      (this.ctx.meta?.multiplier?.() ?? 1) - 1 + 0.15 * Math.min(5, this.perm.speed || 0), RCFG.multCap));
   }
 
   dangerBonus() { return dangerBonus(this.stumbleT > 0); }
@@ -694,7 +696,7 @@ export class Runner {
       this.ctx.fx.puff(_v.x, _v.y, _v.z, 0, 0.3, 0, 0.5, 0.35, 0xffffff, 0.9);
     }
     this.debris({ s: o.s, u: o.u, h: 0, color: o.color }, 12);
-    this.smashes++; this.score += 40 * Math.max(1, o.tough) * this.mult;
+    this.smashes++; this.addFlow(1.5); this.score += 40 * Math.max(1, o.tough) * this.mult;
     audio.crash?.(0.5); platform.haptic('light');
     this.kick += 1; this.trauma = Math.min(1, this.trauma + 0.1);
     this.float(this.cannonN > 0 ? `KARTOPU! ${this.cannonN} KALDI` : 'KANON BİTTİ', '');
@@ -741,7 +743,7 @@ export class Runner {
       this.ctx.fx.puff(_v.x, _v.y, _v.z, 0, 0.3, 0, 0.6, 0.4, 0xffffff, 0.9);
     }
     this.debris({ s: o.s, u: o.u, h: 0, color: o.color }, 12);
-    this.smashes++; this.score += 40 * Math.max(1, o.tough) * this.mult;
+    this.smashes++; this.addFlow(1.5); this.score += 40 * Math.max(1, o.tough) * this.mult;
     this.ctx.audio.crash?.(0.5); this.kick += 0.8; this.trauma = Math.min(1, this.trauma + 0.08);
   }
 
@@ -1149,10 +1151,11 @@ export class Runner {
       this.kick += 3;
       this.trauma = Math.min(1, this.trauma + 0.12);
     }
+    this.gustTick(dt);
     // Flow decays when you stop doing skilful things.
     this.flowT -= dt;
-    if (this.flowT <= 0 && this.flow > 0) this.flow = Math.max(0, this.flow - 14 * (this.buffs.has('akis') ? 0.5 : 1) * (1 - 0.06 * Math.min(5, this.perm.flow || 0)) * dt);
-    const lvl = this.flow >= 90 ? 4 : this.flow >= 50 ? 3 : this.flow >= 25 ? 2 : this.flow >= 10 ? 1 : 0;
+    if (this.flowT <= 0 && this.flow > 0) this.flow = Math.max(0, this.flow - 18 * (this.buffs.has('akis') ? 0.5 : 1) * (1 - 0.06 * Math.min(5, this.perm.flow || 0)) * dt);
+    const lvl = this.flow >= 98 ? 4 : this.flow >= 48 ? 3 : this.flow >= 18 ? 2 : this.flow >= 6 ? 1 : 0;
     if (lvl !== this.flowLvl) {
       if (lvl > this.flowLvl) {
         this.float(['', 'AKIŞ!', 'SÜPER AKIŞ!', 'EFSANE AKIŞ!', 'DURDURULAMAZ!'][lvl], 'big');
@@ -1186,6 +1189,39 @@ export class Runner {
     this.ghostTick();
     this.bossIntroTick();
     this.patchScene();
+  }
+
+  // ÇIĞ RÜZGÂRI (from 1.5 km): a 4-6 s crosswind, telegraphed ~1.5 s ahead by sideways snow streaks + a wind sound. Drives this.gustK / gustDir
+  // (the lane-spring bias in step()); the obstacle spawner keeps lethal rows out of the whole zone (gustAt).
+  gustTick(dt) {
+    const b = this.b, vs = b.vs || 20;
+    const calm = this.level || this.zip || this.grind || this.wallRun || this.jnNear || this.boss || this.inZone === 'boss' || this.rocketT > 0 || this.state !== 'play';
+    const lead = Math.max(35, 1.5 * vs);
+    const g = calm ? null : gustAt(b.s, lead);
+    let want = 0, tele = false;
+    if (g && b.s <= g.s1) {
+      if (b.s >= g.s0) want = Math.min(1, (g.s1 - b.s) / 12, (b.s - g.s0) / 8 + 0.15);
+      else tele = true;
+      if (this.gustDir !== g.dir && this.gustK < 0.05) this.gustDir = g.dir;
+      if (tele || want > 0) this.gustDir = g.dir;
+      if (tele && !this.gustWarn) { this.gustWarn = true; this.float(g.dir < 0 ? '◀ ÇIĞ RÜZGÂRI' : 'ÇIĞ RÜZGÂRI ▶', 'big'); }
+    } else this.gustWarn = false;
+    this.gustK += (want - this.gustK) * Math.min(1, dt * 4);
+    if (!(tele || want > 0)) return;
+    this.gustSndT -= dt;
+    if (this.gustSndT <= 0) { this.gustSndT = 0.7; this.ctx.audio.whoosh?.(); }
+    // sideways snow streaks across the view (a bit of them already while telegraphing)
+    const fx = this.ctx.fx;
+    if (!fx?.puff) return;
+    const n = (tele ? 0.45 : 1) * dt * 55, cnt = Math.floor(n) + (Math.random() < n - Math.floor(n) ? 1 : 0);
+    if (!cnt) return;
+    this.track.frame(b.s, _f);
+    const d = this.gustDir;
+    for (let i = 0; i < cnt; i++) {
+      const ahead = 4 + Math.random() * 26, side = -d * (5 + Math.random() * 7);
+      this.track.toWorld(b.s + ahead, b.u + side, 0.8 + Math.random() * 3.5, _v);
+      fx.puff(_v.x, _v.y, _v.z, _f.right.x * d * 22, 0, _f.right.z * d * 22, 0.35, 0.55, 0xffffff, 0.55);
+    }
   }
 
   // Hook the runner's meshes into the shared shader look (visual modes, snow sparkle). Cheap: only re-walks
@@ -1391,8 +1427,10 @@ export class Runner {
   }
 
   addFlow(n) {
-    this.flow = Math.min(100, this.flow + n);
-    this.flowT = 2.5;
+    // first minute: the combo ceiling climbs slowly (8 + 0.25/s), so nobody is x15 at 15 s
+    const cap = this.level ? 100 : Math.min(100, this.time < 60 ? 8 + this.time * 0.25 : 100);
+    this.flow = Math.min(cap, this.flow + n);
+    this.flowT = 1.8;
   }
 
   makeRecordFlag() {
@@ -1653,8 +1691,10 @@ export class Runner {
     b.ve *= Math.exp(-2.5 * dt);
     b.ve -= clamp(tr.curvature(b.s) * b.vs * b.vs * 0.12, -3, 3) * dt;   // curves push outward, but never fling you
     if (locked) { b.vu = 0; b.ve = 0; }
+    if (this.gustK > 0.01 && !locked) b.vu += this.gustDir * this.gustK * 700 * dt;   // ÇIĞ RÜZGÂRI: a lane-spring bias (equilibrium ~1.8 m downwind), counter-steer to hold the line
     const du = (b.vu + b.ve) * dt;
     b.u += du;
+    if (this.gustK > 0.01 && !locked) { const gl = Math.min(hw - b.r * 0.9, this.laneMax() * RCFG.laneW + 0.5); if (Math.abs(b.u) > gl) { b.u = Math.sign(b.u) * gl; if (b.vu * b.u > 0) b.vu = 0; } }
     const ds = b.vs * dt;
     b.s += ds;
     if (this.wallRun) { this.wallStep(dt, hw); if (this.state !== 'play') return; }
@@ -1688,7 +1728,7 @@ export class Runner {
       this.lane = this.laneSnap(this.grind.u / RCFG.laneW);
       b.vs = Math.max(b.vs, Math.min(speedAt(b.s) + 4, b.vs + 3 * dt));
       this.score += 30 * dt * this.mult;
-      this.addFlow(6 * dt);
+      this.addFlow(1.5 * dt);
       if (Math.random() < dt * 30) this.burst(1, 0xffd060, 2);
       if (b.s >= this.grind.s1) this.endGrind();
     } else if (this.rocketT > 0) {
@@ -2181,7 +2221,7 @@ export class Runner {
         this.nearChain = this.nearT > 0 ? this.nearChain + 1 : 1;
         this.nearT = 2.6;
         this.addFury(0.125);
-        this.addFlow(4);
+        this.addFlow(3);
         const bonus = Math.round(50 * this.mult);
         this.score += bonus;
         const cm = this.chainBonus();
@@ -2197,7 +2237,7 @@ export class Runner {
         break;
       }
       case 'over':
-        this.addFlow(3);
+        this.addFlow(1.5);
         this.score += 50 * this.mult;
         break;
       case 'push':
@@ -2329,7 +2369,7 @@ export class Runner {
         this.ringChain = e.value > 1 ? (this.ringChain || 0) + 1 : 1;
         const n = this.ringChain;
         this.score += 100 * n * this.mult;
-        this.addFlow(1.5 + 0.3 * n);
+        this.addFlow(1 + 0.25 * n);
         audio.star(Math.min(2, n - 1));
         this.float(`HALKA x${n}!`, n >= 4 ? 'big' : '');
         this.kick += 1.5; this.burst?.(10, 0xffd24a, 3);
@@ -2361,7 +2401,6 @@ export class Runner {
         this.float(`KAPI x${this.gateChain}`, '');
         break;
       case 'flake':
-        this.addFlow(0.8);
         this.addFlakes(e.value || 1);
         this.score += 10 * this.mult * (gold ? 2 : 1);
         if (audio.flake) audio.flake(); else music.note();

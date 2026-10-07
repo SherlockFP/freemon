@@ -51,7 +51,7 @@ export const INTRO = {
 const STAR3 = { 1: 'nobounce', 2: 'crates', 3: 'nobounce', 4: 'secret', 5: 'nohit', 6: 'chain', 7: 'rival', 8: 'nohit', 9: 'gold', 10: 'time', 11: 'crates', 12: 'chain' };
 
 // metres of track a part needs (everything the part places stays inside [start, start + len])
-const RES = { crateLine: 44, crateWall: 64, iceWall: 48, ramp: 95, mush: 90, army: 60, town: 90, golden: 50, patch: 100, rival: 70, cannon: 90, bridge: 130, fork: 92, pickup: 14, strip: 14, gate: 84, arena: 170, statues: 66, secret: 92 };
+const RES = { crateLine: 44, crateWall: 64, iceWall: 48, ramp: 95, mush: 90, army: 60, town: 90, golden: 50, patch: 100, rival: 70, cannon: 90, bridge: 130, fork: 92, pickup: 14, strip: 14, gate: 84, arena: 170, statues: 66, secret: 92, domino: 40 };
 const GAP = 25;
 
 // hand-made stage lists for the first ten mountains (CL crate line, CW crate wall, IW ice wall, RMP ramp, MSH mushrooms,
@@ -258,6 +258,8 @@ function build(n, daily, assist, opts) {
         parts.push({ kind, len: RES[kind], gold: 0 });
       }
     }
+    // DOMİNO ÇAM: one pine row per mountain from DAĞ 2
+    if (!arenaStage && n >= 2 && i === Math.min(2, S - 1)) parts.unshift({ kind: 'domino', len: RES.domino });
     if (!arenaStage && !daily && n >= 3 && i === Math.min(1, S - 1)) parts.unshift({ kind: 'statues', len: RES.statues });
     // GİZLİ KAR TÜNELİ: a cracked ice wall at the slope edge (about one per mountain, from DAĞ 4)
     if (!arenaStage && n >= 4 && i === Math.min(1, S - 1)) parts.unshift({ kind: 'secret', len: RES.secret });

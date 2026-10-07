@@ -225,9 +225,9 @@ const CSS = `
 .fm-ichip { display: flex; align-items: center; gap: 3px; height: 21px; padding: 0 8px; border-radius: 11px; border: 2.5px solid var(--ink); background: rgba(255, 255, 255, 0.14); font-size: 12.5px; line-height: 1; letter-spacing: 0; color: #fff; text-shadow: none; white-space: nowrap; }
 .fm-ichip.mult { background: linear-gradient(180deg, #ffe27a, var(--gold)); color: var(--ink); }
 .fm-mrows { display: flex; flex-direction: column; gap: 4px; }
-.fm-mr { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 8px; border-radius: 10px; background: rgba(255, 255, 255, 0.09); font-size: 12.5px; text-shadow: none; }
+.fm-mr { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 8px; border-radius: 10px; background: rgba(255, 255, 255, 0.09); font-size: 12.5px; text-shadow: none; }
 .fm-mr .mi { flex: none; font-size: 14px; line-height: 1; }
-.fm-mr .mt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; letter-spacing: 0.01em; }
+.fm-mr .mt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13.5px; letter-spacing: 0.01em; }
 .fm-mr .mb { flex: none; width: 52px; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
 .fm-mr .mb i { display: block; height: 100%; background: linear-gradient(90deg, #8dff9a, #2fc13f); }
 .fm-mr .mn { flex: none; min-width: 34px; text-align: right; font-size: 11px; color: #cfe2ff; }
@@ -534,6 +534,10 @@ const CSS = `
 .fm-node.cur { --nc1: #a6ec6a; --nc2: #35c46a; --nsh: #1e8a49; animation: fmNode 1s ease-in-out infinite alternate; }
 .fm-node.lk { --nc1: #b8c3d4; --nc2: #8392aa; --nsh: #55647e; filter: saturate(0.6); }
 .fm-node.lk .n { opacity: 0.85; font-size: 19px; }
+.fm-node.far { opacity: 0.55; filter: saturate(0.3); }
+.fm-node.far .n { font-size: 17px; }
+.fm-node .nm { position: absolute; left: 50%; top: calc(100% + 2px); transform: translateX(-50%); max-width: 92px; padding: 1px 6px; border-radius: 8px; background: rgba(10, 25, 55, 0.62); color: #fff; font-size: 10px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: none; pointer-events: none; }
+.fm-node .yav { position: absolute; left: 50%; top: -22px; transform: translateX(-50%); width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; border: 2px solid var(--ink); background: #fff; font-size: 14px; line-height: 1; text-shadow: none; pointer-events: none; }
 .fm-node.bonus { width: 50px; height: 50px; --nc1: #e9b8ff; --nc2: #a24cff; --nsh: #5a1fa8; animation: fmBonusGlow 1.4s ease-in-out infinite alternate; }
 .fm-node.bonus.lk { --nc1: #9a8fb0; --nc2: #6c6285; --nsh: #3f3656; animation: none; }
 .fm-node.bonus.done { --nc1: #ffe27a; --nc2: #ffae00; --nsh: #b36f00; animation: none; }
@@ -2050,7 +2054,12 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       n.setAttribute('aria-label', `Bölüm ${lv.id}: ${lv.name}${st ? `, ${st} yıldız` : locked ? ', kilitli' : ''}`);
       n.style.left = `${PTS[i][0]}%`;
       n.style.top = `${PTS[i][1]}%`;
-      add(n, el('span', 'n', locked ? '🔒' : lv.boss ? '👹' : String(lv.id)));
+      const ahead = lv.id - camp.unlocked;
+      const near = locked && ahead >= 1 && ahead <= 3;
+      if (near) n.classList.add('near'); else if (locked) n.classList.add('far');
+      add(n, el('span', 'n', near ? (lv.boss ? '👹' : ((ACTS[lv.act - 1] || {}).icon || '🔒')) : locked ? '?' : lv.boss ? '👹' : String(lv.id)));
+      if (near) n.appendChild(el('span', 'nm', lv.name));
+      if (lv.id === camp.unlocked && state === 'cur') n.appendChild(el('span', 'yav', '🧊'));
       if (lv.boss && !locked) n.appendChild(el('span', 'bn', String(lv.id)));
       if (!locked) {
         const stars = el('span', 'stars');
@@ -2611,7 +2620,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     infoCard.setAttribute('role', 'button');
     infoCard.setAttribute('aria-label', 'Görevler');
     infoCard.tabIndex = 0;
-    r.multChip = el('span', 'fm-ichip mult', '✖️ x1');
+    r.multChip = el('span', 'fm-ichip mult', '✖️ ×1 ÇARPAN');
     r.streakChip = el('span', 'fm-ichip', '🔥 0');
     add(infoCard, add(el('div', 'fm-ihead'), r.ihTitle = el('span', '', '📅 GÜNLÜK GÖREVLER'), add(el('div', 'fm-chips'), r.streakChip, r.multChip)));
     r.mrows = el('div', 'fm-mrows');
@@ -2639,7 +2648,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const sPass = secBtn('c-pass', '🛂', 'PASAPORT', () => { try { localStorage.setItem('patpat.stampsSeen', String(meta.stamps().filter((x) => x.got).length)); } catch { /* ignore */ } openPassport(); updateMain(); });
     r.passBdg = sPass.bdg;
     const sSet = secBtn('c-set', '⚙️', 'Ayarlar', () => openSettings());
-    r.xchip = el('span', 'fm-xchip', 'x1');
+    r.xchip = el('span', 'fm-xchip', ''); r.xchip.style.display = 'none';
     sMis.ic.appendChild(r.xchip);
     r.bMis = sMis.bdg; r.bShop = sShop.bdg;
     bot.appendChild(add(el('div', 'fm-secrow'), sCig.b, sMap.b, sShop.b, sMis.b, sPass.b, sSet.b));
@@ -2688,8 +2697,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.crPill.set(meta.crystals, false);
 
     const mult = meta.multiplier();
-    r.xchip.textContent = `x${mult}`;
-    r.multChip.textContent = `✖️ x${mult}`;
+    r.multChip.textContent = `✖️ ×${mult} ÇARPAN`;
 
     const bd = bestOf();
     r.bestV.textContent = bd > 0 ? fmtDist(bd) : 'İLK KOŞU?';
@@ -2704,6 +2712,8 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     let dtl = { tasks: [], claimable: 0 };
     try { dtl = meta.dailyTasks(); } catch { /* ignore */ }
     r.ihTitle.textContent = '📅 GÜNLÜK GÖREVLER';
+    r.xchip.textContent = dtl.claimable ? String(dtl.claimable) : '';
+    r.xchip.style.display = dtl.claimable ? '' : 'none';
     r.rwChip.textContent = dtl.claimable ? `🎁 ${dtl.claimable}` : '';
     r.rwChip.classList.toggle('off', !dtl.claimable);
     for (const m of dtl.tasks) {

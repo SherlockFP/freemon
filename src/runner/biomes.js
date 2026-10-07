@@ -3411,8 +3411,8 @@ export class Environment {
         pos[k * 3 + 1] = Math.min(sy[ka] + (sy[kb] - sy[ka]) * this._nT, this._sov[ka], this._sov[kb]) - this._depthAt((this._nI + this._nT) * SP);
         // portal planes: ground colour switches exactly across the portal ring
         let w0 = 1, w1 = 0;
-        if (b0) w0 = smooth(-26, 26, (wx - b0.x) * b0.tx + (wz - b0.z) * b0.tz);
-        if (b1) w1 = smooth(-26, 26, (wx - b1.x) * b1.tx + (wz - b1.z) * b1.tz);
+        if (b0) w0 = smooth(-60, 60, (wx - b0.x) * b0.tx + (wz - b0.z) * b0.tz);
+        if (b1) w1 = smooth(-60, 60, (wx - b1.x) * b1.tx + (wz - b1.z) * b1.tz);
         const wPrev = (1 - w0) * (1 - w1), wNext = w1, wCur = 1 - wPrev - wNext;
         let r = 0, g = 0, b = 0;
         if (wCur > 0.002) { this._groundCol(bi, wx, wz, A); r += A[0] * wCur; g += A[1] * wCur; b += A[2] * wCur; }
@@ -3543,8 +3543,15 @@ export class Environment {
 
     // biome / look blend
     const bi = biomeIdx(s);
-    if (bi !== this.bIdx) this._enterBiome(bi, !this._inited);
-    if (this._blendT < 1) { this._blendT = Math.min(1, this._blendT + dt / BLEND); this._mixLook(); }
+    // the look (sky / fog / lights) starts blending 60 m BEFORE the portal and finishes 60 m after it: a ~120 m distance-based fade, never a time snap
+    const bl = OVR >= 0 ? bi : biomeIdx(s + 60);
+    if (bl !== this.bIdx) this._enterBiome(bl, !this._inited);
+    if (this._blendT < 1) {
+      const ds = this._lastS === undefined ? 0 : Math.max(0, s - this._lastS);
+      this._blendT = Math.min(1, this._blendT + Math.min(ds, 20) / 120);
+      this._mixLook();
+    }
+    this._lastS = s;
     if (this._lookDirty) this._applyLook();
 
     // fog = the biome's look (blended across portals) x the blizzard modifier (eased) x the runner's pressure; written every frame

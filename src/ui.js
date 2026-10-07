@@ -348,6 +348,9 @@ ${dist} m`; }
       ts.sort((x, y) => (y.value / y.goal) - (x.value / x.goal));
       dt = ts[0] || null;
     } catch { dt = null; }
+    if (g && !(g.price > 0)) g = null;
+    if (dt && !(dt.goal > 0)) dt = null;
+    if (li && !(li.need > 0)) li = null;
     if (!g && !li && !dt) return '';
     let h = '<div class="rx-goal"><div class="rg-h">SONRAKİ ÖDÜL</div>';
     const bar = (from, to, cls = '') => `<div class="rg-b ${cls}"><i class="gain" style="width:${Math.round(clamp01(from) * 100)}%" data-to="${Math.round(clamp01(to) * 100)}"></i></div>`;
@@ -362,7 +365,7 @@ ${dist} m`; }
       h += `<div class="rg-sub"><span>${fmtN(g.have)} / ${fmtN(g.price)} ❄️</span>${gained ? `<em>+${fmtN(gained)}</em>` : ''}</div>`;
     }
     if (li) h += `<div class="rg-row"><span>SEVİYE ${li.level + 1}</span>${bar(li.frac, li.frac, 'sm')}<b>${fmtN(Math.max(0, li.need - li.cur))} XP</b></div>`;
-    if (dt) h += `<div class="rg-row"><span>${dt.icon} ${dt.text}</span>${bar(dt.value / dt.goal, dt.value / dt.goal, 'sm')}<b>${fmtN(dt.value)}/${fmtN(dt.goal)}</b></div>`;
+    if (dt) h += `<div class="rg-row"><span>${dt.icon} ${String(dt.text).replace(/^[^:]+:s*/, '')}</span>${bar(dt.value / dt.goal, dt.value / dt.goal, 'sm')}<b>${fmtN(dt.value)}/${fmtN(dt.goal)}</b></div>`;
     return h + '</div>';
   }
 

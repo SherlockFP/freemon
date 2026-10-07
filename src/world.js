@@ -33,6 +33,8 @@ const _q = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+const _zax = new THREE.Vector3(0, 0, 1);
+const _q2 = new THREE.Quaternion();
 const _c = new THREE.Color();
 
 export function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
@@ -88,6 +90,7 @@ export class World {
     this.movers = [];
     this.enemies = [];   // live enemy units (HP bars): also in `movers`
     this.pulls = []; this.pullPool = [];
+    this.falls = [];   // DOMİNO ÇAM: toppling pines (visual only)
     this.ramps = [];
     this.patches = [];
     this.heats = []; this.nextHeatD = 170;
@@ -662,6 +665,7 @@ export class World {
       case 'crateWall': return this.placeCrateWall(it, gr, hw);
       case 'iceWall': return this.placeIceWall(it, gr, hw);
       case 'statues': return this.placeStatues(it, gr, hw);
+      case 'domino': return this.placeDomino(it, gr, hw);
       case 'secret': return this.placeSecret(it, gr, hw);
       case 'ramp': return this.placeRamp(d, gr, T, hw);
       case 'patch': return this.placePatch(d, gr, T, hw);
@@ -1292,6 +1296,45 @@ export class World {
     return it.len;
   }
 
+  // DOMİNO ÇAM: a row of pines across the slope; smash one and the whole row topples in a chain (see topple / updateFalls).
+  placeDomino(it, gr, hw) {
+    const def = this.lib.pine; if (!def) return it.len;
+    const n = 7, d = it.start + it.len * 0.5, hwL = this.halfWidth(d);
+    const row = { trees: [], n, got: 0, hit: false };
+    const s = clamp(gr * 0.5 / def.radius, 0.3, 24);
+    const span = Math.min(hwL - 2, Math.max(8, def.radius * s * 2.6 * (n - 1) / 2));
+    for (let i = 0; i < n; i++) {
+      const x = -span + (2 * span) * i / (n - 1);
+      const p = this.add('pine', x, d + (i % 2 ? 0.8 : -0.8), { s, rot: this.rng.range(0, 6.28), tonK: 1.5 });
+      if (!p) continue;
+      p.domino = { row, i };
+      row.trees.push(p);
+    }
+    row.n = row.trees.length;
+    this.zones.push({ d0: it.start - 4, d1: it.start + it.len + 6, kind: 'plus' });
+    return it.len;
+  }
+
+  // Topple one pine of a domino row: it leaves the static list and falls as a visual proxy after `delay` seconds.
+  topple(p, delay, dir) {
+    if (!p.alive) return;
+    p.alive = false;
+    this.falls.push({ type: p.type, def: p.def, kind: p.kind, x: p.x, y: p.y, d: p.d, rot: p.rot, s: p.s, r: p.r, h: p.h,
+      t: 0, delay, dur: 0.55, dir, fired: false, p, tint: null });
+  }
+
+  updateFalls(dt) {
+    const a = this.falls;
+    let n = 0;
+    for (let i = 0; i < a.length; i++) {
+      const q = a[i];
+      q.t += dt;
+      if (!q.fired && q.t >= q.delay) { q.fired = true; if (this.onTopple) this.onTopple(q.p); }
+      if (q.t < q.delay + q.dur + 3.5) a[n++] = q;
+    }
+    a.length = n;
+  }
+
   // GİZLİ KAR TÜNELİ: a cracked ice wall hugging the slope edge. CigGame._breakCrate opens the bonus lane (openSecret) when it breaks.
   placeSecret(it, gr, hw) {
     const d = it.start + 10, pr = planAt(this.lvl, d), hwL = this.halfWidth(d + 8);
@@ -1754,6 +1797,7 @@ export class World {
     this.updateMovers(dt);
     this.pruneEnemies(ballD);
     if (ball) this.updatePulls(dt, ball);
+    if (this.falls.length) this.updateFalls(dt);
     this.updateGateAnim(dt);
     if (this.heats.length) this.animateHeat(ballD);
     this.render(ballD);
@@ -1936,6 +1980,25 @@ export class World {
       if (mesh.count >= MESH_CAP) continue;
       _p.set(p.x, p.y, -p.d);
       _q.setFromAxisAngle(_up, p.rot);
+      _s.setScalar(p.s);
+      _m.compose(_p, _q, _s);
+      _m.toArray(mesh.instanceMatrix.array, mesh.count * 16);
+      this.paintTint(mesh, mesh.count, p, ballD, 0, tE);
+      mesh.count++;
+    }
+    const fl = this.falls;
+    for (let i = 0; i < fl.length; i++) {
+      const p = fl[i];
+      if (p.d < d0 || p.d > d1) continue;
+      const mesh = this.getMesh(p.type);
+      if (mesh.count >= MESH_CAP) continue;
+      const u = clamp((p.t - p.delay) / p.dur, 0, 1);
+      const ang = p.fired ? (Math.PI / 2 - 0.12) * u * u * (3 - 2 * u) : 0;
+      const sink = p.t > p.delay + p.dur + 2.5 ? (p.t - p.delay - p.dur - 2.5) * 0.8 : 0;
+      _p.set(p.x, p.y - sink, -p.d);
+      _q.setFromAxisAngle(_up, p.rot);
+      _q2.setFromAxisAngle(_zax, -p.dir * ang);
+      _q.premultiply(_q2);
       _s.setScalar(p.s);
       _m.compose(_p, _q, _s);
       _m.toArray(mesh.instanceMatrix.array, mesh.count * 16);
