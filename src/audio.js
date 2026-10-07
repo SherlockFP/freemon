@@ -82,6 +82,7 @@ let flakeChain = 0, flakeT = -9; // consecutive flake pickups walk up the scale 
 const rand = (a, b) => a + Math.random() * (b - a);
 const num = (x, d) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
 const clamp01 = (x) => (x > 0 ? (x < 1 ? x : 1) : 0);
+const dipMusic = (a, sec) => { try { const f = globalThis.__cigMusicDip; if (f) f(a, sec); } catch (e) { /* ignore */ } };
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 function loadMuted() {
@@ -455,6 +456,7 @@ function init() {
     }
     paused = false; // a user gesture means the app is in the foreground
     if (ctx.state !== 'running') resumeCtx();
+    startAmbient();
     startSamples(); // async + fire-and-forget: sounds fall back to the synth until it lands
   } catch (e) { /* ignore */ }
 }
@@ -722,6 +724,7 @@ function bump(intensity01) {
 function crash(intensity01) {
   if (!ready() || !throttle('crash', 0.12)) return;
   const k = clamp01(num(intensity01, 0.7));
+  if (k > 0.7) dipMusic(0.2, 0.6);
   const v = begin(P_BIG + 0.5, 1.8, MIX.crash);
   if (!v) return;
   const t = ctx.currentTime + 0.002;
@@ -770,7 +773,7 @@ let arenaChain = 0, arenaChainT = 0;
  * Arena one-shots with a volume (0..1, already distance-attenuated by the caller). kind: 'pellet' | 'gulp' | 'merge' | 'ice' | 'golden' |
  * 'slide' | 'deep' | 'storm' | 'tick'. Each kind is rate-limited; everything is soft and respects mute.
  */
-function arena(kind, vol) {
+function arena(kind, vol, arg) {
   if (!ready()) return;
   const k = clamp01(num(vol, 1));
   if (k < 0.04) return;
@@ -831,12 +834,62 @@ function arena(kind, vol) {
     if (!throttle('atick', 0.12)) return;
     const v = begin(P_UI, 0.12, 0.6 * k);
     if (v) tone(v, 'sine', t, 1500, 1100, 0.04, 0.12, 0.002, 0.05);
+  } else if (kind === 'crash') {
+    crash(0.45 * k + 0.1);
+  } else if (kind === 'pad') { // rhythm pad: a soft pluck on the pentatonic
+    if (!throttle('apad', 0.08)) return;
+    const v = begin(P_UI, 0.5, 0.8 * k);
+    if (!v) return;
+    const f = BASE_HZ * Math.pow(2, scaleSemis(Math.floor(num(arg, 0))) / 12);
+    tone(v, 'sine', t, f, 0, 0, 0.2, 0.004, 0.3);
+    tone(v, 'triangle', t, f * 2, 0, 0, 0.04, 0.003, 0.15);
+  } else if (kind === 'rain') { // pellet rain: sparkly patter
+    if (!throttle('arain', 0.9)) return;
+    const v = begin(P_FX, 1.3, 0.7 * k);
+    if (!v) return;
+    for (let i = 0; i < 7; i++) tone(v, 'sine', t + i * rand(0.06, 0.14), BASE_HZ * 2 * Math.pow(2, PENT[(Math.random() * 5) | 0] / 12), 0, 0, 0.07, 0.003, 0.12);
+    nz(v, whiteBuf, t, 'bandpass', 1800, 1200, 0.6, 0.5, 0.05, 0.1, 0.6);
+  } else if (kind === 'fanfare') { // fort capture
+    if (!throttle('afan', 1)) return;
+    dipMusic(0.25, 1);
+    const v = begin(P_JINGLE, 1.4, 0.8 * k);
+    if (!v) return;
+    [0, 4, 7, 12].forEach((st, i) => { const f = BASE_HZ * Math.pow(2, st / 12); tone(v, 'triangle', t + i * 0.1, f, 0, 0, 0.14, 0.01, i === 3 ? 0.8 : 0.25); });
+  } else if (kind === 'roar') { // boss: low roar
+    if (!throttle('aroar', 1.5)) return;
+    dipMusic(0.25, 1.2);
+    const v = begin(P_BIG, 1.6, 0.8 * k);
+    if (!v) return;
+    swell(v, brownBuf, t, 'lowpass', 140, 320, 110, 0.9, 0.7, 0.4, 1.5);
+    tswell(v, 'sawtooth', t, 70, 48, 0.07, 0.4, 1.4);
+  } else if (kind === 'wood') { // statues / domino cascade tick
+    if (!throttle('awood', 0.06)) return;
+    const v = begin(P_POP, 0.25, 0.7 * k);
+    if (v) { const f = rand(200, 330); tone(v, 'triangle', t, f, f * 0.6, 0.05, 0.25, 0.002, 0.1); nz(v, whiteBuf, t, 'bandpass', 900, 600, 0.9, 0.04, 0.1, 0.002, 0.04); }
+  } else {
+    if (!throttle('atick', 0.12)) return;
+    const v = begin(P_UI, 0.12, 0.4 * k);
+    if (v) tone(v, 'sine', t, 900, 700, 0.04, 0.1, 0.002, 0.05);
   }
 }
 
 
+let whooshT = -9;
 function whoosh() {
-  if (!ready() || !throttle('whoosh', 0.5)) return;
+  if (!ready()) return;
+  const nt = ctx.currentTime;
+  if (nt - whooshT < 1.6 && nt - whooshT > 0.3) { // a repeat (crosswind): soft airy gust bed, not another whoosh
+    if (!throttle('gust', 0.6)) return;
+    whooshT = nt;
+    const gv = begin(P_FX, 1.9, 0.5);
+    if (!gv) return;
+    const gt = nt + 0.002;
+    swell(gv, whiteBuf, gt, 'bandpass', 420, 750, 500, 0.6, 0.2, 0.7, 1.7);
+    swell(gv, brownBuf, gt, 'lowpass', 250, 400, 220, 0.7, 0.3, 0.7, 1.7);
+    return;
+  }
+  if (!throttle('whoosh', 0.5)) return;
+  whooshT = nt;
   const v = begin(P_FX, 1.3, MIX.whoosh);
   if (!v) return;
   const t = ctx.currentTime + 0.002;
@@ -876,6 +929,7 @@ function land(intensity01) {
 function milestone(level) {
   if (!ready() || !throttle('milestone', 0.9)) return; // checkpoints / tier-ups / buff cards never pile their rumbles on top of each other
   const lv = Math.max(1, Math.min(6, Math.floor(num(level, 1))));
+  if (lv >= 3) dipMusic(0.25, 0.9);
   const v = begin(P_JINGLE, 2.4, MIX.milestone);
   if (!v) return;
   const t = ctx.currentTime + 0.01;
@@ -918,6 +972,7 @@ function milestone(level) {
  * Button feedback. kind (optional): 'click' (default), 'select', 'confirm', 'back',
  * 'toggle'. Sample only; the synth blip is the fallback (and only knows 'click').
  */
+let selChain = 0, selT = -9;
 function ui(kind) {
   if (kind === 'pof') { pof(); return; }
   if (kind === 'chime') { chime(); return; }
@@ -930,7 +985,14 @@ function ui(kind) {
   if (!has(name)) name = UI_FALLBACK[name] || 'ui_click';
   if (!has(name)) name = 'ui_click';
   if (has(name)) {
-    smp(name, SM.ui * (UI_VOL[name] || 1), rand(0.97, 1.03), P_UI, ctx.currentTime + 0.001, 0);
+    let r = rand(0.97, 1.03);
+    if (kind === 'select') { // rapid selects (rhythm pads) climb the G pentatonic in key with the music
+      const ct = ctx.currentTime;
+      if (ct - selT < 0.7) selChain = Math.min(selChain + 1, 8); else selChain = 0;
+      selT = ct;
+      r = Math.pow(2, scaleSemis(selChain) / 12) * rand(0.995, 1.005);
+    }
+    smp(name, SM.ui * (UI_VOL[name] || 1), r, P_UI, ctx.currentTime + 0.001, 0);
     return;
   }
   const v = begin(P_UI, 0.15, MIX.ui);
@@ -964,6 +1026,7 @@ function star(i) {
 
 function win() {
   if (!ready()) return;
+  dipMusic(0.35, 1.6);
   if (has('jingle_win')) { // the sample is the whole sound; the fanfare below is the fallback
     smp('jingle_win', SM.win, WIN_RATE, P_JINGLE, ctx.currentTime + 0.01, 0);
     return;
@@ -1050,6 +1113,69 @@ function lose() {
     lp.frequency.exponentialRampToValueAtTime(500, tk + d);
     tk += d + 0.03;
   }
+}
+
+// ----------------------------------------------------------- ambient bed
+// A very quiet slow pad (G pentatonic, in key with the pops) for ÇIĞ levels, the arena and menus. It plays only while the runner's own
+// music is not running, never when music is muted (cig.music.muted / music.js flag) or the whole sound is muted / paused.
+const AMB_LEVEL = 0.07;
+const AMB_CHORDS = [[0, 7, 16], [-3, 4, 12], [-7, 0, 9], [-5, 2, 11]]; // semitones over G3: G, Em, C, D-ish (open voicings)
+let ambG = null, ambLp = null, ambTimer = 0, ambNext = 0, ambIdx = 0, ambOn = false;
+
+function ambWanted() {
+  if (!ctx || muted || paused || ctx.state !== 'running') return false;
+  let ms = null;
+  try { ms = globalThis.__cigMusicState; } catch (e) { /* ignore */ }
+  if (ms) return !ms.muted && !ms.running;
+  try { return globalThis.localStorage.getItem('cig.music.muted') !== '1'; } catch (e) { return true; }
+}
+
+function ambTick() {
+  try {
+    if (!ctx || !ambG) return;
+    const want = ambWanted();
+    const t = ctx.currentTime;
+    if (want !== ambOn) {
+      ambOn = want;
+      ambG.gain.cancelScheduledValues(t);
+      ambG.gain.setTargetAtTime(want ? AMB_LEVEL : 0, t, want ? 1.5 : 0.5);
+      if (want) ambNext = Math.max(ambNext, t + 0.2);
+    }
+    if (!want || t < ambNext - 1) return;
+    const ch = AMB_CHORDS[ambIdx++ % AMB_CHORDS.length];
+    const t0 = Math.max(t + 0.05, ambNext);
+    const dur = 9;
+    for (let i = 0; i < ch.length; i++) {
+      const o = ctx.createOscillator(); o.type = i === 1 ? 'triangle' : 'sine';
+      o.frequency.value = 196 * Math.pow(2, ch[i] / 12); o.detune.value = rand(-5, 5);
+      const g = gain0();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(0.5 - i * 0.1, t0 + 3);
+      g.gain.linearRampToValueAtTime(0.0001, t0 + dur + 1.5);
+      o.onended = () => { try { o.disconnect(); g.disconnect(); } catch (e) { /* ignore */ } };
+      link(o, g, ambLp);
+      o.start(t0); o.stop(t0 + dur + 1.6);
+    }
+    if (ambIdx % 2 === 0) { // a sparse bell on the pentatonic, every other chord
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.value = BASE_HZ * 2 * Math.pow(2, PENT[(Math.random() * 5) | 0] / 12);
+      const g = gain0();
+      env(g.gain, t0 + 2.5, 0.22, 0.01, 2.2);
+      o.onended = () => { try { o.disconnect(); g.disconnect(); } catch (e) { /* ignore */ } };
+      link(o, g, ambLp);
+      o.start(t0 + 2.5); o.stop(t0 + 5);
+    }
+    ambNext = t0 + dur;
+  } catch (e) { /* ignore */ }
+}
+
+function startAmbient() {
+  if (ambTimer || !ctx || !bus) return;
+  ambG = gain0(0);
+  ambLp = filt('lowpass', 1100, 0.5);
+  link(ambLp, ambG, bus);
+  ambTimer = setInterval(ambTick, 700);
+  ambTick();
 }
 
 // --------------------------------------------------------------- public API

@@ -1078,5 +1078,6 @@ export function openShop({ save, onClose, onSelect } = {}) {
   render();
   host.appendChild(root);
   activeClose = close;
+  try { if (localStorage.getItem('patpat.shopTab') === 'pazar') { localStorage.removeItem('patpat.shopTab'); setTab('pazar'); } } catch { /* ignore */ }
   return close;
 }

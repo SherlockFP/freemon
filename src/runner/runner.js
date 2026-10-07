@@ -341,6 +341,7 @@ export class Runner {
     this.jnLean = 0;
     this.jnLeanT = 0;
     this.juncSlow = false;
+    this.tipCd = 4; this.tipSlowT = 0;
     this.jnTutMiss = 0;
     this.cornerK = 0;
     this.camLookBias = 0;
@@ -498,6 +499,8 @@ export class Runner {
     let want = 1;
     if (play && this.b.s < this.slowUntil && !this.grounded) want = this.slowScale;
     if (play && this.juncSlow) want = Math.min(want, 0.5);
+    if (this.tipSlowT > 0) { this.tipSlowT -= rdt; if (play) want = Math.min(want, 0.6); }
+    if (this.tipCd > 0 && play) this.tipCd -= rdt;
     this.timeScale += (want - this.timeScale) * Math.min(1, rdt * 8);
     let dt = rdt * this.timeScale;
     // Hit-stop: a crash freezes the world for a heartbeat so it lands.
@@ -534,7 +537,7 @@ export class Runner {
     this.track.trim(this.b.s - 70);
     this.obstacles.trim(this.b.s - 70);
     this.obstacles.update(dt, beat, this.b);
-    if (play) this.rhythm?.update(dt, beat);
+    if (play) { this.rhythm?.update(dt, beat); if (this.rhythm?.strip) this.tip('rhythm', 'RİTİM HATTI: altın pedlere vuruşta bas!', false); }
     this.env.fogPress = this.fogK;
     this.env.ballVs = this.b.vs;
     this.env.update(dt, this.ctx.camera, this.b, beat);
@@ -874,6 +877,7 @@ export class Runner {
     if (open) {
       if (!this.jnOpen) {
         this.jnCueT = -1;
+        this.tip('turn', 'VİRAJ: köşede dönüş yönüne kaydır!', false);
         if (this.jnTut) {
           this.juncSlow = true;
           ui.hint?.(true, J.dir > 0 ? 'SAĞA KAYDIR ➜' : '⬅ SOLA KAYDIR');
@@ -1204,7 +1208,7 @@ export class Runner {
       else tele = true;
       if (this.gustDir !== g.dir && this.gustK < 0.05) this.gustDir = g.dir;
       if (tele || want > 0) this.gustDir = g.dir;
-      if (tele && !this.gustWarn) { this.gustWarn = true; this.float(g.dir < 0 ? '◀ ÇIĞ RÜZGÂRI' : 'ÇIĞ RÜZGÂRI ▶', 'big'); }
+      if (tele && !this.gustWarn) { this.gustWarn = true; this.tip('wind', 'RÜZGÂR: ters yöne kaydır!', false); this.float(g.dir < 0 ? '◀ ÇIĞ RÜZGÂRI' : 'ÇIĞ RÜZGÂRI ▶', 'big'); }
     } else this.gustWarn = false;
     this.gustK += (want - this.gustK) * Math.min(1, dt * 4);
     if (!(tele || want > 0)) return;
@@ -2150,6 +2154,7 @@ export class Runner {
   handle(e) {
     const b = this.b;
     const { audio, platform } = this.ctx;
+    if (!(this.tipCd > 0)) this.tipFor(e);
     switch (e.type) {
       case 'hit':
         this.hit(e);
@@ -2359,6 +2364,7 @@ export class Runner {
 
   // Pickups. Everything is credited silently — the result screen is where rewards show up.
   pickup(e) {
+    if (!e.miss && !(this.tipCd > 0)) this.tipFor({ type: e.kind });
     const b = this.b;
     const { audio, platform, ui } = this.ctx;
     const gold = this.buffs.has('altin');
@@ -3029,6 +3035,47 @@ export class Runner {
 
   // Floating callouts: at most about one per second (a higher-priority one may cut in after 0.35 s), spawned just BELOW the
   // ball over the trail — never on the strip of track the player is reading.
+  // ---- first-encounter tips: once ever per mechanic (localStorage), max one per 8 s, never in danger ----
+  tip(key, text, slow) {
+    if (this.state !== 'play' || this.tipCd > 0 || this.countT > 0) return false;
+    if (this.stumbleT > 0 || this.gap < 9 || this.boss || this.rage || this.hungerWarn || this.zip || this.grind) return false;
+    let seen = this.tipsSeen;
+    if (!seen) {
+      try { seen = JSON.parse(localStorage.getItem('patpat.rush.tips') || '{}') || {}; } catch (e) { seen = {}; }
+      this.tipsSeen = seen;
+    }
+    if (seen[key]) return false;
+    seen[key] = 1;
+    try { localStorage.setItem('patpat.rush.tips', JSON.stringify(seen)); } catch (e) { /* ignore */ }
+    this.tipCd = 8;
+    this.ctx.ui.toastSoft?.(text);
+    if (slow) this.tipSlowT = 0.9;
+    return true;
+  }
+
+  tipFor(e) {
+    switch (e.type) {
+      case 'critter': if (!e.stomp) this.tip('stomp', 'ŞİRİN YARATIK: üstüne zıpla, ez!', true); break;
+      case 'slide': this.tip('ice', 'BUZ: hızlısın ama yan geçişler yavaş', false); break;
+      case 'tunnel': this.tip('tunnel', 'TÜNEL: ışıkları takip et', false); break;
+      case 'slowmo': this.tip('jump', 'ATLAYIŞ: boşlukta zıpla, havada kal!', true); break;
+      case 'zip': this.tip('zip', 'HALAT: sadece tut, Yeti yetişemez', false); break;
+      case 'grind': if (e.active) this.tip('rail', 'RAY: üstünde kay, yön ver', false); break;
+      case 'ring': if (!e.miss) this.tip('ring', 'HALKA: art arda geç, çarpan artsın', false); break;
+      case 'gate': if (e.grp && !e.miss) this.tip('slalom', 'SLALOM: kapıları sırayla geç', false); break;
+      case 'loop': this.tip('loop', 'TAKLA: hız şart, devam et!', false); break;
+      case 'pad': if (e.kind === 'boost') this.tip('boost', 'HIZ PEDİ: üstünden geç, hızlan', false); else this.tip('jumppad', 'ZIPLAMA PEDİ: yüksel, havada kal', false); break;
+      case 'bait': this.tip('bait', 'BALIK YEMİ: Yeti yakınken ↓↓', false); break;
+      case 'cannon': this.tip('cannon', 'KAR KANONU: engelleri otomatik vurur', false); break;
+      case 'magnet': this.tip('magnet', 'MIKNATIS: kar ve altınlar sana gelir', false); break;
+      case 'ghost': this.tip('ghostp', 'HAYALET: engellerden geçersin', false); break;
+      case 'helmet': this.tip('helmet', 'KASK: bir çarpmayı affeder', false); break;
+      case 'rocket': this.tip('rocket', 'ROKET: uç, her şeyi kır!', false); break;
+      case 'snow': this.tip('snow', 'KAR: topla, büyü! Top sürekli erir', false); break;
+      case 'risk': case 'x2': case 'timewarp': case 'clone': case 'superjump': this.tip('buff', 'BONUS KARTI: kısa süreli güç!', false); break;
+    }
+  }
+
   float(text, cls) {
     const pri = FLOAT_PRI[cls] ?? 1;
     const lastSame = this.floatSeen.get(text);

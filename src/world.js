@@ -1394,7 +1394,7 @@ export class World {
     const p = this.makeEnemy(def, 0, P.dF - 30, P.bossR, true);
     if (p) {
       const e = p.enemy;
-      e.hp = e.max = P.finale.hp;
+      e.hp = e.max = P.finale.hp * 0.8;   // (the boss takes less outside its stun window, see CigGame._hitEnemy)
       e.ai = 'arena';
       e.arena = { d0: P.dF - 170, d1: P.dF - 10 };
       e.spd = 7 * (P.n >= 20 ? 1.3 : 1);

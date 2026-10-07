@@ -545,6 +545,15 @@ const CSS = `
 @keyframes fmBonusGlow { from { box-shadow: 0 5px 0 var(--nsh), 0 0 6px 1px rgba(200, 120, 255, 0.5); } to { box-shadow: 0 5px 0 var(--nsh), 0 0 18px 6px rgba(220, 150, 255, 0.95); } }
 .fm-path .bbr { stroke: #d89bff; stroke-width: 4px; stroke-dasharray: 2 9; opacity: 0.9; }
 .fm-bonushd { flex: none; margin: 0 auto 4px; padding: 4px 12px; border-radius: 12px; border: 2.5px solid var(--ink); background: linear-gradient(180deg, #b36bff, #7a35d6); color: #fff; font-size: 12.5px; text-shadow: var(--ol-sm); text-align: center; white-space: nowrap; }
+.fm-stormhd { flex: none; margin: 0 auto 4px; padding: 3px 12px; border-radius: 12px; border: 2.5px solid var(--ink); background: linear-gradient(180deg, #ffe27a, #ff9d1a); color: var(--ink); font-size: 12px; text-align: center; white-space: nowrap; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; }
+.fm-node.storm .sx { position: absolute; right: -14px; top: -10px; padding: 0 4px; border-radius: 8px; border: 2px solid var(--ink); background: linear-gradient(180deg, #ffe27a, #ff9d1a); color: var(--ink); font-size: 10px; line-height: 14px; text-shadow: none; pointer-events: none; z-index: 3; animation: fmDlWob 1.6s ease-in-out infinite; }
+.fm-today { flex: none; width: min(calc(100% - 24px), 380px); margin: -4px auto 8px; display: flex; gap: 5px; align-items: center; overflow-x: auto; scrollbar-width: none; }
+.fm-today::-webkit-scrollbar { display: none; }
+.fm-today .tl { flex: none; font-size: 10px; letter-spacing: 0.06em; color: #cfe2ff; text-shadow: var(--ol-sm); }
+.fm-tchip { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 24px; padding: 0 8px; border-radius: 12px; border: 2px solid var(--ink); background: linear-gradient(180deg, #3a6fc4, #1f4488); color: #fff; font-size: 11px; white-space: nowrap; cursor: pointer; text-shadow: none; }
+.fm-tchip.hot { background: linear-gradient(180deg, #ffe27a, #ff9d1a); color: var(--ink); }
+@media (max-height: 700px) { .fm-today { margin: -8px auto 4px; } .fm-tchip { height: 21px; font-size: 10.5px; } }
+@media (max-height: 600px) { .fm-today { display: none; } }
 .fm-bonushd.full { background: linear-gradient(180deg, #ffe27a, #ffae00); color: var(--ink); text-shadow: none; }
 .fm-node.boss { width: 82px; height: 82px; font-size: 38px; --nc1: #ff8a7a; --nc2: #e0392b; --nsh: #8a1a12; }
 .fm-node.boss.done { --nc1: #ffe27a; --nc2: #ff9a00; --nsh: #b36f00; }
@@ -1997,7 +2006,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     if (lv.intro) card.appendChild(add(el('div', 'fm-lintro'), el('span', 'ii', lv.intro.icon), el('span', '', lv.intro.text)));
     if (best) card.appendChild(el('div', 'fm-lbest', `REKOR ${'⭐'.repeat(best.stars)}${'☆'.repeat(3 - best.stars)} · %${best.flakesPct} kar tanesi${best.time ? ` · ${Math.floor(best.time / 60)}:${String(best.time % 60).padStart(2, '0')}` : ''}`));
     if (locked) {
-      card.appendChild(el('div', 'fm-llock', lv.bonus ? `🔒 ${lv.bonusN * camp.bonusStep} ⭐ topla (${camp.totalStars}/${lv.bonusN * camp.bonusStep})` : `🔒 Önce ${camp.unlocked}. bölümü bitir`));
+      card.appendChild(el('div', 'fm-llock', lv.bonus ? `🔒 ${lv.bonusN * camp.bonusStep} ⭐ topla (${camp.unlockStars == null ? camp.totalStars : camp.unlockStars}/${lv.bonusN * camp.bonusStep})` : `🔒 Önce ${camp.unlocked}. bölümü bitir`));
       const b = button('fm-btn big lock', 'KİLİTLİ', () => { b.classList.add('fm-shake'); sfx('error'); setTimeout(() => b.classList.remove('fm-shake'), 340); });
       card.appendChild(b);
     } else {
@@ -2044,6 +2053,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       }
       path.appendChild(svg);
     }
+    const sm = stormOf();
     for (let i = 0; i < LEVELS_PER_ACT; i++) {
       const lv = LEVELS[firstId - 1 + i];
       const st = camp.stars[lv.id] || 0;
@@ -2061,6 +2071,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       if (near) n.appendChild(el('span', 'nm', lv.name));
       if (lv.id === camp.unlocked && state === 'cur') n.appendChild(el('span', 'yav', '🧊'));
       if (lv.boss && !locked) n.appendChild(el('span', 'bn', String(lv.id)));
+      if (!locked && sm.ids.includes(lv.id) && !sm.got[lv.id]) { n.classList.add('storm'); n.appendChild(el('span', 'sx', '⭐x2')); }
       if (!locked) {
         const stars = el('span', 'stars');
         for (let k = 1; k <= 3; k++) stars.appendChild(el('b', k <= st ? 'on' : '', '★'));
@@ -2097,6 +2108,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     return page;
   }
 
+  function stormOf() { try { return meta.storm(); } catch { return { ids: [], got: {}, msLeft: 0 }; } }
+  function fmtLeftHM(ms) { const m = Math.max(0, Math.floor(ms / 60000)); return `${Math.floor(m / 60)}s ${String(m % 60).padStart(2, '0')}dk`; }
+
   function openMap(focusId) {
     sfx('click');
     const camp0 = campInfo();
@@ -2122,8 +2136,16 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     const track = el('div', 'fm-track');
     vp.appendChild(track);
     const bhd = el('div', 'fm-bonushd');
-    add(body, bhd, nav, vp);
+    const shd = el('div', 'fm-stormhd');
+    add(body, shd, bhd, nav, vp);
 
+    function updStorm() {
+      const sm = stormOf();
+      const left = sm.ids.filter((i) => !sm.got[i]).length;
+      shd.style.display = sm.ids.length ? '' : 'none';
+      shd.textContent = left ? `⭐ BUGÜN: YILDIZ FIRTINASI · ${left} bölüm ×2 · ⏳ ${fmtLeftHM(sm.msLeft)}` : `⭐ YILDIZ FIRTINASI tamam! · ⏳ ${fmtLeftHM(sm.msLeft)}`;
+    }
+    const stormT = setInterval(() => { if (!shd.isConnected) { clearInterval(stormT); return; } updStorm(); }, 30000);
     function render() {
       const camp = campInfo();
       clear(track);
@@ -2133,7 +2155,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       p.setSub(`⭐ ${camp.totalStars}/${camp.maxStars}`);
       const step = camp.bonusStep || 15, cnt = camp.bonusCount || BONUS.length, open = camp.bonusOpen || 0;
       bhd.classList.toggle('full', open >= cnt);
-      bhd.textContent = open >= cnt ? `✨ Tüm Gizli Rotalar açık (${cnt}/${cnt})` : `${camp.totalStars}/${(open + 1) * step} ★ → Gizli Rota ${open + 1}`;
+      const us = camp.unlockStars == null ? camp.totalStars : camp.unlockStars;
+      updStorm();
+      bhd.textContent = open >= cnt ? `✨ Tüm Gizli Rotalar açık (${cnt}/${cnt})` : `${us}/${(open + 1) * step} ★ → Gizli Rota ${open + 1}`;
     }
     function applyAct(animate) {
       track.classList.toggle('drag', !animate);
@@ -2632,6 +2656,8 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.streakChip.addEventListener('click', (e) => { e.stopPropagation(); sfx('click'); openDaily(); });
     r.info = infoCard;
     root0.appendChild(infoCard);
+    r.today = el('div', 'fm-today');
+    root0.appendChild(r.today);
 
     // ---- bottom: OYNA (straight into YETİ RUSH) + ÇIĞ SONSUZ · MACERA · Dolap · Görevler · Ayarlar ----
     const bot = el('div', 'fm-bot');
@@ -2734,6 +2760,23 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.dlStreak.textContent = db.streak > 0 ? `🔥${db.streak}` : '';
     r.streakChip.textContent = db.reward ? `🔥 ${db.streak} gün · AL` : `🔥 ${db.streak} gün`;
     r.streakChip.classList.toggle('hot', !!db.reward);
+
+    // BUGÜN strip: live events, each chip is a shortcut
+    try {
+      clear(r.today);
+      const chips = [];
+      let gr = false; try { gr = meta.globeReady(); } catch { /* ignore */ }
+      if (gr) chips.push(['🔮', 'Kar Küresi hazır', true, () => shakeGlobe()]);
+      const sm = stormOf();
+      const sl = sm.ids.filter((i) => !sm.got[i]).length;
+      if (sl) chips.push(['⭐', `Yıldız Fırtınası ×2 · ${fmtLeftHM(sm.msLeft)}`, true, () => { try { meta.setMode('camp'); } catch { /* ignore */ } openMap(sm.ids.find((i) => !sm.got[i])); }]);
+      let wl = 0; try { const w = new Date(); wl = Math.max(0, new Date(w.getFullYear(), w.getMonth(), w.getDate() - ((w.getDay() + 6) % 7) + 7) - w); } catch { /* ignore */ }
+      const wd = Math.floor(wl / 86400000);
+      chips.push(['🛒', wd < 1 ? 'Yeti Pazarı yarın yenilenir' : `Yeti Pazarı ${wd}g`, wd < 1, () => { try { localStorage.setItem('patpat.shopTab', 'pazar'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]);
+      if (cb.onDaily && save.cigDailyOpen && save.cigDailyOpen()) chips.push(['🏔️', `Günün Dağı #${info.dailyNum}`, !(info.dailyBest > 0), () => { try { meta.setMode('daily'); } catch { /* ignore */ } cb.onDaily(); }]);
+      r.today.appendChild(el('span', 'tl', 'BUGÜN'));
+      for (const [ic, tx, hot, fn] of chips) r.today.appendChild(button(`fm-tchip${hot ? ' hot' : ''}`, `${ic} ${tx}`, () => { sfx('click'); fn(); }));
+    } catch { /* ignore */ }
 
     // next unlock goal
     let g = null;

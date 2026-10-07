@@ -205,6 +205,23 @@ function campStars(S) {
   for (const k in S.c.stars) if (+k <= CAMPAIGN_SIZE) n += S.c.stars[k];
   return n;
 }
+// YILDIZ FIRTINASI: stars toward Gizli Rota = real campaign stars + storm bonus stars (kept apart so totalStars stays true)
+const unlockStars = (S) => campStars(S) + (S.ss ? S.ss.extra : 0);
+function stormRoll() {
+  const k = dateKey();
+  if (S.ss.day === k) return;
+  S.ss.day = k; S.ss.got = {}; S.ss.ids = [];
+  const top = Math.min(CAMPAIGN_SIZE, S.c.unlocked);
+  const c = [];
+  for (let i = 1; i <= top; i++) c.push(i);
+  c.sort((a, b) => ((S.c.stars[a] || 0) - (S.c.stars[b] || 0)) || a - b);
+  const pool = c.slice(0, Math.max(3, Math.min(c.length, 9)));
+  let x = (dayNum(k) * 2654435761) >>> 0;
+  const rnd = () => { x = (Math.imul(x ^ (x >>> 15), 2246822519) + 374761393) >>> 0; return x / 4294967296; };
+  while (S.ss.ids.length < 3 && pool.length) S.ss.ids.push(pool.splice(Math.floor(rnd() * pool.length), 1)[0]);
+  S.ss.ids.sort((a, b) => a - b);
+  markDirty();
+}
 function campCleared(S) {
   let n = 0;
   for (const k in S.c.stars) if (+k <= CAMPAIGN_SIZE && S.c.stars[k] > 0) n++;
@@ -306,6 +323,7 @@ function fresh() {
     m: { n: 0, mult: 1, cur: [], awarded: false, skipDay: '' },
     h: { day: '', found: new Array(WORD.length).fill(0), done: false, last: '', streak: 0 },
     g: { day: '', n: 0 },
+    ss: { day: '', ids: [], got: {}, extra: 0 },
     recent: [],
     c: { stars: {}, b: {}, g: {}, unlocked: 1, seen: {}, chest: new Array(10).fill(0), perfect: new Array(10).fill(0) },
     mode: 'camp',
@@ -353,6 +371,12 @@ function sanitize(p) {
   if (isObj(p.g)) {
     s.g.day = typeof p.g.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.g.day) ? p.g.day : '';
     s.g.n = Math.floor(nz(p.g.n));
+  }
+  if (isObj(p.ss)) {
+    s.ss.day = typeof p.ss.day === 'string' && /^d{4}-d{2}-d{2}$/.test(p.ss.day) ? p.ss.day : '';
+    if (Array.isArray(p.ss.ids)) s.ss.ids = p.ss.ids.map((x) => Math.floor(num(x))).filter((x) => x >= 1 && x <= CAMPAIGN_SIZE).slice(0, 3);
+    if (isObj(p.ss.got)) for (const k in p.ss.got) if (p.ss.got[k]) s.ss.got[k] = 1;
+    s.ss.extra = Math.max(0, Math.min(999, Math.floor(nz(p.ss.extra))));
   }
   if (isObj(p.h)) {
     s.h.day = typeof p.h.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.h.day) ? p.h.day : '';
@@ -1230,7 +1254,7 @@ export const meta = {
     return {
       unlocked: C.unlocked, current: Math.min(CAMPAIGN_SIZE, C.unlocked), stars, totalStars: campStars(S), maxStars: CAMPAIGN_SIZE * 3,
       cleared: campCleared(S), done: campCleared(S) >= CAMPAIGN_SIZE,
-      bonusOpen: Math.min(BONUS_COUNT, Math.floor(campStars(S) / BONUS_STARS)), bonusStep: BONUS_STARS, bonusCount: BONUS_COUNT,
+      bonusOpen: Math.min(BONUS_COUNT, Math.floor(unlockStars(S) / BONUS_STARS)), unlockStars: unlockStars(S), bonusStep: BONUS_STARS, bonusCount: BONUS_COUNT,
       actDone: (act) => (C.stars[Math.max(1, Math.min(10, act | 0)) * LEVELS_PER_ACT] || 0) > 0,
       actStars: (act) => { let n = 0; for (let i = 1; i <= LEVELS_PER_ACT; i++) n += C.stars[(act - 1) * LEVELS_PER_ACT + i] || 0; return n; },
     };
@@ -1258,8 +1282,16 @@ export const meta = {
     const firstClear = prev === 0;
     const newStars = Math.max(0, stars - prev);
     const wasEndless = meta.endlessUnlocked();
-    if (lv.bonus && Math.floor(campStars(S) / BONUS_STARS) < lv.bonusN) return null;   // route not open yet
+    if (lv.bonus && Math.floor(unlockStars(S) / BONUS_STARS) < lv.bonusN) return null;   // route not open yet
     C.stars[id] = Math.max(prev, stars);
+    let storm = null;
+    try {
+      stormRoll();
+      if (!lv.bonus && S.ss.ids.includes(id) && !S.ss.got[id]) {
+        S.ss.got[id] = 1; S.ss.extra += stars;
+        storm = { stars, coins: 40 + 30 * stars };
+      }
+    } catch { /* ignore */ }
     const b = C.b[id] || (C.b[id] = [0, 0]);
     b[0] = Math.max(b[0], Math.round(Math.max(0, Math.min(1, num(st.flakesPct))) * 100));
     const tm = Math.round(num(st.time));
@@ -1273,7 +1305,9 @@ export const meta = {
     else mask = (1 << stars) - 1;
     if (mask) C.g[id] = (C.g[id] || 0) | mask;
 
-    const parts = [grant({ coins: lv.bonus ? 10 + newStars * 30 : (firstClear ? 25 + Math.round(id * 1.2) : 5) + newStars * 20 })];
+    const parts = [];
+    if (storm) parts.push(grant({ coins: storm.coins }));
+    parts.push(grant({ coins: lv.bonus ? 10 + newStars * 30 : (firstClear ? 25 + Math.round(id * 1.2) : 5) + newStars * 20 }));
     let chest = null;
     if (bonusRw) { chest = bonusRw; parts.push(bonusRw); }
     if (lv.boss && firstClear && !C.chest[lv.act - 1]) {
@@ -1300,9 +1334,11 @@ export const meta = {
     return Object.assign(out, {
       id, act: lv.act, boss: lv.boss, stars: C.stars[id], earned: stars, newStars, firstClear, chest, perfect,
       actDone: C.stars[lv.act * LEVELS_PER_ACT] > 0, next: id < CAMPAIGN_SIZE ? id + 1 : 0, bonus: !!lv.bonus,
-      endlessUnlocked: nowEndless, justUnlockedEndless: nowEndless && !wasEndless, achievements: newly,
+      storm, endlessUnlocked: nowEndless, justUnlockedEndless: nowEndless && !wasEndless, achievements: newly,
     });
   },
+  // YILDIZ FIRTINASI: { ids: [3 level ids], got: {id:1}, extra, msLeft }
+  storm() { stormRoll(); return { ids: S.ss.ids.slice(), got: Object.assign({}, S.ss.got), extra: S.ss.extra, msLeft: msToMidnight() }; },
   // YETİ RUSH is open from the first launch (it used to wait for Act 1's boss).
   endlessUnlocked() { return true; },
   introSeen(id) { return !!S.c.seen[id]; },

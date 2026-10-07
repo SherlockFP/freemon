@@ -1257,6 +1257,7 @@ function start(id, bpm) {
   lastNoteAt = -1e9;
   started = true;
   running = true;
+  pubState();
   stopped = false;
   frozen = null;
   lastBeat = 0;
@@ -1274,6 +1275,7 @@ function stop() {
     stopped = true;
   }
   running = false;
+  pubState();
   if (timer) { clearInterval(timer); timer = 0; }
 }
 
@@ -1488,6 +1490,20 @@ function stinger(kind) {
 
 // --------------------------------------------------------- duck / mute / pause
 
+// Shared flags for the ambient bed in audio.js (it plays only while the runner music does not), plus a short dip hook
+// so big one-shot moments (milestone / win / boss) duck the music slightly.
+function pubState() { try { globalThis.__cigMusicState = { muted, running }; } catch (e) { /* ignore */ } }
+function dip(amount, sec) {
+  if (!ctx || !bus || muted) return;
+  const t = ctx.currentTime;
+  const lvl = BUS_LEVEL * (1 - Math.max(0, Math.min(0.6, amount || 0.25)));
+  bus.gain.cancelScheduledValues(t);
+  bus.gain.setTargetAtTime(lvl, t, 0.04);
+  bus.gain.setTargetAtTime(BUS_LEVEL, t + Math.max(0.1, sec || 0.5), 0.35);
+}
+try { globalThis.__cigMusicDip = (a, s) => { try { dip(a, s); } catch (e) { /* ignore */ } }; } catch (e) { /* ignore */ }
+pubState();
+
 function duck(on) {
   ducked = !!on;
   if (!ctx || !lpF) return;
@@ -1501,6 +1517,7 @@ function duck(on) {
 function setMuted(b) {
   muted = !!b;
   saveMuted(muted);
+  pubState();
   if (ctx && muteG) {
     const t = ctx.currentTime;
     muteG.gain.cancelScheduledValues(t);

@@ -329,7 +329,7 @@ export class CigPlus {
     for (const k of KEYS) this.T[k] = 0;
     this.mods = { speedMul: 1, accelMul: 1, steerMul: 1, eatMul: 1, gravityMul: 1, magnetR: 0, ghost: false, shield: false, tonMul: 1, flying: false, noMelt: false, plow: false, magnet: false };
 
-    this.pickups = []; this.mush = []; this.armies = []; this.shots = [];
+    this.pickups = []; this.mush = []; this.armies = []; this.shots = []; this.bossFx = null;
     this.strips = []; this.cannons = []; this.bridges = [];
     this._stT = 0;
     this.flip = { on: false, t: 0, dur: 1, landed: false, roll: 0 };
@@ -718,7 +718,7 @@ export class CigPlus {
   // ------------------------------------------------------------------ per-frame
   reset() {
     for (const k of KEYS) { if (this.T[k] > 0) this._buffOff(k); this.T[k] = 0; }
-    this.flip.on = false; this.shots.length = 0;
+    this.flip.on = false; this.shots.length = 0; this.bossFx = null;
     this._unfreeze();
     this.sizeF = 1;
   }
@@ -1103,8 +1103,47 @@ export class CigPlus {
   }
 
   // strips (a chain of short quads that follow the ground), cannons with their telegraph lane, ice bridges
+  // boss attack telegraphs: falling shadow marks, laser line, shockwave rings, charge lane (state lives in the boss AI: bossFx)
+  _drawBoss(S, Gl, TP, t) {
+    const B = this.bossFx, w = this.world;
+    if (!B || B.dead) return;
+    for (const m of B.marks) {
+      const k = clamp(m.t / m.dur, 0, 1), gy = w.groundY(m.x, m.d);
+      const pu = 0.5 + 0.5 * Math.sin(t * 18), rr = m.r * (1.2 - 0.2 * k);
+      Gl.emit(TP.ring, m.x, gy + 0.25, -m.d, 0, rr, rr, rr, Math.PI / 2, 0, 1, 0.3, 0.2, 0.3 + 0.4 * k + 0.25 * pu * k);
+      Gl.emit(TP.lane, m.x, gy + 0.22, -m.d, 0, m.r * 1.6 * k, 1, m.r * 1.6 * k, 0, 0, 0.1, 0.05, 0.1, 0.5 * k);
+      const h = (1 - k) * (1 - k) * 34 + m.s, sc = m.boulder ? m.s * 1.4 : m.s;
+      if (!m.ghost) S.emit(m.boulder ? TP.ice : TP.shot, m.x, gy + h, -m.d, t * 4, sc, sc, sc, 0, 0, 1, 1, 1, 1);
+    }
+    const L = B.laser;
+    if (L) {
+      const gy = w.groundY(0, L.d) + 0.7, on = L.on, hw = w.halfWidth(L.d) + 2;
+      const a = on ? 0.9 : 0.25 + 0.3 * Math.sin(t * 22), th = on ? 1.5 : 0.5;
+      const seg = (x0, x1, r, g, bl, al, wd) => { if (x1 - x0 > 0.2) Gl.emit(TP.lane, (x0 + x1) / 2, gy, -L.d, Math.PI / 2, wd, 1, x1 - x0, 0, 0, r, g, bl, al); };
+      seg(-hw, L.g0, 1, on ? 0.25 : 0.15, 0.2, a, th); seg(L.g1, hw, 1, on ? 0.25 : 0.15, 0.2, a, th);
+      seg(L.g0, L.g1, 0.3, 1, 0.5, 0.35 + 0.15 * Math.sin(t * 10), 0.7);
+    }
+    for (const R of B.rings) {
+      const n = 22;
+      for (let i = 0; i < n; i++) {
+        const an = R.a0 + ((i + 0.5) / n - 0.5) * 2.6;
+        if (Math.abs(an - R.gapA) < R.gapH) continue;
+        const x = R.cx + Math.sin(an) * R.R, d = R.cd - Math.cos(an) * R.R;
+        if (Math.abs(x) > w.halfWidth(d) + 3) continue;
+        Gl.emit(TP.ring, x, w.groundY(x, d) + 0.5, -d, 0, 0.9, 0.9, 0.9, Math.PI / 2, 0, 0.7, 0.9, 1, 0.85);
+      }
+    }
+    const C = B.lane;
+    if (C) {
+      const dx = C.x1 - C.x0, dz = -(C.d1 - C.d0), len = Math.hypot(dx, dz);
+      const y0 = w.groundY(C.x0, C.d0), y1 = w.groundY(C.x1, C.d1);
+      Gl.emit(TP.lane, (C.x0 + C.x1) / 2, (y0 + y1) / 2 + 0.3, -(C.d0 + C.d1) / 2, Math.atan2(dx, dz), C.w, 1, len, -Math.atan2(y1 - y0, len), 0, 1, 0.22, 0.15, C.solid ? 0.7 : 0.25 + 0.3 * Math.sin(t * 20));
+    }
+  }
+
   _drawLevel(S, Gl, TP, t, lo, hi) {
     const w = this.world;
+    this._drawBoss(S, Gl, TP, t);
     for (let i = 0; i < this.strips.length; i++) {
       const q = this.strips[i];
       if (q.d + q.len < lo || q.d > hi) continue;
@@ -1352,6 +1391,7 @@ export class CigGame {
     this.pullBudget = CFG.pullsPerStep * steps;
     for (let i = 0; i < steps; i++) this._step(dt / steps, lim);
     this._enemies(dt);
+    this._tips();
     // never crawl: a minimum forward speed (only a too-small size gate may slow you down)
     if (G.gateSlow <= 0 && b.speed < target * CFG.minSpeedFrac) b.speed = target * CFG.minSpeedFrac;
 
@@ -1552,6 +1592,7 @@ export class CigGame {
   // EKİP TOPU: 3+ snowmen swallowed within 3 s -> a mini snowman climbs on top of the ball (max 3)
   _crew() {
     const G = this.G, b = this.ball, a = this._snowT || (this._snowT = []);
+    this._tip('riders', TIPS.riders);
     a.push(G.t);
     while (a.length && G.t - a[0] > 3) a.shift();
     if (a.length < 3 || b.riderN() >= 3) return;
@@ -1698,6 +1739,7 @@ export class CigGame {
     if (dist > b.r + p.r * 0.85) return;
     if (b.airborne && above > 0) return;
     if (e.rival) { this._rivalContact(p); return; }
+    if (e.B && e.B.dash === 2) return;   // the yeti's charge is resolved in its AI (dodge it)
     // small enemies (relative to the ball) are flattened in one hit; a power / rocket flattens anything but bosses
     if (!e.boss && (p.r <= b.r * 0.8 || this.powerT > 0 || this.plus.mods.plow)) { this._killEnemy(p); return; }
     if (e.hitCd <= 0) this._hitEnemy(p, dx);
@@ -1761,7 +1803,7 @@ export class CigGame {
     const G = this.G, b = this.ball, M = this.plus.mods, e = p.enemy;
     const target = this.targetSpeed();
     const mul = (this.powerT > 0 ? 3 : 1) * (M.plow ? 2 : 1);
-    const dmg = CFG.ramDmg * b.r * (0.7 + 0.3 * clamp(b.speed / Math.max(1, target), 0, 1.3)) * mul;
+    const dmg = CFG.ramDmg * b.r * (0.7 + 0.3 * clamp(b.speed / Math.max(1, target), 0, 1.3)) * mul * (e.B ? (e.B.stun > 0 ? 2 : 0.6) : 1);   // bosses: big damage in the stun window, little outside it
     e.hp -= dmg;
     e.hitCd = 0.4; e.flash = 0.14; e.woke = true;
     e.kbD = Math.max(8, b.speed * 0.9); e.kbX = (dx >= 0 ? 1 : -1) * (3 + b.r * 0.4);
@@ -1800,6 +1842,7 @@ export class CigGame {
     this._h('track', 'enemy_kill', { id: e.id, boss: e.boss });
     if (e.boss) this._power();
     if (this.L) { this._chainHit(e.boss ? 5 : 2); if (e.boss) this._bossDown(); }
+    if (e.B) this._bossFinale(p);
     this._tierCheck();
   }
 
@@ -1875,40 +1918,223 @@ export class CigGame {
     if ((e.vx > 0 ? p.x > hw + 8 : p.x < -hw - 8) || p.d < b.d - 30) this.world.kill(p);
   }
 
-  // the boss waits in front of the locked final gate, follows the ball sideways, throws ice balls; it is rammed again and again
+  // ---- boss fights (arena): each boss has its own telegraphed attacks, 2 phases (enrage at 50% HP) and a damage window.
+  //   YETİ: snowball arcs with shadow warnings + a sideways-dodge charge (stunned afterwards)   ROBOT: laser line with a sweeping gap + drones to eat
+  //   GOLEM: shockwave rings with a gap (steer / jump) + ice boulders that shatter into food
+  _bossHurt(frac, txt, mul = 1) {
+    const b = this.ball, G = this.G;
+    if (this.plus.consumeShield()) return;
+    this._loseSnow(frac * mul);
+    b.speed *= 0.92; G.shake += 0.6; b.squash(0.14);
+    this._h('sfx', 'bump', 0.5); this._h('haptic', 'heavy'); this._h('flash', 'hit');
+    this._text(txt, b, 'bad', true);
+  }
+  _bossStun(p, B, secs, txt) {
+    B.stun = secs;
+    this._text('AÇIK!', p, 'big', true);
+    this._msg(2, txt);
+    this._h('sfx', 'milestone', 1);
+  }
+  _bossChunks(x, d, n, spread) {
+    const r = clamp(this.ball.r * 0.3, 0.5, 3.2);
+    for (let i = 0; i < n; i++) this.world.spawnChunk(x + (i - (n - 1) / 2) * spread, d + (i % 2 ? 1.5 : -1.5), r);
+  }
+  _bossMark(B, x, d, dur, r, s, boulder, ghost) {
+    if (B.marks.length > 8) return;
+    B.marks.push({ x, d, t: 0, dur, r, s, boulder: !!boulder, ghost: !!ghost });
+  }
+
   _arenaAI(p, b, dt, hw, dd) {
-    const e = p.enemy, A = e.arena, L = this.L;
+    const e = p.enemy, A = e.arena, G = this.G, w = this.world;
+    const B = e.B || (e.B = { id: e.id, marks: [], rings: [], laser: null, lane: null, slam: null, rage: false, stun: 0, dash: 0, dt: 0, t1: 3.2, t2: 5.5, dead: false, base: (e.tint || [1, 1, 1]).slice() });
+    this.plus.bossFx = B;
     if (e.kbD > 0.2 || Math.abs(e.kbX) > 0.2) {
       p.d += e.kbD * dt; p.x = clamp(p.x + e.kbX * dt, -hw, hw);
       const k = Math.exp(-dt * 5); e.kbD *= k; e.kbX *= k;
-    } else if (e.woke) {
+    } else if (e.woke && B.dash === 0) {
       // the ball slipped past (it cannot turn back): the boss runs up in front of it again, so it can never be bypassed
       const passed = dd < -(b.r + p.r * 0.5);
-      const tgt = passed ? Math.min(A.d1 - 2, b.d + b.r + p.r * 0.9) : A.d1 - 20;
-      const sp = passed ? 16 : 3;
+      const far = B.id === 'yeti' && B.t2 <= 0 && B.stun <= 0 && dd < 38;   // backs off so the charge has room
+      const tgt = passed ? Math.min(A.d1 - 2, b.d + b.r + p.r * 0.9) : far ? A.d1 : A.d1 - 20;
+      const sp = passed ? 16 : far ? 14 : 3;
       p.d += clamp(tgt - p.d, -sp * dt, sp * dt);
     }
-    p.d = clamp(p.d, A.d0, A.d1);
+    if (B.dash !== 2) p.d = clamp(p.d, A.d0, A.d1);
     if (!e.woke && b.d > A.d0 - 25) {
       e.woke = true;
       this._msg(3, '⚠ ' + e.name + ' GELİYOR!');
+      this._msg(2, B.id === 'yeti' ? 'Kartopu gölgelerinden kaç, hücumda yana kay!' : B.id === 'robot' ? 'Lazerin boşluğundan geç ya da zıpla · dronları ye!' : 'Şok halkasının boşluğuna kay · buz kayalarını ez!');
       this._h('sfx', 'rumble');
       this._h('haptic', 'warning');
     }
     if (!e.woke) return;
-    if (dd > -b.r) p.x = clamp(p.x + clamp(b.x - p.x, -e.spd * dt, e.spd * dt), -hw, hw);
-    p.rot = Math.atan2(b.x - p.x, 16) * 0.8;
-    e.cd -= dt;
-    if (e.cd <= 0 && dd > 14 && dd < 70) {
-      const V = CFG.lvl.bossVolley;
-      e.cd = V[0] + (V[1] - V[0]) * Math.random();
-      const Vs = 20, t = Math.max(0.25, dd / (Vs + b.speed));
-      const n = L.n < 15 ? 2 : 3;
-      for (let k = 0; k < n; k++) {
-        const tx = b.x + b.vx * t * 0.5 + (k - (n - 1) / 2) * (4 + b.r);
-        this.plus.spawnShot(p.x, p.y + p.h * 0.7, p.d - p.r, (tx - p.x) / t, -Vs, 1.5);
+    // phase 2: enrage
+    if (!B.rage && e.hp <= e.max * 0.5) {
+      B.rage = true; B.t1 = Math.min(B.t1, 1.4);
+      this._msg(3, '🔥 ' + e.name + ' ÖFKELENDİ!');
+      this._h('sfx', 'rumble'); this._h('haptic', 'warning'); G.shake += 1.2;
+      this._h('burst', p.x, p.y + p.h * 0.5, p.d, 20, 0xff5a3a, 9, 0.5 + p.r * 0.06, 6);
+    }
+    const K = B.rage ? 0.68 : 1;
+    if (B.stun > 0) B.stun -= dt;
+    const win = B.stun > 0;
+    p.tint = win ? (Math.sin(G.t * 16) > 0 ? [1.5, 1.4, 0.5] : [1.2, 1.1, 0.6]) : B.dash === 1 || B.slam ? [1.6, 1.3, 1.3] : B.rage ? [1, 0.2, 0.12] : B.base;
+    if (dd > -b.r && B.dash === 0) p.x = clamp(p.x + clamp(b.x - p.x, -e.spd * dt, e.spd * dt), -hw, hw);
+    if (B.dash === 0) p.rot = Math.atan2(b.x - p.x, 16) * 0.8;
+    const ready = !win && B.dash === 0 && !B.slam && !B.laser;
+    if (ready) { B.t1 -= dt; B.t2 -= dt; }
+
+    // shared: falling marks (snowball / boulder)
+    for (let i = B.marks.length - 1; i >= 0; i--) {
+      const m = B.marks[i];
+      m.t += dt;
+      if (m.t < m.dur) continue;
+      B.marks.splice(i, 1);
+      if (m.ghost) continue;
+      this._h('burst', m.x, w.groundY(m.x, m.d) + 0.5, m.d, m.boulder ? 14 : 8, 0xdff0ff, 7, 0.3, 5);
+      this._h('sfx', 'crash', m.boulder ? 0.5 : 0.25);
+      if (Math.hypot(b.x - m.x, b.d - m.d) < m.r * 0.8 + b.r * 0.6 && !b.airborne) this._bossHurt(m.boulder ? 0.045 : 0.03, m.boulder ? 'BUZ KAYASI!' : 'KARTOPU!');
+      if (m.boulder) this._bossChunks(m.x, m.d, 4, 1.8);
+    }
+
+    if (B.id === 'yeti') {
+      if (ready && B.t1 <= 0 && dd > 14) {
+        B.t1 = 2.9 * K + Math.random() * 0.8;
+        const n = B.rage ? 4 : 3, dur = B.rage ? 0.95 : 1.15, td = b.d + b.speed * dur + b.r;
+        for (let k = 0; k < n; k++) {
+          const off = (k - (n - 1) / 2) * (3.5 + b.r * 1.4);
+          this._bossMark(B, clamp(b.x + b.vx * 0.45 + off, -hw + 1, hw - 1), td + k * 1.5, dur, 2 + b.r * 0.55, 0.9 + b.r * 0.12);
+        }
+        this._h('sfx', 'whoosh');
+      }
+      if (ready && B.t2 <= 0 && dd > 20) { B.dash = 1; B.dt = 0; B.t1 = Math.max(B.t1, 1.5); this._msg(3, '⚠ HÜCUM! YANA KAY!'); this._h('haptic', 'warning'); }
+      if (B.dash === 1) {
+        B.dt += dt;
+        const dur = B.rage ? 0.85 : 1.05, locked = B.dt > dur * 0.55;
+        if (!locked) p.x = clamp(p.x + clamp(b.x - p.x, -13 * dt, 13 * dt), -hw, hw);
+        p.rot = 0;
+        B.lane = { x0: p.x, d0: p.d - p.r, x1: p.x, d1: p.d - 70, w: 2 * (b.r + p.r * 0.8), solid: locked };
+        if (B.dt >= dur) { B.dash = 2; B.dt = 0; this._h('sfx', 'rumble'); G.shake += 0.5; }
+      } else if (B.dash === 2) {
+        B.dt += dt;
+        p.d -= (B.rage ? 54 : 44) * dt; p.rot = 0;
+        B.lane = { x0: p.x, d0: p.d, x1: p.x, d1: p.d - 40, w: 2 * (b.r + p.r * 0.8), solid: true };
+        const gap = p.d - b.d;
+        if (Math.abs(gap) < b.r + p.r * 0.9 && Math.abs(p.x - b.x) < b.r + p.r * 0.8 && !b.airborne) {
+          this._bossHurt(0.07, 'HÜCUM!');
+          b.vx = (b.x >= p.x ? 1 : -1) * 14;
+          B.dash = 0; B.lane = null; B.t2 = 6 * K; e.kbD = 22;
+        } else if (gap < -(b.r + p.r) || p.d <= A.d0 || B.dt > 2.4) {
+          B.dash = 0; B.lane = null; B.t2 = 6 * K;
+          this._bossStun(p, B, 1.5, 'YETİ YORULDU! ÇARP!');
+        }
+      }
+    } else if (B.id === 'robot') {
+      if (ready && B.t1 <= 0) {
+        const ld = Math.min(b.d + b.speed * 1.0 + 8, p.d - p.r - 2);
+        if (ld - b.d < 10) B.t1 = 0.4;
+        else {
+          B.t1 = 5.4 * K;
+          const amp = Math.min(hw * 0.55, 12), fr = B.rage ? 1.5 : 1.1, gc0 = clamp(b.x, -amp, amp);
+          B.laser = { d: ld, t: 0, on: false, hit: false, g0: 0, g1: 0, amp, fr, ph: Math.asin(clamp(gc0 / amp, -0.95, 0.95)) - fr, gw: Math.max(b.r * 2 + 5, 8), end: 1.8 };
+          this._msg(3, '⚠ LAZER! BOŞLUĞA GEÇ ya da ZIPLA');
+          this._h('sfx', 'whoosh');
+        }
+      }
+      const Z = B.laser;
+      if (Z) {
+        Z.t += dt;
+        const gc = Z.amp * Math.sin(Z.fr * Z.t + Z.ph);
+        Z.g0 = gc - Z.gw / 2; Z.g1 = gc + Z.gw / 2;
+        if (!Z.on && Z.t >= 1.0) { Z.on = true; this._h('sfx', 'rumble'); }
+        if (Z.on && !Z.hit && Math.abs(b.d - Z.d) < b.r * 0.7 + 0.8 && !b.airborne && (b.x < Z.g0 + b.r * 0.3 || b.x > Z.g1 - b.r * 0.3)) {
+          Z.hit = true;
+          this._bossHurt(0.06, 'LAZER!', b.r > p.r * 0.9 ? 0.25 : 1);
+        }
+        if (Z.t >= Z.end || b.d > Z.d + 6) { B.laser = null; B.t2 = Math.min(B.t2, 1.5); this._bossStun(p, B, 1.7, 'ROBOT AŞIRI ISINDI! ÇARP!'); }
+      }
+      if (ready && B.t2 <= 0 && dd > 16) {
+        B.t2 = 7.2 * K;
+        const n = B.rage ? 6 : 5;
+        for (let k = 0; k < n; k++) w.spawnChunk(clamp((k - (n - 1) / 2) * (2 + b.r * 0.8), -hw + 1, hw - 1), b.d + 22 + (k % 3) * 5, clamp(b.r * 0.3, 0.45, 3.2));
+        this._msg(2, 'MİNİ DRONLAR: YE, BÜYÜ!');
+      }
+    } else {
+      // golem
+      if (ready && B.t1 <= 0 && dd > 24) {
+        B.slam = { t: 0 }; B.t1 = 5.6 * K;
+        this._bossMark(B, p.x, p.d, 0.9, p.r * 1.7, 0.1, false, true);
+        this._msg(3, '⚠ YER SARSILIYOR! BOŞLUĞA KAY ya da ZIPLA'); this._h('haptic', 'warning');
+      }
+      if (B.slam) {
+        B.slam.t += dt;
+        if (B.slam.t >= 0.9) {
+          B.slam = null; G.shake += 1.3; this._h('sfx', 'crash', 0.9); this._h('burst', p.x, w.groundY(p.x, p.d) + 0.5, p.d, 22, 0xdff0ff, 10, 0.5, 6);
+          const nR = B.rage ? 2 : 1, a0 = Math.atan2(b.x - p.x, Math.max(1, p.d - b.d)), side = b.x > 0 ? -1 : 1;
+          for (let k = 0; k < nR; k++) B.rings.push({ R: p.r * 0.8 - k * 12, cx: p.x, cd: p.d, a0, gapA: a0 + side * (0.55 + 0.1 * k), gapH: 0.33, hit: false, v: B.rage ? 30 : 24 });
+          this._bossStun(p, B, 1.9, 'YUMRUK SAPLANDI! ÇARP!');
+        }
+      }
+      if (ready && B.t2 <= 0 && dd > 20) {
+        B.t2 = 3.6 * K;
+        const n = B.rage ? 3 : 2, dur = 1.3, td = b.d + b.speed * dur + b.r;
+        for (let k = 0; k < n; k++) this._bossMark(B, clamp(b.x + b.vx * 0.4 + (k - (n - 1) / 2) * (4 + b.r * 1.6), -hw + 1, hw - 1), td + k * 2, dur, 2.6 + b.r * 0.6, 0.9 + b.r * 0.2, true);
+        this._h('sfx', 'whoosh');
       }
     }
+    for (let i = B.rings.length - 1; i >= 0; i--) {
+      const R = B.rings[i];
+      R.R += R.v * dt;
+      if (R.R > 120) { B.rings.splice(i, 1); continue; }
+      if (R.hit || R.R < 2) continue;
+      const dist = Math.hypot(b.x - R.cx, b.d - R.cd), ang = Math.atan2(b.x - R.cx, R.cd - b.d);
+      if (Math.abs(dist - R.R) < b.r + 1.0 && !b.airborne && Math.abs(ang - R.gapA) > R.gapH) { R.hit = true; this._bossHurt(0.05, 'ŞOK DALGASI!'); }
+    }
+  }
+
+  // boss defeated: big burst, slow-mo, bonus (the locked gate unlocks in _bossDown)
+  _bossFinale(p) {
+    const G = this.G, e = p.enemy, B = e.B;
+    if (B) { B.dead = true; B.marks.length = 0; B.rings.length = 0; B.laser = null; B.lane = null; }
+    this.plus.bossFx = null;
+    G.timeScale = 0.3; G.shake += 1.6;
+    for (let k = 0; k < 10; k++) {
+      const a = (k / 10) * Math.PI * 2, rr = p.r * (0.6 + 0.5 * (k % 3));
+      this._h('burst', p.x + Math.sin(a) * rr, p.y + p.h * (0.3 + 0.12 * (k % 4)), p.d + Math.cos(a) * rr, 8, k % 2 ? 0xffd45a : 0xd8ecff, 10, 0.5 + p.r * 0.06, 7);
+    }
+    const bonus = Math.max(30, this.snowTons() * 0.4);
+    G.bonusTons += bonus;
+    this._msg(2, '🏆 ' + e.name + ' YENİLDİ! ÖDÜL +' + fmtTonsShort(bonus));
+    this._h('haptic', 'success');
+  }
+
+  // ---- first-time mechanic tips (once ever, localStorage 'patpat.cig.tips'), through the ÇIĞ message queue
+  _tipSeen() {
+    if (!this._tipS) { try { this._tipS = JSON.parse(localStorage.getItem('patpat.cig.tips') || '{}') || {}; } catch { this._tipS = {}; } }
+    return this._tipS;
+  }
+  _tip(key, text) {
+    const S = this._tipSeen();
+    if (S[key]) return;
+    S[key] = 1;
+    try { localStorage.setItem('patpat.cig.tips', JSON.stringify(S)); } catch { /* ignore */ }
+    this._msg(2, '💡 ' + text);
+  }
+  _tips() {
+    const L = this.L, b = this.ball, G = this.G;
+    if (!L || G.t - (this._tipT || 0) < 0.25) return;
+    this._tipT = G.t;
+    const S = this._tipSeen(), its = L.items;
+    for (let i = 0; i < its.length; i++) {
+      const it = its[i];
+      if (it.start > b.d + 45) break;
+      if (it.start + it.len < b.d) continue;
+      const k = it.kind, key = k === 'crateLine' || k === 'crateWall' ? 'crate' : k;
+      if (S[key] || !TIPS[key]) continue;
+      this._tip(key, TIPS[key]);
+      return;
+    }
+    if (!S.hot) for (const h of this.world.heats) if (h.d - h.rd < b.d + 45 && h.d + h.rd > b.d) { this._tip('hot', TIPS.hot); return; }
   }
 
   _shotHit() {
@@ -2291,7 +2517,7 @@ export class CigGame {
     this.stats.gatesBroken++; G.gatesBroken++;
     G.finalBroken = true; G.finalR = b.r; G.gateIdx = this.L.S;
     G.gateLog.push({ i: g.i, r: b.r, need: g.minR, ok: true });
-    G.timeScale = 0.6;
+    G.timeScale = 0.4;
     for (let k = 0; k < 8; k++) this._h('burst', b.x + (k - 3.5) * Math.min(g.hw, 40) * 0.2, b.y, g.d, 6, k % 2 ? 0xffd45a : 0xd8ecff, 8, 0.55, 7);
   }
 
@@ -2750,6 +2976,16 @@ function newStats() {
 }
 
 const _stickPos = new THREE.Vector3();
+const TIPS = {
+  gate: 'Bariyer kapıyı kırmak için yeterince büyü: yeşil yanınca çarp!',
+  crate: 'Kasalara çarp: kır, topla, zincir yap!',
+  hot: 'Kızıl sıcak nokta karı eritir: etrafından dolan!',
+  fork: 'Yol ayrımı: riskli taraf ödüllü, güvenli taraf sakin.',
+  statues: 'Tüm heykelleri yık: seri bonusu kazan!',
+  secret: 'Çatlak buz duvar: yeterince büyüksen parlar, kır!',
+  domino: 'İlk ağaca çarp: domino gibi devrilsin!',
+  riders: 'Art arda 3 kardan adam ye: EKİP TOPU üstüne biner!',
+};
 const RIVAL_RED = [1, 0.45, 0.45], RIVAL_BLUE = [0.7, 0.95, 1], RIVAL_WHITE = [1, 1, 1];
 
 function fmtD(d) {
