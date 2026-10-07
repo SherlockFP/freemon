@@ -701,3 +701,35 @@ Her biri için ilk karşılaşmada ipucu gösteriliyor.
 - Arena: Kartopu Güreşi, Mevsim Boss Topu.
 - Macera: Yeti Haritası, Dağ Misafiri.
 - Menü: Kar Küresi Koleksiyonu, Arkadaş Postası.
+
+## Tur 13 — Yapılanlar
+
+**Rush**
+- Yeni engeller garantili geliyor: Topçu 1,3 km'de, Buz Kapısı 1,6 km'de, Kızak 2 km'de. Sonrasında her 400-700 m'de bir tekrar çıkıyorlar.
+- Buz Kapısı artık neon renkte ve ritimle yanıp sönüyor.
+- Yeni: **Kar Sürüsü**. Kurtardığın penguenler (en fazla 5) arkandan sıra halinde geliyor; her biri çarpana +0,1 ekliyor.
+
+**ÇIĞ**
+- Boss'lar zorlaştı. Hasar penceresi dışında yapılan vuruş artık ×0,15 hasar veriyor. Ölçülen dövüş süresi: Dağ 5'te 34 sn, Dağ 10'da 43 sn.
+- Ganimet küresi büyüdü, üstünde ışın var ve HUD'da ok ile mesafe gösteriliyor.
+- Yeni: **Çığ Eşliği**. Art arda kazanılan her dağ başlangıç boyutuna +%5 ekliyor, en fazla +%25. Testte bulunan bir çökme hatası (plan nesnesinin donmuş olması) düzeltildi.
+- "YENİ BÖLGE!" ve dağ adı artık alt alta, ortalanmış görünüyor.
+
+**Arena**
+- Doğunca yakınında garantili 3 küçük av botu oluyor, ilkinin üstünde "🎯 av" yazıyor.
+- Top küçükken kamera daha yakından çekiyor.
+- Yeni: **BOSS TOPU**. Her ~5 dakikada dev bir top geliyor:
+  - Hızlanarak çarpınca hasar alıyor.
+  - Yenilince 260 değerli pelet saçıyor.
+
+**Arayüz ve Menü**
+- Küçük yazılardaki kontur kaldırıldı; artık koyu zemin üstünde net görünüyorlar.
+- ✉ butonu kürenin yanına taşındı.
+- Rozet Rafı'nda kilitli kupalar gri siluet olarak görünüyor.
+- Kartpostal yazısı okunur hale geldi ve kartpostala kar tanesi uçuşu eklendi.
+- Aynı damga bildirimi bir oturumda yalnızca bir kez çıkıyor.
+
+**Kontrol**
+- Rush 2,68 km hatasız ilerledi.
+- Boss dağları 5 ve 14 ile Ters Çığ (7) bot tarafından kazanıldı.
+- Tüm modlar hatasız.
