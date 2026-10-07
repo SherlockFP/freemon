@@ -54,3 +54,28 @@ Bir mod 8'e ulaşınca, daha yüksek bir çıtaya göre tekrar 1 sayılır.
 - UI:
   - Ölüm/sonuç ekranı temizliği.
   - Sonraki ödül ilerleme çubuğu.
+
+## Tur 1 — Yapılanlar
+
+Hepsi push edildi.
+
+**Rush**
+- YETİ ÖFKESİ ölçeri: 8 kıl payı geçiş ölçeri doldurur, sonra 5 saniye ölümsüzlük, kartopu yağmuru ve 2 kat skor gelir.
+- Macera'da her 5. bölüm boss bölümü oldu.
+
+**ÇIĞ**
+- Dağ 1-5'te yiyecek yaklaşık 2 katına çıktı ve yiyecek şeritleri eklendi.
+- Başlangıç temposu hızlandı.
+- KOMBO ile HUD çakışması giderildi.
+- Dağ 6'dan itibaren SICAK NOKTA geldi: içinde hızlı eriyorsun ama altın kasa var.
+
+**Arena**
+- 🎲 rastgele takma ad.
+- İlk maçta ipucu ve yiyeceğe doğru ok.
+- ÇIĞ OLAYI: uyarılı çığ dalgası geçer. Kristal ya da derin kar arkasına saklanabilirsin, yolda kalan kütlesinin %35'ini kaybeder.
+
+**Arayüz**
+- Ölüm ekranı sadeleşti: başlık, sayaç, skor ve istatistik çipleri.
+- SONRAKİ ÖDÜL ilerleme çubuğu eklendi (kilit, seviye ve görev).
+
+Kontrol: tüm modlar sessiz duman testinden geçti. ÇIĞ Dağ 1'i bot kazandı.
