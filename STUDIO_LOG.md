@@ -1042,3 +1042,9 @@ Rush 7.3 · ÇIĞ 7.0 · Arena 6.7 · Genel 7.3 — çökme yok.
 - Rush: buff kartları otomatik → karar yok; 5. oturumda eğri düz. → 600 m'de iki şeritli kart seçimi (güvenli vs riskli), rekor işaretini canlı fark ile güçlendir.
 - ÇIĞ: tekrar oynamada yeni karar yok, büyüme pasif. → seviye ortasında risk/ödül yol ayrımı (dar kısa yol vs güvenli uzun yol).
 - Arena: tek değişken kütle, risk/ödül aracı az. → kütle fırlatma (eject) + buz dikeni (virüs) bölünme mekaniği.
+
+### Döngü 24 — sonuçlar
+- Rush KART KAPISI: 600 m'de otomatik buff yerine iki kart kapısı (yeşil GÜVENLİ / kırmızı RİSKLİ · UZUN: 1.6× süre, yeti 3 m yaklaşır, 30 sn +%8 hız); şeridini seç, kaçırırsan kart yok. İlk koşuda eski otomatik verme. Kartlar büyütüldü, ekran görüntüsüyle doğrulandı. Rekora 150 m kala "REKOR −n m".
+- ÇIĞ YOL AYRIMI: seviye ≥3'te seed'li tek çatal; dar riskli yol (fazla engel, 6 kasa/4 altın, hız şeridi) vs geniş güvenli yol. L3/L4/L9 otomatik bitiyor.
+- Arena: FIRLAT (Q/F + buton) kar topu fırlatma; buz dikenini 6 kez beslemek yeni diken fırlatır (küçükler büyükleri patlatabilir). Diken zaten vardı (90 adet). Çalışma testi OK.
+- Smoke: tüm modlar + bosslar hatasız.
