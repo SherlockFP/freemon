@@ -1087,3 +1087,9 @@ Genel 7.4 · Rush 7.5 · ÇIĞ 7.1 · Arena 6.8 · Menü 7.2 — çökme yok.
 - Arena bot kişilikleri: her bot dinamik tavanın 0.55–1.6 katında dengeleniyor; 40 sn'de ilk 10: 483/397/379/352/328/299/241… (önce 272/270/220×5).
 - Smoke (t_c1) + hedefli test hatasız; build OK. Puan tahmini: Genel 7.5 · Rush 7.5 · ÇIĞ 7.3 · Arena 7.1 · Menü 7.2.
 - Sırada: Rush'ta yeni içerik (8 için), ÇIĞ seviye başında ipucu/çip çakışması, arena çılgınlık/seri için görsel halka.
+
+## Döngü 28 — Yeti Rush sadeleştirme
+- Ekran: tek rekor mesajı (üstte kısa toast), tek KOMBO çipi (çarpan içinde), merkez yazıları küçüldü, kart kapısı zemin şeritleri kaldırıldı, ritim hattı artık ekranı beyaz/sarıya boğmuyor, uçurum boşlukları koyu (düz mavi bant yok), BÖLÜM ÖZETİ küçük ve üstte.
+- Olaylar seyreldi: bölge olayı her 2. katmanda (1,2 km), kar tanesi yağmuru koşu başına en fazla 1 (1,5 km sonrası), kart kapısı ~65-80 sn'de bir, Yeti öfkesi her 2. katmanda.
+- Kayalar çok daha seyrek ve sadece düzlüklerde; dönüş/takla/atlama sonrası sakin bölüm; geniş şerit (3→4) kısa (~60-100 m), 700-1100 m arayla.
+- Dikey taklalar artık üretilmiyor (yerine yumuşak tepeler); roket yuvarlak bölümlerde zemine yakın kalıyor.
