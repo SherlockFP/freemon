@@ -221,6 +221,8 @@ export function fallbackMass(radius) {
 
 // Turkish callouts for swallowing notable things.
 export const LABEL = {
+  w_snowman_mini: 'MİNİ KARDAN ADAM', w_sled_wood: 'KIZAK', w_gift_big: 'HEDİYE KUTUSU', w_noel_tree: 'NOEL AĞACI', w_ice_statue: 'BUZ HEYKELİ',
+  w_hut_winter: 'KULÜBE', w_tram: 'TRAMVAY', w_snowman_giant: 'DEV KARDAN ADAM', w_snowman_gold: 'ALTIN KARDAN ADAM',
   person: 'İNSAN', skier: 'KAYAKÇI', snowman: 'KARDAN ADAM', penguin: 'PENGUEN', deer: 'GEYİK',
   car: 'ARABA', car_blue: 'ARABA', snowmobile: 'KAR MOTORU', kiosk: 'KULÜBE', yeti: 'YETİ',
   boulder: 'KAYA', cabin: 'DAĞ EVİ', bus: 'OTOBÜS', lift_pylon: 'TELEFERİK DİREĞİ',

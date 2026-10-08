@@ -9,6 +9,7 @@ import { Trails, Snowfall } from './snowfx.js';
 import { SKINS } from '../skins.js';
 import { ArenaProps, TIER_NAMES, TIER_HINT, tierOfM } from './props.js';
 import { meta } from '../meta.js';
+const EAT_K = 1.1; // eat when 10% heavier (agar.io-like); closer than that the two balls bump
 
 // ------------------------------------------------------------------ constants
 const R = 1100; // arena radius (m) - a big agar.io-like map (2.2 km across)
@@ -889,7 +890,7 @@ export class AgarMode {
     if (vin < 0) { c.vx -= vin * nx; c.vz -= vin * nz; } // never keep velocity into the obstacle
     const into = -(c.mvx * nx + c.mvz * nz) - vin;
     if (into < 1.5 || c.pcd > 0) return into;
-    const k = Math.min(70, 2.5 + into * 1.6);
+    const k = massHit === 0 ? Math.min(30, 1.5 + into * 0.7) : Math.min(70, 2.5 + into * 1.6);
     c.vx += nx * k; c.vz += nz * k;
     c.pcd = 0.3; c.bt = 0.24;
     if (massHit && into > 12 && o.shield <= 0) c.m = Math.max(12, c.m * (1 - 0.01 * clampN(into / 20, 0.5, 1.5)));
@@ -1058,9 +1059,10 @@ export class AgarMode {
         }
         { const oa = owners[ca.o], ob = owners[cb.o]; if (oa.boss || ob.boss) { this.bossContact(oa.boss ? ca : cb, oa.boss ? cb : ca, d2); continue; } }
         if (this.mp !== 'client' && !this.duel.on && this.duel.cd <= 0 && this.duelTry(ca, cb, d2)) continue;
-        if (ca.m > cb.m * 1.25 && d2 < Math.pow(ca.r - cb.r * 0.4, 2)) this.eatCell(ca, cb);
-        else if (cb.m > ca.m * 1.25 && d2 < Math.pow(cb.r - ca.r * 0.4, 2)) this.eatCell(cb, ca);
-        else if (this.mp !== 'client' && ca.m <= cb.m * 1.25 && cb.m <= ca.m * 1.25) this.cellBump(ca, cb, d2, rs);
+        // EAT_K: how much heavier you must be to eat (was 1.25 — with the bounce that read as "I can't eat it, we just collide")
+        if (ca.m > cb.m * EAT_K && d2 < Math.pow(ca.r - cb.r * 0.25, 2)) this.eatCell(ca, cb);
+        else if (cb.m > ca.m * EAT_K && d2 < Math.pow(cb.r - ca.r * 0.25, 2)) this.eatCell(cb, ca);
+        else if (this.mp !== 'client' && ca.m <= cb.m * EAT_K && cb.m <= ca.m * EAT_K) this.cellBump(ca, cb, d2, rs);
       }
     }
     // food, crystals, power-ups
@@ -1537,10 +1539,10 @@ export class AgarMode {
       const c = cells[i];
       if (!c.on || c.o === o.id || this.owners[c.o].hideT > 0) continue;
       const dx = c.x - cx, dz = c.z - cz, d = Math.sqrt(dx * dx + dz * dz);
-      if (c.m > om * 1.25) {
+      if (c.m > om * EAT_K) {
         const e = d - c.r;
         if (e < 14 + orr * 2.5 + c.r * 1.5 && e < thrD) { thrD = e; thr = c; }
-      } else if (c.m * 1.25 < om && this.owners[c.o].shield <= 0 && d < (c.o === this.kingId ? 60 + orr * 6 : 22 + orr * 4)) {
+      } else if (c.m * EAT_K < om && this.owners[c.o].shield <= 0 && d < (c.o === this.kingId ? 60 + orr * 6 : 22 + orr * 4)) {
         const s = (c.m / (d + 6)) * (c.o === this.kingId ? 2.5 : 1);
         if (s > preyS) { preyS = s; prey = c; preyD = d; }
       }
@@ -2758,7 +2760,7 @@ export class AgarMode {
         for (let k = 0; k < NOWN; k++) {
           const o = this.owners[k]; if (o === me || !o.alive || o.cellN < 1 || o.hideT > 0) continue;
           const dx = o.lx - me.lx, dz = o.lz - me.lz, d = Math.sqrt(dx * dx + dz * dz) - o.maxR - me.maxR;
-          const thr = o.maxM > mm * 1.25, prey = !thr && !o.boss && mm > o.maxM * 1.25;
+          const thr = o.maxM > mm * EAT_K, prey = !thr && !o.boss && mm > o.maxM * EAT_K;
           if (!thr && !prey) continue;
           if (d > (thr ? dg : dg * 0.5)) continue;
           if (ri < 10) {
@@ -3084,7 +3086,7 @@ export class AgarMode {
       const o = this.owners[i];
       if (!o.alive || o === me || o.hideT > 0) continue;
       if (wr && Math.hypot(o.cx - me.cx, o.cz - me.cz) * sc > wr) continue;
-      g.fillStyle = o.mass > me.mass * 1.25 && me.alive ? '#ff6b6b' : '#d8ecff';
+      g.fillStyle = o.mass > me.mass * EAT_K && me.alive ? '#ff6b6b' : '#d8ecff';
       const s = 1.2 + Math.min(2.2, Math.log10(o.mass + 1) * 0.6);
       g.fillRect(c0 + o.cx * sc - s / 2, c0 + o.cz * sc - s / 2, s, s);
     }
