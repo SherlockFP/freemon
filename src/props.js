@@ -308,27 +308,38 @@ function pineTree(m, o) {
 /** Chunky person (legs, jacket, scarf, head, beanie). Upper body pivots at hips. */
 function figure(m, o) {
   const lean = o.lean || 0;
+  const hem = o.hem ?? o.jacket;
   for (const s of [-1, 1]) {
     m.boxB(0.17, 0.64, 0.2, o.pants, s * 0.1, 0.1, 0);
     m.boxB(0.18, 0.11, 0.3, o.boots, s * 0.1, 0, 0.04);
   }
   m.push(0, 0.74, 0, lean);
   m.boxB(0.46, 0.56, 0.28, o.jacket, 0, 0, 0);
+  m.boxB(0.48, 0.1, 0.3, hem, 0, 0, 0);
+  m.boxB(0.48, 0.07, 0.3, o.stripe ?? 0xffffff, 0, 0.32, 0);
   m.boxB(0.34, 0.1, 0.34, o.scarf, 0, 0.5, 0);
+  m.boxB(0.09, 0.28, 0.04, o.scarf, 0.1, 0.24, 0.17);
+  if (o.pack) m.boxB(0.3, 0.38, 0.14, o.pack, 0, 0.12, -0.21);
   if (o.helmet) {
-    m.blob(0.17, o.skin, 0, 0.7, 0.01, null, 6, 4);
-    m.blob(0.19, o.beanie, 0, 0.74, 0, [1, 0.9, 1.03], 6, 4);
-    m.box(0.28, 0.07, 0.05, o.goggles, 0, 0.69, 0.175);
+    m.blob(0.19, o.skin, 0, 0.71, 0.01, null, 6, 4);
+    m.blob(0.21, o.beanie, 0, 0.77, -0.01, [1, 0.8, 1.03], 6, 4);
+    m.box(0.4, 0.06, 0.38, 0x20242e, 0, 0.7, 0);
+    m.box(0.3, 0.11, 0.05, o.goggles, 0, 0.7, 0.19);
+    m.box(0.34, 0.15, 0.03, 0x20242e, 0, 0.7, 0.175);
+    m.box(0.12, 0.05, 0.03, 0xc0392b, 0, 0.6, 0.19);
   } else {
-    m.blob(0.17, o.skin, 0, 0.7, 0.01);
-    m.box(0.045, 0.055, 0.04, 0x1f2430, -0.06, 0.66, 0.17);
-    m.box(0.045, 0.055, 0.04, 0x1f2430, 0.06, 0.66, 0.17);
-    m.blob(0.19, o.beanie, 0, 0.79, 0, [1, 0.78, 1]);
-    m.ball(0.05, 0xffffff, 0, 0.96, 0, null, 0);
+    m.blob(0.19, o.skin, 0, 0.7, 0.01);
+    m.box(0.05, 0.06, 0.04, 0x1f2430, -0.07, 0.7, 0.19);
+    m.box(0.05, 0.06, 0.04, 0x1f2430, 0.07, 0.7, 0.19);
+    m.box(0.03, 0.03, 0.03, 0xe58a86, 0, 0.65, 0.2);
+    m.box(0.06, 0.02, 0.03, 0xb03a3a, 0, 0.6, 0.19);
+    m.blob(0.21, o.beanie, 0, 0.8, 0, [1, 0.78, 1]);
+    m.cylB(0.205, 0.205, 0.07, 8, o.mitt, 0, 0.74, 0);
+    m.ball(0.06, 0xffffff, 0, 0.98, 0, null, 0);
   }
   for (const s of [-1, 1]) {
     m.push(s * 0.3, 0.5, 0, o.armSwing || 0, 0, s * 0.1);
-    m.box(0.12, 0.5, 0.14, o.jacket, 0, -0.26, 0);
+    m.box(0.12, 0.5, 0.14, o.sleeve ?? o.jacket, 0, -0.26, 0);
     m.box(0.13, 0.1, 0.15, o.mitt, 0, -0.55, 0);
     m.pop();
   }
@@ -517,8 +528,8 @@ function buildTrafficCone() {
 function buildPerson() {
   const m = new Model();
   figure(m, {
-    jacket: 0xff6b2c, pants: 0x2d3561, boots: 0x3b2f2f, beanie: 0x20c4b8,
-    scarf: 0xffffff, skin: 0xffcc99, mitt: 0x20c4b8,
+    jacket: 0xff6b2c, hem: 0xd9501a, sleeve: 0xff8a3d, pants: 0x2d3561, boots: 0x3b2f2f, beanie: 0x20c4b8,
+    scarf: 0xffffff, skin: 0xffcc99, mitt: 0x20c4b8, stripe: 0xffd23f, pack: 0x20c4b8,
   });
   return m.build('person', 1, 'walker');
 }
@@ -759,41 +770,39 @@ function buildPine() {
 
 function buildYeti() {
   const m = new Model();
-  const fur = 0xe8f4ff, furD = 0xbcdcf5, skin = 0x9fcbea, ink = 0x1f2a44;
-  // feet + legs
+  const fur = furColor(0xeef7ff, 0xc3dff4, 1), furD = furColor(0xcfe5f7, 0xa3c8e6, 2);
+  const skin = 0x8fc2e6, ink = 0x1f2a44, bone = 0xf3e9c8;
   for (const s of [-1, 1]) {
-    m.blob(1, furD, s * 0.42, 0.15, 0.14, [0.34, 0.17, 0.46], 6, 4);
-    m.rod([s * 0.4, 1.2, 0], [s * 0.42, 0.2, 0.05], 0.38, 0.33, fur, 7, false);
+    m.blob(1, furD, s * 0.46, 0.6, 0, [0.42, 0.62, 0.45], 6, 4);
+    m.ball(0.5, furD, s * 0.46, 0.16, 0.2, [0.7, 0.3, 0.9], 0, 0.1, 7 + s);
   }
-  // body
-  m.ball(1, fur, 0, 1.5, 0, [0.92, 0.85, 0.8], 1);
-  m.blob(1, 0xf7fbff, 0, 1.4, 0.55, [0.6, 0.6, 0.3], 6, 4);
-  // arms + hands
+  m.ball(1, fur, 0, 1.45, -0.05, [0.95, 0.88, 0.78], 2, 0.1, 3);
+  m.ball(0.6, 0xf7fbff, 0, 1.3, 0.55, [0.75, 0.85, 0.45], 0, 0.08, 9);
+  m.ball(0.6, fur, 0, 2.05, -0.25, [1.3, 0.7, 0.9], 0, 0.12, 4);
+  m.ball(1, fur, 0, 2.15, 0.28, [0.52, 0.47, 0.5], 1, 0.08, 5);
+  m.blob(1, skin, 0, 2.06, 0.66, [0.38, 0.3, 0.16], 7, 4);
   for (const s of [-1, 1]) {
-    m.rod([s * 0.85, 1.95, 0], [s * 1.12, 0.85, 0.28], 0.3, 0.26, fur, 7, false);
-    m.blob(1, furD, s * 1.14, 0.72, 0.32, [0.3, 0.3, 0.3], 6, 4);
+    // arms
+    m.ball(1, fur, s * 1.0, 1.5, 0.05, [0.34, 0.72, 0.36], 1, 0.1, 20 + s);
+    m.ball(0.38, furD, s * 1.02, 0.7, 0.3, null, 0, 0.12, 30 + s);
+    for (const k of [-1, 1]) m.cone(0.05, 0.2, 4, bone, s * 1.02 + k * 0.1, 0.5, 0.58, [2.6, 0, 0]);
+    m.blob(0.12, fur, s * 0.5, 2.25, 0.15, null, 5, 3);
+    // eyes + brows
+    m.quad(0.14, 0.1, 0xffffff, s * 0.17, 2.2, 0.84);
+    m.quad(0.07, 0.08, 0xffb000, s * 0.17, 2.19, 0.845);
+    m.quad(0.03, 0.06, ink, s * 0.17, 2.19, 0.85);
+    m.quad(0.2, 0.06, ink, s * 0.17, 2.31, 0.84, [0, 0, s * 0.45]);
+    // horns (two curved segments)
+    m.rod([s * 0.3, 2.45, 0.2], [s * 0.52, 2.75, 0.2], 0.1, 0.07, bone, 5, false);
+    m.rod([s * 0.52, 2.75, 0.2], [s * 0.42, 2.98, 0.3], 0.07, 0.02, bone, 5, false);
+    m.cone(0.2, 0.5, 5, furD, s * 0.72, 2.3, -0.1, [0, 0, -s * 0.7]);
   }
-  // head
-  m.ball(1, fur, 0, 2.18, 0.15, [0.55, 0.5, 0.52], 1);
-  m.blob(1, skin, 0, 2.08, 0.62, [0.4, 0.32, 0.16], 7, 4);
-  for (const s of [-1, 1]) {
-    m.disc(0.11, 8, 0xffffff, s * 0.17, 2.2, 0.785);
-    m.disc(0.055, 6, ink, s * 0.17, 2.19, 0.79);
-    // horns
-    m.cone(0.09, 0.3, 5, 0xf3e9c8, s * 0.36, 2.62, 0.08, [0, 0, -s * 0.45]);
-    // shoulder tufts
-    m.cone(0.2, 0.5, 6, furD, s * 0.72, 2.3, -0.1, [0, 0, -s * 0.7]);
-  }
-  m.blob(0.07, ink, 0, 2.1, 0.785, null, 5, 4);
-  m.fq('+z', 0.3, 0.05, ink, 0, 1.97, 0.775);
-  m.fq('+z', 0.1, 0.04, ink, -0.17, 2.0, 0.775, -0.7);
-  m.fq('+z', 0.1, 0.04, ink, 0.17, 2.0, 0.775, 0.7);
-  m.fq('+z', 0.05, 0.06, 0xffffff, -0.06, 1.93, 0.78);
-  m.fq('+z', 0.05, 0.06, 0xffffff, 0.06, 1.93, 0.78);
-  // back fur spikes
+  m.ball(0.07, ink, 0, 2.12, 0.86, null, 0);
+  m.quad(0.34, 0.14, ink, 0, 1.97, 0.835);
+  for (const x of [-0.1, 0.1]) { m.quad(0.06, 0.07, 0xffffff, x, 2.0, 0.84); m.quad(0.06, 0.06, 0xffffff, x * 0.7, 1.94, 0.84); }
   m.cone(0.2, 0.5, 6, furD, 0, 2.0, -0.7, [-1.2, 0, 0]);
   m.cone(0.18, 0.45, 6, furD, 0, 1.5, -0.8, [-1.5, 0, 0]);
-  m.cone(0.15, 0.4, 6, furD, 0, 2.7, -0.05, [-0.2, 0, 0]);
+  m.cone(0.15, 0.4, 6, furD, 0, 2.55, 0.0, [-0.2, 0, 0]);
   return m.build('yeti', 2, 'walker', { ground: true });
 }
 
@@ -1507,6 +1516,15 @@ function crateModel(name, board, post, trim) {
 }
 function buildCrate() { return crateModel('crate', 0xd49a58, 0x8a5a2b, 0xa8723a); }
 function buildCrateGold() { return crateModel('crate_gold', 0xffc928, 0xd69a10, 0xfff0a0); }
+
+function furColor(a, b, seed) {
+  const ca = new THREE.Color(a), cb = new THREE.Color(b), t = new THREE.Color();
+  return (n, c) => {
+    const h = hash3(c.x, c.y, c.z, seed);
+    const k = Math.min(1, Math.max(0, 0.5 - n.y * 0.15 + (h - 0.5) * 1.1));
+    return t.copy(ca).lerp(cb, k).clone();
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Library

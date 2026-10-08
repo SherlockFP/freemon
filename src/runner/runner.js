@@ -3728,7 +3728,7 @@ export class Runner {
     const curvK = clamp(curv / 0.045, 0, 1);
     tr.frame(b.s + 10, _f2);
     const pitchK = clamp((Math.abs(_f2.tan.y) - 0.25) / 0.45, 0, 1);
-    const cornerT = this.jnJ && b.s >= this.jnJ.s - 12 && b.s <= this.jnJ.s + 18 ? 1 : 0;
+    const cornerT = this.jnJ && b.s >= this.jnJ.s - 30 && b.s <= this.jnJ.s + 18 ? 1 : 0;
     this.cornerK += (cornerT - this.cornerK) * kfil(snap, cdt, 8);
 
     // Helix / corkscrew: ride on the inside of the turn, close behind and low, so the camera never swings out into terrain or an upper pass.
@@ -3738,11 +3738,11 @@ export class Runner {
     let inside = 0;
     if (hk2 > 0.01) { tr.frame(b.s - 4, _f2); _x.copy(_f2.tan); tr.frame(b.s + 8, _f2); _ax.copy(_f2.tan).sub(_x); tr.frame(b.s, _f2); inside = clamp(_ax.dot(_f2.right) * 12, -1, 1); }
     this.camInK += (inside - this.camInK) * kfil(snap, cdt, 3);
-    let backT = 7.6 + r * 2.9 - this.closeK * 1.2 + 1.0 * speedK;
-    let upT = 3.85 + r * 1.5 + this.closeK * 3.2 + curvK * 1.4 + pitchK * 1.5 + this.camRoundK * 0.8;
+    let backT = 9.6 + r * 3.2 - this.closeK * 1.2 + 1.2 * speedK;
+    let upT = 5.6 + r * 1.8 + this.closeK * 3.2 + curvK * 1.8 + pitchK * 1.5 + this.camRoundK * 0.8 + this.cornerK * 1.8;
     const dk = this.state === 'dying' && this.cause !== 'fall' ? clamp(this.deadT / 0.9, 0, 1) : 0;   // death pull-back: ease back and up
     if (dk > 0) { const e = dk * dk * (3 - 2 * dk); backT += 5 * e; upT += 3 * e; }
-    let laT = 11 + 5 * speedK + 2 * this.closeK - 4 * this.cornerK;       // through a sharp corner: look a little shorter, swing a little slower
+    let laT = 24 + 8 * speedK + 2 * this.closeK - 6 * this.cornerK;       // through a sharp corner: look a little shorter, swing a little slower
     if (hk2 > 0.001) { backT += (5.6 + r * 1.8 - backT) * hk2; upT += (Math.min(upT, 2.9 + r * 1.1) - upT) * hk2; laT += (8 - laT) * hk2; }
     if (kind === 'tube') { upT = Math.min(upT, 4.6); backT = Math.min(backT, 7); }   // stay inside the 5.6 m tube (axis 4 m up)
     // Inside a vertical loop (a circle only 5.5-11 m in radius) the camera is a rigid chase rig in the BALL's own frame:

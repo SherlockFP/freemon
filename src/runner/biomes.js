@@ -3476,7 +3476,7 @@ export class Environment {
       let a = base[i] * (1 - smooth(0.55, 1, Math.abs(dx) / hx)) * (1 - smooth(0.55, 1, Math.abs(dy) / hy)) * (1 - smooth(0.55, 1, Math.abs(dz) / hz));
       const ex = x - cp.x, ey = y - cp.y, ez = z - cp.z;
       const d2 = ex * ex + ey * ey + ez * ez;
-      if (d2 < 100) a *= d2 * 0.01; // fade out within 10 m of the camera
+      if (d2 < 400) a *= d2 * 0.0025; // fade out within 20 m of the camera
       if (tw) a *= 0.62 + 0.38 * Math.sin(t * 3.1 + ph[i]);
       col[i * 4 + 3] = a;
     }
@@ -3579,8 +3579,8 @@ export class Environment {
     this._fm += (this._fmT - this._fm) * Math.min(1, dt * 1.5);
     this._fmWas = this._fm > 0.001;
     const fp = this.fogPress > 0 ? (this.fogPress < 1 ? this.fogPress : 1) : 0, fmk = 1 - 0.6 * this._fm, fmf = 1 - 0.45 * this._fm;
-    this.fog.near = this.nCur[0] * fmk * (1 - 0.85 * fp);
-    this.fog.far = Math.max(70, 2 * (this.ballVs > 0 ? this.ballVs : 0), this.nCur[1] * fmf * (1 - 0.8 * fp));
+    this.fog.near = this.nCur[0] * 1.6 * fmk * (1 - 0.85 * fp);
+    this.fog.far = Math.max(70, 2 * (this.ballVs > 0 ? this.ballVs : 0), this.nCur[1] * 1.3 * fmf * (1 - 0.8 * fp));
     if (this.fog.near > this.fog.far - 20) this.fog.near = this.fog.far - 20;
     // follow the camera
     this.sky.position.copy(cp);

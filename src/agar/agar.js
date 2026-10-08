@@ -6,7 +6,9 @@ import { VERSION, MAX_HUMANS } from './proto.js';
 import { Terrain, NICE, NDEEP, NRAMP } from './terrain.js';
 import { generateNames, BOT_CHAT } from './names.js';
 import { Trails, Snowfall } from './snowfx.js';
-import { SKINS } from '../skins.js';
+import { SKINS, TRAILS, makeSkin, disposeSkin } from '../skins.js';
+const VALID_SKIN = new Set(SKINS.map((k) => k.id)), VALID_TRAIL = new Set(TRAILS.map((k) => k.id));
+const SKIN_COL = new Map(SKINS.map((k) => [k.id, parseInt(String((k.preview && (k.preview.b || k.preview.a)) || '#ffffff').slice(1), 16) || 0xffffff]));
 import { ArenaProps, TIER_NAMES, TIER_HINT, tierOfM } from './props.js';
 import { meta } from '../meta.js';
 const EAT_K = 1.1; // eat when 10% heavier (agar.io-like); closer than that the two balls bump
@@ -75,42 +77,6 @@ function wmq(a, p, x, y, z, sx, sy, sz, qx, qy, qz, qw) {
   a[p + 4] = sx * 2 * (xy - wz); a[p + 5] = sy * (1 - 2 * (xx + zz)); a[p + 6] = sz * 2 * (yz + wx); a[p + 7] = 0;
   a[p + 8] = sx * 2 * (xz + wy); a[p + 9] = sy * 2 * (yz - wx); a[p + 10] = sz * (1 - 2 * (xx + yy)); a[p + 11] = 0;
   a[p + 12] = x; a[p + 13] = y; a[p + 14] = z; a[p + 15] = 1;
-}
-
-/** lumpy, subdivided snow sphere */
-function snowGeometry() {
-  const g = new THREE.SphereGeometry(1, 40, 28);
-  const pos = g.attributes.position, v = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos, i);
-    const n = Math.sin(v.x * 5.1 + 1.3) * Math.sin(v.y * 6.2 + 0.7) * Math.sin(v.z * 5.6 + 2.1) * 0.035 + Math.sin(v.x * 13 + v.z * 9) * Math.sin(v.y * 11 + 0.4) * 0.012;
-    v.multiplyScalar(1 + n);
-    pos.setXYZ(i, v.x, v.y, v.z);
-  }
-  g.computeVertexNormals();
-  return g;
-}
-
-/** soft snow shading: white body with noise, the player colour as a belt + cap, a faint sparkle */
-function snowMaterial(uTime) {
-  const m = new THREE.MeshLambertMaterial({ color: 0xffffff });
-  m.onBeforeCompile = (sh) => {
-    sh.uniforms.uTime = uTime;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vON;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvON = normal;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vON;\nuniform float uTime;')
-      .replace('#include <color_fragment>', `
-        float band = 1.0 - smoothstep(0.10, 0.20, abs(vON.y - 0.05));
-        float hat = smoothstep(0.68, 0.80, vON.y);
-        float tint = max(band, hat);
-        vec3 snow = vec3(0.95, 0.975, 1.0);
-        snow *= 0.93 + 0.07 * sin(vON.x * 23.0) * sin(vON.y * 19.0 + 1.0) * sin(vON.z * 21.0 + 2.0);
-        diffuseColor.rgb *= mix(snow, vColor.rgb * 1.05, tint);`)
-      .replace('#include <dithering_fragment>', `#include <dithering_fragment>
-        float sh1 = fract(sin(dot(floor(vON * 34.0), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
-        float tw = step(0.992, sh1) * (0.5 + 0.5 * sin(uTime * 4.0 + sh1 * 60.0));
-        gl_FragColor.rgb += vec3(0.35) * tw * (1.0 - tint);`);
-  };
-  return m;
 }
 
 function canvasTex(w, h, draw, repeat) {
@@ -354,7 +320,7 @@ export class AgarMode {
     const shTex = canvasTex(64, 64, (g, W, H) => { const gr = g.createRadialGradient(W / 2, H / 2, 2, W / 2, H / 2, W / 2); gr.addColorStop(0, 'rgba(25,55,100,0.55)'); gr.addColorStop(0.6, 'rgba(25,55,100,0.28)'); gr.addColorStop(1, 'rgba(25,55,100,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, H); });
     this.shadowMesh = mk(flat(), decal({ map: shTex }), CAP, false);
     this.shadowMesh.position.y = 0.22; this.shadowMesh.renderOrder = 4;
-    this.cellMesh = mk(snowGeometry(), snowMaterial(this.uTime), CAP, true);
+    this.skinPool = new Map(); this.botPool = ['classic'];
     this.foodMesh = mk(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({ color: 0xffffff }), FT, true);
     this.ejMesh = mk(new THREE.SphereGeometry(1, 9, 7), new THREE.MeshLambertMaterial({ color: 0xffffff }), 160, true);
     this.virMesh = mk(spikyGeometry(), new THREE.MeshLambertMaterial({ color: 0x9fe8ff, flatShading: true, emissive: 0x1a6a8a }), NVIR, false);
@@ -425,6 +391,30 @@ export class AgarMode {
     }
     o.tex.needsUpdate = true;
   }
+
+  // ---- per-player skins: one shared InstancedMesh per skin id
+  validSkin(id) { return VALID_SKIN.has(id) ? id : 'classic'; }
+  validTrail(id) { return VALID_TRAIL.has(id) ? id : 'classic'; }
+  mySkin() { try { return this.validSkin(this.save.selected('skin')); } catch { return 'classic'; } }
+  myTrail() { try { return this.validTrail(this.save.selected('trail')); } catch { return 'classic'; } }
+  skinEntry(id) {
+    let e = this.skinPool.get(id);
+    if (e) return e;
+    let skin;
+    try { skin = makeSkin(id); } catch { skin = makeSkin('classic'); }
+    const mesh = new THREE.InstancedMesh(skin.geometry, skin.material, CAP);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); mesh.frustumCulled = false; mesh.count = 0;
+    if (id === 'classic') { mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CAP * 3).fill(1), 3); mesh.instanceColor.setUsage(THREE.DynamicDrawUsage); }
+    this._scene.add(mesh);
+    e = { skin, mesh, n: 0 }; this.skinPool.set(id, e);
+    return e;
+  }
+  /** set a player's skin/trail ids (unknown -> classic) and the colour derived from the skin */
+  setSkin(o, sk, tr) {
+    o.skin = this.validSkin(sk); o.trail = this.validTrail(tr);
+    this.setColor(o, SKIN_COL.get(o.skin) || 0xffffff);
+  }
+  botLook(o) { const P = this.botPool; this.setSkin(o, P[(Math.random() * P.length) | 0], Math.random() < 0.5 ? 'classic' : TRAILS[(Math.random() * TRAILS.length) | 0].id); }
 
   setColor(o, hex) {
     o.col = hex;
@@ -570,14 +560,15 @@ export class AgarMode {
     this.vDirty = true;
     for (let i = 0; i < NPUP; i++) { this.randPos(p, 12); this.px[i] = p.x; this.pz[i] = p.z; this.pon[i] = 1; this.ptype[i] = i === 7 || i === 23 ? 4 : i % 4; this.pt[i] = 0; this.setPupColor(i); }
     for (const c of this.cells) c.on = false;
+    { const ids = SKINS.map((k) => k.id).filter((x) => x !== 'classic'); for (let i = ids.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [ids[i], ids[j]] = [ids[j], ids[i]]; } this.botPool = ['classic'].concat(ids.slice(0, 11)); }
     // bots
     const names = generateNames(NOWN, [this.nick]);
     for (let i = 0; i < NOWN; i++) {
       const o = this.owners[i];
       o.bot = i !== 0; o.human = null; o.away = false; o.alive = false; o.wasAlive = false; o.respawnT = 0; o.shield = o.magnet = o.speed = o.boostT = o.boostCd = 0;
-      if (i === 0) { this.setColor(o, 0xbfeaff); this.setName(o, this.nick || 'Sen', true); } else {
+      if (i === 0) { this.setSkin(o, this.mySkin(), this.myTrail()); this.setName(o, this.nick || 'Sen', true); } else {
         this.tmpC.setHSL((i * 0.6180339) % 1, 0.72, 0.56);
-        this.setColor(o, this.tmpC.getHex());
+        this.setColor(o, this.tmpC.getHex()); this.botLook(o);
         this.setName(o, names[i], false);
         o.isMeTag = false;
       }
@@ -722,6 +713,8 @@ export class AgarMode {
       if (n.geometry && !(n.userData && n.userData.keepGeo)) n.geometry.dispose();
       if (n.material) { if (n.material.map) n.material.map.dispose(); n.material.dispose(); }
     });
+    for (const e of this.skinPool.values()) { try { disposeSkin(e.skin); } catch (er) { /* ignore */ } }
+    this.skinPool.clear();
     this.groundTex.dispose();
     this._scene.clear();
   }
@@ -1211,7 +1204,7 @@ export class AgarMode {
     b.id = o.id; b.t = 0; b.hitCd = 0; b.max = b.hp = 12 + 4 * (this.net ? this.net.clients.size : 0);
     this.dirCalm = 40;
     this.toast('BOSS TOPU GELİYOR!'); this.pushFeed('BOSS TOPU geldi! HIZLAN ile çarp, küçükleri yutar'); this.audio?.milestone?.(5);
-    if (this.net) this.net.broadcast({ t: 'own', i: o.id, n: o.name, c: o.col, h: 0 });
+    if (this.net) this.net.broadcast({ t: 'own', i: o.id, n: o.name, c: o.col, h: 0, sk: o.skin, tr: o.trail });
   }
   endBoss() {
     const b = this.boss, o = this.owners[b.id];
@@ -1749,11 +1742,11 @@ export class AgarMode {
     const used = this.owners.filter((q) => !q.away).map((q) => q.name);
     const nm = generateNames(1, used)[0];
     this.tmpC.setHSL(Math.random(), 0.72, 0.56);
-    this.setColor(o, this.tmpC.getHex());
+    this.setColor(o, this.tmpC.getHex()); this.botLook(o);
     this.setName(o, nm, false);
     this.spawnOwner(o, rnd(18, 32));
     this.pushFeed(nm + ' oyuna katıldı');
-    if (this.net) this.net.broadcast({ t: 'own', i: o.id, n: o.name, c: o.col, h: 0 });
+    if (this.net) this.net.broadcast({ t: 'own', i: o.id, n: o.name, c: o.col, h: 0, sk: o.skin, tr: o.trail });
   }
   leaveBot() {
     let best = null, bs = 1e18;
@@ -1779,9 +1772,9 @@ export class AgarMode {
     for (let k = 1; k < NOWN; k++) {
       const o = this.owners[k];
       if (o.human === id) {
-        o.human = null; o.bot = true;
+        o.human = null; o.bot = true; this.botLook(o);
         this.removeBot(o, true); // slot freed; the population walk may refill it with a new 'player' later
-        if (this.net) this.net.broadcast({ t: 'own', i: o.id, n: o.name, c: o.col, h: 0 });
+        if (this.net) this.net.broadcast({ t: 'own', i: o.id, n: o.name, c: o.col, h: 0, sk: o.skin, tr: o.trail });
       }
     }
     if (this.net) this.net.kick(id);
@@ -2195,7 +2188,7 @@ export class AgarMode {
         onData: (id, msg) => this.onClientData(msg),
         onClosed: (why) => this.onRoomClosed(why, back),
       });
-      await this.net.join(code, nick);
+      await this.net.join(code, nick, this.mySkin(), this.myTrail());
       if (this.disposed || tok !== this._tok) { this.closeNet(); return; }
       this.stopPresence(); // players leave the discovery mesh once they are in a room
       st.textContent = 'Katıldın, oyun yükleniyor...';
@@ -2290,7 +2283,7 @@ export class AgarMode {
       let nm = this.net.clients.get(id).nick;
       while (used.has(nm)) nm += '2';
       used.add(nm);
-      o.bot = false; o.human = id; o.seen = this.time;
+      o.bot = false; o.human = id; o.seen = this.time; this.setSkin(o, this.net.clients.get(id).sk, this.net.clients.get(id).tr);
       this.setName(o, nm, false);
       this.spawnOwner(o, 24);
       this.pushFeed(nm + ' oyuna katıldı');
@@ -2298,7 +2291,7 @@ export class AgarMode {
     this.fdn = 0; this.fd.fill(0);
     const food = new Array(FOOD * 2);
     for (let i = 0; i < FOOD; i++) { food[i * 2] = Math.round(this.fx[i] * 10); food[i * 2 + 1] = Math.round(this.fz[i] * 10); }
-    const own = this.owners.map((o) => [o.name, o.col, o.human ? 1 : 0]);
+    const own = this.owners.map((o) => [o.name, o.col, o.human ? 1 : 0, o.skin, o.trail]);
     ids.forEach((id, k) => this.net.sendTo(id, { t: 'start', me: k + 1, owners: own, food, fc: this.foodColors(), seed: this.seed, pd: this.props.deadList() }));
     this.state = 'play';
     this.lastLevel = lvlOf(this.xp);
@@ -2326,12 +2319,12 @@ export class AgarMode {
     let nm = rec.nick;
     while (used.has(nm)) nm = nm.slice(0, 11) + ((Math.random() * 9 + 1) | 0);
     used.add(nm);
-    slot.bot = false; slot.human = id; slot.seen = this.time;
+    slot.bot = false; slot.human = id; slot.seen = this.time; this.setSkin(slot, rec.sk, rec.tr);
     this.setName(slot, nm, false);
     this.spawnOwner(slot, 24);
-    const own = this.owners.map((o) => [o.name, o.col, o.human ? 1 : 0]);
+    const own = this.owners.map((o) => [o.name, o.col, o.human ? 1 : 0, o.skin, o.trail]);
     this.net.sendTo(id, { t: 'start', me: slot.id, owners: own, food: this.foodPositions(), fc: this.foodColors(), seed: this.seed, pd: this.props.deadList() });
-    this.net.broadcast({ t: 'own', i: slot.id, n: slot.name, c: slot.col, h: 1 });
+    this.net.broadcast({ t: 'own', i: slot.id, n: slot.name, c: slot.col, h: 1, sk: slot.skin, tr: slot.trail });
     this.pushFeed(nm + ' oyuna katıldı');
     return true;
   }
@@ -2391,7 +2384,7 @@ export class AgarMode {
     for (const c of this.cells) c.on = false;
     m.owners.forEach((d, i) => {
       const o = this.owners[i];
-      this.setColor(o, d[1]);
+      this.setSkin(o, d[3], d[4]); this.setColor(o, d[1]);
       this.setName(o, d[0], i === this.me);
       o.bot = !d[2]; o.alive = false; o.wasAlive = false;
     });
@@ -2416,7 +2409,7 @@ export class AgarMode {
     else if (msg.t === 'av') { const a = +msg.a, o = +msg.o; if (isFinite(a) && isFinite(o)) this.avStart(a, clampN(o, -R, R), false); }
     else if (msg.t === 'chat') this.chatAdd(String(msg.n || '').slice(0, 14), msg.c | 0, String(msg.x || '').slice(0, 80));
     else if (msg.t === 'sfx') { if (msg.k === 'chime') this.audio?.chime?.(); else this.snd(String(msg.k), undefined, undefined, +msg.v || 1); }
-    else if (msg.t === 'own') { const o = this.owners[msg.i]; if (o) { this.setColor(o, msg.c); this.setName(o, msg.n, msg.i === this.me); o.bot = !msg.h; } }
+    else if (msg.t === 'own') { const o = this.owners[msg.i]; if (o) { this.setSkin(o, msg.sk, msg.tr); this.setColor(o, msg.c); this.setName(o, msg.n, msg.i === this.me); o.bot = !msg.h; } }
     else if (msg.t === 'dead') { this.deadKiller = msg.k || ''; this.state = 'dead'; this.deadT = 1.1; this.bank(this.owners[this.me]); this.audio?.crash?.(); }
   }
 
@@ -2601,7 +2594,8 @@ export class AgarMode {
     }
     this.foodMesh.instanceMatrix.needsUpdate = true; this.foodMesh.instanceColor.needsUpdate = true;
     // snowballs: roll in the movement direction, squash on boost, belt/cap carry the player colour; grooves behind them
-    const ca = this.cellMesh.instanceMatrix.array, cc = this.cellMesh.instanceColor.array, sa = this.shadowMesh.instanceMatrix.array;
+    const sa = this.shadowMesh.instanceMatrix.array;
+    for (const e of this.skinPool.values()) e.n = 0;
     let n = 0;
     for (let i = 0; i < CAP; i++) {
       const c = cells[i];
@@ -2625,14 +2619,18 @@ export class AgarMode {
       }
       const sq = o.boostT > 0, bk = c.bt > 0 ? Math.sin(Math.min(1, c.bt / 0.24) * Math.PI) * 0.2 : 0; // bump: short squash
       const sx = (sq ? r * 1.12 : r) * (1 + bk * 0.6), sy = (sq ? r * 0.8 : r) * (1 - bk);
-      wmq(ca, n * 16, c.x, sy, c.z, sx, sy, sx, c.qx, c.qy, c.qz, c.qw);
+      const se = this.skinEntry(o.boss ? 'classic' : o.skin), k16 = se.n++;
+      wmq(se.mesh.instanceMatrix.array, k16 * 16, c.x, sy, c.z, sx, sy, sx, c.qx, c.qy, c.qz, c.qw);
       wm(sa, n * 16, c.x + r * 0.12, 0, c.z + r * 0.18, r * 1.6);
-      cc[n * 3] = o.cr; cc[n * 3 + 1] = o.cg; cc[n * 3 + 2] = o.cb;
+      if (se.mesh.instanceColor) { const ic = se.mesh.instanceColor.array, bb = o.boss; ic[k16 * 3] = bb ? o.cr : 1; ic[k16 * 3 + 1] = bb ? o.cg : 1; ic[k16 * 3 + 2] = bb ? o.cb : 1; }
       n++;
       if (o.hideT <= 0 && Math.abs(c.x - this.camX) < hx + 60 && c.z > zmin - 60 && c.z < zmax + 60) this.trails.sample(i, c.o, c.x, c.z, r, this.time);
     }
-    this.cellMesh.count = n; this.shadowMesh.count = n;
-    this.cellMesh.instanceMatrix.needsUpdate = true; this.cellMesh.instanceColor.needsUpdate = true; this.shadowMesh.instanceMatrix.needsUpdate = true;
+    this.shadowMesh.count = n; this.shadowMesh.instanceMatrix.needsUpdate = true;
+    for (const e of this.skinPool.values()) { // one update() per skin id per frame
+      e.mesh.count = e.n; e.mesh.visible = e.n > 0;
+      if (e.n > 0) { e.mesh.instanceMatrix.needsUpdate = true; if (e.mesh.instanceColor) e.mesh.instanceColor.needsUpdate = true; if (e.skin.update) { try { e.skin.update(dt, this.time, e.mesh); } catch (er) { e.skin.update = null; } } }
+    }
     this.trails.build(this.time, cells, this.camX, this.camZ, hx, zmin, zmax);
     this.props.render(this.camX, this.camH, hx, zmin, zmax, cells, owners, me, this.camZ);
     {

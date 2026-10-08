@@ -60,7 +60,7 @@ export class ArenaNet {
         const refuse = (t) => { try { c.send({ t }); } catch { /* ignore */ } setTimeout(() => { try { c.close(); } catch { /* ignore */ } }, 300); };
         if ((d.v | 0) !== VERSION) { refuse('ver'); return; }
         if (this.clients.size + 1 >= this.maxHumans) { refuse('full'); return; }
-        rec = { conn: c, nick: String(d.nick || 'Yeti').slice(0, 12) };
+        rec = { conn: c, nick: String(d.nick || 'Yeti').slice(0, 12), sk: String(d.sk || '').slice(0, 24), tr: String(d.tr || '').slice(0, 24) };
         this.clients.set(c.peer, rec);
         if (this.started) { if (this.h.onLate && this.h.onLate(c.peer, rec) === false) { this.clients.delete(c.peer); rec = null; refuse('full'); } } else this.pushLobby();
         return;
@@ -89,7 +89,7 @@ export class ArenaNet {
     this.broadcast({ t: 'lobby', list, code: this.code });
   }
 
-  async join(code, nick) {
+  async join(code, nick, sk, tr) {
     const Peer = await this._lib();
     this.role = 'client';
     this.nick = nick;
@@ -103,7 +103,7 @@ export class ArenaNet {
       this.peer.on('error', (e) => { if (done) { return; } done = true; clearTimeout(to); rej(e || { type: 'error' }); });
       c.on('open', () => {
         if (done) return; done = true; clearTimeout(to);
-        c.send({ t: 'hello', nick, v: VERSION });
+        c.send({ t: 'hello', nick, v: VERSION, sk, tr });
         res();
         // the host answers a hello at once (lobby / start / full / ver); stay silent for too long = dead host
         this._hs = setTimeout(() => { if (!this.started && !this.gotLobby && !this.dead) this.h.onClosed && this.h.onClosed('timeout'); }, 9000);
