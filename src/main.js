@@ -1024,7 +1024,7 @@ function cigPlay(gdt) {
   audio.setRoll(b.airborne ? 0 : clamp(b.speed / 40, 0, 1), clamp(b.r / 10, 0, 1));
   // speed cues: wider FOV and speed lines as the ball gets heavy and fast
   const slk = G.lv ? clamp((b.speed / (CFG.baseSpeed * G.lv.speedK) - 1.1) / 0.9, 0, 1) * 0.7 : clamp((b.speed - 20) / 25, 0, 1) * 0.6;   // (levels: relative to the mountain's own speed)
-  ui.speedLines?.(slk + (plus.T.rocket > 0 || game.powerT > 0 || G.stripT > 0 ? 0.4 : 0));
+  ui.speedLines?.(slk + (plus.T.rocket > 0 || game.powerT > 0 || G.stripT > 0 ? 0.4 : game.feverT > 0 ? 0.3 : 0));
 }
 
 // ---------- the avalanche wave (white wall rolling in from behind when you stall) ----------

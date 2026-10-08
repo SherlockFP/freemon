@@ -25,6 +25,9 @@ const FLEE_ANG = [0.8, -0.8, 1.6, -1.6];
 const GS = 40, GN = 55; // food grid (GN * GS >= 2 * R)
 const KR = 0.3; // radius = KR * sqrt(mass)
 const MAXM = 60000;
+// bot personalities: each bot settles at its own share of the dynamic bot cap (0.55x .. 1.6x), so the leaderboard never
+// shows a flat wall of equal masses and there are always a few bigger fish worth hunting
+const capK = (id) => 0.55 + 1.05 * ((((id + 3) * 2654435761) >>> 0) % 997) / 996;
 const BOSSM = 3600; // boss ball mass (fixed)
 const TITLES = [[0, 'Çömez'], [60, 'Kar Tanesi'], [150, 'Kartopu'], [400, 'Dev Kartopu'], [1000, 'Çığ'], [2500, 'Buzul'], [6000, 'Kış Kralı'], [15000, 'Efsane Yeti'], [35000, 'Kartopu Tanrısı']];
 const titleOf = (m) => { let k = 0; for (let i = 1; i < TITLES.length; i++) if (m >= TITLES[i][0]) k = i; return k; };
@@ -669,7 +672,7 @@ export class AgarMode {
 
   playSolo() {
     if (this.mp) return;
-    this.deaths = 0;
+    this.deaths = 0; this.bestStreak = 0; this.kStreak = 0;
     this.state = 'play';
     this.clearScreen();
     this.hud.root.classList.remove('ag-menu');
@@ -996,7 +999,7 @@ export class AgarMode {
       const d2 = c.x * c.x + c.z * c.z, lim = R - 1;
       if (d2 > lim * lim) { const k = lim / Math.sqrt(d2); c.x *= k; c.z *= k; }
       if (o.burCd <= 0 && c.m < BUR_M && o.cellN === 1 && this.mp !== 'client' && (!o.bot || o.fleeT > 0)) { for (let b = 0; b < NBUR; b++) { const bx = BUR[b].x - c.x, bz = BUR[b].z - c.z; if (bx * bx + bz * bz < BUR_IN * BUR_IN) { this.burIn(o, c, b); break; } } }
-      if (o.bot && c.m > this.botCap) c.m -= c.m * 0.012 * dt;
+      if (o.bot && c.m > this.botCap * capK(o.id)) c.m -= c.m * 0.012 * dt;
       if (c.m > 400) c.m -= c.m * 0.0012 * dt; // big balls slowly shrink: growth stays gradual
       if (this.zn.st === 2 && this.mp !== 'client' && c.m > 10 && !(o.shield > 0 && o.prot)) { const zx = c.x - this.zn.cx, zz = c.z - this.zn.cz; if (zx * zx + zz * zz > this.zn.r * this.zn.r) c.m = Math.max(10, c.m - (c.m * 0.015 + 0.4) * dt); }
     }
@@ -1047,7 +1050,7 @@ export class AgarMode {
             if (d2 < r2) {
               const v = this.fv[i];
               let pv = o.bot ? v * (this.time - this.sessT < 150 ? 0.5 : this.time - this.sessT < 240 ? 0.75 : 1) : v;
-              if (o.bot && c.m > this.botCap) pv *= 0.1;
+              if (o.bot && c.m > this.botCap * capK(o.id)) pv *= 0.1;
               for (const f of this.forts) if (f.pa > 0.5 && f.pc === c.o) { const px = this.fx[i] - f.x, pz = this.fz[i] - f.z; if (px * px + pz * pz < PAINT_R * PAINT_R) { pv *= 1.2; break; } }
               c.m = Math.min(MAXM, c.m + pv); o.xpRun += v;
               if (c.o === this.me) { this.snd('pellet'); if (!this.firstEat && this.state === 'play') { this.firstEat = true; this.toast('İLK YEMEK! 🎉'); this.audio?.milestone?.(1); } }
@@ -1474,6 +1477,7 @@ export class AgarMode {
     let kb = 0;
     if (this.kingId === prey.o && pred.o !== prey.o && prey.m > po.mass * 0.4) { kb = prey.m * 0.25; this.pushFeed('KRAL DÜŞTÜ! ' + this.owners[pred.o].name + ', ' + po.name + accSuffix(po.name) + ' devirdi'); if (pred.o === this.me) { this.toast('LİDERİ DEVİRDİN! +%25 kütle', 2400); this.audio?.milestone?.(4); this.pulseT = 0; this.camKick = Math.max(this.camKick, 0.2); } this.kingId = -1; this.king = null; }
     pred.m = Math.min(MAXM, pred.m + prey.m + kb);
+    if (pred.o === this.me && prey.o !== this.me && prey.m >= 6) this.floatTxt('+' + Math.round(prey.m + kb), prey.x, prey.z, '#7dffb0');
     { const pw = this.owners[pred.o]; if (pw.prot && pw.shield > 0) { pw.shield = 0; pw.prot = false; if (pred.o === this.me) this.toast('KORUMA BİTTİ'); } }
     this.owners[pred.o].xpRun += prey.m;
     prey.on = false;
@@ -1667,6 +1671,7 @@ export class AgarMode {
       if (!(o.wasAlive && !o.alive)) { if (o.alive) o.wasAlive = true; continue; }
       o.wasAlive = false;
       const killer = o.killer >= 0 ? this.owners[o.killer] : null;
+      if (killer && killer !== o && killer.id === this.me && this.mp !== 'client') this.meKill();
       if (killer && killer !== o) { killer.kills++; this.pushFeed(killer.name + ', ' + o.name + accSuffix(o.name) + ' yuttu!');
         if (killer.bot && this.time > (this._quipT || 0) && Math.random() < 0.4) { this._quipT = this.time + 9 + Math.random() * 8; const Q = ['yummy 😋', 'kaç kaç!', 'bu benim kalem!', 'ez gg', 'bir tane daha 😎', 'kar tanesi gibi eridin', 'sıradaki kim?', 'oha büyüdüm 🤩']; this.pushFeed(killer.name + ': ' + Q[(Math.random() * Q.length) | 0]); } }
       if (o.bot && !o.human) o.respawnT = 3 + Math.random() * 3;
@@ -1739,7 +1744,27 @@ export class AgarMode {
   }
 
   // ------------------------------------------------------------------ result
+  /** YUTUŞ SERİSİ: every bot you finish off pops a callout; kills within 6 s chain into a streak with a mass bonus */
+  meKill() {
+    const me = this.owners[this.me];
+    if (!me || !me.alive) return;
+    const n = this.kStreak = this.time - (this.kLastT ?? -99) < 6 ? (this.kStreak || 0) + 1 : 1;
+    this.kLastT = this.time;
+    this.platform?.haptic?.(n > 1 ? 'success' : 'medium');
+    this.camKick = Math.max(this.camKick, n > 1 ? 0.12 + 0.04 * Math.min(4, n) : 0.07);
+    if (n < 2) return;
+    const bonus = Math.min(150, Math.round(me.mass * 0.05 * (n - 1)) + 4 * n);
+    const c = this.cells[me.bc];
+    if (c && c.on && c.o === this.me) c.m = Math.min(MAXM, c.m + bonus);
+    const T = ['', '', 'ÇİFTE YUTUŞ!', 'ÜÇLÜ YUTUŞ!', 'DÖRTLÜ YUTUŞ!'];
+    this.toast((T[n] || 'DURDURULAMAZ! x' + n) + ' +' + bonus + ' kütle', 1900);
+    if (c && c.on) this.floatTxt('🔥 x' + n, c.x, c.z, '#ffd24a');
+    this.audio?.milestone?.(Math.min(5, n + 1));
+    if (n > (this.bestStreak || 0)) this.bestStreak = n;
+  }
+
   onMeDead(killer) {
+    this.kStreak = 0;
     const o = this.owners[this.me];
     this.state = 'dead';
     this.deadT = 1.1;
@@ -1858,13 +1883,13 @@ export class AgarMode {
     const hook = rk > 3 ? `En iyi sıran #${rk} — ilk 3'e ${gap} kütle!` : rk >= 1 ? `En iyi sıran #${rk} — bir üstüne çık!` : 'Bir dahaki sefere sıralamaya gir!';
     card.innerHTML = '<div class="ag-logo sm">YENDİN: <span class="kn"></span></div>' +
       `<div class="ag-earn"><small>kazanılan</small><b>+${this.earned || 0} ❄️</b></div>` +
-      row('SÜRE', fmtT(this.time - o.t0)) + row('MAX KÜTLE', fmtM(o.maxMass) + (this.newBest ? ' 🏆 REKOR' : '')) + row('EN İYİ SIRA', rk ? '#' + rk : '-') + row('YEDİĞİN', o.kills) +
+      row('SÜRE', fmtT(this.time - o.t0)) + row('MAX KÜTLE', fmtM(o.maxMass) + (this.newBest ? ' 🏆 REKOR' : '')) + row('EN İYİ SIRA', rk ? '#' + rk : '-') + row('YEDİĞİN', o.kills) + (this.bestStreak >= 2 ? row('EN İYİ SERİ', '🔥 x' + this.bestStreak) : '') +
       '<div class="ag-sub" style="margin:8px 0;font-weight:800;color:#ffd23a"></div>';
     card.querySelector('.kn').textContent = this.deadKiller || 'Kar Fırtınası';
     card.querySelector('.ag-sub').textContent = hook;
     const b1 = document.createElement('button'); b1.type = 'button'; b1.className = 'ag-btn go'; b1.textContent = 'TEKRAR DOĞ';
     const b2 = document.createElement('button'); b2.type = 'button'; b2.className = 'ag-btn'; b2.textContent = 'MENÜ';
-    b1.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('confirm'); this.deaths = 0; this.respawnMe(); });
+    b1.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('confirm'); this.deaths = 0; this.bestStreak = 0; this.respawnMe(); });
     b2.addEventListener('click', () => { this.audio?.ui?.('back'); this.exit(); });
     card.append(b1, b2);
     el.appendChild(card);

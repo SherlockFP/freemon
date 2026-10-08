@@ -1267,7 +1267,7 @@ export class CigGame {
     this.progT = 0; this.progD = 0;
     this.lastPopT = -9; this.lastPopHapT = -9; this.lastTextT = -9;
     this.melting = 0;
-    this.powerT = 0; this.enemyTextT = -9;
+    this.powerT = 0; this.feverT = 0; this.fevAt = 40; this.fevCd = 0; this.enemyTextT = -9;
     this.labelsShown = 0; this.labelT = 0; this._hungry = false;
     this.pullBudget = 0;
     this.wave = { on: false, d: 0, v: 0, t: 0, warned: false, mesh: null, calm: 0, n: 0 };
@@ -1298,7 +1298,7 @@ export class CigGame {
     this.progT = 0; this.progD = 0;
     this.wave.on = false; this.wave.warned = false; this.wave.calm = 0; this.wave.n = 0;
     this.stats = newStats();
-    this.powerT = 0;
+    this.powerT = 0; this.feverT = 0; this.fevAt = 40; this.fevCd = 0;
     this.bot.queue.length = 0; this.bot.tick = 0;
     this.melting = 0;
     this.hudT = 0;
@@ -1317,7 +1317,7 @@ export class CigGame {
     const M = this.plus.mods;
     const r = this.ball.r;
     const cap = CFG.maxSpeed * (1 + 0.25 * clamp(Math.log2(Math.max(1, r / 8)), 0, 3)); // huge balls may go a bit faster (it feels slow otherwise)
-    let v = Math.min(cap, CFG.baseSpeed + CFG.sizeSpeed * Math.sqrt(r)) * M.speedMul * (this.powerT > 0 ? CFG.powerSpeed : 1);
+    let v = Math.min(cap, CFG.baseSpeed + CFG.sizeSpeed * Math.sqrt(r)) * M.speedMul * (this.powerT > 0 ? CFG.powerSpeed : 1) * (this.feverT > 0 ? 1.1 : 1);
     if (this.L) {
       // every mountain is faster than the last (speedK), a tier-up gives a short speed wave, a speed strip a longer boost
       const G = this.G, K = CFG.lvl;
@@ -1343,7 +1343,7 @@ export class CigGame {
   }
   suctionR() {
     const b = this.ball, M = this.plus.mods;
-    return (b.r * CFG.suctionK + CFG.suctionC) * (M.magnet ? 2 : 1) * (M.eatMul > 1 ? 1.25 : 1) * (this.powerT > 0 ? CFG.powerSuction : 1);
+    return (b.r * CFG.suctionK + CFG.suctionC) * (M.magnet ? 2 : 1) * (M.eatMul > 1 ? 1.25 : 1) * (this.powerT > 0 ? CFG.powerSuction : 1) * (this.feverT > 0 ? 1.45 : 1);
   }
 
   _h(name, a, b, c, d, e, f, g, h, i, j) {
@@ -1388,6 +1388,7 @@ export class CigGame {
     G.t += dt;
     G.bumpCd -= dt; G.recoverT -= dt; G.momentumT -= dt;
     G.comboT -= dt; G.gateSlow = (G.gateSlow || 0) - dt;
+    if (this.feverT > 0) { this.feverT -= dt; if (this.feverT <= 0) this.feverT = 0; }
     if (this.powerT > 0) { this.powerT -= dt; if (this.powerT <= 0) { this.powerT = 0; if (!this.L) this._msg(1, 'Güç bitti'); } }
     this.plus.boost = this.powerT + (G.stripT > 0 ? 1 : 0);
     this._afk(dt);
@@ -1589,7 +1590,7 @@ export class CigGame {
     const G = this.G, b = this.ball, M = this.plus.mods;
     if (G.state !== 'play' && G.state !== 'end') return;
     const chunk = q.kind === 'chunk';
-    const gain = CFG.growK * q.r ** 3 * (chunk ? CFG.chunkGain : this._band());
+    const gain = CFG.growK * q.r ** 3 * (chunk ? CFG.chunkGain : this._band()) * (this.feverT > 0 ? 1.15 : 1);
     const rb = b.r;
     this._grow(b.r ** 3 + gain);
     b.punch(Math.min(0.09, 0.45 * q.r / Math.max(0.2, rb)));
@@ -1598,9 +1599,10 @@ export class CigGame {
       b.stick(q.def, _stickPos, q.s0, 0.6);
     } else this.stats.chunksEaten++;
     G.combo = G.comboT > 0 ? G.combo + 1 : 1;
+    if (G.combo === 1) this.fevAt = 40;   // a fresh chain: the first frenzy comes at x40
     const rid = b.riderN();   // EKİP TOPU: each rider = +10% combo time and score
     G.comboT = CFG.comboWindow * (1 + 0.1 * rid);
-    G.swallowed += q.mass * M.tonMul * (q.tonK || 1) * (1 + 0.02 * Math.min(G.combo, 50)) * this._cm() * (1 + 0.1 * rid);
+    G.swallowed += q.mass * M.tonMul * (q.tonK || 1) * (1 + 0.02 * Math.min(G.combo, 50)) * this._cm() * (1 + 0.1 * rid) * (this.feverT > 0 ? 1.5 : 1);
     if (!chunk && /snowman/i.test(q.type)) this._crew(); // a long chain is worth up to double
     if (G.combo > this.stats.maxCombo) this.stats.maxCombo = G.combo;
     this.stats.eats++;
@@ -1619,8 +1621,26 @@ export class CigGame {
     if (!chunk) this._h('track', 'swallow', { type: q.type });
     const label = LABEL[q.type];
     if (label && q.r > b.r * 0.8) { const seen = this._seen || (this._seen = new Set()); if (!seen.has(q.type)) { seen.add(q.type); this._text(`${label}!`, q, ''); } }
+    else if (G.combo >= this.fevAt && G.t >= this.fevCd) this._fever(G.combo);
     else if (G.combo > 0 && G.combo % 15 === 0) this._msg(1, `x${G.combo}!`);
     this._tierCheck();
+  }
+
+  // ÇIĞ ÇILGINLIĞI: a x40 combo (then every +80, 10 s apart) = 4 s of frenzy (wider suction, +15% growth, x1.5 tons, a little faster).
+  // It never smashes gates (that stays GÜÇLENDİN!'s job), so the size checks of a mountain keep their meaning.
+  _fever(n) {
+    const b = this.ball, G = this.G;
+    const was = this.feverT > 0;
+    this.feverT = 4;
+    this.fevAt = n + 80; this.fevCd = G.t + 10;   // the next one needs +80 more and 10 s: a reward, not a permanent state
+    this.stats.fevers = (this.stats.fevers || 0) + 1;
+    G.shake += 0.3;
+    this._h('kick', 0.12, 6);
+    this._h('flash', 'milestone');
+    this._h('sfx', 'pop', 1, 30);
+    this._h('haptic', 'success');
+    this._h('burst', b.x, b.y + b.r * 0.5, b.d, 18, 0x8ff4ff, 8 + b.r, 0.25 + b.r * 0.05, 6);
+    this._msg(2, was ? `ÇILGINLIK UZADI! x${n}` : `🌪️ ÇIĞ ÇILGINLIĞI! x${n}`);
   }
 
   // EKİP TOPU: 3+ snowmen swallowed within 3 s -> a mini snowman climbs on top of the ball (max 3)
@@ -2972,6 +2992,7 @@ export class CigGame {
   _ambient(dt) {
     const G = this.G, b = this.ball;
     if (G.state !== 'play') return;
+    if (this.feverT > 0 && Math.random() < dt * 30) this._h('burst', b.x + (Math.random() - 0.5) * b.r * 1.6, b.y + b.r * 0.3, b.d - b.r * 0.5, 1, Math.random() < 0.5 ? 0x8ff4ff : 0xff9ad0, 3, 0.16 + b.r * 0.04, 2);
     if (this.powerT > 0 && Math.random() < dt * 40) this._h('burst', b.x + (Math.random() - 0.5) * b.r, b.y - b.r * 0.2, b.d - b.r * 0.8, 1, Math.random() < 0.5 ? 0xffd45a : 0xffffff, 3, 0.16 + b.r * 0.04, 2);
     if (!b.airborne && b.speed > 3) {
       G.sprayT -= dt;
