@@ -463,6 +463,8 @@ const NOOP_SAVE = {
   level: 1, coins: 0, totalStars: () => 0, starsFor: () => 0, addCoins() {}, spend: () => false, isOwned: () => false, own() {}, selected: () => null, select() {},
 };
 const wallet = () => sv || NOOP_SAVE;
+// Shop purchases pay through save.shopCharge (one-time coupon aware); plain spend only as a fallback for old/no-op saves.
+const shopPay = (n) => { const w = wallet(); return typeof w.shopCharge === 'function' ? w.shopCharge(n) : w.spend(n); };
 
 function giveItem(kind, id, out) {
   const list = kind === 'skin' ? SKINS : TRAILS;
@@ -1267,7 +1269,7 @@ export const meta = {
   buyUpgrade(kind) {
     const k = upId(kind);
     const cost = meta.upgradeCost(kind);
-    if (!k || cost === null || !wallet().spend(cost)) return false;
+    if (!k || cost === null || !shopPay(cost)) return false;
     S.u[k]++;
     S.st.upgrades++;
     persistNow();
@@ -1284,7 +1286,7 @@ export const meta = {
   buySled(packs = 1) {
     packs = Math.max(1, Math.floor(num(packs, 1)));
     if (S.sleds + packs * SLED_PACK.count > 99) return false;
-    if (!wallet().spend(packs * SLED_PACK.price)) return false;
+    if (!shopPay(packs * SLED_PACK.price)) return false;
     S.sleds += packs * SLED_PACK.count;
     persistNow();
     return true;

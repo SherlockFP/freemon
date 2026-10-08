@@ -46,11 +46,10 @@ const CSS = `
   user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
 }
 .fm-main *, .fm-ov *, .fm-modal *, .fm-toasts *, .fm-fx *, .fm-boxov *, .fm-plov *, .fm-resov * { box-sizing: border-box; }
-.fm-main button, .fm-ov button, .fm-modal button, .fm-boxov button, .fm-plov button, .fm-resov button {
+/* button reset at ZERO class specificity (:where) so every class rule (.fm-tchip { color }, .fm-lastc { margin }, ...) wins over it */
+:where(.fm-main, .fm-ov, .fm-modal, .fm-boxov, .fm-plov, .fm-resov, .fm-wheel) button {
   font-family: inherit; font-weight: inherit; letter-spacing: inherit; margin: 0; color: inherit; text-shadow: inherit; -webkit-appearance: none; appearance: none;
 }
-.fm-main button.fm-sgoal { margin: 0 auto 8px; text-shadow: none; }
-.fm-main button.fm-tchip { text-shadow: none; }
 .fm-main button:focus, .fm-ov button:focus, .fm-modal button:focus, .fm-boxov button:focus, .fm-plov button:focus, .fm-resov button:focus { outline: none; }
 .fm-main button:focus-visible, .fm-ov button:focus-visible, .fm-modal button:focus-visible, .fm-boxov button:focus-visible, .fm-plov button:focus-visible, .fm-resov button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 .fm-ol { text-shadow: var(--ol); }
@@ -990,10 +989,91 @@ const CSS = `
 .fm-rgoal.miss .gs { color: rgba(255, 255, 255, 0.3); }
 @keyframes fmClaim { 0%, 100% { transform: scale(1) translateY(0); box-shadow: 0 0 6px 1px rgba(255, 154, 58, 0.6); } 12% { transform: scale(1.12) translateY(-3px); box-shadow: 0 0 16px 5px rgba(255, 207, 58, 0.95); } 24% { transform: scale(1) translateY(0); } 40% { box-shadow: 0 0 14px 4px rgba(255, 207, 58, 0.8); } 70% { box-shadow: 0 0 6px 1px rgba(255, 154, 58, 0.6); } }
 .fm-sum .sr.rdy { animation: fmClaim 2s ease-in-out infinite; border: 2px solid #fff3b0; }
+
+/* ---- compact centre: GÜNLÜK summary + SIRADAKİ HEDEF in ONE card; BUGÜN chips live in side rails ---- */
+.fm-info.cmp { padding: 5px 8px 6px; gap: 4px; margin-bottom: 10px; }
+.fm-info .fm-sgoal { width: 100%; height: 28px; margin: 0; padding: 0 9px; gap: 7px; border-width: 2px; border-radius: 10px; font-size: 12px; box-shadow: none; }
+.fm-info .fm-sgoal .sg-t { font-size: 9.5px; }
+.fm-info .fm-sgoal .sg-b { width: 48px; height: 8px; }
+.fm-info .fm-sgoal.claim { animation: none; }
+.fm-info .fm-sum { min-height: 24px; }
+.fm-todaywrap { display: none !important; }
+.fm-rails { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.fm-rail { position: absolute; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 9px; pointer-events: none; }
+.fm-rail.l { left: max(8px, calc(50% - 262px)); }
+.fm-rail.r { right: max(8px, calc(50% - 262px)); }
+.fm-rail > * { pointer-events: auto; }
+.fm-rails .fm-globe, .fm-rails .fm-post { position: relative; left: auto; right: auto; top: auto; bottom: auto; }
+.fm-rails .fm-globe { width: 50px; height: 50px; font-size: 25px; margin-bottom: 6px; }
+.fm-rails .fm-post { width: 46px; height: 38px; margin: 2px 0 4px; }
+.fm-rc { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; width: 62px; padding: 0; border: 0; background: none; cursor: pointer; touch-action: manipulation; }
+.fm-rc .ri { position: relative; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 50%; border: 3px solid var(--ink); font-size: 22px; line-height: 1; text-shadow: none;
+  background: radial-gradient(ellipse 60% 38% at 36% 22%, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0)), linear-gradient(180deg, #ffffff, #cfe0ff); box-shadow: 0 4px 0 var(--ink2), 0 6px 8px rgba(10, 30, 60, 0.35); transition: transform 0.06s; }
+.fm-rc:active .ri { transform: translateY(3px); }
+.fm-rc .rl { max-width: 62px; padding: 1px 5px 2px; border-radius: 8px; background: rgba(14, 24, 60, 0.78); color: #fff; font-size: 10px; line-height: 1.15; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: none; }
+.fm-rc.hot .ri { background: radial-gradient(ellipse 60% 38% at 36% 22%, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0)), linear-gradient(180deg, #fff3a8, #ffc23a); animation: fmDlWob 1.6s ease-in-out infinite; }
+.fm-rc.hot .rl { background: #ff7a2f; }
+.fm-rc.red .ri { background: linear-gradient(180deg, #ff7a7a, #e5293a); }
+.fm-rc.red .rl { background: #e5293a; }
+.fm-rc .fm-sring { width: 40px; height: 40px; }
+.fm-rc .fm-sring circle { fill: none; stroke-width: 3.2; }
+.fm-rc .fm-sring .bg { stroke: rgba(23, 52, 92, 0.18); }
+.fm-rc .fm-sring .fg { stroke: #ff7a2f; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 12px 12px; }
+.fm-rc .fm-sring text { font-size: 11px; text-anchor: middle; dominant-baseline: central; }
+.fm-rails.fm-lock { filter: none !important; opacity: 1 !important; pointer-events: none; }
+.fm-rails.fm-lock .fm-rc { filter: grayscale(1) brightness(0.8); opacity: 0.6; }
+.fm-rails.fm-lock[data-lock]::after, .fm-rails.fm-new::after { display: none; }
+@media (max-width: 360px) { .fm-rc { width: 54px; } .fm-rc .ri { width: 42px; height: 42px; font-size: 20px; } .fm-rc .rl { max-width: 54px; } }
+@media (prefers-reduced-motion: reduce) { .fm-rc.hot .ri { animation: none; } }
+
+/* ---- ŞANS ÇARKI ---- */
+.fm-wheel {
+  --ink: #17345c; --ink2: #0d1f3c; --gold: #ffcf3a;
+  position: absolute; inset: 0; z-index: 90; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 20px 16px;
+  font-family: "Lilita One", "Baloo 2", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; font-weight: 900; color: #fff; letter-spacing: 0.02em;
+  text-shadow: 0 2px 0 var(--ink), 1.5px 1.5px 0 var(--ink), -1.5px 1.5px 0 var(--ink), 1.5px -1.5px 0 var(--ink), -1.5px -1.5px 0 var(--ink);
+  background: radial-gradient(ellipse 70% 50% at 50% 45%, rgba(90, 60, 200, 0.75), rgba(16, 10, 50, 0.94)); user-select: none; -webkit-user-select: none; animation: fmIn 0.25s ease-out;
+}
+.fm-wheel * { box-sizing: border-box; }
+.fm-wheel .wt { font-size: clamp(30px, 9vw, 42px); line-height: 1; text-align: center; transform: rotate(-2deg); }
+.fm-wheel .ws { margin-top: -6px; font-size: 14px; color: #ffe27a; text-align: center; }
+.fm-wheel .wbox { position: relative; width: min(84vw, 52vh, 360px); aspect-ratio: 1; }
+.fm-wheel .wbox::before { content: ""; position: absolute; inset: -14px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 220, 120, 0.45), rgba(255, 220, 120, 0) 70%); animation: fmWGlow 1.6s ease-in-out infinite alternate; }
+@keyframes fmWGlow { from { opacity: 0.55; } to { opacity: 1; } }
+.fm-wheel svg.wh { position: relative; display: block; width: 100%; height: 100%; filter: drop-shadow(0 8px 0 var(--ink2)) drop-shadow(0 14px 18px rgba(0, 0, 0, 0.45)); }
+.fm-wheel .wrot { will-change: transform; }
+.fm-wheel svg text { font-family: inherit; font-weight: 900; paint-order: stroke; stroke: rgba(23, 52, 92, 0.85); stroke-width: 3px; fill: #fff; text-anchor: middle; dominant-baseline: central; }
+.fm-wheel svg text.dk { fill: #17345c; stroke: #fff; }
+.fm-wheel .wptr { position: absolute; left: 50%; top: -16px; width: 38px; height: 46px; margin-left: -19px; z-index: 2; transform-origin: 50% 22%; filter: drop-shadow(0 3px 0 var(--ink2)); }
+.fm-wheel .wptr.tk { animation: fmWTick 0.12s ease-out; }
+@keyframes fmWTick { 0% { transform: rotate(0); } 40% { transform: rotate(-16deg); } 100% { transform: rotate(0); } }
+.fm-wheel button.wgo {
+  min-width: 200px; min-height: 64px; padding: 8px 26px; border: 4px solid var(--ink); border-radius: 24px; cursor: pointer; font-size: 30px; letter-spacing: 0.06em; color: #fff;
+  background: linear-gradient(180deg, #ffe066 0%, #ffae00 50%, #ff7a1a 100%); box-shadow: 0 7px 0 #a8400f, 0 12px 16px rgba(0, 0, 0, 0.4), inset 0 4px 0 rgba(255, 255, 255, 0.6);
+  text-shadow: 0 3px 0 var(--ink), 2px 2px 0 var(--ink), -2px 2px 0 var(--ink), 2px -2px 0 var(--ink), -2px -2px 0 var(--ink); animation: fmBreath 1.2s ease-in-out infinite;
+}
+.fm-wheel button.wgo:active { transform: translateY(5px); box-shadow: 0 2px 0 #a8400f; }
+.fm-wheel button.wgo[disabled] { animation: none; filter: grayscale(0.4) brightness(0.85); cursor: default; }
+.fm-wheel button.wx { position: absolute; right: 14px; top: calc(var(--sat, env(safe-area-inset-top, 0px)) + 12px); width: 44px; height: 44px; border-radius: 50%; border: 3px solid var(--ink); background: #fff; color: var(--ink); font-size: 20px; text-shadow: none; cursor: pointer; }
+.fm-wheel .wres { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 18px 16px; max-width: 340px; border-radius: 24px; border: 4px solid var(--ink); text-align: center;
+  background: linear-gradient(180deg, #ffffff, #e2ecff); color: var(--ink); text-shadow: none; box-shadow: 0 6px 0 var(--ink2), 0 14px 20px rgba(0, 0, 0, 0.4); animation: fmPopIn 0.5s cubic-bezier(.2, 1.4, .4, 1); }
+/* */
+.fm-wheel .wres { position: relative; }
+.fm-wheel .wres .ri { font-size: 46px; line-height: 1; }
+.fm-wheel .wres .rt { font-size: 26px; line-height: 1.05; color: #ff5a1f; }
+.fm-wheel .wres .rd { font-size: 17px; line-height: 1.25; }
+.fm-wheel .wres .rd b { color: #ff5a1f; }
+.fm-wheel .wres button.wok { min-width: 160px; min-height: 52px; border: 3px solid var(--ink); border-radius: 18px; cursor: pointer; font-size: 22px; color: #fff; letter-spacing: 0.06em;
+  background: linear-gradient(180deg, #a6ec6a, #35c46a); box-shadow: 0 5px 0 #1e8a49; text-shadow: 0 2px 0 var(--ink), 1px 1px 0 var(--ink), -1px 1px 0 var(--ink); }
+.fm-wheel .wres button.wok:active { transform: translateY(4px); box-shadow: 0 1px 0 #1e8a49; }
+.fm-wheel.done .wbox { transform: scale(0.82); transition: transform 0.4s; }
+@media (max-height: 640px) { .fm-wheel { gap: 8px; } .fm-wheel .wt { font-size: 28px; } }
+@media (prefers-reduced-motion: reduce) { .fm-wheel button.wgo, .fm-wheel .wbox::before { animation: none; } }
 `;
 
 // ================================================================================================================ helpers
 
+const dayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const fmt = (n) => String(Math.max(0, Math.floor(Number.isFinite(n) ? n : 0))).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 function fmtDist(m) {
   m = Math.max(0, Math.round(m || 0));
@@ -1130,6 +1210,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
   host.appendChild(fxLayer);
 
   const coins = () => (save && Number.isFinite(save.coins) ? save.coins : info.coins || 0);
+  // shop prices always come from save.shopPrice (one-time ŞANS ÇARKI coupon aware); charging goes through save.shopCharge
+  const shopPrice = (base) => { try { return save.shopPrice ? save.shopPrice(base) : base; } catch { return base; } };
+  const couponPct = () => { try { const c = save.coupon && save.coupon(); return c ? c.pct : 0; } catch { return 0; } };
 
   // ============================================================================================ fx helpers
 
@@ -1866,8 +1949,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
         add(r, el('div', 'fm-aico', u.icon), mid);
         if (cost === null) r.appendChild(button('fm-btn sm on', 'MAKS ✓'));
         else {
-          const afford = coins() >= cost;
-          const b = button(`fm-btn${afford ? '' : ' poor'}`, `❄️ ${fmt(cost)}`, () => {
+          const pc = shopPrice(cost);
+          const afford = coins() >= pc;
+          const b = button(`fm-btn${afford ? '' : ' poor'}`, pc < cost ? `❄️ ${fmt(pc)} (%${couponPct()})` : `❄️ ${fmt(cost)}`, () => {
             if (!afford || !meta.buyUpgrade(u.id)) {
               b.classList.add('fm-shake'); sfx('error'); setTimeout(() => b.classList.remove('fm-shake'), 340);
               return;
@@ -1888,8 +1972,9 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       const smid = el('div', 'fm-amid');
       add(smid, el('div', 'fm-an', 'KIZAK'), el('div', 'fm-ad', 'Bir çarpışmayı affeder. Koşuda çift dokunarak kullan.'), el('div', 'fm-ar', `Stok: 🛷 ${meta.sleds()}`));
       add(sr, el('div', 'fm-aico', '🛷'), smid);
-      const afford = coins() >= SLED_PACK.price;
-      const sb = button(`fm-btn blue${afford ? '' : ' poor'}`, `${SLED_PACK.count}'LÜ ❄️ ${SLED_PACK.price}`, () => {
+      const spc = shopPrice(SLED_PACK.price);
+      const afford = coins() >= spc;
+      const sb = button(`fm-btn blue${afford ? '' : ' poor'}`, `${SLED_PACK.count}'LÜ ❄️ ${fmt(spc)}`, () => {
         if (!afford || !meta.buySled(1)) {
           sb.classList.add('fm-shake'); sfx('error'); setTimeout(() => sb.classList.remove('fm-shake'), 340);
           return;
@@ -2938,7 +3023,12 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.globeBdg = el('span', 'fm-bdg dot gold off', '!');
     r.globeLb = el('span', 'glt', 'KAR KÜRESİ');
     add(r.globe, r.globeIc, r.globeBdg, r.globeLb);
-    add(mid, hero, r.globe, r.post);
+    // side rails (Brawl Stars style): Kar Küresi + Yeti Postası + BUGÜN shortcuts, at mid-height beside the ball
+    r.mid = mid;
+    r.railL = el('div', 'fm-rail l');
+    r.railR = el('div', 'fm-rail r');
+    r.rails = add(el('div', 'fm-rails'), r.railL, r.railR);
+    add(mid, hero, r.rails);
     root0.appendChild(mid);
     root0.appendChild(r.aura);
 
@@ -2962,23 +3052,12 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.sum = el('div', 'fm-sum', '');
     r.sum.addEventListener('click', (e) => { e.stopPropagation(); sfx('open'); openDailyTasks(); });
     infoCard.insertBefore(r.sum, infoCard.firstChild);
-    r.today = el('div', 'fm-today');
-    r.tdots = el('div', 'fm-tdots');
+    // SIRADAKİ HEDEF: a slim line inside the GÜNLÜK card (one compact block instead of two)
     r.sgoal = button('fm-sgoal', '', () => { sfx('click'); if (r._sgFn) r._sgFn(); }, 'Sıradaki hedef');
+    r.sgoal.addEventListener('click', (e) => e.stopPropagation());
     r.sgoal.style.display = 'none';
-    root0.appendChild(r.sgoal);
-    r.twrap = add(el('div', 'fm-todaywrap'), r.today, r.tdots);
-    const tScroll = () => {
-      const t = r.today, w = r.twrap, max = t.scrollWidth - t.clientWidth;
-      w.classList.toggle('more-l', t.scrollLeft > 4);
-      w.classList.toggle('more-r', t.scrollLeft < max - 4);
-      const ds = r.tdots.children, n = ds.length;
-      const k = n > 1 && max > 0 ? Math.round((t.scrollLeft / max) * (n - 1)) : 0;
-      for (let i = 0; i < n; i++) ds[i].className = i === k ? 'on' : '';
-    };
-    r.tScroll = tScroll;
-    r.today.addEventListener('scroll', tScroll, { passive: true });
-    root0.appendChild(r.twrap);
+    infoCard.insertBefore(r.sgoal, r.sum.nextSibling);
+    r.twrap = r.rails; // the FTUE gate locks the BUGÜN shortcuts (now the rails) for the first runs
 
     // ---- bottom: OYNA (straight into YETİ RUSH) + ÇIĞ SONSUZ · MACERA · Dolap · Görevler · Ayarlar ----
     const bot = el('div', 'fm-bot');
@@ -2999,6 +3078,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.passBdg = sPass.bdg; r.sPass = sPass.b;
     r.post = button('fm-post', '✉️', () => { sfx('click'); openPostcard(); }, 'Yeti Postası');
     r.postBdg = el('span', 'fm-bdg dot off', '!'); r.post.appendChild(r.postBdg);
+    r.railL.appendChild(r.globe); r.railL.appendChild(r.post);
     const sSet = secBtn('c-set', '⚙️', 'Ayarlar', () => openSettings());
     r.xchip = el('span', 'fm-xchip', ''); r.xchip.style.display = 'none';
     sMis.ic.appendChild(r.xchip);
@@ -3007,6 +3087,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     root0.appendChild(bot);
 
     host.appendChild(root0);
+    { let rt = 0; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (mainOpen && refs) { try { updateMain(); } catch { /* ignore */ } } }, 250); }); }
     wireEggs(r);
     refs = r;
     return r;
@@ -3108,70 +3189,62 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       for (let k = 0; k < Math.max(nT, 1); k++) pips.appendChild(el('i', k < nDone ? 'on' : ''));
       add(r.sum, el('span', 'sl', `GÜNLÜK ${nDone}/${nT}`), pips, rdy ? el('span', 'sr rdy', 'AL') : el('span', 'sr', '🎁'));
     }
-    // BUGÜN strip: live events, each chip is a shortcut
+    // BUGÜN: live events as round shortcuts in the side rails (right rail first, then left under the globe / post)
     try {
-      clear(r.today);
       const chips = [];
-      let gr = false; try { gr = meta.globeReady(); } catch { /* ignore */ }
       try {
         const se = meta.season();
-        const nxt = se.tiers.find((t) => t.state === 'locked');
+        const nxt = se.tiers.find((t) => t.state === "locked");
         const prev = [...se.tiers].reverse().find((t) => t.need <= se.tokens);
         const lo = prev ? prev.need : 0;
         const frac = nxt ? Math.max(0, Math.min(1, (se.tokens - lo) / Math.max(1, nxt.need - lo))) : 1;
         const gf = Math.max(0, Math.min(1, se.claimed / Math.max(1, se.total)));
-        if (se.daysLeft <= 3 && se.msLeft > 0) chips.push(['⏳', `Sezon bitiyor: ${se.msLeft < 86400000 ? Math.max(1, Math.ceil(se.msLeft / 3600000)) + 's' : se.daysLeft + 'g'}`, true, () => openSeason(), 'red']);
-        chips.push({ sez: true, hot: se.ready > 0, frac, gf, text: `${se.tokens} · ${se.claimed}/${se.total}`, fn: () => openSeason() });
+        if (se.daysLeft <= 3 && se.msLeft > 0) chips.push({ ic: "⏳", lb: `Sezon ${se.msLeft < 86400000 ? Math.max(1, Math.ceil(se.msLeft / 3600000)) + "s" : se.daysLeft + "g"}`, red: true, rank: -1, fn: () => openSeason(), aria: "Sezon bitiyor" });
+        chips.push({ sez: true, hot: se.ready > 0, frac, gf, lb: `Sezon ${se.claimed}/${se.total}`, rank: -2, fn: () => openSeason(), aria: "Sezon Avı" });
       } catch { /* ignore */ }
-      try { let dr = null; try { dr = JSON.parse(localStorage.getItem('patpat.dailyRush') || 'null'); } catch { /* ignore */ }
-        const nd = new Date(), tk = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`;
-        const bst = dr && dr.dist > 0 && dr.key === tk ? dr.dist : 0;
-        chips.push(['🏃', bst ? `Günün Rush'ı · ${Math.round(bst)} m` : "Günün Rush'ı", !bst, () => { if (cb.onDailyRush) cb.onDailyRush(); }]);
+      try {
+        if (save.wheelSeen && save.wheelSeen() && save.wheelDay() !== dayKey()) chips.push({ ic: "🎡", lb: "Şans Çarkı", hot: true, rank: 0, fn: () => openWheel(false), aria: "Şans Çarkı" });
       } catch { /* ignore */ }
-      if (gr) chips.push(['🔮', 'Küre hazır', true, () => shakeGlobe()]);
+      try { let dr = null; try { dr = JSON.parse(localStorage.getItem("patpat.dailyRush") || "null"); } catch { /* ignore */ }
+        const bst = dr && dr.dist > 0 && dr.key === dayKey() ? dr.dist : 0;
+        chips.push({ ic: "🏃", lb: bst ? `${Math.round(bst)} m` : "Günün Rush'ı", hot: !bst, rank: 2, fn: () => { if (cb.onDailyRush) cb.onDailyRush(); }, aria: "Günün Rush'ı" });
+      } catch { /* ignore */ }
       const sm = stormOf();
       const sl = sm.ids.filter((i) => !sm.got[i]).length;
-      if (sl) chips.push(['⭐', 'Fırtına x2', true, () => { try { meta.setMode('camp'); } catch { /* ignore */ } openMap(sm.ids.find((i) => !sm.got[i])); }]);
+      if (sl) chips.push({ ic: "⭐", lb: "Fırtına x2", hot: true, rank: 0, fn: () => { try { meta.setMode("camp"); } catch { /* ignore */ } openMap(sm.ids.find((i) => !sm.got[i])); } });
       let wl = 0; try { const w = new Date(); wl = Math.max(0, new Date(w.getFullYear(), w.getMonth(), w.getDate() - ((w.getDay() + 6) % 7) + 7) - w); } catch { /* ignore */ }
       const wd = Math.floor(wl / 86400000);
-      chips.push(['🛒', wd < 1 ? 'Pazar yarın' : `Pazar ${wd}g`, wd < 1, () => { try { localStorage.setItem('patpat.shopTab', 'pazar'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]);
-      if (cb.onDaily && save.cigDailyOpen && save.cigDailyOpen()) chips.push(['🏔', 'Günün Dağı', !(info.dailyBest > 0), () => { try { meta.setMode('daily'); } catch { /* ignore */ } cb.onDaily(); }]);
-      try { const vt = vitrinInfo(save); if (vt && !vt.owned) chips.push(['⭐', 'Vitrin', false, () => { try { localStorage.setItem('patpat.shopTab', 'skin'); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }]); } catch { /* ignore */ }
-      r.today.appendChild(el('span', 'tl', 'BUGÜN'));
-      clear(r.tdots);
-      // priority: hot first, then Sezon, Günün Rush'ı, others (stable); show 3, rest behind a +N chip
-      const isHot = (c) => (c.sez ? c.hot : c[2]);
-      const rank = (c) => (c.sez ? -2 : c[4] === 'red' ? -1 : isHot(c) ? 0 : c.sez ? 1 : /Rush/.test(c[1]) ? 2 : 3);
-      const ordered = chips.map((c, i) => ({ c, i })).sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i).map((o) => o.c);
-      const MAXC = 3;
-      const expanded = !!r._tExp && ordered.length > MAXC;
-      const shown = expanded ? ordered : ordered.slice(0, MAXC);
-      for (const c of shown) {
+      chips.push({ ic: "🛒", lb: wd < 1 ? "Pazar yarın" : `Pazar ${wd}g`, hot: wd < 1, rank: 3, fn: () => { try { localStorage.setItem("patpat.shopTab", "pazar"); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); }, aria: "Yeti Pazarı" });
+      if (cb.onDaily && save.cigDailyOpen && save.cigDailyOpen()) chips.push({ ic: "🏔", lb: "Günün Dağı", hot: !(info.dailyBest > 0), rank: 3, fn: () => { try { meta.setMode("daily"); } catch { /* ignore */ } cb.onDaily(); } });
+      try { const vt = vitrinInfo(save); if (vt && !vt.owned) chips.push({ ic: "👕", lb: "Vitrin", rank: 3, fn: () => { try { localStorage.setItem("patpat.shopTab", "skin"); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); } }); } catch { /* ignore */ }
+      const ordered = chips.map((c, i) => ({ c, i })).sort((x, y) => (x.c.rank - (x.c.hot ? 0.5 : 0)) - (y.c.rank - (y.c.hot ? 0.5 : 0)) || x.i - y.i).map((o) => o.c);
+      // how many fit beside the ball: ~72 px per shortcut; the left rail also carries the Kar Küresi (+ Yeti Postası)
+      let H = 0; try { H = r.mid.clientHeight; } catch { /* ignore */ }
+      if (!(H > 0)) H = 300;
+      const postOn = !r.post.classList.contains("off");
+      const capR = Math.max(1, Math.min(4, Math.floor((H + 9) / 72)));
+      const capL = Math.max(0, Math.min(3, Math.floor((H + 9 - 74 - (postOn ? 54 : 0)) / 72)));
+      for (const n of [...r.railR.children]) n.remove();
+      for (const n of [...r.railL.querySelectorAll(".fm-rc")]) n.remove();
+      const mk = (c) => {
+        const b = button(`fm-rc${c.red ? " red" : c.hot ? " hot" : ""}`, "", () => { sfx("click"); c.fn(); }, c.aria || c.lb);
+        const ri = el("span", "ri");
         if (c.sez) {
-          const b = button(`fm-tchip fm-sz${c.hot ? ' hot' : ''}`, '', () => { sfx('click'); c.fn(); }, 'Sezon Avı');
-          const NS = 'http://www.w3.org/2000/svg', C = 2 * Math.PI * 9;
-          const svg = document.createElementNS(NS, 'svg');
-          svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('class', 'fm-sring');
-          const mk = (t, a) => { const n = document.createElementNS(NS, t); for (const k in a) n.setAttribute(k, a[k]); svg.appendChild(n); return n; };
-          mk('circle', { class: 'bg', cx: 12, cy: 12, r: 9 });
-          mk('circle', { class: 'fg', cx: 12, cy: 12, r: 9, 'stroke-dasharray': `${(C * c.frac).toFixed(1)} ${C.toFixed(1)}` });
-          const tx = mk('text', { x: 12, y: 12.5 }); tx.textContent = '🧣';
-          // scarf fills with colour as season progress grows
-          const g = Math.round(c.gf * 100);
-          tx.setAttribute('style', `filter:grayscale(${100 - g}%) opacity(${(0.55 + 0.45 * c.gf).toFixed(2)})`);
-          b.appendChild(svg); b.appendChild(el('span', '', c.text));
-          r.today.appendChild(b);
-        } else {
-          const [ic, tx, hot, fn] = c;
-          r.today.appendChild(button(`fm-tchip${c[4] === 'red' ? ' red' : hot ? ' hot' : ''}`, `${ic} ${tx}`, () => { sfx('click'); fn(); }));
-        }
-        r.tdots.appendChild(el('i'));
-      }
-      if (ordered.length > MAXC) {
-        r.today.appendChild(button('fm-tchip', expanded ? '−' : `+${ordered.length - MAXC}`, () => { sfx('click'); r._tExp = !r._tExp; try { updateMain(); } catch { /* ignore */ } }));
-        r.tdots.appendChild(el('i'));
-      }
-      r.tScroll(); setTimeout(() => { try { r.tScroll(); } catch { /* ignore */ } }, 60);
+          const NS = "http://www.w3.org/2000/svg", C = 2 * Math.PI * 9;
+          const svg = document.createElementNS(NS, "svg");
+          svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("class", "fm-sring");
+          const mkS = (t, a) => { const n = document.createElementNS(NS, t); for (const k in a) n.setAttribute(k, a[k]); svg.appendChild(n); return n; };
+          mkS("circle", { class: "bg", cx: 12, cy: 12, r: 9 });
+          mkS("circle", { class: "fg", cx: 12, cy: 12, r: 9, "stroke-dasharray": `${(C * c.frac).toFixed(1)} ${C.toFixed(1)}` });
+          const tx = mkS("text", { x: 12, y: 12.5 }); tx.textContent = "🧣";
+          tx.setAttribute("style", `filter:grayscale(${100 - Math.round(c.gf * 100)}%) opacity(${(0.55 + 0.45 * c.gf).toFixed(2)})`);
+          ri.appendChild(svg);
+        } else ri.textContent = c.ic;
+        add(b, ri, el("span", "rl", c.lb));
+        return b;
+      };
+      ordered.slice(0, capR).forEach((c) => r.railR.appendChild(mk(c)));
+      ordered.slice(capR, capR + capL).forEach((c) => r.railL.appendChild(mk(c)));
     } catch { /* ignore */ }
 
     // SIRADAKI HEDEF: single next goal (claimable first, else cheapest unowned item)
@@ -3192,7 +3265,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
           }
         }
         if (bestIt) {
-          const have = save.coins | 0, pr = bestIt.it.price;
+          const have = save.coins | 0, pr = save.shopPrice ? save.shopPrice(bestIt.it.price) : bestIt.it.price; // (coupon aware)
           goal = { name: bestIt.it.name, have, price: pr, frac: Math.min(1, have / pr), ready: have >= pr, fn: () => { try { localStorage.setItem('patpat.shopTab', bestIt.kind); } catch { /* ignore */ } if (cb.onShop) cb.onShop(); } };
         }
       }
@@ -3213,7 +3286,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     // İLK ADIMLAR celebration card (one combined toast on the next menu visit)
     try {
       const fsx = meta.firstSteps();
-      if (fsx.pending.length) { meta.firstStepsSeen(); toast({ icon: '🎁', title: 'İLK ADIMLAR ÖDÜLÜ!', sub: fsx.pending.join(' | '), kind: 'gold', ms: 3600 }); }
+      if (fsx.pending.length && !wheelPending()) { meta.firstStepsSeen(); toast({ icon: '🎁', title: 'İLK ADIMLAR ÖDÜLÜ!', sub: fsx.pending.join(' | '), kind: 'gold', ms: 3600 }); }
     } catch { /* ignore */ }
 
     // next unlock goal
@@ -3314,7 +3387,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     sh(r.globe, runs >= 3, 'globe');
     sh(r.post, runs >= 3, 'post');
     sh(r.sPass, runs >= 3, 'pass');
-    if (runs >= 1 && lsGet('patpat.ftue') !== '1' && !r._ftueBusy) ftueFirstRun(r);
+    if (runs >= 1 && lsGet('patpat.ftue') !== '1' && !r._ftueBusy && !wheelPending()) ftueFirstRun(r); // the ŞANS ÇARKI goes first
   }
   function ftueFirstRun(r) {
     r._ftueBusy = true;
@@ -3357,6 +3430,160 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
       try { confetti(70); sfx('confirm'); } catch { /* ignore */ }
     }
     r.root.appendChild(ov);
+  }
+
+  // ============================================================================================ ŞANS ÇARKI (lucky wheel)
+  // First menu visit: a full-screen wheel whose FIRST spin is rigged to land on İNDİRİM %50 -> a one-time shop coupon
+  // (save.grantCoupon; save.shopPrice / save.shopCharge apply and consume it). Afterwards a free daily spin with normal
+  // rewards lives in the side rail (it can never land on the discount). It shows before the FTUE card / İLK ADIMLAR toast,
+  // never over a run started from the URL (?play / ?cig / ?endless) or in ?debug / ?auto automation unless ?wheel forces it.
+  const WQ = (() => { try { return new URLSearchParams(location.search); } catch { return new URLSearchParams(''); } })();
+  const WHEEL_FORCE = WQ.has('wheel');
+  const WHEEL_BLOCK = !WHEEL_FORCE && ['debug', 'auto', 'play', 'cig', 'endless'].some((k) => WQ.has(k));
+  const WSEG = [
+    { t: 'İNDİRİM', t2: '%50', c: 'url(#fmwD)', disc: true, w: 0 },
+    { t: '❄ 100', coins: 100, c: '#3fc1ff', w: 25 },
+    { t: '💎 2', cr: 2, c: '#b07bff', w: 6 },
+    { t: '❄ 250', coins: 250, c: '#35c46a', w: 12 },
+    { t: '🎁', t2: 'SANDIK', box: 1, c: '#ffae00', w: 8 },
+    { t: '❄ 50', coins: 50, c: '#2f7dff', w: 30 },
+    { t: '💎 1', cr: 1, c: '#ff6fb5', w: 15 },
+    { t: '❄ 500', coins: 500, c: '#ffe14a', dk: true, w: 4 },
+  ];
+  let wheelEl = null, wheelT = 0, wheelForced = WHEEL_FORCE;
+  function wheelPending() {
+    if (WHEEL_BLOCK) return false;
+    if (wheelForced) return true;
+    try { return !!save.wheelSeen && !save.wheelSeen(); } catch { return false; }
+  }
+  function scheduleWheel(delay = 650) {
+    clearTimeout(wheelT);
+    if (wheelEl || !wheelPending()) return;
+    wheelT = setTimeout(() => {
+      if (!mainOpen || wheelEl || !wheelPending()) return;
+      // wait until nothing else is on screen (FTUE splash, a panel, the shop, a result) -- then the wheel is the only popup
+      if (activePanel || modalEl || boxEl || resultEl || worldEl || document.querySelector('.ftue-splash, .fm-ftue, .cs-root')) { scheduleWheel(1500); return; }
+      openWheel(true);
+    }, delay);
+  }
+  function openWheel(first) {
+    if (wheelEl) return;
+    if (!first) { try { if (save.wheelDay() === dayKey()) { toast({ icon: '🎡', title: 'ŞANS ÇARKI', sub: 'Yarın yeniden çevir!', ms: 1800 }); return; } } catch { return; } }
+    sfx('open');
+    const NS = 'http://www.w3.org/2000/svg';
+    const ov = el('div', 'fm-wheel');
+    ov.setAttribute('role', 'dialog');
+    ov.setAttribute('aria-modal', 'true');
+    ov.setAttribute('aria-label', 'Şans Çarkı');
+    const box = el('div', 'wbox');
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '-112 -112 224 224');
+    svg.setAttribute('class', 'wh');
+    const mk = (p, t, a) => { const n = document.createElementNS(NS, t); for (const k in a) n.setAttribute(k, a[k]); p.appendChild(n); return n; };
+    const defs = mk(svg, 'defs', {});
+    const lg = mk(defs, 'linearGradient', { id: 'fmwD', x1: 0, y1: 0, x2: 0, y2: 1 });
+    mk(lg, 'stop', { offset: '0', 'stop-color': '#ff3d6e' });
+    mk(lg, 'stop', { offset: '1', 'stop-color': '#ff8a1f' });
+    mk(svg, 'circle', { r: 108, fill: '#17345c' });
+    const rot = mk(svg, 'g', { class: 'wrot' });
+    const R = 100, P = (deg, r) => { const a = (deg * Math.PI) / 180; return `${(Math.sin(a) * r).toFixed(2)} ${(-Math.cos(a) * r).toFixed(2)}`; };
+    WSEG.forEach((s, i) => {
+      const a0 = i * 45 - 22.5, a1 = i * 45 + 22.5;
+      mk(rot, 'path', { d: `M0 0 L${P(a0, R)} A${R} ${R} 0 0 1 ${P(a1, R)} Z`, fill: s.c, stroke: s.disc ? '#ffe14a' : '#17345c', 'stroke-width': s.disc ? 4 : 2.5 });
+      const g = mk(rot, 'g', { transform: `rotate(${i * 45})` });
+      const t1 = mk(g, 'text', { x: 0, y: s.t2 ? -72 : -64, 'font-size': s.disc ? 14 : s.t === '🎁' ? 24 : 16 });
+      t1.textContent = s.t;
+      if (s.dk) t1.setAttribute('class', 'dk');
+      if (s.t2) { const t2 = mk(g, 'text', { x: 0, y: s.disc ? -52 : -50, 'font-size': s.disc ? 22 : 12 }); t2.textContent = s.t2; }
+    });
+    for (let i = 0; i < 8; i++) mk(svg, 'circle', { cx: P(i * 45 + 22.5, 104).split(' ')[0], cy: P(i * 45 + 22.5, 104).split(' ')[1], r: 3.2, fill: '#fff3b0' });
+    mk(svg, 'circle', { r: 19, fill: '#fff', stroke: '#17345c', 'stroke-width': 4 });
+    const hubT = mk(svg, 'text', { x: 0, y: 1, 'font-size': 18, class: 'dk' }); hubT.textContent = '★';
+    const ptr = document.createElementNS(NS, 'svg');
+    ptr.setAttribute('viewBox', '0 0 38 46');
+    ptr.setAttribute('class', 'wptr');
+    mk(ptr, 'path', { d: 'M4 6 Q19 -2 34 6 L19 44 Z', fill: '#ff3d3d', stroke: '#17345c', 'stroke-width': 3.5, 'stroke-linejoin': 'round' });
+    mk(ptr, 'circle', { cx: 19, cy: 10, r: 4, fill: '#fff' });
+    add(box, svg, ptr);
+    const go = button('wgo', 'ÇEVİR!', () => spin(), 'Çarkı çevir');
+    add(ov, el('div', 'wt', 'ŞANS ÇARKI'), el('div', 'ws', first ? 'Hoş geldin hediyesi: bir kez çevir!' : 'Günlük bedava çevirme'), box, go);
+    if (!first) ov.appendChild(button('wx', '✕', () => { if (!spun) close(); }, 'Kapat'));
+    (host || document.body).appendChild(ov);
+    wheelEl = ov;
+
+    let spun = false, cur = 0;
+    function close() {
+      ov.remove();
+      if (wheelEl === ov) wheelEl = null;
+      if (mainOpen) { try { updateMain(); } catch { /* ignore */ } } // queued FTUE card / İLK ADIMLAR toast follow now
+    }
+    function pick() {
+      const pool = WSEG.map((s, i) => ({ s, i })).filter((o) => o.s.w > 0);
+      let r = Math.random() * pool.reduce((n, o) => n + o.s.w, 0);
+      for (const o of pool) { r -= o.s.w; if (r <= 0) return o.i; }
+      return pool[0].i;
+    }
+    function spin() {
+      if (spun) return;
+      spun = true;
+      go.disabled = true;
+      const idx = first ? 0 : pick();
+      const seg = WSEG[idx];
+      // pay out up front (closing the app mid-spin must not lose / repeat the prize); the reveal follows the animation
+      try {
+        if (first) { wheelForced = false; save.grantCoupon(50); save.markWheelSeen(); save.setWheelDay(dayKey()); } // daily spins start tomorrow
+        else {
+          save.setWheelDay(dayKey());
+          if (seg.coins) save.addCoins(seg.coins);
+          if (seg.cr) meta.addCrystals(seg.cr);
+          if (seg.box) meta.addBoxes(seg.box);
+        }
+      } catch { /* ignore */ }
+      // the chosen segment's centre (+ a small random offset inside it) ends under the top pointer: wheel angle -R ≡ target
+      const target = idx * 45 + (Math.random() * 2 - 1) * 12;
+      const fin = cur + 360 * 6 + ((((-target - cur) % 360) + 360) % 360);
+      const OV = 6, D = 4200, S = 450; // overshoot (deg) stays inside the segment; main ease-out, then settle back
+      const t0 = performance.now();
+      let lastSeg = Math.floor((cur + 22.5) / 45), lastTick = 0;
+      const ease = (k) => 1 - Math.pow(1 - k, 4); // quartic ease-out: fast start, long glide
+      const step = (now) => {
+        if (!ov.isConnected) return;
+        const t = now - t0;
+        let a;
+        if (t < D) a = cur + (fin + OV - cur) * ease(t / D);
+        else if (t < D + S) { const k = (t - D) / S; a = fin + OV - OV * (0.5 - 0.5 * Math.cos(Math.PI * k)); }
+        else a = fin;
+        rot.setAttribute('transform', `rotate(${a.toFixed(2)})`);
+        const sg = Math.floor((a + 22.5) / 45);
+        if (sg !== lastSeg) {
+          lastSeg = sg;
+          if (now - lastTick > 45) { lastTick = now; sfx('click'); ptr.classList.remove('tk'); void ptr.getBoundingClientRect(); ptr.classList.add('tk'); setTimeout(() => ptr.classList.remove('tk'), 110); }
+        }
+        if (t < D + S) { if (hasRAF) requestAnimationFrame(step); else setTimeout(() => step(performance.now()), 16); return; }
+        cur = fin % 360;
+        reveal(seg);
+      };
+      if (hasRAF) requestAnimationFrame(step); else setTimeout(() => step(performance.now()), 16);
+    }
+    function reveal(seg) {
+      ov.classList.add('done');
+      go.remove();
+      const x = ov.querySelector('.wx'); if (x) x.remove();
+      const card = el('div', 'wres');
+      if (seg.disc) {
+        const d = el('div', 'rd');
+        add(d, document.createTextNode('Marketteki ilk alımında '), el('b', '', '%50 İNDİRİM!'));
+        add(card, el('div', 'ri', '🎟'), el('div', 'rt', 'TEBRİKLER!'), d, el('div', 'rd', '🎟 Kuponun Dolap\'ta seni bekliyor.'));
+      } else {
+        const what = seg.coins ? `+${fmt(seg.coins)} ❄️` : seg.cr ? `+${seg.cr} 💎` : '🎁 Kostüm sandığı (+1 kutu)';
+        add(card, el('div', 'ri', seg.coins ? '❄️' : seg.cr ? '💎' : '🎁'), el('div', 'rt', 'TEBRİKLER!'), el('div', 'rd', what), el('div', 'rd', 'Yarın yine çevir!'));
+      }
+      card.appendChild(button('wok', 'TAMAM', () => { sfx('click'); close(); }));
+      ov.appendChild(card);
+      sfx('confirm');
+      confetti(90);
+      burst(card, seg.disc ? '🎉' : seg.coins ? '❄️' : seg.cr ? '💎' : '🎁', 16, 120);
+    }
   }
 
   // ============================================================================================ easter eggs (UI side)
@@ -3620,10 +3847,12 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     refs.root.classList.add('enter');
     setTimeout(() => { if (refs) refs.root.classList.remove('enter'); }, 1000);
     startMainTimers();
+    scheduleWheel();
   }
 
   function hideMain() {
     mainOpen = false;
+    clearTimeout(wheelT);
     stopMainTimers();
     closePanel(true);
     closeResult();

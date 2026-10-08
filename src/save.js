@@ -68,6 +68,9 @@ try {
     }
     if (!Number.isFinite(data.crystals) || data.crystals < 0) data.crystals = 0;
     if (data.perm && typeof data.perm !== 'object') data.perm = {};
+    // ŞANS ÇARKI coupon / wheel flags (older saves simply have none: the wheel shows once, no coupon yet)
+    if (data.coupon && (typeof data.coupon !== 'object' || !Number.isFinite(data.coupon.pct))) data.coupon = { pct: 50, used: true };
+    if (data.wheel && typeof data.wheel !== 'object') data.wheel = {};
   }
 } catch { /* private mode / blocked storage: play without saving */ }
 
@@ -160,8 +163,7 @@ export const save = {
     if (cost == null) return false;
     if (!data.perm) data.perm = {};
     if (Math.min(5, data.perm[id] || 0) >= 5) return false;
-    if (data.coins < cost) return false;
-    data.coins -= cost;
+    if (!save.shopCharge(cost)) return false;
     data.perm[id] = Math.min(5, Math.min(5, data.perm[id] || 0) + 1);
     persist();
     return data.perm[id];
@@ -292,6 +294,33 @@ export const save = {
     persist();
     return true;
   },
+  // ---- shop pricing: EVERY shop purchase goes through shopPrice (display) + shopCharge (payment) ----
+  // A one-time coupon {pct, used} from the ŞANS ÇARKI halves the first purchase; shopCharge consumes it, so it can never apply twice.
+  coupon: () => (data.coupon && !data.coupon.used && data.coupon.pct > 0 ? { pct: data.coupon.pct, used: false } : null),
+  grantCoupon(pct = 50) {
+    if (data.coupon) return false;
+    data.coupon = { pct: Math.max(1, Math.min(90, Math.floor(pct) || 50)), used: false };
+    persist();
+    return true;
+  },
+  shopPrice(base) {
+    base = Number.isFinite(base) ? Math.max(0, Math.floor(base)) : 0;
+    const c = save.coupon();
+    return c && base > 0 ? Math.max(1, Math.round((base * (100 - c.pct)) / 100)) : base;
+  },
+  // base = the item's own (list / offer) price; cur 'coins' | 'crystals'. Returns true when paid.
+  shopCharge(base, cur = 'coins') {
+    const p = save.shopPrice(base);
+    const disc = !!save.coupon() && p < (Number.isFinite(base) ? Math.floor(base) : 0);
+    const ok = cur === 'crystals' ? save.spendCrystals(p) : save.spend(p);
+    if (ok && disc) { data.coupon.used = true; data.coupon.at = Date.now(); persist(); }
+    return ok;
+  },
+  wheelSeen: () => !!(data.wheel && data.wheel.seen),
+  markWheelSeen() { if (!data.wheel) data.wheel = {}; data.wheel.seen = true; persist(); },
+  wheelDay: () => (data.wheel && data.wheel.day) || '',
+  setWheelDay(k) { if (!data.wheel) data.wheel = {}; data.wheel.day = String(k); persist(); },
+
   isOwned: (kind, id) => (data.owned[kind] || []).includes(id),
   own(kind, id) {
     if (!data.owned[kind]) data.owned[kind] = [];
