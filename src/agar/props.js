@@ -4,6 +4,7 @@
 // and respawn later. Everything is instanced per prop type, culled by the camera view and allocation free per frame.
 // Online: the layout comes from the room seed (same on every machine); the host owns which props are alive and sends deltas.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mulberry } from './terrain.js';
 import { CFG, MASS, fallbackMass } from '../config.js';
 
@@ -28,7 +29,12 @@ const G_TREEB = ['pine_big', 'pine_big', 'k_pine_a_big', 'k_pine_b_big', 'k_pine
 const G_ROCK = ['boulder', 'k_rock_a', 'k_rock_b', 'k_rock_c', 'k_rock_d', 'k_rock_snow'];
 const G_DOWN = ['apartment', 'apartment', 'hotel', 'clocktower', 'water_tower', 'house_tall', 'apartment', 'shop'];
 const EXTRA_NAMES = ['rock_big', 'hotel', 'apartment', 'clocktower', 'gondola_station', 'water_tower', 'lift_pylon', 'cabin', 'sled', 'skier', 'snowmobile', 'kiosk', 'k_pine_a_big'];
-const NAMES = Array.from(new Set([].concat(G_SMALL, G_MID, G_HOUSE, G_CAR, G_BIGCAR, G_TREE, G_TREEB, G_ROCK, G_DOWN, EXTRA_NAMES)));
+// winter / town extras, built below from primitives (no asset change). Tons per prop, same scale as MASS in config.js.
+const WIN_MASS = { w_snowman_mini: 0.06, w_sled_wood: 0.04, w_gift_big: 0.03, w_noel_tree: 1.6, w_ice_statue: 1.2, w_hut_winter: 30, w_tram: 14, w_snowman_giant: 22, w_snowman_gold: 60 };
+// [name, count, min distance, max distance] from the map centre, appended after the whole old layout
+const WIN_PLACE = [['w_snowman_mini', 110, 15, 900], ['w_sled_wood', 60, 40, 900], ['w_gift_big', 70, 40, 900], ['w_noel_tree', 45, 120, 900], ['w_ice_statue', 35, 150, 900], ['w_hut_winter', 30, 180, 900], ['w_tram', 20, 250, 900], ['w_snowman_giant', 10, 300, 900], ['w_snowman_gold', 3, 300, 800]];
+const WIN_NAMES = Object.keys(WIN_MASS);
+const NAMES = Array.from(new Set([].concat(G_SMALL, G_MID, G_HOUSE, G_CAR, G_BIGCAR, G_TREE, G_TREEB, G_ROCK, G_DOWN, EXTRA_NAMES, WIN_NAMES)));
 const ID = new Map();
 NAMES.forEach((n, i) => ID.set(n, i));
 const NT = NAMES.length;
@@ -56,6 +62,81 @@ function wmy(a, p, x, y, z, s, c, sn) {
   a[p + 12] = x; a[p + 13] = y; a[p + 14] = z; a[p + 15] = 1;
 }
 
+// ------------------------------------------------------------------ winter / town extras: cheap vertex-coloured primitives (boxes, cylinders, spheres)
+const _wm = new THREE.Matrix4(), _we = new THREE.Euler(), _wc = new THREE.Color();
+const W_WHITE = 0xf4f8ff, W_DARK = 0x1f2430, W_RED = 0xe8362f, W_WOOD = 0x8a5a2b, W_GOLD = 0xffc83d, W_CARROT = 0xff7a1a, W_GREEN = 0x1f8a4c, W_ICE = 0xbfe9ff, W_YEL = 0xffd166, W_BLUE = 0x9ed8ff;
+/** a tiny builder: every part is centred at (x, y, z) in model units, merged into one geometry with a colour per vertex */
+function winKit() {
+  const list = [];
+  const put = (geo, x, y, z, col, rx, ry, rz) => {
+    const g = geo.toNonIndexed();
+    g.deleteAttribute('uv');
+    _wm.makeRotationFromEuler(_we.set(rx || 0, ry || 0, rz || 0)).setPosition(x, y, z);
+    g.applyMatrix4(_wm);
+    const n = g.attributes.position.count, arr = new Float32Array(n * 3);
+    _wc.setHex(col);
+    for (let i = 0; i < n; i++) { arr[i * 3] = _wc.r; arr[i * 3 + 1] = _wc.g; arr[i * 3 + 2] = _wc.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    list.push(g);
+  };
+  return {
+    list,
+    box: (w, h, d, x, y, z, col) => put(new THREE.BoxGeometry(w, h, d), x, y, z, col),
+    cyl: (rt, rb, h, seg, x, y, z, col, rx, ry, rz) => put(new THREE.CylinderGeometry(rt, rb, h, seg), x, y, z, col, rx, ry, rz),
+    sph: (r, x, y, z, col) => put(new THREE.SphereGeometry(r, 7, 5), x, y, z, col),
+  };
+}
+/** a snowman of scale s with body colour col (hat, scarf, carrot nose, eyes) */
+function winKardan(k, s, col) {
+  k.sph(0.4 * s, 0, 0.4 * s, 0, col); k.sph(0.3 * s, 0, 0.8 * s, 0, col); k.sph(0.22 * s, 0, 1.17 * s, 0, col);
+  k.cyl(0.25 * s, 0.25 * s, 0.08 * s, 8, 0, 0.96 * s, 0, W_RED);
+  k.cyl(0.2 * s, 0.2 * s, 0.03 * s, 8, 0, 1.33 * s, 0, W_DARK); k.cyl(0.12 * s, 0.12 * s, 0.24 * s, 8, 0, 1.45 * s, 0, W_DARK);
+  k.cyl(0, 0.04 * s, 0.26 * s, 4, 0, 1.15 * s, 0.2 * s, W_CARROT, Math.PI / 2, 0, 0);
+  k.box(0.06 * s, 0.06 * s, 0.05 * s, -0.08 * s, 1.24 * s, 0.21 * s, W_DARK); k.box(0.06 * s, 0.06 * s, 0.05 * s, 0.08 * s, 1.24 * s, 0.21 * s, W_DARK);
+}
+let _winLib = null;
+/** the winter / town geometries, built once and shared by every arena */
+function winLib() {
+  if (_winLib) return _winLib;
+  const out = {};
+  const mk = (name, fn) => { const k = winKit(); fn(k); const geometry = mergeGeometries(k.list, false); geometry.computeBoundingBox(); geometry.translate(0, -geometry.boundingBox.min.y, 0); geometry.computeBoundingBox(); geometry.computeBoundingSphere(); out[name] = { name, geometry, radius: geometry.boundingSphere.radius, height: geometry.boundingBox.max.y }; };
+  mk('w_snowman_mini', (k) => winKardan(k, 0.5, W_WHITE));
+  mk('w_snowman_giant', (k) => winKardan(k, 4, W_WHITE));
+  mk('w_snowman_gold', (k) => winKardan(k, 1, W_GOLD));
+  mk('w_sled_wood', (k) => { // kizak: two runners, four posts, a wooden deck with a red stripe
+    k.box(0.9, 0.05, 0.14, 0, 0.06, 0.27, W_DARK); k.box(0.9, 0.05, 0.14, 0, 0.06, -0.27, W_DARK);
+    for (const sx of [-0.4, 0.4]) for (const sz of [-0.25, 0.25]) k.box(0.06, 0.26, 0.06, sx, 0.22, sz, W_WOOD);
+    k.box(0.9, 0.06, 0.6, 0, 0.36, 0, W_WOOD); k.box(0.92, 0.03, 0.2, 0, 0.41, 0, W_RED);
+  });
+  mk('w_gift_big', (k) => { // hediye kutusu: a big red box with gold ribbons and a bow
+    k.box(0.9, 0.8, 0.9, 0, 0.4, 0, W_RED); k.box(0.12, 0.82, 0.92, 0, 0.4, 0, W_GOLD); k.box(0.92, 0.82, 0.12, 0, 0.4, 0, W_GOLD);
+    k.sph(0.1, -0.1, 0.86, 0, W_GOLD); k.sph(0.1, 0.1, 0.86, 0, W_GOLD); k.sph(0.07, 0, 0.84, 0, W_GOLD);
+  });
+  mk('w_noel_tree', (k) => { // noel agaci: trunk, three cones, a star and baubles
+    k.cyl(0.12, 0.12, 0.5, 6, 0, 0.25, 0, W_WOOD);
+    k.cyl(0, 0.9, 0.9, 7, 0, 0.95, 0, W_GREEN); k.cyl(0, 0.7, 0.8, 7, 0, 1.4, 0, W_GREEN); k.cyl(0, 0.5, 0.7, 7, 0, 1.8, 0, W_GREEN);
+    k.cyl(0, 0.12, 0.12, 5, 0, 2.2, 0, W_GOLD);
+    k.sph(0.07, 0.3, 0.9, 0.2, W_RED); k.sph(0.07, -0.25, 1.3, 0.22, W_GOLD); k.sph(0.07, 0.2, 1.7, -0.25, W_RED); k.sph(0.07, -0.15, 1.45, -0.3, 0xffffff);
+  });
+  mk('w_ice_statue', (k) => { // buz heykeli: plinth, column, head and an arm
+    k.box(0.9, 0.25, 0.9, 0, 0.125, 0, W_ICE); k.cyl(0.3, 0.36, 1.4, 8, 0, 0.95, 0, W_ICE);
+    k.sph(0.28, 0, 1.9, 0, W_ICE); k.box(0.2, 0.7, 0.2, 0.42, 1.2, 0, W_ICE);
+  });
+  mk('w_hut_winter', (k) => { // kulube: log walls, a snow roof, a door and two windows
+    k.box(2.6, 1.8, 2.6, 0, 0.9, 0, 0x8b5e34);
+    k.cyl(0, 1.9, 1.3, 4, 0, 2.45, 0, W_WHITE, 0, Math.PI / 4, 0);
+    k.box(0.5, 1.0, 0.06, 0, 0.5, 1.33, W_DARK); k.box(0.5, 0.5, 0.06, -0.8, 1.0, 1.33, W_YEL); k.box(0.5, 0.5, 0.06, 0.8, 1.0, 1.33, W_YEL);
+  });
+  mk('w_tram', (k) => { // tramvay: long yellow body, a red stripe, a roof, side windows and wheels
+    k.box(4.2, 0.3, 1.9, 0, 0.3, 0, W_DARK); k.box(4.2, 1.7, 1.9, 0, 1.3, 0, 0xffc21a); k.box(4.22, 0.3, 1.92, 0, 1.0, 0, W_RED);
+    k.box(4.1, 0.15, 1.8, 0, 2.22, 0, 0xdfe6ee); k.box(0.02, 0.9, 1.4, 2.11, 1.5, 0, W_BLUE);
+    for (const x of [-1.5, -0.5, 0.5, 1.5]) for (const z of [-0.96, 0.96]) k.box(0.7, 0.6, 0.02, x, 1.6, z, W_BLUE);
+    for (const x of [-1.4, 1.4]) for (const z of [-0.98, 0.98]) k.cyl(0.28, 0.28, 0.2, 8, x, 0.28, z, W_DARK, Math.PI / 2, 0, 0);
+  });
+  _winLib = out;
+  return out;
+}
+
 const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v1 = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _ax = new THREE.Vector3();
 const _o = { x: 0, y: 0, z: 0 };
 /** rotate (vx,vy,vz) by the quaternion (qx,qy,qz,qw) into _o */
@@ -68,7 +149,7 @@ function rotQ(qx, qy, qz, qw, vx, vy, vz) {
 
 export class ArenaProps {
   constructor(game, scene, lib, R, maxM) {
-    this.g = game; this.scene = scene; this.lib = lib || {}; this.R = R; this.maxM = maxM;
+    this.g = game; this.scene = scene; this.lib = Object.assign({}, lib || {}, winLib()); this.R = R; this.maxM = maxM;
     this.mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
     this.n = 0;
     this.prx = new Float32Array(PMAX); this.prz = new Float32Array(PMAX); this.pcs = new Float32Array(PMAX); this.psn = new Float32Array(PMAX);
@@ -125,7 +206,7 @@ export class ArenaProps {
         this.tdiag[t] = Math.hypot(Math.max(Math.abs(b.min.x), Math.abs(b.max.x)), Math.max(Math.abs(b.min.z), Math.abs(b.max.z)));
         this.maxExt = Math.max(this.maxExt, this.tdiag[t] * SK * 1.7);
       }
-      const m = MASS[NAMES[t]];
+      const m = MASS[NAMES[t]] !== undefined ? MASS[NAMES[t]] : WIN_MASS[NAMES[t]];
       this.tmass[t] = m !== undefined ? m : fallbackMass(this.tr[t]);
       this.setupType(t);
       any = true;
@@ -270,6 +351,10 @@ export class ArenaProps {
     for (let k = 0; k < 520; k++) { const a = rng() * 6.2832, d = Math.sqrt(rng()) * (R - 40); add(pick(G_SMALL), Math.cos(a) * d, Math.sin(a) * d, rr(0, 6.28), rr(0.9, 1.25)); }
     for (let k = 0; k < 130; k++) { const a = rng() * 6.2832, d = Math.sqrt(rng()) * (R - 40); if (d < 110) continue; add(pick(G_MID), Math.cos(a) * d, Math.sin(a) * d, rr(0, 6.28), rr(0.9, 1.2)); }
     for (let k = 0; k < 44; k++) { const a = rng() * 6.2832, d = Math.sqrt(rng()) * (R - 40); if (d < 260) continue; add(k % 9 === 0 ? 'rock_big' : k % 3 === 0 ? pick(G_BIGCAR) : pick(G_HOUSE), Math.cos(a) * d, Math.sin(a) * d, rr(0, 6.28), 1); }
+    // --- winter / town extras (appended last: the old layout and its prop indices stay the same for every seed)
+    for (const [nm, cnt, dLo, dHi] of WIN_PLACE) {
+      for (let k = 0; k < cnt; k++) { const a = rng() * 6.2832, d = dLo + (dHi - dLo) * Math.sqrt(rng()); add(nm, Math.cos(a) * d, Math.sin(a) * d, rr(0, 6.28), rr(0.9, 1.15)); }
+    }
     // grid + per prop numbers
     for (let i = 0; i < this.n; i++) {
       const c = clampN(((this.prx[i] + R) / PGS) | 0, 0, PGN - 1) * PGN + clampN(((this.prz[i] + R) / PGS) | 0, 0, PGN - 1);
