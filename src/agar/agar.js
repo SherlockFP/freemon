@@ -689,6 +689,7 @@ export class AgarMode {
 
   respawnMe() {
     this.closeResult();
+    if (this.hud.btns) this.hud.btns.style.display = '';
     if (this.mp === 'client') { this.net && this.net.send({ t: 'respawn' }); this.titleIdx = 0; this.msIdx = 0; this.lastMyMass = 0; this.state = 'play'; this.owners[this.me].t0 = this.time; this.owners[this.me].maxMass = 0; this.owners[this.me].bestRank = 99; return; }
     const o = this.owners[this.me];
     o.bot = false;
@@ -1942,7 +1943,7 @@ export class AgarMode {
   closeResult() { if (this.resultEl) { this.resultEl.remove(); this.resultEl = null; } }
 
   // ------------------------------------------------------------------ title / lobby screens
-  clearScreen() { clearInterval(this._brT); this._brRender = null; if (this.screenEl) { this.screenEl.remove(); this.screenEl = null; } }
+  clearScreen() { clearInterval(this._brT); this._brRender = null; if (this.screenEl) { this.screenEl.remove(); this.screenEl = null; } if (this.hud.btns && !this.ghost) this.hud.btns.style.display = ''; }
 
   /** wallet pills: the player's PATPAT snowflakes + crystals */
   wallet() {
@@ -1955,6 +1956,7 @@ export class AgarMode {
   /** card(title, back?) - back: a function makes a round '←' button in the corner (same look as the main menu's back/close) */
   card(title, back) {
     this.clearScreen();
+    if (this.hud.btns) this.hud.btns.style.display = 'none'; // no BÖL/FIRLAT/HIZLAN over menus
     const el = document.createElement('div');
     el.className = 'ag-screen';
     const card = document.createElement('div');
@@ -1983,10 +1985,11 @@ export class AgarMode {
   nickInput(card) {
     const inp = document.createElement('input');
     inp.className = 'ag-inp'; inp.maxLength = 12; inp.placeholder = 'Takma adın'; inp.value = this.nick; inp.autocomplete = 'off';
+    inp.style.cssText = 'flex:1 1 auto;min-width:0;width:auto;max-width:220px';
     inp.addEventListener('input', () => { this.nick = inp.value.slice(0, 12); lsSet(NICK_KEY, this.nick); });
     if (!inp.value.trim()) { inp.value = generateNames(1, [])[0].slice(0, 12); this.nick = inp.value; lsSet(NICK_KEY, this.nick); }
-    const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;align-items:center;justify-content:center';
-    const dice = document.createElement('button'); dice.type = 'button'; dice.className = 'ag-btn'; dice.textContent = '🎲'; dice.title = 'Rastgele isim'; dice.style.cssText = 'flex:0 0 auto;min-width:48px;padding:6px 10px';
+    const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;align-items:center;justify-content:center;width:100%;max-width:290px;margin:0 auto';
+    const dice = document.createElement('button'); dice.type = 'button'; dice.className = 'ag-btn'; dice.textContent = '🎲'; dice.title = 'Rastgele isim'; dice.style.cssText = 'flex:0 0 auto;width:auto;min-width:48px;padding:6px 10px';
     dice.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('click'); inp.value = generateNames(1, [])[0].slice(0, 12); this.nick = inp.value; lsSet(NICK_KEY, this.nick); });
     row.appendChild(inp); row.appendChild(dice); card.appendChild(row);
     return inp;
@@ -2122,14 +2125,26 @@ export class AgarMode {
       else st.textContent = on + (['◐', '◓', '◑', '◒'][spin % 4]) + ' ' + (p && p.ok ? 'Odalar aranıyor...' : 'Bağlanılıyor...');
       list.textContent = '';
       if (!rooms.length) {
-        const d = document.createElement('div'); d.className = 'ag-sub'; d.textContent = 'Açık oda yok — bir tane kur!'; list.appendChild(d);
+        const d = document.createElement('div'); d.className = 'ag-empty';
+        d.innerHTML = '<div style="font-size:34px;line-height:1">🏔️</div><b>Şu an açık oda yok</b><span>HIZLI OYNA ile hemen oda kur — botlar dolduracak, arkadaşların kodla katılabilir.</span>';
+        d.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 10px;margin:4px 0 8px;border-radius:14px;background:rgba(10,30,70,.35);color:#eaf6ff;text-align:center;font-size:13px';
+        list.appendChild(d);
         return;
       }
       const now = Date.now();
+      rooms.sort((a, b) => (a.n >= a.max) - (b.n >= b.max) || b.n - a.n);
+      const hd = document.createElement('div'); hd.style.cssText = 'display:flex;justify-content:space-between;font-size:11px;letter-spacing:.08em;color:#cfe6ff;padding:0 6px 4px'; hd.innerHTML = '<span>ODA</span><span>OYUNCU</span>'; list.appendChild(hd);
       for (const r of rooms) {
         const full = r.n >= r.max;
         const b = document.createElement('button'); b.type = 'button'; b.className = 'ag-btn blue room';
-        b.textContent = (full ? '⛔ ' : '▶ ') + r.name + ' · ' + r.n + '/' + r.max + ' · ' + Math.max(0, Math.round((now - r.ts) / 1000)) + 's';
+        b.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:8px 12px;margin:0 0 6px;opacity:' + (full ? '.55' : '1');
+        const nm = document.createElement('span'); nm.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px'; nm.textContent = (full ? '⛔ ' : '🟢 ') + r.name;
+        const bar = document.createElement('span'); bar.style.cssText = 'flex:none;width:54px;height:7px;border-radius:4px;background:rgba(255,255,255,.25);overflow:hidden';
+        const fill = document.createElement('i'); fill.style.cssText = 'display:block;height:100%;width:' + Math.round(100 * Math.min(1, r.n / r.max)) + '%;background:' + (full ? '#ff6b6b' : '#7dff9a'); bar.appendChild(fill);
+        const cnt = document.createElement('span'); cnt.style.cssText = 'flex:none;font-size:13px;min-width:40px;text-align:right'; cnt.textContent = r.n + '/' + r.max;
+        const go = document.createElement('span'); go.style.cssText = 'flex:none;font-size:12px;padding:3px 9px;border-radius:9px;background:' + (full ? '#5a6b8c' : '#ff7a2f'); go.textContent = full ? 'DOLU' : 'KATIL';
+        b.append(nm, bar, cnt, go);
+        b.title = Math.max(0, Math.round((now - r.ts) / 1000)) + ' sn önce görüldü';
         b.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('click'); if (full) { this.toast('Oda dolu'); return; } this.doJoin(r.code, () => this.openBrowser()); });
         list.appendChild(b);
       }

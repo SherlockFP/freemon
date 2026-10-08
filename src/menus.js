@@ -965,9 +965,9 @@ const CSS = `
   .fm-main *, .fm-ov *, .fm-modal *, .fm-boxov *, .fm-plov *, .fm-resov *, .fm-toast { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
 /* home focus: ARENA secondary, GÜNLÜK progress card */
-.fm-main .fm-arena { width: min(100%, 300px); padding: 4px 12px; gap: 8px; margin: 0 auto; background: transparent !important; box-shadow: none !important; border: 2px solid rgba(255, 255, 255, 0.55); border-radius: 16px; }
+.fm-main .fm-arena { width: min(100%, 300px); padding: 4px 12px; gap: 8px; margin: 0 auto; background: transparent !important; box-shadow: none !important; border: 2px solid rgba(255, 255, 255, 0.55); border-radius: 16px; color: #fff; }
 .fm-main .fm-arena .ico { font-size: 18px; }
-.fm-main .fm-arena b { font-size: 14px; text-shadow: none; letter-spacing: 0.06em; }
+.fm-main .fm-arena b { font-size: 14px; color: #fff; text-shadow: var(--ol-sm); letter-spacing: 0.06em; }
 .fm-main .fm-arena small { display: none; }
 .fm-main .fm-arena:active { transform: translateY(2px); }
 .fm-sum { gap: 8px; border-radius: 12px; cursor: pointer; }
