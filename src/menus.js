@@ -49,6 +49,8 @@ const CSS = `
 .fm-main button, .fm-ov button, .fm-modal button, .fm-boxov button, .fm-plov button, .fm-resov button {
   font-family: inherit; font-weight: inherit; letter-spacing: inherit; margin: 0; color: inherit; text-shadow: inherit; -webkit-appearance: none; appearance: none;
 }
+.fm-main button.fm-sgoal { margin: 0 auto 8px; text-shadow: none; }
+.fm-main button.fm-tchip { text-shadow: none; }
 .fm-main button:focus, .fm-ov button:focus, .fm-modal button:focus, .fm-boxov button:focus, .fm-plov button:focus, .fm-resov button:focus { outline: none; }
 .fm-main button:focus-visible, .fm-ov button:focus-visible, .fm-modal button:focus-visible, .fm-boxov button:focus-visible, .fm-plov button:focus-visible, .fm-resov button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 .fm-ol { text-shadow: var(--ol); }
@@ -254,7 +256,7 @@ const CSS = `
 .fm-hgoal .gb i { display: block; height: 100%; background: linear-gradient(90deg, #ffe066, #ff9a3a); }
 .fm-hgoal .gc { flex: none; font-size: 11.5px; color: var(--gold); text-shadow: none; white-space: nowrap; }
 .fm-sgoal { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; margin: 0 auto 8px; width: min(calc(100% - 24px), 380px); box-sizing: border-box; border-radius: 14px; border: 2.5px solid var(--ink); background: #fff; color: var(--ink); font-size: 13px; font-weight: 800; cursor: pointer; text-align: left; text-shadow: none; flex: none; }
-.fm-sgoal .sg-t { flex: none; font-size: 10px; letter-spacing: 0.06em; opacity: 0.6; }
+.fm-sgoal .sg-t { flex: none; font-size: 10.5px; letter-spacing: 0.06em; opacity: 0.85; }
 .fm-sgoal .sg-n { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fm-sgoal .sg-b { flex: none; width: 56px; height: 9px; border-radius: 5px; background: rgba(0, 0, 0, 0.15); overflow: hidden; }
 .fm-sgoal .sg-b i { display: block; height: 100%; background: linear-gradient(90deg, #ffb300, #ff7a1a); }
