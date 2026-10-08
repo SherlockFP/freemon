@@ -1074,3 +1074,16 @@ Genel 7.4 · Rush 7.5 · ÇIĞ 7.1 · Arena 6.8 · Menü 7.2
 - Menü: "SIRADAKİ HEDEF" çipi (önce alınabilir ödül "AL: …", yoksa en ucuz eşya ❄ ilerlemesi); Sezon çipi hep görünür + son 3 gün kırmızı geri sayım; Görevler'de birleşik rozet.
 - HATA DÜZELTİLDİ: sezon skin/iz ödülleri yanlış anahtarla verildiği için hiç sahiplenilmiyordu.
 - Bildirimler (yalnız native): seri tehlikede (20 sa), Günün Rush'ı (ertesi gün 10:00), sezon bitiyor; izin 2. koşudan sonra. Android için `npx cap sync` gerekli.
+
+## Döngü 27 — değerlendirme (oynanış & his)
+Genel 7.4 · Rush 7.5 · ÇIĞ 7.1 · Arena 6.8 · Menü 7.2 — çökme yok.
+- Arena: bot kütle tavanı (220) yüzünden liderlik tablosu "220, 220, 220…" düz duvar; sahte görünüyor, avlanacak "büyük balık" yok. Oyuncu bir botu yuttuğunda yalnızca ses + akış satırı var: agar.io türünün asıl zevki olan yutma anı ödülsüz.
+- ÇIĞ: kombo 100-300'e çıkıyor ama x15 yazısından başka karşılığı yok; zinciri korumanın oynanışa etkisi hissedilmiyor.
+- Rush: zaten ÖFKE, kart kapısı, fırtına tüneli var; bu döngüde dokunulmadı.
+
+### Döngü 27 — sonuçlar
+- ÇIĞ ÇILGINLIĞI: x40 komboda (sonra her +80'de, en az 10 sn arayla) 4 sn çılgınlık: emme ×1.45, büyüme +%15, ton ×1.5, hız +%10, mavi/pembe kıvılcım + hız çizgileri. Kapı kırmaz (boyut kontrolleri anlamını korur). Ölçüm: L3/L12/L22'de 2/3/5 çılgınlık, yıldızlar değişmedi (3/2/3).
+- Arena YUTUŞ SERİSİ: her lokmada "+N" yazısı; 6 sn içinde art arda yutuşlar ÇİFTE / ÜÇLÜ / DÖRTLÜ / DURDURULAMAZ + kütle bonusu, kamera vuruşu, titreşim; sonuç kartında "EN İYİ SERİ".
+- Arena bot kişilikleri: her bot dinamik tavanın 0.55–1.6 katında dengeleniyor; 40 sn'de ilk 10: 483/397/379/352/328/299/241… (önce 272/270/220×5).
+- Smoke (t_c1) + hedefli test hatasız; build OK. Puan tahmini: Genel 7.5 · Rush 7.5 · ÇIĞ 7.3 · Arena 7.1 · Menü 7.2.
+- Sırada: Rush'ta yeni içerik (8 için), ÇIĞ seviye başında ipucu/çip çakışması, arena çılgınlık/seri için görsel halka.
