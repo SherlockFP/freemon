@@ -864,7 +864,8 @@ export function openShop({ save, onClose, onSelect } = {}) {
 
   // ---- item state ----
   function vitOf(it) { if (kind !== 'skin') return null; const v = vitrinInfo(save); return v && v.id === it.id ? v : null; }
-  function priceOf(it) { const v = vitOf(it); return v ? v.price : it.price; }
+  function basePriceOf(it) { const v = vitOf(it); return v ? v.price : it.price; }
+  function priceOf(it) { return save.shopPrice ? save.shopPrice(basePriceOf(it)) : basePriceOf(it); }  // ŞANS ÇARKI coupon applied
   function stateOf(it) {
     const stars = starsOf(save);
     const need = (it.unlock && it.unlock.stars) || 0;
@@ -907,7 +908,7 @@ export function openShop({ save, onClose, onSelect } = {}) {
     }
     let bought = false;
     if (st.needsBuy) {
-      if (!save.spend(priceOf(it))) { anim(card, 'shake', 340); return; }
+      if (!(save.shopCharge ? save.shopCharge(basePriceOf(it)) : save.spend(priceOf(it)))) { anim(card, 'shake', 340); return; }
       save.own(kind, it.id);
       bought = true;
     } else if (!st.owned) {
@@ -941,7 +942,7 @@ export function openShop({ save, onClose, onSelect } = {}) {
     else if (st.owned) { label = 'SEÇ'; cls = 'pick'; }
     else if (st.secret) { label = 'GİZLİ'; cls = 'lock'; }
     else if (st.locked) { label = `⭐ ${st.need} gerekli`; cls = 'lock'; }
-    else if (st.needsBuy) { label = `❄️ ${fmt(priceOf(it))}`; cls = st.canAfford ? '' : 'poor'; }
+    else if (st.needsBuy) { label = `❄️ ${fmt(priceOf(it))}` + (priceOf(it) < basePriceOf(it) ? ' · %50' : ''); cls = st.canAfford ? '' : 'poor'; }
     else { label = 'SEÇ'; cls = 'pick'; }
     const btn = h('button', `cs-btn ${cls}`.trim(), label);
     btn.setAttribute('type', 'button');
@@ -1010,7 +1011,7 @@ export function openShop({ save, onClose, onSelect } = {}) {
     plist.appendChild(h('div', 'cs-sec', 'GÜÇ SÜRELERİ'));
     for (const u of POWER_UPGRADES) {
       const lv = meta.upgradeLevel(u.id);
-      const cost = meta.upgradeCost(u.id);
+      const cost0 = meta.upgradeCost(u.id), cost = cost0 > 0 && save.shopPrice ? save.shopPrice(cost0) : cost0;
       const sec = (x) => String(x).replace('.', ','); // 3.5 -> 3,5 (Turkish decimal comma)
       const cur = sec(meta.duration(u.id));
       const nxt = lv < MAX_LV ? sec(u.durations[lv + 1]) : null;
@@ -1037,7 +1038,8 @@ export function openShop({ save, onClose, onSelect } = {}) {
     pzTimer = setInterval(() => { if (closed || kind !== 'pazar') { clearInterval(pzTimer); return; } const w = isoWeekInfo(); left.textContent = '  ⏳ ' + fmtLeft(w.msLeft); if (w.key !== wk.key) renderPazar(); }, 30000);
     for (const o of weeklyOffers(save, wk)) {
       const done = bought.includes(o.id) || (o.kind !== 'bundle' && save.isOwned(o.kind, o.item.id));
-      const afford = o.cur === 'crystals' ? save.crystals() >= o.price : save.coins >= o.price;
+      const op = save.shopPrice ? save.shopPrice(o.price) : o.price;
+      const afford = o.cur === 'crystals' ? save.crystals() >= op : save.coins >= op;
       const desc = o.kind === 'bundle' ? o.tag + ' · 💎 ' + o.price + ' karşılığı' : o.tag + ' · eski fiyat ❄️ ' + fmt(o.was);
       const row = h('div', 'cs-up');
       row.appendChild(h('div', 'ui', o.icon));
@@ -1045,12 +1047,12 @@ export function openShop({ save, onClose, onSelect } = {}) {
       mid.appendChild(h('div', 'un', o.name));
       mid.appendChild(h('div', 'ud', desc));
       row.appendChild(mid);
-      const btn = h('button', done ? 'cs-btn on' : 'cs-btn' + (afford ? '' : ' poor'), done ? (o.kind === 'bundle' ? 'ALINDI ✓' : 'SENDE ✓') : o.cur === 'crystals' ? '💎 ' + o.price : '❄️ ' + fmt(o.price));
+      const btn = h('button', done ? 'cs-btn on' : 'cs-btn' + (afford ? '' : ' poor'), done ? (o.kind === 'bundle' ? 'ALINDI ✓' : 'SENDE ✓') : (o.cur === 'crystals' ? '💎 ' + op : '❄️ ' + fmt(op)) + (op < o.price ? ' · %50' : ''));
       btn.setAttribute('type', 'button');
       if (!done) btn.addEventListener('click', () => {
         let ok = false;
         try {
-          ok = afford && (o.cur === 'crystals' ? save.spendCrystals(o.price) : save.spend(o.price));
+          ok = afford && (save.shopCharge ? save.shopCharge(o.price, o.cur === 'crystals' ? 'crystals' : 'coins') : (o.cur === 'crystals' ? save.spendCrystals(o.price) : save.spend(o.price)));
           if (ok) { if (o.kind === 'bundle') save.addCoins(o.coins); else save.own(o.kind, o.item.id); pzMark(wk, o.id); }
         } catch { ok = false; }
         if (!ok) { anim(row, 'shake', 340); sfx(); return; }
