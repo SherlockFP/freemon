@@ -1008,3 +1008,12 @@ html, body {
 .res-extra .rx-next .rg-goal { font-size: 16px; }
 
 .hud-coins .rec-gap { color: var(--gold); font-size: 11px; font-weight: 900; letter-spacing: 0.04em; }
+
+/* Cycle 28 — calm Yeti Rush screen: one small combo chip, no drain/flow bars, small top-edge messages, nothing big over the road */
+#hud.rush .cmb-bar, #hud.rush .hud-flow { display: none !important; }
+#hud.rush .cmb .ch { font-size: 12px; height: 20px; line-height: 20px; }
+#hud.rush .cmb.t2 .cmb-n, #hud.rush .cmb.t3 .cmb-n, #hud.rush .cmb.t4 .cmb-n { animation: none; }
+#hud.rush .cmb.t4 .ch.k { box-shadow: none; }
+#banner.runner { top: calc(var(--sat) + 150px); }
+#banner.runner .b, #banner.runner .b.l4, #banner.runner .b.l5 { font-size: 26px; }
+#hud.rush ~ #floats .float.big, #hud.rush ~ #floats .float.bad { font-size: 20px; }

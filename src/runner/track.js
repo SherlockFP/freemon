@@ -203,7 +203,7 @@ export class Track {
   _init() {
     this.rng = makeRng((this.seed ^ 0x9e3779b9) >>> 0);
     this.laneN = 3;
-    this._wideAt = 400 + ((Math.sin((this.seed || 1) + 1) * 43758.5453) % 1 + 1) % 1 * 250; this._wideEnd = 0; this._bonusAt = 800; this._bonusN = 0;
+    this._wideAt = 700 + ((Math.sin((this.seed || 1) + 1) * 43758.5453) % 1 + 1) % 1 * 250; this._wideEnd = 0; this._bonusAt = 800; this._bonusN = 0;
     this.sBase = 0;
     const sp0 = Math.sin(T.START_PITCH), cp0 = Math.cos(T.START_PITCH);
     // per-sample channels: position, heading (yaw/pitch, for curvature), tangent, up (incl. roll), roll
@@ -577,6 +577,9 @@ Object.assign(Track.prototype, {
 
     let kind = sEst >= this._nextSet && !this.zoneAt(sEst) && this.rng.chance(0.8) ? this._pickSet(sEst, diff) : null;
     if (!kind) kind = this._pickKind(sEst, diff, this._qSince);
+    // Full vertical loops are no longer generated: from the inside, a 5.5-11 m ring fills the screen with track whatever the
+    // camera does. A gentle rolling-hills section (waves) takes their slot. (A loop pushed into _q by hand still builds — tests.)
+    if (kind === 'loop') kind = 'waves';
     this._qSince = HAZARD[kind] ? 0 : this._qSince + 1;
     return kind;
   },
@@ -823,6 +826,8 @@ Object.assign(Track.prototype, {
   },
   /** +1 = widen now, -1 = narrow now, 0 = neither. Wide sections (4 or 5 lanes) alternate with 3-lane ones. */
   _laneDue(s0) {
+    // narrowing back to 3 is never held up by a zone / junction window: a wide section always stays short
+    if (this.laneN !== 3) return s0 >= this._wideEnd && !this._finished ? -1 : 0;
     if (!this._laneOk(s0)) return 0;
     if (this.laneN === 3) return s0 >= this._wideAt && !(this._nextCorner > s0 - 1 && this._nextCorner - s0 < 170) ? 1 : 0;
     return s0 >= this._wideEnd ? -1 : 0;
@@ -842,17 +847,17 @@ Object.assign(Track.prototype, {
       p = this._spec('finish', s0, diff, bNow, true);
     } else if ((lw = this._laneDue(s0)) !== 0) {
       const oldN = this.laneN;
-      this.laneN = lw > 0 ? (this.rng.chance(Math.min(0.8, 0.4 + s0 / 5000)) ? 5 : 4) : 3;
+      this.laneN = lw > 0 ? (s0 > 3000 && this.rng.chance(0.25) ? 5 : 4) : 3;     // mostly 3 -> 4; 5 only now and then late
       p = this._spec('straight', s0, diff, bNow, false);
       const nn = this.laneN, hA = hwFor(oldN), hB = hwFor(nn);
       p.dYaw = 0; p.noObs = true; p.curb = true; p.edge = 'wall';
       if (lw > 0) {
         p.len = 44; p.s1 = s0 + 44; p.n = nn; p.widen = nn; p.hw = hB; p.halfWidth = hB; p.hwAt = (s) => hA + (hB - hA) * smooth((s - p.s0 - 4) / 34);
-        this._wideEnd = s0 + 44 + this.rng.range(150, 280);
+        this._wideEnd = s0 + 44 + this.rng.range(40, 80);       // SHORT burst: ~60-100 m at full width, ~140-180 m incl. the transitions
       } else {
         // narrowing: the piece keeps the wide lanes (n = old) while the outer lanes close; funnel arrows telegraph them, the runner pushes the ball inward
         p.len = 56; p.s1 = s0 + 56; p.n = oldN; p.narrow = oldN; p.hw = hA; p.halfWidth = hA; p.hwAt = (s) => hA + (hB - hA) * smooth((s - p.s0 - 14) / 34);
-        this._wideAt = s0 + 56 + this.rng.range(600, 1000);
+        this._wideAt = s0 + 56 + this.rng.range(700, 1100);     // at most one wide burst per ~700+ m, never back-to-back
       }
     } else if (this._bonusDue(s0)) {
       const air = this._bonusN++ % 3 === 1, vs = this.speedAt(s0 + 40);
@@ -1084,6 +1089,17 @@ Object.assign(Track.prototype, {
   },
 
   /** Alternating glow/dark blocks across the full width between s=a..b (hazard lip) or one solid bar. */
+  /** Dark abyss under a jump gap (far cliff face + floor) so the hole reads as a hole, not a flat band of sky colour. */
+  _abyss(mb, a, b, hw, C) {
+    const f = this._f, D = -12, W = hw + 1.5, col = scl(C.under, 0.35);
+    this._fr(0.5 * (a + b));
+    const ux = f[5], uy = f[6], uz = f[7];
+    this._P(a, -W, D, VP[0]); this._P(a, W, D, VP[1]); this._P(b, W, D, VP[2]); this._P(b, -W, D, VP[3]);
+    mb.quad(VP[0], VP[1], VP[2], VP[3], ux, uy, uz, col);
+    this._P(b, -W, -0.05, VP[0]); this._P(b, W, -0.05, VP[1]); this._P(b, W, D, VP[2]); this._P(b, -W, D, VP[3]);
+    mb.quad(VP[0], VP[1], VP[2], VP[3], -f[8], -f[9], -f[10], col);
+  },
+
   _bandU(mb, a, b, hw, C, solid) {
     const nb = solid ? 1 : Math.max(2, Math.round((2 * hw) / 0.6)), bw = (2 * hw) / nb, f = this._f;
     this._fr(0.5 * (a + b));
@@ -1141,6 +1157,7 @@ Object.assign(Track.prototype, {
         this._rampTop(mb, p, C);
         this._slab(mb, { a: p.gapS1, b: p.s1, hwf: hfB, hTop: zero, curb: p.curb, C, rng, capA: true, top: 'snow' });
         this._bandU(mb, p.gapS1, p.gapS1 + 1.2, p.hw, C);
+        this._abyss(mb, p.gapS0, p.gapS1, p.hw, C);
         break;
       }
       case 'gapJump': {
@@ -1149,6 +1166,7 @@ Object.assign(Track.prototype, {
         this._bandU(mb, p.gapS0 - 1.2, p.gapS0, p.hw, C);
         this._slab(mb, { a: p.gapS1, b: p.s1, hwf: hfB, hTop: zero, curb: p.curb, C, rng, capA: true, top: 'snow' });
         this._bandU(mb, p.gapS1, p.gapS1 + 1.2, p.hw, C);
+        this._abyss(mb, p.gapS0, p.gapS1, p.hw, C);
         break;
       }
       case 'split': case 'hexHoles': {

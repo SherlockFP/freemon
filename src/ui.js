@@ -385,10 +385,10 @@ REKOR −${this._rg} m`;
     if (!el) {
       if (!q) return;
       el = this._cvEl = document.createElement('div');
-      el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:4;opacity:0;transition:opacity .25s;background:radial-gradient(ellipse at center,rgba(255,0,0,0) 55%,rgba(220,20,20,.75) 100%)';
+      el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:4;opacity:0;transition:opacity .25s;background:radial-gradient(ellipse at center,rgba(255,0,0,0) 68%,rgba(220,20,20,.6) 100%)';
       document.body.appendChild(el);
     }
-    el.style.opacity = String(q * 0.8);
+    el.style.opacity = String(q * 0.5);
   }
 
   // Missions block (3 rows + multiplier) for the result screens. Drains the queued notices.
@@ -685,7 +685,7 @@ REKOR −${this._rg} m`;
     const el = this.speedEl || (this.speedEl = document.getElementById('speedlines'));
     const v = Math.max(0, Math.min(1, k));
     const q = Math.round(v * 10) / 10;
-    if (q !== this.lastSpeed) { this.lastSpeed = q; el.style.opacity = String(q * 0.85); }
+    if (q !== this.lastSpeed) { this.lastSpeed = q; el.style.opacity = String(q * 0.4); }
   }
 
   // No full-screen white flash: every kind is a soft edge vignette ('hit' red, 'gold' gold, the rest barely-there white).
@@ -787,10 +787,11 @@ REKOR −${this._rg} m`;
     if (c.classList.contains('broke')) return;
     const n = this._cmN >= 3 ? this._cmN : 0, mu = this._mu || 0;
     if (!n) { if (c.classList.contains('on')) c.className = 'cmb'; return; }
-    this._cmK.textContent = n ? `${this._cmT >= 3 ? '🔥 ' : ''}KOMBO x${n}` : '';
+    // ONE small chip: 'KOMBO x34 · x5' (the multiplier rides inside it, no second chip, no drain bar)
+    this._cmK.textContent = n ? `KOMBO x${n}${mu > 1 ? ` · x${Math.round(mu * 10) / 10}` : ''}` : '';
     this._cmK.style.display = n ? '' : 'none';
-    this._cmM.textContent = mu > 1 ? `x${Math.round(mu * 10) / 10}` : '';
-    this._cmM.style.display = mu > 1 ? '' : 'none';
+    this._cmM.textContent = '';
+    this._cmM.style.display = 'none';
     this._cmM.className = `ch m m${Math.min(4, Math.max(0, Math.floor(mu) - 1))}`;
     if (!n) { const lv = mu >= 6 ? 3 : mu >= 4 ? 2 : mu >= 3 ? 1 : 0; c.className = `cmb on t${lv} nobar`; }
   }

@@ -1415,9 +1415,9 @@ SK.carnival = {
 };
 
 // [type, weight, min budget, biome families (null = all)]; rock / cabin are the lethal ones, their share is driven by lethalK(d)
-const STATIC_W = [['snowman', 2.0, 0, null], ['sign', 1.2, 0, null], ['crate', 1.8, 0, null], ['stone', 2.2, 0, null],
+const STATIC_W = [['snowman', 2.0, 0, null], ['sign', 1.2, 0, null], ['crate', 1.8, 0, null], ['stone', 1.3, 0, null],
   ['sled', 0.9, 0.1, { snow: 1, forest: 1, ice: 1, town: 1, desert: 1, volcano: 1, aurora: 1, glacier: 1 }], ['logpile', 0.9, 0.2, { snow: 1, forest: 1, volcano: 1, town: 1, bamboo: 1 }], ['pine', 1.1, 0.1, { snow: 1, forest: 1, ice: 1, aurora: 1, bamboo: 1, glacier: 1, carnival: 1 }],
-  ['rock', 0.4, 0.18, null], ['cabin', 0.5, 0.3, null]];
+  ['rock', 0.15, 0.25, null], ['cabin', 0.3, 0.3, null]];
 const BIOME_IDS = ['snow', 'forest', 'greenhill', 'kapadokya', 'town', 'desert', 'icecave', 'candy', 'sakura', 'istanbul', 'neon', 'moon', 'pirate', 'volcano', 'aurora', 'bamboo', 'glacier', 'carnival'];   // same order as biomes.js
 const POWERS = ['magnet', 'x2', 'superjump', 'rocket', 'helmet', 'timewarp', 'ghost', 'risk', 'clone', 'cannon'];
 // zone multipliers of the row-pattern weights (default 1); the zone's own patterns also ignore the difficulty gate
@@ -1450,7 +1450,7 @@ const LANE_T = 0.35;                   // reaction time per lane change (s) at t
 const PILES_PER_TIER = 6;              // piles that heal one size tier (runner: 4 / 6 / 8 / 11 by tier)
 const rowRate = (s) => (0.56 + 0.8 * (1 - Math.exp(-s / 1900))) * (1 + 0.26 * smooth(s / 1500)) * (0.8 + 0.2 * smooth(s / 1100));     // design rows / s (hardness 1); x1.3 compensates the structural calm (breathers, junctions, hazard run-outs): measured ~0.65 @ 0.5 km, ~1.1 @ 2 km, ~1.4 @ 4 km
 const tensionMul = (ph) => 1.22 - 0.38 * smooth(ph / BUILD_T);           // row gap multiplier over the build: calm 1.22 -> intense 0.84
-const lethalK = (d) => (d < 0.18 ? 0 : 0.4 + 1.7 * smooth((d - 0.18) / 0.62));      // multiplier of the lethal blockers' weights (<= ~30% share)
+const lethalK = (d) => (d < 0.18 ? 0 : 0.3 + 1.0 * smooth((d - 0.18) / 0.62));      // multiplier of the lethal blockers' weights (<= ~30% share)
 const HARD_PAT = { double: 1, train: 1, mover: 1, rolling: 1, beat: 1, swing: 1, oncoming: 1, slide: 1, combo: 1, laser: 1, missile: 1, phrase: 1, turret: 1, pensled: 1 };
 const LETHAL_KIND = { oncoming: 1, slidewall: 1, missile: 1 };
 const SINGLE_VERB = { single: 1, low: 1, duck: 1, rest: 1 };            // round sections (loop, corkscrew, helix, half-pipe, tube): one verb per row
@@ -1667,8 +1667,8 @@ Object.assign(Obstacles.prototype, {
       // ROCKS (small stone / big boulder): one lane only, never in consecutive rows, >= 2.5 s apart, never near hard / slide / ice / junction / forced pieces
       const RK_BAN = { oncoming: 1, slide: 1, combo: 1, ice: 1, melt: 1, conveyor: 1, rail: 1, missile: 1, laser: 1 };
       const rockNear = !!(lastR && (lastR.rock || RK_BAN[lastR.pat]) && (s - lastR.s) / vs < 2.0);
-      plan.rockOk = s >= 500 && !hardEnd && !forcedNext && !o.firstOnly && !o.noLethal && !plan.zone && free0.length >= 2 && !tightRow && !rockNear && !(lastR && lastR.hard && (s - lastR.s) / vs < 2.0)
-        && (s - (this._lastRockS === undefined ? -1e9 : this._lastRockS)) / vs >= 2.5 && !this._forcedStretch(s - vs * 2, s + vs * 2);
+      plan.rockOk = s >= 800 && !!plan.piece && plan.piece.kind === 'straight' && s - plan.piece.s0 > Math.max(30, vs * 2) && !hardEnd && !forcedNext && !o.firstOnly && !o.noLethal && !plan.zone && free0.length >= 2 && !tightRow && !rockNear && !(lastR && lastR.hard && (s - lastR.s) / vs < 2.0)
+        && (s - (this._lastRockS === undefined ? -1e9 : this._lastRockS)) / vs >= 5 && !this._forcedStretch(s - vs * 2, s + vs * 2);
       const zone = plan.zone, zmap = zone ? ZONE_M[zone] : null, zown = zone ? ZONE_OWN[zone] : null;
       const split2 = (tm & bit(NL >> 1)) !== 0;            // a persistent blocker in the middle lane splits the track: only jump / duck / floor patterns then
       const wantCrit = s >= this._nextCrit && !only && F.critters !== false && T.allows('critters') && this.critters && room > 30 && free0.length >= 2 && !tightRow && !zone;
@@ -1690,14 +1690,14 @@ Object.assign(Obstacles.prototype, {
           case 'low': return 2.6;
           case 'train': return dz >= 0.25 && persist.length === 0 && room > 30 && s + 26 <= lim && allowed.length === NL ? 0.8 + 0.8 * dz + (dense ? 0.4 : 0) : 0;
           case 'mover': return dz >= 0.1 && free0.length >= 2 && room > 6 && free0.some((l) => free0.indexOf(l + 1) >= 0) ? 1.1 : 0;
-          case 'rolling': return dz >= 0.2 && room > 18 && persist.length === 0 && s + 30 <= lim && free0.length >= 2 ? 0.8 : 0;
+          case 'rolling': return dz >= 0.3 && room > 18 && persist.length === 0 && s + 30 <= lim && free0.length >= 2 ? 0.35 : 0;
           case 'beat': return dz >= 0.25 && room > 6 && open3 ? 0.9 + (dense ? 0.5 : 0) : 0;
           case 'swing': return dz >= 0.3 && room > 6 && free0.length >= 2 ? 0.8 : 0;
           case 'ice': return dz >= 0.05 ? 0.5 : 0;
           case 'melt': return plan.biomeId === 'desert' || plan.biomeId === 'volcano' ? 1.6 : (dz >= 0.3 ? 0.12 : 0);
           case 'conveyor': return F.conveyor !== false && dz >= 0.15 ? 0.6 : 0;
           case 'rail': return T.allows('rail') && dz >= 0.2 && room > 30 ? 0.5 : 0;
-          case 'oncoming': return plan.lethalOk && T.allows('oncoming') && dz >= 0.2 && room > 22 && !forcedNext && s + 52 <= lim && persist.length === 0 && free0.length >= 2 ? 1.8 + 1.6 * dz : 0;
+          case 'oncoming': return plan.lethalOk && T.allows('oncoming') && dz >= 0.2 && room > 22 && !forcedNext && s + 52 <= lim && persist.length === 0 && free0.length >= 2 ? 1.0 + 0.8 * dz : 0;
           case 'duck': return T.allows('duck') && dz >= 0.04 && room > 8 ? 1.5 + 0.8 * dz : 0;
           case 'slide': return plan.lethalOk && slideOk && T.allows('slideWall') && dz >= 0.3 && s >= 1200 && room > 12 && adj ? 0.45 + 0.4 * dz : 0;
           case 'combo': return plan.lethalOk && slideOk && late && T.allows('oncoming') && T.allows('slideWall') && room > 40 && !forcedNext && s + 66 <= lim && persist.length === 0 && open3 ? 1.6 : 0;
@@ -2297,7 +2297,10 @@ Object.assign(Obstacles.prototype, {
           // rows on every plain piece (curves at 70% density); before pieces that force a lane the rows stop early so the player has time to take it
           const rowEnd = s1 - (forced ? Math.max(10, 0.6 * vdP + 3) : T.finishS === s1 ? 14 : 2);   // calm approach to the finish line
           const prev = T.pieces[T.pieces.length - 2], after = prev && (prev.kind === 'split' || prev.kind === 'hexHoles' || prev.kind === 'narrow');
-          let rowStart = s0 + (after ? Math.max(6, 0.4 * vdP + 3) : 3), padFlight = 0;
+          // a calm run-out after turns, loops, round sections and jumps (landing / re-orienting is never punished by a row)
+          const calm = prev && (prev.kind === 'junction' || prev.kind === 'loop' || prev.kind === 'corkscrew' || prev.kind === 'helix' || prev.kind === 'halfpipe' || prev.kind === 'tube'
+            || prev.kind === 'gapRamp' || prev.kind === 'gapJump' || prev.kind === 'skiJump' || prev.kind === 'chasm' || prev.kind === 'zipline' || prev.kind === 'iceBridge');
+          let rowStart = s0 + (calm ? Math.max(14, 1.1 * vdP) : after ? Math.max(6, 0.4 * vdP + 3) : 3), padFlight = 0;
           // spring pad / jump pad (+ coin arc): rows resume after the landing
           if (!early && !dense && kind === 'straight' && s0 >= TEACH_END && rng.chance(0.14 + 0.1 * plan.diff)) {
             const vs = T.speedAt(s0 + 10), spring = F.spring !== false && rng.chance(0.65);
@@ -2379,7 +2382,7 @@ Object.assign(Obstacles.prototype, {
       if (s0 >= 150 && normal && s1 > this.next.power) {
         const k = wpick(rng, POWERS, (x) => this.powerW[x] ?? 1) || 'magnet', s = freeS(mid);
         this._powerUp(plan, k, s, rng.chance(0.5) ? offRoute(s) : laneOf(route(s)));
-        this.next.power = s + rng.range(420, 520);
+        this.next.power = s + rng.range(560, 720);
       }
       if (s0 >= 450 && normal && !plan.zone && s1 - s0 > 36 && s1 > (this.next.sball ?? 0) && T.allows('critters')) {
         const sc = freeS(mid + 6), l = rng.int(0, NL - 1), sg = rng.chance(0.5) ? 1 : -1;
@@ -3269,7 +3272,7 @@ Object.assign(Obstacles.prototype, {
   _updateDyn(dt, ball) {
     const T = this.track, hk = this.hk();
     // automatic throws: from ~1200 m (boss levels: from the start) at a rate that grows with hardness
-    const boss = (T.level && T.level.boss) || (T.zoneAt && T.zoneAt(ball.s) === 'boss'), start = boss ? (T.level && T.level.boss ? 150 : 0) : 1800 / Math.sqrt(hk);
+    const boss = (T.level && T.level.boss) || (T.zoneAt && T.zoneAt(ball.s) === 'boss'), start = boss ? (T.level && T.level.boss ? 150 : 0) : 2600 / Math.sqrt(hk);
     if (T.allows('boulder') && ball.s >= start && !(T.finishS < Infinity && ball.s > T.finishS - 90)) {
       if (!this._bArmed) { this._bArmed = true; this.nextBoulder = this.time + 5 + this.rng.next() * 6; }
       else if (this.time >= this.nextBoulder) {
@@ -3280,7 +3283,7 @@ Object.assign(Obstacles.prototype, {
         const pl = laneOf(ball.u);
         const got = this.throwBoulder(rng.chance(0.5) ? pl : rng.int(0, NL - 1), sLand);
         const diff = T._diff ? T._diff(ball.s) : 0.5;
-        this.nextBoulder = this.time + (got < 0 ? 1.2 : (boss ? rng.range(10, 18) : rng.range(110, 190) / (0.8 + 0.6 * diff)) / hk);
+        this.nextBoulder = this.time + (got < 0 ? 1.2 : (boss ? rng.range(10, 18) : rng.range(170, 260) / (0.8 + 0.4 * diff)) / hk);
         }
       }
     }

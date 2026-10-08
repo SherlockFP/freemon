@@ -71,8 +71,8 @@ export const RCFG = {
   meltRamp: 4000,
   meltGrace: 4,          // s: no melting at the start of a run
   // Buff cards.
-  buffFirst: [29, 31],   // first card of a run
-  buffEvery: [45, 60],   // then one every ... seconds of play (and at every checkpoint)
+  buffFirst: [40, 45],   // first card gate of a run
+  buffEvery: [65, 80],   // then one every ... seconds of play (~1200 m at mid-run speed; checkpoints no longer add one)
   // Junctions.
   juncMinSecs: 0.9,      // the turn window is never shorter than this (seconds at the current speed)
   // Head-on hits with the BIG solid things (rock, cabin, snow car, oncoming car, sliding wall, missile) end the run — a shield
@@ -382,7 +382,7 @@ export class Runner {
     this.later = [];          // delayed callbacks that follow game time (and die with the run)
     this.rage = null;         // "YETİ ÖFKESİ" mini-boss { s0, B, t, n, crashes0 }
     this.rageCount = 0;
-    this.zone = null;      // staged rule change { kind, from, until, name, announced }
+    this.zone = null; this._rainDone = false;      // staged rule change { kind, from, until, name, announced }
     this.inZone = null;
     this.warned = null;
     this.floatT = -9; this.floatSeen = new Map(); this.floatPend = null; this._bnSeen = new Map();
@@ -527,6 +527,7 @@ export class Runner {
 
   // ---------- frame ----------
   update(rdt) {
+    if (this._rcpEl && this.state === 'play') this._rcpKill();
     if (this.state === 'idle') return;
     if (rdt > 0.1) rdt = 0.1;
     const play = this.state === 'play';
@@ -601,7 +602,7 @@ export class Runner {
     if (pc.n !== LANES.length) { setLanes(pc.n); this.lane = this.laneSnap(this.lane); }
     if (pc.widen && pc.s0 > (this.widenS ?? -1)) { this.widenS = pc.s0; this.float('ŞERİT AÇILDI!', 'big'); this.kick += 1.5; }
     if (pc.narrow) {
-      if (pc.s0 > (this.narrowS ?? -1)) { this.narrowS = pc.s0; this.float('ŞERİT DARALDI', 'big'); this.kick += 1.5; }
+      if (pc.s0 > (this.narrowS ?? -1)) { this.narrowS = pc.s0; this.kick += 1; }
       // the outer lanes close: a ball in a closing lane is pushed one lane inward at a time (never killed by the narrowing)
       if (pc.hwAt && this.lane !== 0) {
         const lim = pc.hwAt(Math.min(pc.s1 - 0.5, b.s + 7)) - 1.4 + 0.01;
@@ -653,7 +654,7 @@ export class Runner {
     this.duckT -= dt;
 
     // ---- speed: downhill pace + size bonus; rocket overrides ----
-    const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1) * (this.riskT > 0 ? 1.45 : 1) * (this.cardRiskT > 0 ? 1.08 : 1) * (this.slideT > 0 ? (this.abil === 'buzejder' ? 1.4 : 1.2) : 1) * (this.rhythm ? this.rhythm.speedK : 1);
+    const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1) * (this.riskT > 0 ? 1.45 : 1) * (this.cardRiskT > 0 ? 1.04 : 1) * (this.slideT > 0 ? (this.abil === 'buzejder' ? 1.4 : 1.2) : 1) * (this.rhythm ? this.rhythm.speedK : 1);
     if (b.vs < top) b.vs = Math.min(top, b.vs + RCFG.accel * dt);
     else b.vs = Math.max(top, b.vs - RCFG.accel * 0.6 * dt);
     this.invulnT -= dt;
@@ -1101,8 +1102,7 @@ export class Runner {
     const poleG = this._gatePoleG || (this._gatePoleG = new THREE.CylinderGeometry(0.07, 0.07, 3.6, 5).translate(0, 1.8, 0));
     const poleM = this._gatePoleM || (this._gatePoleM = new THREE.MeshLambertMaterial({ color: 0xffffff }));
     const planeG = this._gatePlaneG || (this._gatePlaneG = new THREE.PlaneGeometry(2.8, 2.1));
-    g.userData.mats = []; g.userData.cards = []; g.userData.strips = [];
-    const stripG = this._gateStripG || (this._gateStripG = new THREE.PlaneGeometry(RCFG.laneW * 0.9, 12).rotateX(-Math.PI / 2));
+    g.userData.mats = []; g.userData.cards = [];
     for (let i = 0; i < 2; i++) {
       const c = cards[i], x = us[i];
       let mat;
@@ -1123,12 +1123,9 @@ export class Runner {
       } else mat = new THREE.MeshBasicMaterial({ color: c.risky ? 0xd8352a : 0x2a9d5c, side: THREE.DoubleSide });
       g.userData.mats.push(mat);
       const m = new THREE.Mesh(planeG, mat);
-      m.position.set(x, 4.7, 0); m.scale.setScalar(1.4);
+      m.position.set(x, 3.4, 0); m.scale.setScalar(1.2);
       g.add(m); g.userData.cards.push(m);
-      const sm = new THREE.MeshBasicMaterial({ color: c.risky ? 0xff3b30 : 0x2fd36b, transparent: true, opacity: 0.4, depthWrite: false });
-      g.userData.mats.push(sm);
-      const st = new THREE.Mesh(stripG, sm); st.position.set(x, 0.07, 6); g.add(st); g.userData.strips.push(st);
-      for (const dx of [-2.0, 2.0]) { const p = new THREE.Mesh(poleG, poleM); p.position.set(x + dx, 0, 0); p.scale.y = 1.35; g.add(p); }
+      for (const dx of [-1.75, 1.75]) { const p = new THREE.Mesh(poleG, poleM); p.position.set(x + dx, 0, 0); g.add(p); }
     }
     tr.frame(gs, _f);
     tr.toWorld(gs, 0, 0, _v);
@@ -1148,7 +1145,7 @@ export class Runner {
     const G = this.gate, b = this.b;
     G.t += dt;
     const cs = G.g.userData.cards, pu = 1 + 0.03 + 0.03 * Math.sin(G.t * 5);
-    for (let k = 0; k < cs.length; k++) { cs[k].position.y = 4.7 + 0.12 * Math.sin(G.t * 2.2 + k * 1.7); cs[k].scale.setScalar(1.4 * pu); }
+    for (let k = 0; k < cs.length; k++) { cs[k].position.y = 3.4 + 0.08 * Math.sin(G.t * 2.2 + k * 1.7); cs[k].scale.setScalar(1.2 * pu); }
     if (!G.done) {
       G.clrT -= dt;
       if (G.clrT <= 0) { G.clrT = 0.4; this.obstacles.clearRange?.(G.s - 15, G.s + 15); }
@@ -1159,10 +1156,9 @@ export class Runner {
         if (i >= 0) {
           const c = G.cards[i];
           this.grantBuff(c.def, c.secs);
-          this.ctx.ui.banner?.(`${c.risky ? 'RİSKLİ KART' : 'KART'}: ${c.def.name.toLocaleUpperCase('tr-TR')}${c.risky ? '!' : ''}`, 4);
-          this.ctx.ui.flash?.(c.risky ? 'hit' : 'gold');
-          this.burst(18, c.risky ? 0xff5040 : 0xffe066, 6);
-          if (c.risky) { this.cardRiskT = 30; this.gap = Math.max(3, this.gap - 3); }
+          this.ctx.ui.toastSoft?.(`${c.def.icon} ${c.def.name.toLocaleUpperCase('tr-TR')}${c.risky ? ' · RİSKLİ' : ''}`, { prio: 2 });
+          this.burst(10, c.risky ? 0xff5040 : 0xffe066, 4);
+          if (c.risky) { this.cardRiskT = 20; this.gap = Math.max(4, this.gap - 2); }
           G.g.visible = false;
         }
         this.gateRelease();
@@ -1172,7 +1168,6 @@ export class Runner {
 
   gateRelease() {
     this.ctx.ui.holdCentre?.(false);
-    if (this._recPend) { this._recPend = false; this.queueBanner('YENİ REKOR!', 5, 1.6, true); }
   }
 
   killGate() {
@@ -1371,22 +1366,17 @@ export class Runner {
     if (!this.passedDist && b.s > this.bestDist) {
       this.passedDist = true;
       this.rcpAdd('rec');
-      if (this.gate && !this.gate.done) this._recPend = true; else this.queueBanner('YENİ REKOR!', 5, 1.6, true);
-      ui.flash?.('gold');
+      // ONE record moment per run: a single top-edge toast (the HUD's score-record toast counts as it), never a centre banner
+      if (!ui._recShown) { ui._recShown = true; ui.toastSoft?.(`★ YENİ REKOR! +${RCFG.recCoins} ❄️`, { prio: 2 }); }
       audio.win();
       platform.haptic('success');
-      this.ctx.menus?.confetti?.(60);
       if (!this.level) {
         this.newRecT = 4;
         this.coins += RCFG.recCoins;
-        this.after(0.5, () => this.float(`+${RCFG.recCoins} ❄️`, 'big'));
       }
     }
     if (this.newRecT > 0) this.newRecT -= dt;
-    if (!this.passedScore && this.score > this.bestScore) {
-      this.passedScore = true;
-      this.float('REKOR SKOR!', 'big');
-    }
+    if (!this.passedScore && this.score > this.bestScore) this.passedScore = true;   // the HUD shows the one score-record toast
     ui.runnerRecord?.(this.bestDist, b.s);
     this.placeRecordFlag();
     this.landmarkTick();
@@ -1510,7 +1500,6 @@ export class Runner {
     platform.haptic('success');
     ui.runnerGoalPop?.();
     this.after(1.1, () => audio.milestone(Math.min(5, 2 + (layer >> 1))));
-    if (!this.level) this.buffT = Math.min(this.buffT, 0.01);      // the checkpoint card (granted as soon as it is calm)
     this.ctx.meta?.track?.('layer', { layer: layer + 1 });
   }
 
@@ -1554,7 +1543,7 @@ export class Runner {
   }
 
   rageTick(dt) {
-    if (this.level || this.layer < 2) return;       // campaign has no layers (its boss levels throw their own boulders)
+    if (this.level || this.layer < 2 || this.layer % 2) return;   // campaign has no layers; endless: only every 2nd layer (2, 4, 6 …)
     const b = this.b, L = RCFG.layerLen;
     const B = (Math.floor(b.s / L) + 1) * L;
     let r = this.rage;
@@ -1570,7 +1559,7 @@ export class Runner {
     if (!this.rageOk() || this.stumbleT > 0) { r.t = 0.6; return; }   // never pile a boulder onto a stumble / a corner
     const sLand = b.s + b.vs * 1.8 + 9;             // lands ~9 m ahead of where you will be
     if (sLand > B - 6) { r.t = 1; return; }          // the last boulder lands before the boundary
-    if (this.rageCount === 0 && r.n >= 2) { r.t = 2; return; }      // the first barrage of a run is just two boulders
+    if (r.n >= (this.rageCount === 0 ? 2 : 3)) { r.t = 2; return; }  // a barrage is 2 boulders (first) / 3 at most
     const NLn = LANES.length, pl = Math.round(this.lane + (NLn - 1) / 2);
     const lane = Math.random() < 0.5 ? pl : (pl + 1 + ((Math.random() * (NLn - 1)) | 0)) % NLn;
     if (this.obstacles.throwBoulder(lane, sLand) < 0) { r.t = 0.8; return; }
@@ -1600,17 +1589,23 @@ export class Runner {
 
   // Every layer the rules change (Jetpack Joyride-style zones) — announced ahead so you wonder what's next.
   stageZone(layer) {
+    // Plain running is the default: a zone only on every 2nd layer (1.2 km apart), and the coin-rain bonanza at most once per run
+    // and never before ~1.5 km (it is the 3rd zone, layer 6 = 3.6 km, or a later random pick).
+    if (layer % 2) return;
     const ZONES = [
       { kind: 'movers', name: 'HAREKETLİ ENGELLER' },
-      { kind: 'coinRain', name: 'KAR TANESİ YAĞMURU' },
       { kind: 'narrow', name: 'DAR KÖPRÜLER' },
+      { kind: 'coinRain', name: 'KAR TANESİ YAĞMURU' },
       { kind: 'lasers', name: 'BUZ LAZERLERİ' },
-      { kind: 'missiles', name: 'KAR FÜZELERİ' },
       { kind: 'storm', name: 'FIRTINA' },
+      { kind: 'missiles', name: 'KAR FÜZELERİ' },
       { kind: 'lowgrav', name: 'DÜŞÜK YERÇEKİMİ', runner: true },
       { kind: 'boss', name: 'YETİ ÖFKESİ' },
     ];
-    const z = layer <= ZONES.length ? ZONES[layer - 1] : ZONES[Math.floor(Math.random() * ZONES.length)];
+    const zi = layer / 2;
+    let z = zi <= ZONES.length ? ZONES[zi - 1] : ZONES[Math.floor(Math.random() * ZONES.length)];
+    if (z.kind === 'coinRain' && (this._rainDone || this.b.s < 1500)) z = ZONES[0];
+    if (z.kind === 'coinRain') this._rainDone = true;
     const from = Math.max(this.b.s + 320, (this.zone && this.zone.until > this.b.s ? this.zone.until + 60 : 0)), until = from + 420;
     if (!z.runner) this.obstacles.setZone?.(z.kind, { from, until });
     this.zone = { ...z, from, until, announced: false };
@@ -1659,8 +1654,7 @@ export class Runner {
   radioTune(km) {
     const ST = [['Gün Batımı FM', 0xff9a6a], ['Kutup Işığı FM', 0x6affc8], ['Buz Lo-Fi', 0x8fb4ff], ['Pembe Kar FM', 0xff9ad0], ['Gece Vardiyası', 0x5a4cff], ['Altın Saat FM', 0xffd36a], ['Nane Esintisi', 0x9affb0]];
     const st = ST[(km - 1) % ST.length];
-    this.env?.setRadio?.(st[1], 0.22);
-    this.ctx.ui.toastSoft?.('📻 ' + st[0]);
+    this.env?.setRadio?.(st[1], 0.22);          // cosmetic palette remix only: no toast (one message at a time)
   }
 
   stormTick(dt) {
@@ -1670,7 +1664,7 @@ export class Runner {
     if (this.stormKm === undefined) this.stormKm = km;
     if (km > this.stormKm) {                       // crossed a milestone
       this.stormKm = km;
-      if (km > 0) this.radioTune(km);
+      if (km > 0) this.radioTune(km, true);
       if (this.stormOn && !this.stormHit) {
         this.cmbN = Math.max(2, (this.cmbN || 0) * 2); this.cmbAt = this.time; this.cmbT = 2;
         this.ctx.ui?.combo?.(this.cmbN);
@@ -1692,8 +1686,8 @@ export class Runner {
     if (!el || !el.isConnected) {
       el = this.stormEl = document.createElement('div');
       el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:5;opacity:0;transition:opacity .6s;animation:stormMv .35s linear infinite;' +
-        'background:radial-gradient(ellipse at center,rgba(255,255,255,0) 40%,rgba(190,225,255,.55) 100%),' +
-        'repeating-linear-gradient(100deg,rgba(255,255,255,0) 0 18px,rgba(255,255,255,.28) 19px 21px,rgba(255,255,255,0) 22px 46px);' +
+        'background:radial-gradient(ellipse at center,rgba(255,255,255,0) 60%,rgba(190,225,255,.3) 100%),' +
+        'repeating-linear-gradient(100deg,rgba(255,255,255,0) 0 18px,rgba(255,255,255,.1) 19px 20px,rgba(255,255,255,0) 21px 60px);' +
         'background-size:100% 100%,200px 200px;';
       if (!document.getElementById('stormKf')) {
         const st = document.createElement('style'); st.id = 'stormKf';
@@ -1752,8 +1746,7 @@ export class Runner {
     this.lmBan.position.x = hw;
     if (ds <= 0 && !this.lmPassed) {
       this.lmPassed = true;
-      this.kick += 1.5; this.ctx.audio.milestone?.(2);
-      this.ctx.ui.flash?.('milestone');
+      this.kick += 1; this.ctx.audio.milestone?.(2);
       // gentle environment shift per 500 m (lerped by env.setRadio): snowfall -> clear -> sunset -> night
       const W = [[0xcfe3ff, 0.28, 0.35], [0xffffff, 0, 0], [0xff8a5a, 0.3, 0], [0x1a2a6a, 0.34, 0]], w = W[(next / 500) % 4 | 0];
       this.env?.setRadio?.(w[0], w[1]);
@@ -2065,7 +2058,9 @@ export class Runner {
     } else if (this.rocketT > 0) {
       this.grounded = false;
       b.vh = 0;
-      b.h += (RCFG.rocketH - b.h) * Math.min(1, dt * 4);
+      // round / upside-down sections (now or ~0.6 s ahead): hug the surface — 6 m of 'up' would cross a 5.5-11 m loop
+      const rnd = ROUND_KINDS.has(this.track.pieceAt(b.s)?.kind) || ROUND_KINDS.has(this.track.pieceAt(b.s + b.vs * 0.6)?.kind);
+      b.h += ((rnd ? 0.6 : RCFG.rocketH) - b.h) * Math.min(1, dt * (rnd ? 6 : 4));
     } else if (this.grounded) {
       if (this.lastSlope > 0.08 && (surf === -Infinity || surf < this.lastSurf - 0.2)) {
         // Left the end of a ramp: launched along its slope (works over a gap as well as onto lower ground).
@@ -2662,14 +2657,12 @@ export class Runner {
         this.score += bonus;
         const cm = this.chainBonus();
         if (this.stumbleT > 0) this.ctx.meta?.track?.('close_call', {});
-        if (this.time - (this._nmAt ?? -9) >= 1.2) {            // juicy extras, rate-limited
+        if (this.time - (this._nmAt ?? -9) >= 4) {              // a quiet extra, rate-limited (no flash, no centre text)
           this._nmAt = this.time;
-          this.float(`KIL PAYI +${bonus}`, 'big');             // float() drops it when the centre lane is busy
-          this.ctx.ui.flash?.('white');
-          this.kick += 2.5;
+          this.kick += 1;
         }
-        this.punch = Math.min(1.5, this.punch + 0.6);
-        this.kick += 3;
+        this.punch = Math.min(1.5, this.punch + 0.3);
+        this.kick += 1;
         this.mistBurst(6, 0xbfe6ff, 4, 0.9);
         if (audio.near) audio.near(); else audio.whoosh();
         if (cm > 0) audio.star(Math.min(2, cm - 1));
@@ -3250,8 +3243,8 @@ export class Runner {
     const LB = { rec: 'REKOR', boss: 'BOSS', combo: 'KOMBO', wall: 'DUVAR', fall: 'DÜŞÜŞ', melt: 'ERİME', yeti: 'YETİ', smash: 'ÇARPMA', explode: 'PATLAMA' };
     const IC = { rec: '🏆', boss: '🧌', combo: '🔥', wall: '🧱', fall: '🕳️', melt: '💧', yeti: '👹', smash: '💥', explode: '💣' };
     const el = this._rcpEl = document.createElement('div');
-    el.style.cssText = 'position:fixed;left:4%;right:4%;top:24%;z-index:60;padding:14px 12px 10px;border-radius:18px;background:rgba(15,30,55,.88);color:#fff;font:800 16px system-ui,sans-serif;text-align:center;touch-action:manipulation;opacity:0;transition:opacity .15s';
-    let h = '<div style="letter-spacing:.12em;opacity:.85">BÖLÜM ÖZETİ</div><div style="font-size:34px;line-height:1.1">' + dist.toLocaleString('tr-TR') + ' m</div><div style="position:relative;height:62px;margin:8px 10px 0"><div style="position:absolute;left:0;right:0;top:30px;height:6px;border-radius:3px;background:rgba(255,255,255,.2)"></div><div class="rf" style="position:absolute;left:0;top:30px;height:6px;width:0;border-radius:3px;background:#7fd0ff;transition:width 1s linear"></div>';
+    el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);width:min(92vw,380px);box-sizing:border-box;top:calc(env(safe-area-inset-top,0px) + 70px);z-index:60;padding:10px 12px 8px;border-radius:18px;background:rgba(15,30,55,.88);color:#fff;font:800 16px system-ui,sans-serif;text-align:center;touch-action:manipulation;opacity:0;transition:opacity .15s';
+    let h = '<div style="letter-spacing:.12em;opacity:.85">BÖLÜM ÖZETİ</div><div style="font-size:26px;line-height:1.1">' + dist.toLocaleString('tr-TR') + ' m</div><div style="position:relative;height:62px;margin:8px 10px 0"><div style="position:absolute;left:0;right:0;top:30px;height:6px;border-radius:3px;background:rgba(255,255,255,.2)"></div><div class="rf" style="position:absolute;left:0;top:30px;height:6px;width:0;border-radius:3px;background:#7fd0ff;transition:width 1s linear"></div>';
     for (const e of ev) {
       const f = Math.min(1, Math.max(0, e.s / dist));
       const ic = e.k === 'death' ? (IC[this.cause] || '💀') : IC[e.k];
@@ -3317,6 +3310,7 @@ export class Runner {
   // "BENİ KURTAR": gems buy a continuation of the same run (1, 2, 4, 8 💎). Nothing is banked or recorded twice.
   revive() {
     if (this.state !== 'over' || this.level || this.recorded) return false;
+    this._rcpKill();                                  // the recap strip never survives into play
     const meta = this.ctx.meta;
     if (this.coinRev) {
       if (this.coinUsed || !this.ctx.save.spend?.(50)) return false;
@@ -3461,7 +3455,7 @@ export class Runner {
     }
     // Ribbon trail pressed into the snow (uses the equipped trail's material).
     this.updateTrail(f, pos);
-    this.ctx.ui.speedLines?.(playing ? Math.min(1.4, Math.pow(Math.max(0, speedK - 0.2) / 0.8, 1.3) + (this.rocketT > 0 ? 0.5 : 0) + (b.vs > RCFG.maxSpeed ? 0.3 : 0)) : 0);
+    this.ctx.ui.speedLines?.(playing && this.camLoopK < 0.2 && !ROUND_KINDS.has(this.track.pieceAt(b.s)?.kind) ? Math.min(1.4, Math.pow(Math.max(0, speedK - 0.2) / 0.8, 1.3) + (this.rocketT > 0 ? 0.5 : 0) + (b.vs > RCFG.maxSpeed ? 0.3 : 0)) : 0);
   }
 
   trailPush(x, y, z, rx, ry, rz, w, gap) {
@@ -3774,11 +3768,14 @@ export class Runner {
     tr.toWorld(camS, this.camU, 0, _v);
     _v.addScaledVector(_f.up, camH);          // centred over the track (only the camera's roll is limited, not its place)
     if (lk > 0.001 && pc && pc.loop) {
-      // Camera INSIDE the loop circle (nothing can be there): near the circle's centre (ball + track-up * R), a little toward
-      // the entry side along the loop axis and slightly back along the motion, looking at the ball, up = ball -> centre.
-      tr.frame(Math.min(Math.max(b.s, pc.loop.s0), pc.loop.s1), _f2);
-      const bp = this.ctx.ball.group.position, R = pc.loop.R;
-      _tp.copy(bp).addScaledVector(_f2.up, 0.85 * R).addScaledVector(_f2.right, 0.15 * R).addScaledVector(_f2.tan, -0.2 * R);
+      // Vertical loop: a rigid chase rig ON THE SAME PASS of the ring — a point of the track 0.8 R behind the ball, lifted 0.72 R (~0.25 R from the centre, ~0.85 R from the ball)
+      // along that station's up (toward the circle's centre). Camera and ball both lie in the circle's disc, so the line of sight
+      // is a chord that can never cut the ring or the laterally shifted entry / exit pass (the old centre camera looked across
+      // them at the loop's ends and the screen filled with track). Camera up = the track's up at the camera station.
+      const R = pc.loop.R, sc = b.s - 0.8 * R;
+      tr.frame(sc, _f2);
+      tr.toWorld(sc, b.u * 0.5, 0, _tp);
+      _tp.addScaledVector(_f2.up, 0.72 * R);
       _v.lerp(_tp, lk);
       _x.lerp(_f2.up, lk).normalize();
     }

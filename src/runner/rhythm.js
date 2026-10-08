@@ -12,7 +12,7 @@ export class RhythmLane {
   constructor(run) {
     this.run = run;
     this.strip = null;       // { s0, s1, u, mesh, pads: [{s, mesh, hit}], swept }
-    this.nextS = 600 + rnd(0, 250);
+    this.nextS = 1100 + rnd(0, 400);
     this.chain = 0;
     this.speedK = 1;
     this.on = false;
@@ -32,7 +32,7 @@ export class RhythmLane {
       if (i < n - 1) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     }
     // bright glow lines along both lane edges
-    const EW = 0.22, epos = new Float32Array(n * 12), eidx = [];
+    const EW = 0.08, epos = new Float32Array(n * 12), eidx = [];
     for (let i = 0; i < n; i++) {
       const s = s0 + i * SEG;
       tr.toWorld(s, u - HALF - EW, 0.1, _v); epos.set([_v.x, _v.y, _v.z], i * 12);
@@ -43,13 +43,13 @@ export class RhythmLane {
     }
     const egeo = new THREE.BufferGeometry();
     egeo.setAttribute('position', new THREE.BufferAttribute(epos, 3)); egeo.setIndex(eidx);
-    const emesh = new THREE.Mesh(egeo, new THREE.MeshBasicMaterial({ color: 0xfff2a8, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    const emesh = new THREE.Mesh(egeo, new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide }));
     emesh.frustumCulled = false;
     run.ctx.scene.add(emesh);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setIndex(idx);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffc83a, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffc83a, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
     run.ctx.scene.add(mesh);
@@ -60,7 +60,7 @@ export class RhythmLane {
     if (!PAD_GEO) PAD_GEO = new THREE.SphereGeometry(0.5, 14, 8);
     const first = Math.max(s0 + 6, run.b.s + vs * tNext + Math.ceil((s0 + 6 - run.b.s - vs * tNext) / gap) * gap);
     for (let s = first; s < s1 - 4; s += gap) {
-      const pm = new THREE.MeshBasicMaterial({ color: 0xfff0a0, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
+      const pm = new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.55, depthWrite: false });
       const m = new THREE.Mesh(PAD_GEO, pm);
       tr.toWorld(s, u, 0.14, _v); m.position.copy(_v);
       m.scale.set(2.3, 0.25, 2.3);
@@ -125,16 +125,16 @@ export class RhythmLane {
     if (this.sweepT <= 0) { this.sweepT = 0.4; this._sweep(false); }
     // look: pulse with the beat (pads breathe, strip glows)
     const ph = beat.phase, pulse = Math.pow(1 - ph, 3);
-    st.mesh.material.opacity = 0.4 + 0.25 * pulse + 0.25 * this.flash;
-    st.emesh.material.opacity = 0.65 + 0.35 * pulse;
+    st.mesh.material.opacity = 0.14 + 0.08 * pulse + 0.08 * this.flash;
+    st.emesh.material.opacity = 0.5 + 0.2 * pulse;
     const spb = 60 / (beat.bpm || 100);
     for (const p of st.pads) {
       const near = Math.abs(p.s - b.s) < 90;
       p.mesh.visible = near && !p.hit;
       if (!p.mesh.visible) continue;
-      const k = 1 + 0.5 * pulse;
-      p.mesh.scale.set(2.3 * k, 0.25 + 0.3 * pulse, 2.3 * k);
-      p.mesh.material.opacity = 0.7 + 0.3 * pulse;
+      const k = 1 + 0.2 * pulse;
+      p.mesh.scale.set(1.6 * k, 0.12, 1.6 * k);
+      p.mesh.material.opacity = 0.45 + 0.2 * pulse;
     }
     // ball on the strip?
     const inside = b.s >= st.s0 && b.s <= st.s1;
@@ -153,7 +153,7 @@ export class RhythmLane {
       }
     }
     this.lastS = b.s;
-    if (!inside && b.s > st.s1) { if (this.on) this._end('RİTİM'); this._free(); this.nextS = st.s1 + rnd(700, 1100) - LEN; }
+    if (!inside && b.s > st.s1) { if (this.on) this._end('RİTİM'); this._free(); this.nextS = st.s1 + rnd(1300, 1900) - LEN; }
     // speed bonus rides the chain (decays smoothly when it ends)
     const want = 1 + Math.min(0.12, this.chain * 0.012);
     this.speedK += (want - this.speedK) * Math.min(1, dt * 3);
