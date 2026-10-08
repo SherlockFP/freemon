@@ -46,7 +46,8 @@ const FOOD_PAL = [0xff5c8a, 0x3fb0ff, 0xffd02e, 0x3fe08a, 0xa86cff, 0xff8a3d, 0x
 const VOWELS = 'aeıioöuü';
 const BAD = new Set(['amk', 'aq', 'mk', 'orospu', 'piç', 'pic', 'siktir', 'sik', 'sikik', 'yarrak', 'yarak', 'göt', 'oç', 'ananı', 'anani', 'amına', 'amina', 'amcık', 'amcik', 'sikerim', 'bok']);
 
-const speedFor = (m) => 17 * Math.pow(m, -0.12);
+export const SPD = 1.15; // +15% movement speed for every cell (players and bots alike)
+const speedFor = (m) => 17 * SPD * Math.pow(m, -0.12);
 const rnd = (a, b) => a + Math.random() * (b - a);
 const clampN = (v, a, b) => (v < a ? a : v > b ? b : v);
 const fmtM = (m) => (m >= 100000 ? Math.floor(m / 1000) + 'k' : String(Math.floor(m)));
@@ -204,7 +205,7 @@ export class AgarMode {
   // ------------------------------------------------------------------ data
   initData() {
     this.cells = [];
-    for (let i = 0; i < CAP; i++) this.cells.push({ on: false, o: 0, x: 0, z: 0, vx: 0, vz: 0, m: 0, r: 0, merge: 0, tx: 0, tz: 0, killer: -1, mvx: 0, mvz: 0, qx: 0, qy: 0, qz: 0, qw: 1, px0: 0, pz0: 0, lsx: 0, lsz: 0, rampT: 0, pcd: 0 });
+    for (let i = 0; i < CAP; i++) this.cells.push({ on: false, o: 0, x: 0, z: 0, vx: 0, vz: 0, m: 0, r: 0, merge: 0, tx: 0, tz: 0, killer: -1, mvx: 0, mvz: 0, qx: 0, qy: 0, qz: 0, qw: 1, px0: 0, pz0: 0, lsx: 0, lsz: 0, rampT: 0, pcd: 0, bt: 0 });
     this.act = new Int16Array(CAP);
     this.tmpIdx = new Int16Array(CAP);
     this.owners = [];
@@ -622,7 +623,7 @@ export class AgarMode {
   newCell(o, x, z, m) {
     for (let i = 0; i < CAP; i++) {
       const c = this.cells[i];
-      if (!c.on) { c.on = true; c.o = o.id; c.x = c.tx = x; c.z = c.tz = z; c.vx = c.vz = 0; c.m = m; c.r = KR * Math.sqrt(m); c.merge = 0; c.killer = -1; c.mvx = c.mvz = 0; c.qx = c.qy = c.qz = 0; c.qw = 1; c.px0 = x; c.pz0 = z; c.lsx = x; c.lsz = z; c.rampT = 0; c.pcd = 0; return c; }
+      if (!c.on) { c.on = true; c.o = o.id; c.x = c.tx = x; c.z = c.tz = z; c.vx = c.vz = 0; c.m = m; c.r = KR * Math.sqrt(m); c.merge = 0; c.killer = -1; c.mvx = c.mvz = 0; c.qx = c.qy = c.qz = 0; c.qw = 1; c.px0 = x; c.pz0 = z; c.lsx = x; c.lsz = z; c.rampT = 0; c.pcd = 0; c.bt = 0; return c; }
     }
     return null;
   }
@@ -872,12 +873,40 @@ export class AgarMode {
       if (!nc) break;
       c.m = half; total++;
       nc.r = c.r;
-      nc.vx = o.ldx * 30; nc.vz = o.ldz * 30;
+      nc.vx = o.ldx * 30 * SPD; nc.vz = o.ldz * 30 * SPD;
       nc.merge = c.merge = 10 + Math.min(8, half * 0.004);
       did = true;
     }
     if (did) { o.splitCd = 0.3; if (o.id === this.me || o.human === 'host') this.audio?.pop?.(0.6, 1); }
     return did;
+  }
+
+  /** a ball hit something it cannot eat: leave the obstacle (n = unit normal pointing away from it, ov = overlap) and bounce back.
+   *  The knockback grows with the speed into the contact (gentle when rolling, snappy on boost); squash + thud are rate limited. */
+  bounceOff(c, o, nx, nz, ov, massHit) {
+    c.x += nx * ov; c.z += nz * ov;
+    const vin = c.vx * nx + c.vz * nz;
+    if (vin < 0) { c.vx -= vin * nx; c.vz -= vin * nz; } // never keep velocity into the obstacle
+    const into = -(c.mvx * nx + c.mvz * nz) - vin;
+    if (into < 1.5 || c.pcd > 0) return into;
+    const k = Math.min(70, 2.5 + into * 1.6);
+    c.vx += nx * k; c.vz += nz * k;
+    c.pcd = 0.3; c.bt = 0.24;
+    if (massHit && into > 12 && o.shield <= 0) c.m = Math.max(12, c.m * (1 - 0.01 * clampN(into / 20, 0.5, 1.5)));
+    const v = clampN(into / 30, 0.2, 0.9);
+    if (c.o === this.me) { this.platform?.haptic?.('light'); if (into > 20) this.camKick = Math.max(this.camKick, 0.04); }
+    if (o.human || c.o === this.me) this.sfxTo(c.o, 'bump', v);
+    return into;
+  }
+  /** two balls of similar size (neither can eat the other) collide and bounce apart; mass-weighted */
+  cellBump(ca, cb, d2, rs) {
+    const d = Math.sqrt(d2) + 1e-4, nx = (cb.x - ca.x) / d, nz = (cb.z - ca.z) / d, ov = rs - d;
+    const closing = ((ca.mvx + ca.vx) - (cb.mvx + cb.vx)) * nx + ((ca.mvz + ca.vz) - (cb.mvz + cb.vz)) * nz;
+    const hi = Math.max(ca.m, cb.m), lo = Math.min(ca.m, cb.m);
+    if (closing >= 14 && lo >= 25 && hi <= lo * 1.15 && this.state === 'play') return; // a fast clash between equals becomes a GÜREŞ duel
+    const wa = cb.m / (ca.m + cb.m), wb = 1 - wa;
+    this.bounceOff(ca, this.owners[ca.o], -nx, -nz, ov * wa, 0);
+    this.bounceOff(cb, this.owners[cb.o], nx, nz, ov * wb, 0);
   }
 
   popCell(c, vi) {
@@ -895,7 +924,7 @@ export class AgarMode {
       const nc = this.newCell(o, c.x, c.z, part);
       if (!nc) { c.m += part; continue; }
       const a = a0 + (j * 6.2832) / k;
-      nc.vx = Math.cos(a) * 32; nc.vz = Math.sin(a) * 32;
+      nc.vx = Math.cos(a) * 32 * SPD; nc.vz = Math.sin(a) * 32 * SPD;
       nc.merge = 12; nc.r = c.r * 0.7;
     }
     c.merge = 12;
@@ -984,6 +1013,7 @@ export class AgarMode {
       c.mvx += (dx * sp * mg - c.mvx) * ik; c.mvz += (dz * sp * mg - c.mvz) * ik;
       if (zone === 2) c.m = Math.min(MAXM, c.m + dt * clampN(c.m * 0.003, 0.5, 5)); // deep snow: slow, but it packs on mass
       if (c.rampT > 0) c.rampT -= dt;
+      if (c.bt > 0) c.bt -= dt;
       else if (this.terrain.rampAt(c.x, c.z, c.r) >= 0) {
         c.rampT = 1.2;
         const rl = Math.hypot(c.mvx, c.mvz) + 0.001;
@@ -1030,6 +1060,7 @@ export class AgarMode {
         if (this.mp !== 'client' && !this.duel.on && this.duel.cd <= 0 && this.duelTry(ca, cb, d2)) continue;
         if (ca.m > cb.m * 1.25 && d2 < Math.pow(ca.r - cb.r * 0.4, 2)) this.eatCell(ca, cb);
         else if (cb.m > ca.m * 1.25 && d2 < Math.pow(cb.r - ca.r * 0.4, 2)) this.eatCell(cb, ca);
+        else if (this.mp !== 'client' && ca.m <= cb.m * 1.25 && cb.m <= ca.m * 1.25) this.cellBump(ca, cb, d2, rs);
       }
     }
     // food, crystals, power-ups
@@ -1064,6 +1095,16 @@ export class AgarMode {
         }
       }
       this.props.interact(c, this.act[a], o, dt);
+      if (c.m < VIR_MIN && !o.boss) {
+        // an ice spike this ball is too small to shatter is a solid obstacle: push out + knock back
+        for (let v = 0; v < NVIR; v++) {
+          if (!this.von[v]) continue;
+          const dx = c.x - this.vx[v], dz = c.z - this.vz[v], lim = c.r + VIRR * 0.95, d2 = dx * dx + dz * dz;
+          if (d2 >= lim * lim) continue;
+          const d = Math.sqrt(d2) + 1e-4;
+          this.bounceOff(c, o, dx / d, dz / d, lim - d, 0);
+        }
+      }
       if (c.m >= VIR_MIN && o.shield <= 0 && !o.boss) {
         for (let v = 0; v < NVIR; v++) {
           if (!this.von[v]) continue;
@@ -1107,7 +1148,7 @@ export class AgarMode {
     if (!a || !a.arena) return;
     let v = k === undefined ? 1 : k;
     if (x !== undefined) v *= clampN(1 - Math.hypot(x - this.camX, z - this.camZ) / (this.camH * 1.3 + 40), 0, 1);
-    if (v > 0.04) a.arena(kind, v);
+    if (v > 0.04) { if (kind === 'bump') a.bump?.(v); else a.arena(kind, v); }
   }
   /** an event that belongs to one owner: local sound, a message to the remote human, or a faint positional sound for bots */
   sfxTo(id, kind, v, x, z) {
@@ -2565,8 +2606,8 @@ export class AgarMode {
         const nl = 1 / Math.sqrt(nw * nw + nx * nx + ny * ny + nz * nz);
         c.qw = nw * nl; c.qx = nx * nl; c.qy = ny * nl; c.qz = nz * nl;
       }
-      const sq = o.boostT > 0;
-      const sx = sq ? r * 1.12 : r, sy = sq ? r * 0.8 : r;
+      const sq = o.boostT > 0, bk = c.bt > 0 ? Math.sin(Math.min(1, c.bt / 0.24) * Math.PI) * 0.2 : 0; // bump: short squash
+      const sx = (sq ? r * 1.12 : r) * (1 + bk * 0.6), sy = (sq ? r * 0.8 : r) * (1 - bk);
       wmq(ca, n * 16, c.x, sy, c.z, sx, sy, sx, c.qx, c.qy, c.qz, c.qw);
       wm(sa, n * 16, c.x + r * 0.12, 0, c.z + r * 0.18, r * 1.6);
       cc[n * 3] = o.cr; cc[n * 3 + 1] = o.cg; cc[n * 3 + 2] = o.cb;

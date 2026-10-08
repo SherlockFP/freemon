@@ -34,6 +34,11 @@ NAMES.forEach((n, i) => ID.set(n, i));
 const NT = NAMES.length;
 
 const clampN = (v, a, b) => (v < a ? a : v > b ? b : v);
+const ROUND = /pine|tree|rock|boulder|bush|pebble|snowman|yeti|person|skier|deer|penguin|rabbit|gingerbread|pylon|water_tower|candy|present|gift|cone/;
+/** the scale a prop is DRAWN at for a ball of radius r: render() caps tall props at 13% of the camera height so they never fill the view.
+ *  The collider must use the same (or a smaller) scale, otherwise a shrunk house keeps its full size collider = an invisible wall.
+ *  The camera height here is the lowest the arena camera ever uses for this ball (start zoom 0.72, single cell), so the collider is <= the visual. */
+export function capScale(th, s, r) { const capH = 0.12 * Math.max(30, (14 + 7.5 * r) * 0.72), h = th * s; return h > capH ? s * capH / h : s; }
 
 // translation * scale * rotation(q)
 function wmq(a, p, x, y, z, sx, sy, sz, qx, qy, qz, qw) {
@@ -76,8 +81,12 @@ export class ArenaProps {
     this.tdef = new Array(NT).fill(null); this.tmesh = new Array(NT).fill(null);
     this.tcount = new Int32Array(NT); this.tcap = new Int32Array(NT); this.tw = new Int32Array(NT); this.tprev = new Int32Array(NT);
     this.thx = new Float32Array(NT); this.thz = new Float32Array(NT); this.tr = new Float32Array(NT); this.th = new Float32Array(NT); this.tmass = new Float32Array(NT);
+    // collider per type (unscaled model units): an oriented box inside the visible footprint, or a circle for round props (trees, rocks, figures)
+    this.tbx0 = new Float32Array(NT); this.tbx1 = new Float32Array(NT); this.tbz0 = new Float32Array(NT); this.tbz1 = new Float32Array(NT);
+    this.tround = new Uint8Array(NT); this.tcx = new Float32Array(NT); this.tcz = new Float32Array(NT); this.trr = new Float32Array(NT); this.tdiag = new Float32Array(NT);
+    this.maxExt = 20;
     this.defT = 0;
-    this.fmat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.12, depthWrite: false });
+    this.fmat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.3, depthWrite: false });
     this.fmesh = new Array(NT).fill(null); this.fw = new Int32Array(NT); this.fprev = new Int32Array(NT); this.fcap = 160;
     // suction (flying props)
     this.npl = 0;
@@ -109,6 +118,13 @@ export class ArenaProps {
       const b = geo.boundingBox;
       this.thx[t] = Math.max(Math.abs(b.min.x), Math.abs(b.max.x)); this.thz[t] = Math.max(Math.abs(b.min.z), Math.abs(b.max.z));
       this.tr[t] = d.radius || 1; this.th[t] = d.height || b.max.y;
+      {
+        const cx = (b.min.x + b.max.x) * 0.5, cz = (b.min.z + b.max.z) * 0.5, hx = (b.max.x - b.min.x) * 0.5, hz = (b.max.z - b.min.z) * 0.5;
+        this.tbx0[t] = cx - hx * 0.9; this.tbx1[t] = cx + hx * 0.9; this.tbz0[t] = cz - hz * 0.9; this.tbz1[t] = cz + hz * 0.9;
+        this.tround[t] = ROUND.test(NAMES[t]) ? 1 : 0; this.tcx[t] = cx; this.tcz[t] = cz; this.trr[t] = Math.min(hx, hz) * 0.8;
+        this.tdiag[t] = Math.hypot(Math.max(Math.abs(b.min.x), Math.abs(b.max.x)), Math.max(Math.abs(b.min.z), Math.abs(b.max.z)));
+        this.maxExt = Math.max(this.maxExt, this.tdiag[t] * SK * 1.7);
+      }
       const m = MASS[NAMES[t]];
       this.tmass[t] = m !== undefined ? m : fallbackMass(this.tr[t]);
       this.setupType(t);
@@ -367,7 +383,7 @@ export class ArenaProps {
   interact(c, ci, o, dt) {
     const R = this.R, g = this.g, cr = c.r;
     if (c.pcd > 0) c.pcd -= dt;
-    const reach = cr * 1.55 + 3, scan = reach + 34;
+    const reach = cr * 1.55 + 3, scan = Math.max(reach + 34, cr + this.maxExt);
     const gx0 = clampN(((c.x - scan + R) / PGS) | 0, 0, PGN - 1), gx1 = clampN(((c.x + scan + R) / PGS) | 0, 0, PGN - 1);
     const gz0 = clampN(((c.z - scan + R) / PGS) | 0, 0, PGN - 1), gz1 = clampN(((c.z + scan + R) / PGS) | 0, 0, PGN - 1);
     const me = c.o === g.me;
@@ -388,9 +404,31 @@ export class ArenaProps {
           }
           const pc = this.prc[i];
           if (pc <= 0) continue;
-          const minD = cr + pc;
-          if (d2 >= minD * minD) continue;
-          const d = Math.sqrt(d2) + 1e-4, nx = -dx / d, nz = -dz / d;
+          // solid prop: test against the footprint it is actually drawn with (capped scale, oriented box / circle, inside the mesh)
+          const t = this.prt[i], S = capScale(this.th[t], this.prs[i], cr), bR = cr + this.tdiag[t] * S;
+          if (d2 >= bR * bR) continue;
+          const cs = this.pcs[i], sn = this.psn[i], lx = (cs * -dx - sn * -dz) / S, lz = (sn * -dx + cs * -dz) / S; // ball centre in model units
+          let nlx = 1, nlz = 0, ov;
+          if (this.tround[t]) {
+            const qx = lx - this.tcx[t], qz = lz - this.tcz[t], dd = Math.hypot(qx, qz);
+            ov = cr - (dd - this.trr[t]) * S;
+            if (ov <= 0) continue;
+            if (dd > 1e-5) { nlx = qx / dd; nlz = qz / dd; }
+          } else {
+            const x0 = this.tbx0[t], x1 = this.tbx1[t], z0 = this.tbz0[t], z1 = this.tbz1[t];
+            const ex = lx - clampN(lx, x0, x1), ez = lz - clampN(lz, z0, z1), e2 = ex * ex + ez * ez;
+            if (e2 > 1e-10) {
+              const dd = Math.sqrt(e2);
+              ov = cr - dd * S;
+              if (ov <= 0) continue;
+              nlx = ex / dd; nlz = ez / dd;
+            } else { // centre inside the box: leave through the nearest face
+              const a = lx - x0, b = x1 - lx, c2 = lz - z0, d4 = z1 - lz, m = Math.min(a, b, c2, d4);
+              if (m === a) { nlx = -1; nlz = 0; } else if (m === b) { nlx = 1; nlz = 0; } else if (m === c2) { nlx = 0; nlz = -1; } else { nlx = 0; nlz = 1; }
+              ov = cr + m * S;
+            }
+          }
+          const nx = cs * nlx + sn * nlz, nz = -sn * nlx + cs * nlz; // world normal, prop -> ball
           const into = -(c.mvx * nx + c.mvz * nz) - (c.vx * nx + c.vz * nz);
           // a prop that is only a little too big: plough through it (partial mass); a boost smashes bigger ones
           if (e <= cr * 1.55 && (o.boostT > 0 || into > speedRef(c.m) * 0.4)) {
@@ -401,14 +439,8 @@ export class ArenaProps {
             if (me) { g.audio?.crash?.(clampN(e / (cr * 1.5), 0.2, 0.7)); g.platform?.haptic?.('light'); } else g.snd('ice', this.prx[i], this.prz[i], 0.4);
             continue;
           }
-          const ov = minD - d;
-          c.x += nx * ov * 0.85; c.z += nz * ov * 0.85;
-          if (into > 8 && (c.pcd || 0) <= 0 && pc >= cr * 0.4 && o.shield <= 0) {
-            c.m = Math.max(12, c.m * (1 - 0.012 * clampN(into / 20, 0.5, 1.5)));
-            c.pcd = 0.8;
-            c.vx += nx * 4; c.vz += nz * 4;
-            if (me) g.audio?.bump?.(clampN(into / 30, 0.2, 0.9)); else g.snd('slide', c.x, c.z, 0.3);
-          }
+          // cannot eat or smash it: collide and bounce back (agar.js bounceOff: push out, knockback, squash, thud)
+          g.bounceOff(c, o, nx, nz, ov, pc >= cr * 0.4 ? 1 : 0);
         }
       }
     }
@@ -638,4 +670,4 @@ export class ArenaProps {
 }
 
 /** a reference travel speed for a ball of this mass (same formula as the arena) */
-function speedRef(m) { return 17 * Math.pow(m, -0.12); }
+function speedRef(m) { return 17 * 1.15 * Math.pow(m, -0.12); }
