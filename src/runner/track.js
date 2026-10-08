@@ -203,7 +203,7 @@ export class Track {
   _init() {
     this.rng = makeRng((this.seed ^ 0x9e3779b9) >>> 0);
     this.laneN = 3;
-    this._wideAt = 700 + ((Math.sin((this.seed || 1) + 1) * 43758.5453) % 1 + 1) % 1 * 250; this._wideEnd = 0; this._bonusAt = 800; this._bonusN = 0;
+    this._wideAt = 2200 + 1200 * (((Math.sin((this.seed || 1) + 1) * 43758.5453) % 1 + 1) % 1); this._wideEnd = 0; this._bonusAt = 800; this._bonusN = 0;
     this.sBase = 0;
     const sp0 = Math.sin(T.START_PITCH), cp0 = Math.cos(T.START_PITCH);
     // per-sample channels: position, heading (yaw/pitch, for curvature), tangent, up (incl. roll), roll
@@ -847,7 +847,7 @@ Object.assign(Track.prototype, {
       p = this._spec('finish', s0, diff, bNow, true);
     } else if ((lw = this._laneDue(s0)) !== 0) {
       const oldN = this.laneN;
-      this.laneN = lw > 0 ? (s0 > 3000 && this.rng.chance(0.25) ? 5 : 4) : 3;     // mostly 3 -> 4; 5 only now and then late
+      this.laneN = lw > 0 ? (s0 > 6000 && this.rng.chance(0.1) ? 5 : 4) : 3;     // almost always 3 -> 4; 5 very rarely, only after 6 km
       p = this._spec('straight', s0, diff, bNow, false);
       const nn = this.laneN, hA = hwFor(oldN), hB = hwFor(nn);
       p.dYaw = 0; p.noObs = true; p.curb = true; p.edge = 'wall';
@@ -857,7 +857,7 @@ Object.assign(Track.prototype, {
       } else {
         // narrowing: the piece keeps the wide lanes (n = old) while the outer lanes close; funnel arrows telegraph them, the runner pushes the ball inward
         p.len = 56; p.s1 = s0 + 56; p.n = oldN; p.narrow = oldN; p.hw = hA; p.halfWidth = hA; p.hwAt = (s) => hA + (hB - hA) * smooth((s - p.s0 - 14) / 34);
-        this._wideAt = s0 + 56 + this.rng.range(700, 1100);     // at most one wide burst per ~700+ m, never back-to-back
+        this._wideAt = s0 + 56 + this.rng.range(3000, 4000);    // extremely rare: at most one wide burst per ~3-4 km
       }
     } else if (this._bonusDue(s0)) {
       const air = this._bonusN++ % 3 === 1, vs = this.speedAt(s0 + 40);

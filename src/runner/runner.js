@@ -313,7 +313,8 @@ export class Runner {
     this.cause = '';
     this.killKind = null;
     const lid = level ? level.id || 0 : 1e9;
-    this.lethalOn = { base: RCFG.lethal && lid >= 16, car: RCFG.lethal && lid >= 30, wall: RCFG.lethal && lid >= 60 };
+    // endless Rush: nothing kills in one touch (only gaps and the Yeti); campaign keeps its level gates
+    this.lethalOn = level ? { base: RCFG.lethal && lid >= 16, car: RCFG.lethal && lid >= 30, wall: RCFG.lethal && lid >= 60 } : { base: false, car: false, wall: false };
     this.state = 'play';
     this.countT = opts.retry ? 1 : 2;
     this.countQuiet = !!opts.retry;
@@ -1543,6 +1544,8 @@ export class Runner {
   }
 
   rageTick(dt) {
+    return;   // YETİ ÖFKESİ barrages (boulders thrown from behind) are off
+    // eslint-disable-next-line no-unreachable
     if (this.level || this.layer < 2 || this.layer % 2) return;   // campaign has no layers; endless: only every 2nd layer (2, 4, 6 …)
     const b = this.b, L = RCFG.layerLen;
     const B = (Math.floor(b.s / L) + 1) * L;
@@ -1598,9 +1601,7 @@ export class Runner {
       { kind: 'coinRain', name: 'KAR TANESİ YAĞMURU' },
       { kind: 'lasers', name: 'BUZ LAZERLERİ' },
       { kind: 'storm', name: 'FIRTINA' },
-      { kind: 'missiles', name: 'KAR FÜZELERİ' },
       { kind: 'lowgrav', name: 'DÜŞÜK YERÇEKİMİ', runner: true },
-      { kind: 'boss', name: 'YETİ ÖFKESİ' },
     ];
     const zi = layer / 2;
     let z = zi <= ZONES.length ? ZONES[zi - 1] : ZONES[Math.floor(Math.random() * ZONES.length)];
@@ -1755,6 +1756,8 @@ export class Runner {
   }
 
   makeRecordFlag() {
+    this.recFlag = null; return;                       // no record flag / line on the track (only the HUD 'REKOR n m' text)
+    // eslint-disable-next-line no-unreachable
     if (this.bestDist < 50) { this.recFlag = null; return; }
     const g = new THREE.Group();
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 7, 6).translate(0, 3.5, 0), new THREE.MeshLambertMaterial({ color: 0xffffff }));
@@ -1825,6 +1828,9 @@ export class Runner {
 
   // ---------- KAR YANKISI: ghost of your best Rush run (lane/height every 5 m, up to 5 km) ----------
   initGhost() {
+    // record ghost disabled: no replayed best run, no recording
+    this.gPlay = null; this.ghostRec = null; if (this.ghostMesh) this.ghostMesh.visible = false; return;
+    // eslint-disable-next-line no-unreachable
     if (this.level) { this.ghost = this.ghost || null; if (this.ghostMesh) this.ghostMesh.visible = false; this.gPlay = null; return; }
     let g = null;
     try { const j = JSON.parse(localStorage.getItem('patpat.rush.ghost') || 'null'); if (j && j.t && j.t.length > 4 && j.t.length === j.u.length) g = j; } catch (e) { /* ignore */ }
@@ -1849,6 +1855,7 @@ export class Runner {
   }
 
   ghostTick() {
+    if (!this.gPlay && !this.ghostRec) return;
     if (this.level || this.state !== 'play') return;
     const b = this.b, R = this.ghostRec;
     if (R) {

@@ -1415,9 +1415,9 @@ SK.carnival = {
 };
 
 // [type, weight, min budget, biome families (null = all)]; rock / cabin are the lethal ones, their share is driven by lethalK(d)
-const STATIC_W = [['snowman', 2.0, 0, null], ['sign', 1.2, 0, null], ['crate', 1.8, 0, null], ['stone', 1.3, 0, null],
+const STATIC_W = [['snowman', 2.0, 0, null], ['sign', 1.2, 0, null], ['crate', 1.8, 0, null], ['stone', 0.45, 0, null],
   ['sled', 0.9, 0.1, { snow: 1, forest: 1, ice: 1, town: 1, desert: 1, volcano: 1, aurora: 1, glacier: 1 }], ['logpile', 0.9, 0.2, { snow: 1, forest: 1, volcano: 1, town: 1, bamboo: 1 }], ['pine', 1.1, 0.1, { snow: 1, forest: 1, ice: 1, aurora: 1, bamboo: 1, glacier: 1, carnival: 1 }],
-  ['rock', 0.15, 0.25, null], ['cabin', 0.3, 0.3, null]];
+  ['rock', 0.05, 0.3, null], ['cabin', 0.3, 0.3, null]];
 const BIOME_IDS = ['snow', 'forest', 'greenhill', 'kapadokya', 'town', 'desert', 'icecave', 'candy', 'sakura', 'istanbul', 'neon', 'moon', 'pirate', 'volcano', 'aurora', 'bamboo', 'glacier', 'carnival'];   // same order as biomes.js
 const POWERS = ['magnet', 'x2', 'superjump', 'rocket', 'helmet', 'timewarp', 'ghost', 'risk', 'clone', 'cannon'];
 // zone multipliers of the row-pattern weights (default 1); the zone's own patterns also ignore the difficulty gate
@@ -1532,7 +1532,7 @@ Object.assign(Obstacles.prototype, {
   _ground(ob, d) {
     if (d.low) { this._part(ob, 'shadow', 0xffffff, ob.u, 0.025, 0, 0, ob.hu * 2 + 0.7, 1, 1.4); return; }
     const cyl = ob.shape === 'cyl', rx = cyl ? ob.rad : ob.hu, rz = cyl ? ob.rad : ob.hs;
-    if (ob.lethal) this._part(ob, 'disc', 0xff3a2a, ob.u, 0.03, 0, 0, 2 * rx + 0.8, 1, 2 * rz + 0.8);
+    if (ob.lethal && this.track.level) this._part(ob, 'disc', 0xff3a2a, ob.u, 0.03, 0, 0, 2 * rx + 0.8, 1, 2 * rz + 0.8);
     else this._part(ob, 'shadow', 0xffffff, ob.u, 0.025, 0, 0, 2.5 * rx, 1, 2.5 * rz);
   },
 
@@ -1668,7 +1668,7 @@ Object.assign(Obstacles.prototype, {
       const RK_BAN = { oncoming: 1, slide: 1, combo: 1, ice: 1, melt: 1, conveyor: 1, rail: 1, missile: 1, laser: 1 };
       const rockNear = !!(lastR && (lastR.rock || RK_BAN[lastR.pat]) && (s - lastR.s) / vs < 2.0);
       plan.rockOk = s >= 800 && !!plan.piece && plan.piece.kind === 'straight' && s - plan.piece.s0 > Math.max(30, vs * 2) && !hardEnd && !forcedNext && !o.firstOnly && !o.noLethal && !plan.zone && free0.length >= 2 && !tightRow && !rockNear && !(lastR && lastR.hard && (s - lastR.s) / vs < 2.0)
-        && (s - (this._lastRockS === undefined ? -1e9 : this._lastRockS)) / vs >= 5 && !this._forcedStretch(s - vs * 2, s + vs * 2);
+        && (s - (this._lastRockS === undefined ? -1e9 : this._lastRockS)) / vs >= 8 && !this._forcedStretch(s - vs * 2, s + vs * 2);
       const zone = plan.zone, zmap = zone ? ZONE_M[zone] : null, zown = zone ? ZONE_OWN[zone] : null;
       const split2 = (tm & bit(NL >> 1)) !== 0;            // a persistent blocker in the middle lane splits the track: only jump / duck / floor patterns then
       const wantCrit = s >= this._nextCrit && !only && F.critters !== false && T.allows('critters') && this.critters && room > 30 && free0.length >= 2 && !tightRow && !zone;
@@ -1690,7 +1690,7 @@ Object.assign(Obstacles.prototype, {
           case 'low': return 2.6;
           case 'train': return dz >= 0.25 && persist.length === 0 && room > 30 && s + 26 <= lim && allowed.length === NL ? 0.8 + 0.8 * dz + (dense ? 0.4 : 0) : 0;
           case 'mover': return dz >= 0.1 && free0.length >= 2 && room > 6 && free0.some((l) => free0.indexOf(l + 1) >= 0) ? 1.1 : 0;
-          case 'rolling': return dz >= 0.3 && room > 18 && persist.length === 0 && s + 30 <= lim && free0.length >= 2 ? 0.35 : 0;
+          case 'rolling': return dz >= 0.4 && room > 18 && persist.length === 0 && s + 30 <= lim && free0.length >= 2 ? 0.12 : 0;
           case 'beat': return dz >= 0.25 && room > 6 && open3 ? 0.9 + (dense ? 0.5 : 0) : 0;
           case 'swing': return dz >= 0.3 && room > 6 && free0.length >= 2 ? 0.8 : 0;
           case 'ice': return dz >= 0.05 ? 0.5 : 0;
@@ -1705,7 +1705,7 @@ Object.assign(Obstacles.prototype, {
           case 'laser': return T.allows('lasers') && dz >= 0.08 && room > 8 ? 1.4 + 1.2 * dz : 0;
           // a volley is launched 2 s before contact (reticle + warning), anywhere in a piece as long as its contact is clear of a lane-forcing
           // run-in and no other blocker persists (a missile that already hit does not count); rare in normal play (late), the missiles zone's main course
-          case 'missile': return plan.lethalOk && T.allows('missiles') && dz >= (zone === 'missiles' ? 0.18 : 0.55) && room > 4 && tmHard === 0 && s + vs * 2.9 + 12 <= limM ? (zone === 'missiles' ? 1.0 + 1.2 * dz : 0.4 + 0.5 * dz) : 0;
+          case 'missile': return !!T.level && plan.lethalOk && T.allows('missiles') && dz >= (zone === 'missiles' ? 0.18 : 0.55) && room > 4 && tmHard === 0 && s + vs * 2.9 + 12 <= limM ? (zone === 'missiles' ? 1.0 + 1.2 * dz : 0.4 + 0.5 * dz) : 0;
           case 'phrase': return phOn && tm === 0 && hardN <= 1 && room > 8 && dz >= 0.05 ? (0.3 + 9.0 * dz) * (tn < 1 ? 1.7 : tn > 1 ? 0.6 : 1) : 0;
           case 'critter': return wantCrit ? 90 : 0;
           // variety (from ~1.2 km, modest weights)
@@ -3273,7 +3273,7 @@ Object.assign(Obstacles.prototype, {
     const T = this.track, hk = this.hk();
     // automatic throws: from ~1200 m (boss levels: from the start) at a rate that grows with hardness
     const boss = (T.level && T.level.boss) || (T.zoneAt && T.zoneAt(ball.s) === 'boss'), start = boss ? (T.level && T.level.boss ? 150 : 0) : 2600 / Math.sqrt(hk);
-    if (T.allows('boulder') && ball.s >= start && !(T.finishS < Infinity && ball.s > T.finishS - 90)) {
+    if (T.level && T.allows('boulder') && ball.s >= start && !(T.finishS < Infinity && ball.s > T.finishS - 90)) {
       if (!this._bArmed) { this._bArmed = true; this.nextBoulder = this.time + 5 + this.rng.next() * 6; }
       else if (this.time >= this.nextBoulder) {
         const rng = this.rng, vs = ball.vs || this.ballVs, sLand = ball.s + vs * 1.8 + 9;
