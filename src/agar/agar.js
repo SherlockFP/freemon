@@ -12,6 +12,10 @@ const SKIN_COL = new Map(SKINS.map((k) => [k.id, parseInt(String((k.preview && (
 import { ArenaProps, TIER_NAMES, TIER_HINT, tierOfM } from './props.js';
 import { meta } from '../meta.js';
 const EAT_K = 1.1; // eat when 10% heavier (agar.io-like); closer than that the two balls bump
+// bot personalities: 0 none(human/boss) 1 Avci 2 Korkak 3 Toplayici 4 Kurnaz 5 Zorba
+const PERS_PREY = [1, 1.7, 0.45, 0.5, 0.8, 1]; // prey scan range multiplier
+const PERS_THR = [1, 0.8, 1.7, 1, 0.6, 1]; // threat scan range multiplier
+const PERS_PROP = [1.2, 1.3, 1.4, 0.6, 1.2, 1.3]; // lower = prefers props over pellets
 
 // ------------------------------------------------------------------ constants
 const R = 1100; // arena radius (m) - a big agar.io-like map (2.2 km across)
@@ -181,7 +185,7 @@ export class AgarMode {
       const o = {
         id: i, name: '', col: 0xffffff, cr: 1, cg: 1, cb: 1, bot: true, human: null, alive: false, wasAlive: false, cellN: 0, mass: 0, cx: 0, cz: 0, lx: 0, lz: 0, maxR: 1, maxM: 0, ext: 0,
         dx: 0, dz: 1, mag: 0, ldx: 0, ldz: 1, boostT: 0, boostCd: 0, trailT: 0, splitCd: 0, shield: 0, magnet: 0, speed: 0, away: false, respawnT: 0, aiT: Math.random(), tx: 0, tz: 0, wanderT: 0,
-        bc: 0, hideT: 0, burCd: 0, fleeT: 0, bur: -1, kills: 0, xpRun: 0, t0: 0, bestRank: 99, maxMass: 0, seen: 0, killer: -1, sprite: null, tex: null, spriteName: '',
+        bc: 0, hideT: 0, burCd: 0, fleeT: 0, bur: -1, kills: 0, xpRun: 0, t0: 0, bestRank: 99, maxMass: 0, seen: 0, killer: -1, sprite: null, tex: null, spriteName: '', pers: 0, emoteAt: -9,
       };
       this.owners.push(o);
     }
@@ -356,6 +360,19 @@ export class AgarMode {
       sc.add(sp);
       o.sprite = sp; o.tex = tex;
     }
+    // emote bubbles (4 pooled sprites) + swallow shockwave rings (3 pooled meshes)
+    this.emo = [];
+    for (let i = 0; i < 4; i++) {
+      const cvs = document.createElement('canvas'); cvs.width = 128; cvs.height = 64;
+      const tex = new THREE.CanvasTexture(cvs); tex.colorSpace = THREE.SRGBColorSpace;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+      sp.renderOrder = 12; sp.visible = false; sp.frustumCulled = false; sc.add(sp);
+      this.emo.push({ sp, cvs, tex, o: null, until: 0, t0: 0 });
+    }
+    this.emoteG = 0; this.slowT = 0; this.swStreak = 0; this.swAt = -9;
+    this.shk = [];
+    { const sg = new THREE.RingGeometry(0.9, 1, 48).rotateX(-Math.PI / 2);
+      for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: 0xbff4ff, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, fog: false })); m.visible = false; m.frustumCulled = false; m.renderOrder = 8; sc.add(m); this.shk.push({ m, t: -1, r: 10 }); } }
     this.meRing = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 56).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, fog: false }));
     this.meRing.visible = false; this.meRing.frustumCulled = false; this.meRing.renderOrder = 6; sc.add(this.meRing);
     this.meShadow = new THREE.Mesh(new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0a2a4a, transparent: true, opacity: 0.28, depthWrite: false, fog: false }));
@@ -654,6 +671,7 @@ export class AgarMode {
     o.away = false; o.alive = true; o.wasAlive = true; o.cellN = 1; o.mass = m; o.cx = p.x; o.cz = p.z; o.lx = p.x; o.lz = p.z;
     o.boostT = o.boostCd = o.splitCd = o.magnet = o.speed = 0; o.hideT = o.burCd = o.fleeT = 0; o.shield = o.bot ? 0 : (o.id === this.me ? 60 : 6); o.prot = !o.bot && o.id === this.me;
     o.kills = 0; o.xpRun = 0; o.t0 = this.time; o.bestRank = 99; o.maxMass = m; o.killer = -1;
+    o.pers = o.bot && !o.boss ? 1 + ((Math.random() * 5) | 0) : 0;
     o.tx = p.x; o.tz = p.z; o.wanderT = 0; o.mag = 0;
     o.dx = Math.cos(Math.random() * 6.28); o.dz = Math.sin(Math.random() * 6.28);
     if (!o.bot && this.state !== 'title') this.seedAround(p.x, p.z, m);
@@ -1530,7 +1548,57 @@ export class AgarMode {
     po.killer = pred.o;
     if (prey.o === this.me && pred.o !== this.me) { this.revId = pred.o; this.revT = this.time + 20; }
     else if (pred.o === this.me && prey.o === this.revId && this.time < (this.revT || 0)) { pred.m = Math.min(MAXM, pred.m + prey.m * 0.25); this.revT = 0; this.revId = -1; this.toast('İNTİKAM ALINDI! +bonus'); this.audio?.milestone?.(3); }
-    this.sfxTo(pred.o, 'gulp', 1, pred.x, pred.z);
+    if (pred.o === this.me && prey.o !== this.me && prey.m >= 12) this.swallowJuice(pred, prey.m + kb, po);
+    else this.sfxTo(pred.o, 'gulp', 1, pred.x, pred.z);
+  }
+
+  /** player swallowed something big (host/single): shockwave ring, camera punch, rising gulp, +kutle text, kill feed */
+  swallowJuice(pred, gain, po) {
+    this.swStreak = this.time - this.swAt < 5 ? Math.min(12, this.swStreak + 1) : 0; this.swAt = this.time;
+    const big = Math.min(1, gain / 300);
+    let s = null; for (let i = 0; i < 3; i++) { if (this.shk[i].t < 0) { s = this.shk[i]; break; } } if (!s) s = this.shk[0];
+    s.t = 0; s.r = pred.r * 2 + 6 + big * 18; s.m.position.set(pred.x, 0.6, pred.z); s.m.visible = true;
+    this.camKick = Math.max(this.camKick, 0.05 + big * 0.1);
+    this.audio?.arena?.('gulp', 1, this.swStreak);
+    this.platform?.haptic?.('light');
+    this.floatTxt('+' + Math.round(gain) + ' kütle', pred.x, pred.z - pred.r, '#7dffb0');
+    if (po) this.pushFeed('Sen ➜ ' + po.name + accSuffix(po.name) + ' yuttun!', true);
+  }
+
+  /** big prop swallowed (called by props.js) */
+  propJuice(c, gain) { if (c.o === this.me) this.swallowJuice(c, gain, null); }
+
+  /** bot emote bubble above the name: rate-limited (7 s per bot, 0.8 s overall, 4 at once), only near the camera */
+  emote(o, text) {
+    if (this.time - o.emoteAt < 7 || this.time < this.emoteG || (!o.alive && text !== '😭')) return;
+    if (Math.abs(o.lx - this.camX) > this.camH * 1.3 || Math.abs(o.lz - this.camZ) > this.camH * 1.3) return;
+    let e = null; for (let i = 0; i < 4; i++) if (this.emo[i].until < this.time) { e = this.emo[i]; break; }
+    if (!e) return;
+    o.emoteAt = this.time; this.emoteG = this.time + 0.8;
+    const g = e.cvs.getContext('2d'); g.clearRect(0, 0, 128, 64);
+    g.fillStyle = 'rgba(255,255,255,0.92)'; g.beginPath(); if (g.roundRect) g.roundRect(4, 4, 120, 48, 18); else g.rect(4, 4, 120, 48); g.fill();
+    g.beginPath(); g.moveTo(54, 52); g.lineTo(64, 62); g.lineTo(74, 52); g.fill();
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#16304f'; g.font = '800 30px "Trebuchet MS", system-ui, sans-serif'; g.fillText(text, 64, 29, 108);
+    e.tex.needsUpdate = true; e.o = o; e.t0 = this.time; e.until = this.time + 2.2;
+  }
+
+  /** per frame: emote bubble placement/fade + shockwave rings (no allocations) */
+  fxTick(dt) {
+    for (let i = 0; i < 4; i++) {
+      const e = this.emo[i];
+      if (e.until < this.time) { if (e.sp.visible) e.sp.visible = false; continue; }
+      const o = e.o, w = Math.max(o.maxR * 2.2, this.camH * 0.1) * 0.8, k = this.time - e.t0, pop = Math.min(1, k * 7);
+      e.sp.visible = true; e.sp.scale.set(w * 0.55 * pop, w * 0.275 * pop, 1);
+      e.sp.position.set(o.lx, o.maxR + 0.3 + w * 0.55 + k * w * 0.05, o.lz + o.maxR * 0.2);
+      e.sp.material.opacity = Math.min(1, (e.until - this.time) * 2.5);
+    }
+    for (let i = 0; i < 3; i++) {
+      const s = this.shk[i];
+      if (s.t < 0) continue;
+      s.t += dt; const q = s.t / 0.6;
+      if (q >= 1) { s.t = -1; s.m.visible = false; continue; }
+      s.m.scale.setScalar(s.r * (0.3 + 1.4 * (1 - (1 - q) * (1 - q)))); s.m.material.opacity = 0.85 * (1 - q);
+    }
   }
 
   // ------------------------------------------------------------------ bot AI
@@ -1538,14 +1606,17 @@ export class AgarMode {
     const cells = this.cells;
     let thr = null, thrD = 1e9, prey = null, preyS = 0, preyD = 0;
     const cx = o.lx, cz = o.lz, om = o.maxM, orr = o.maxR;
+    const pe = o.pers, pmul = PERS_PREY[pe], tmul = PERS_THR[pe];
+    let lurk = null, lurkD = 260;
     for (let i = 0; i < CAP; i++) {
       const c = cells[i];
       if (!c.on || c.o === o.id || this.owners[c.o].hideT > 0) continue;
       const dx = c.x - cx, dz = c.z - cz, d = Math.sqrt(dx * dx + dz * dz);
       if (c.m > om * EAT_K) {
         const e = d - c.r;
-        if (e < 14 + orr * 2.5 + c.r * 1.5 && e < thrD) { thrD = e; thr = c; }
-      } else if (c.m * EAT_K < om && this.owners[c.o].shield <= 0 && d < (c.o === this.kingId ? 60 + orr * 6 : 22 + orr * 4)) {
+        if (e < (14 + orr * 2.5 + c.r * 1.5) * tmul && e < thrD) { thrD = e; thr = c; }
+        if (pe === 4 && c.m > om * 1.5) { const ld = this.owners[c.o].cellN > 1 ? d * 0.5 : d; if (ld < lurkD) { lurkD = ld; lurk = c; } }
+      } else if (c.m * EAT_K < om && this.owners[c.o].shield <= 0 && d < (c.o === this.kingId ? 60 + orr * 6 : 22 + orr * 4) * pmul * (pe === 5 && c.o === this.me ? 5 : 1)) {
         const s = (c.m / (d + 6)) * (c.o === this.kingId ? 2.5 : 1);
         if (s > preyS) { preyS = s; prey = c; preyD = d; }
       }
@@ -1565,13 +1636,18 @@ export class AgarMode {
         if (bb >= 0) { tx = BUR[bb].x; tz = BUR[bb].z; o.fleeT = 1.2; }
       }
       if (thrD < orr * 1.5 + 4 && o.boostCd <= 0 && om > 40 && Math.random() < 0.5) this.boost(o);
-    } else if (prey && (o.id % 3 !== 0 || preyD < 20 + orr * 2)) {
+      if (pe === 2 && Math.random() < 0.3) this.emote(o, 'kaç!');
+    } else if (prey && (o.id % 3 !== 0 || pe === 1 || pe === 5 || preyD < 20 + orr * 2)) {
       mode = 2;
+      if ((pe === 1 || pe === 5) && Math.random() < 0.12) this.emote(o, '😈');
       tx = prey.x + prey.vx * 0.2; tz = prey.z + prey.vz * 0.2;
       if (preyD < orr * 3.2 + prey.r) {
         if (o.boostCd <= 0 && om > 60 && Math.random() < 0.4) this.boost(o);
         else if (om > prey.m * 2.6 && om > 120 && o.cellN < 3 && o.splitCd <= 0 && Math.random() < 0.25) { o.ldx = (tx - cx) / (preyD + 0.01); o.ldz = (tz - cz) / (preyD + 0.01); this.split(o); }
       }
+    } else if (lurk) {
+      mode = 2; const ld = Math.hypot(lurk.x - cx, lurk.z - cz) + 0.01, st = lurk.r * 2.2 + orr * 1.6 + 14;
+      tx = lurk.x + (-(lurk.z - cz) / ld) * st; tz = lurk.z + ((lurk.x - cx) / ld) * st; // circle the big one at a safe distance, wait for a split
     } else if (this.king && this.king.alive && this.king !== o && o.id % 4 === 1 && om > this.king.mass * 0.5 && Math.hypot(this.king.lx - cx, this.king.lz - cz) < 240) {
       mode = 2; tx = this.king.lx; tz = this.king.lz;
     } else if (om > 50 && o.id % 3 === 0 && this.fortGoal(o)) {
@@ -1589,7 +1665,7 @@ export class AgarMode {
         }
       }
       const pt = this.props.tmpT;
-      if (this.props.bestFor(cx, cz, om, orr, pt) && (best < 0 || pt.g * (bd + 12) > 1.2 * (pt.d + 12))) { tx = pt.x; tz = pt.z; } else if (best >= 0) { tx = this.fx[best]; tz = this.fz[best]; } else {
+      if (this.props.bestFor(cx, cz, om, orr, pt) && (best < 0 || pt.g * (bd + 12) > PERS_PROP[pe] * (pt.d + 12))) { tx = pt.x; tz = pt.z; if (pe === 3 && Math.random() < 0.06) this.emote(o, '🍕'); } else if (best >= 0) { tx = this.fx[best]; tz = this.fz[best]; if (pe === 2 && Math.random() < 0.02) this.emote(o, '🍕'); } else {
         o.wanderT -= 0.2;
         if (o.wanderT <= 0 || Math.hypot(o.tx - cx, o.tz - cz) < 8) { const p = this.tmpP || (this.tmpP = { x: 0, z: 0 }); this.randPos(p, 20); o.tx = p.x; o.tz = p.z; o.wanderT = 8; }
         tx = o.tx; tz = o.tz;
@@ -1720,8 +1796,8 @@ export class AgarMode {
       if (killer && killer !== o && killer.id === this.me && this.mp !== 'client') this.meKill();
       if (killer && killer !== o) { killer.kills++; this.pushFeed(killer.name + ', ' + o.name + accSuffix(o.name) + ' yuttu!');
         if (killer.bot && this.time > (this._quipT || 0) && Math.random() < 0.4) { this._quipT = this.time + 9 + Math.random() * 8; const Q = ['yummy 😋', 'kaç kaç!', 'bu benim kalem!', 'ez gg', 'bir tane daha 😎', 'kar tanesi gibi eridin', 'sıradaki kim?', 'oha büyüdüm 🤩']; this.pushFeed(killer.name + ': ' + Q[(Math.random() * Q.length) | 0]); } }
-      if (o.bot && !o.human) o.respawnT = 3 + Math.random() * 3;
-      else if (k === this.me) this.onMeDead(killer);
+      if (o.bot && !o.human) { o.respawnT = 3 + Math.random() * 3; if (killer) { if (Math.random() < 0.5) this.emote(o, '😭'); else if (killer.bot && Math.random() < 0.3) this.emote(killer, 'gg'); } }
+      else if (k === this.me) { this.onMeDead(killer); if (killer && killer !== o) { this.slowT = 0.9; this.toast(killer.name + ' seni yuttu', 2200); } }
       else if (o.human && o.human !== 'host') this.net && this.net.sendTo(o.human, { t: 'dead', k: killer ? killer.name : '' });
       o.killer = -1;
     }
@@ -2218,7 +2294,18 @@ export class AgarMode {
     const ul = document.createElement('div'); ul.className = 'ag-plist';
     list.forEach((n, i) => { const d = document.createElement('div'); d.textContent = (i === 0 ? '👑 ' : '⛄ ') + n; ul.appendChild(d); });
     c.appendChild(ul);
+    this.btn(c, '👥 Arkadaşını davet et', () => this.invite(code));
     this.btn(c, 'ÇIK', () => { this._tok++; this.closeNet(); this.openBrowser(); });
+  }
+
+  /** share the room code + link (navigator.share, else clipboard) */
+  async invite(code) {
+    const url = (typeof location !== 'undefined' ? location.origin + location.pathname : '') + '#arena=' + code;
+    const text = 'PATPAT Arena odama gel! Oda kodu: ' + code;
+    try {
+      if (navigator.share) { await navigator.share({ title: 'PATPAT Arena', text, url }); return; }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(text + ' ' + url); this.toast('Davet kopyalandı!'); } catch (e) { this.toast('Kod: ' + code); }
   }
 
   joinScreen() {
@@ -2478,22 +2565,23 @@ export class AgarMode {
   }
 
   // ------------------------------------------------------------------ feed
-  pushFeed(text) {
+  pushFeed(text, localOnly) {
     const f = this.feed;
     for (let i = 0; i < 3; i++) { f[i].t = f[i + 1].t; f[i].until = f[i + 1].until; }
     f[3].t = text; f[3].until = this.time + 6;
     this.feedDirty = true;
-    if (this.mp === 'host' && this.net && !text.startsWith('Oda açıldı')) this.net.broadcast({ t: 'k', x: text });
+    if (!localOnly && this.mp === 'host' && this.net && !text.startsWith('Oda açıldı')) this.net.broadcast({ t: 'k', x: text });
   }
 
   // ------------------------------------------------------------------ main update
   update(dt) {
     if (this.disposed) return;
     if (dt > 0.05) dt = 0.05;
+    if (this.slowT > 0) { this.slowT -= dt; dt *= 0.4; } // slow-mo when swallowed
     this.time += dt;
     if (this.mp === 'client') this.clientSmooth(dt);
     else if (this.state === 'play' || this.state === 'dead' || this.state === 'title' || this.state === 'lobby') this.simulate(dt);
-    this.props.updatePulls(dt);
+    this.props.updatePulls(dt); this.fxTick(dt);
     this.avTick(dt); this.woTick(dt); this.bossTick(dt); this.bossHud();
     // radii
     const k = Math.min(1, dt * 9);

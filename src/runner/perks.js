@@ -118,3 +118,38 @@ export const destructionTier = (tons) => {
   while (i + 1 < DESTRUCTION.length && tons >= DESTRUCTION[i + 1].t) i++;
   return i;
 };
+
+// RUN-START PERKS: one of 3 random picks at the start of every Rush run (not the daily, tutorial or campaign); lasts the whole run.
+export const RUN_PERKS = [
+  { id: 'miknatis', icon: '🧲', name: 'Kartopu Mıknatısı', desc: 'Yandaki şeritten de toplar' },
+  { id: 'kalin', icon: '🛡️', name: 'Kalın Kabuk', desc: 'Bir boy büyük başla' },
+  { id: 'yetidostu', icon: '🦶', name: 'Yeti Dostu', desc: 'Yeti daha uzakta başlar' },
+  { id: 'altinkar', icon: '🌟', name: 'Altın Kar', desc: 'Kar taneleri +%25' },
+  { id: 'cifte', icon: '🦘', name: 'Çifte Zıplama', desc: 'Havada bir kez daha zıpla' },
+  { id: 'pateni', icon: '⛸️', name: 'Buz Pateni', desc: 'Şerit değiştirme hızlı' },
+  { id: 'kombo', icon: '🔥', name: 'Kombo Ustası', desc: 'Kombo yavaş söner' },
+  { id: 'sansli', icon: '🍀', name: 'Şanslı Kart', desc: 'Kart kapısında 3 seçenek' },
+  { id: 'yakin', icon: '😮‍💨', name: 'Yakın Kaçış', desc: 'Kıl payı bonusu x3' },
+  { id: 'cigguc', icon: '💥', name: 'Çığ Gücü', desc: 'Büyükken ezmek +%60 puan' },
+];
+export const RUN_PERK_BY_ID = Object.fromEntries(RUN_PERKS.map((p) => [p.id, p]));
+
+// Run perk + a buff card taken during the run = SİNERJİ (stronger combined effect).
+export const SYNERGIES = [
+  { perk: 'miknatis', buff: 'altin', name: 'Altın Mıknatıs', desc: 'Kar taneleri x2 değerli' },
+  { perk: 'kalin', buff: 'kabuk', name: 'Çelik Kabuk', desc: 'Kabuk ilk darbede kırılmaz' },
+  { perk: 'cifte', buff: 'yay', name: 'Üçlü Zıplama', desc: 'Havada 2 kez zıpla' },
+  { perk: 'kombo', buff: 'akis', name: 'Durmayan Akış', desc: 'Kombo neredeyse hiç sönmez' },
+  { perk: 'cigguc', buff: 'dev', name: 'Titan Çığ', desc: 'Ezme puanı x2' },
+];
+
+/** n distinct random perks (partial Fisher-Yates on a copy; run once per run, not per frame). */
+export function rollPerks(n = 3, rng = Math.random) {
+  const a = RUN_PERKS.slice();
+  for (let i = 0; i < n && i < a.length; i++) {
+    const j = i + Math.floor(rng() * (a.length - i));
+    const t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a.slice(0, n);
+}
+export const synergyFor = (perk, buff) => SYNERGIES.find((s) => s.perk === perk && s.buff === buff) || null;

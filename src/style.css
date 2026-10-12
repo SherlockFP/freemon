@@ -1017,3 +1017,18 @@ html, body {
 #banner.runner { top: calc(var(--sat) + 150px); }
 #banner.runner .b, #banner.runner .b.l4, #banner.runner .b.l5 { font-size: 26px; }
 #hud.rush ~ #floats .float.big, #hud.rush ~ #floats .float.bad { font-size: 20px; }
+
+/* RUN-START PERK picker + HUD icon */
+.perk-pick { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 0 16px; background: rgba(8, 20, 45, 0.62); animation: ppIn 0.25s ease-out both; touch-action: none; }
+.perk-pick.out { opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+@keyframes ppIn { from { opacity: 0; } to { opacity: 1; } }
+.perk-pick .pp-h { font-weight: 900; font-size: 22px; letter-spacing: 0.12em; color: #fff; text-shadow: 0 3px 0 var(--ink); }
+.buff-card.perk-card { position: relative; left: auto; top: auto; transform: none; opacity: 1; animation: none; white-space: normal; width: min(92vw, 380px); min-height: 84px; padding: 12px 18px 12px 14px; gap: 14px; font: inherit; text-align: left; cursor: pointer; }
+.perk-card:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
+.perk-card .bc-i { font-size: 44px; }
+.perk-card .bc-n { font-size: 20px; }
+.perk-card .bc-s { font-size: 14px; letter-spacing: 0.02em; }
+.pp-bar { width: min(92vw, 380px); height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.25); overflow: hidden; }
+.pp-bar i { display: block; height: 100%; width: 100%; background: #ffd34d; transition: width 0.1s linear; }
+.perk-ico { position: absolute; right: 10px; top: calc(var(--sat) + 100px); width: 22px; height: 22px; display: grid; place-items: center; font-size: 12px; border-radius: 50%; background: #17345c; border: 2px solid var(--ink); pointer-events: none; }
+.perk-ico.hidden { display: none; }

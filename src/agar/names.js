@@ -1,8 +1,8 @@
 // KARTOPU ARENA - realistic player-style nickname generator (used for bot slots). Pure, no dependencies.
 const TR = ['emre', 'kaan', 'mert', 'baris', 'efe', 'ahmet', 'zeynep', 'elif', 'ecem', 'burak', 'can', 'cem', 'deniz', 'ece', 'sude', 'oguz', 'yusuf', 'berk', 'arda', 'selin', 'ayse',
-  'irem', 'hakan', 'onur', 'tolga', 'umut', 'kerem', 'melih', 'ozan', 'furkan', 'batu', 'eren', 'yigit', 'alp', 'mehmet', 'ali', 'ceren', 'naz', 'doruk', 'kuzey', 'tuna', 'asli', 'beren', 'gizem', 'hilal', 'bora'];
-const TRW = ['kartal', 'kurt', 'aslan', 'kara', 'gece', 'golge', 'bozkurt', 'yildiz', 'ruzgar', 'simsek', 'tufan', 'atlas', 'akin', 'demir', 'celik', 'efsane', 'sultan', 'turbo'];
-const EN = ['Shadow', 'nova', 'pixel', 'Zyrex', 'Max', 'Snow', 'Frost', 'Blaze', 'Echo', 'Ghost', 'Rex', 'Kai', 'Luna', 'Ace', 'Vex', 'Zed', 'Orion', 'Hawk', 'Wolf', 'Storm', 'Jinx', 'Neo', 'Axel', 'Mira', 'Dex'];
+  'irem', 'hakan', 'onur', 'tolga', 'umut', 'kerem', 'melih', 'ozan', 'furkan', 'batu', 'eren', 'yigit', 'alp', 'mehmet', 'ali', 'ceren', 'naz', 'doruk', 'kuzey', 'tuna', 'asli', 'beren', 'gizem', 'hilal', 'bora', 'kadir', 'yasin', 'talha', 'enes', 'ilker', 'sinan', 'gokhan', 'volkan', 'serkan', 'tayfun', 'nehir', 'defne', 'pelin', 'buse', 'dilara', 'rabia', 'mina', 'ismail'];
+const TRW = ['kartal', 'kurt', 'aslan', 'kara', 'gece', 'golge', 'bozkurt', 'yildiz', 'ruzgar', 'simsek', 'tufan', 'atlas', 'akin', 'demir', 'celik', 'efsane', 'sultan', 'turbo', 'pasa', 'reis', 'abi', 'dayi', 'kral', 'avci', 'yildirim', 'panter'];
+const EN = ['Shadow', 'nova', 'pixel', 'Zyrex', 'Max', 'Snow', 'Frost', 'Blaze', 'Echo', 'Ghost', 'Rex', 'Kai', 'Luna', 'Ace', 'Vex', 'Zed', 'Orion', 'Hawk', 'Wolf', 'Storm', 'Jinx', 'Neo', 'Axel', 'Mira', 'Dex', 'Viper', 'Cyber', 'Toxic', 'Sniper', 'Ninja', 'Drift', 'Lynx', 'Raven', 'Titan', 'Ryu', 'Zoro', 'Kira', 'Noob', 'Sweaty'];
 const CITY = ['34', '06', '35', '16', '01', '07', '61', '42', '26', '55', '41', '33', '27'];
 const TAGS = ['TR', 'ARS', 'GS', 'FB', 'BJK', 'KRT', 'ICE', 'PRO', 'TRB', 'XD'];
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);

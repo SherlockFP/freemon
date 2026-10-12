@@ -793,8 +793,9 @@ function arena(kind, vol, arg) {
     if (!throttle('agulp', 0.1)) return;
     const v = begin(P_BIG, 0.5, 0.9 * k);
     if (!v) return;
-    tone(v, 'sine', t, 330, 150, 0.12, 0.26, 0.004, 0.18);
-    tone(v, 'sine', t + 0.07, 520, 760, 0.1, 0.12, 0.004, 0.14);
+    const gp = Math.pow(2, Math.min(12, Math.max(0, num(arg, 0))) / 12); // arg = streak semitones (optional)
+    tone(v, 'sine', t, 330 * gp, 150 * gp, 0.12, 0.26, 0.004, 0.18);
+    tone(v, 'sine', t + 0.07, 520 * gp, 760 * gp, 0.1, 0.12, 0.004, 0.14);
     nz(v, whiteBuf, t, 'lowpass', 700, 300, 0.7, 0.1, 0.12, 0.004, 0.1);
     if (has('impact_soft')) smp('impact_soft', 0.5 * k, rand(0.9, 1.1), P_BIG, t, 0);
     if (has('coin')) smp('coin', 0.25 * k, rand(0.95, 1.1), P_POP, t + 0.08, 0);

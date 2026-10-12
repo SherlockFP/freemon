@@ -289,12 +289,14 @@ REKOR −${this._rg} m`;
     else if (rank > 0 && rank <= 3) note = `#${rank}. en iyi koşun`;
     const isScoreRec = !!(p && p.isBest) || isRec;
     const chips = [`<div class="rx-chip${isScoreRec ? ' gold' : ''}"><small>EN İYİ</small><b>${isScoreRec ? '★ ' : ''}${fmtN(Math.max(best, score))}</b></div>`];
+    if (p && p.perk) chips.push(`<div class="rx-chip"><small>YETENEK</small><b>${p.perk.icon} ${p.perk.name}</b></div>`);
     if (coins) chips.push(`<div class="rx-chip"><small>KAZANÇ</small><b>❄️ +${fmtN(coins)}</b></div>`);
     if ((this._bestCombo || 0) >= 3) chips.push(`<div class="rx-chip"><small>KOMBO</small><b>🔥 x${this._bestCombo}</b></div>`);
     let seaTok = 0;
     try { seaTok = Math.floor(Number(p && (p.seasonTokens ?? (p.stats && p.stats.seasonTokens))) || meta.stats().seasonTokens || 0); } catch { seaTok = 0; }
     if (seaTok > 0) chips.push(`<div class="rx-chip"><small>SEZON</small><b>+${fmtN(seaTok)} 🧣</b></div>`);
     html += `<div class="rx-stats">${chips.join('')}</div>`;
+    if (p && p.synergies) html += `<div class="rx-line">SİNERJİ: ${p.synergies.join(' · ')}</div>`;
     const dly = p && p.daily;
     let shareTxt = '';
     if (dly) {
@@ -1016,6 +1018,57 @@ REKOR −${this._rg} m`;
     b.el.classList.remove('low');
     b.el.classList.add('out');
     setTimeout(() => b.el.remove(), 320);
+  }
+
+  // ---- RUN-START PERK picker (Rush): 3 big cards, one tap, auto-picks the first after `secs`; the runner waits meanwhile ----
+  runnerPerkPick(perks, onPick, secs = 6) {
+    if (this._perkEl) { clearTimeout(this._perkTm); clearInterval(this._perkIv); this._perkEl.remove(); this._perkEl = null; }
+    if (!perks || !perks.length) return;
+    const root = document.createElement('div');
+    root.className = 'perk-pick';
+    const h = document.createElement('div'); h.className = 'pp-h'; h.textContent = 'YETENEK SEÇ';
+    root.appendChild(h);
+    let done = false;
+    const pick = (id) => {
+      if (done) return; done = true;
+      clearTimeout(this._perkTm); clearInterval(this._perkIv);
+      root.classList.add('out'); setTimeout(() => root.remove(), 220);
+      this._perkEl = null;
+      snd('chime');
+      onPick && onPick(id);
+    };
+    for (const p of perks) {
+      const c = document.createElement('button');
+      c.className = 'buff-card perk-card';
+      c.innerHTML = '<div class="bc-i"></div><div><div class="bc-n"></div><div class="bc-s"></div></div>';
+      c.children[0].textContent = p.icon;
+      c.querySelector('.bc-n').textContent = p.name;
+      c.querySelector('.bc-s').textContent = p.desc;
+      c.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); pick(p.id); });
+      root.appendChild(c);
+    }
+    const bar = document.createElement('div'); bar.className = 'pp-bar'; bar.innerHTML = '<i></i>';
+    root.appendChild(bar);
+    const fill = bar.firstChild;
+    document.body.appendChild(root);
+    this._perkEl = root;
+    const t0 = performance.now();
+    fill.style.width = '100%';
+    this._perkIv = setInterval(() => { fill.style.width = Math.max(0, 100 - ((performance.now() - t0) / (secs * 10))) + '%'; }, 100);
+    this._perkTm = setTimeout(() => pick(perks[0].id), secs * 1000);
+  }
+
+  runnerPerkIcon(icon, name) {
+    let el = this._perkIco;
+    if (!icon) { if (el) el.classList.add('hidden'); return; }
+    if (!el) {
+      el = this._perkIco = document.createElement('div');
+      el.className = 'perk-ico';
+      this.el.hud.appendChild(el);
+    }
+    el.textContent = icon;
+    el.setAttribute('aria-label', name || '');
+    el.classList.remove('hidden');
   }
 
   buffClear() {

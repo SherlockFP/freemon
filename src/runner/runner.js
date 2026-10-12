@@ -4,7 +4,7 @@ import { Obstacles } from './obstacles.js';
 import { ABILITIES, SKINS } from '../skins.js';
 import { Environment, biomeAt, trackPalette, musicStyleAt } from './biomes.js';
 import * as Biomes from './biomes.js';
-import { BuffSet, BUFFS, rollBuff, BUFF_LEN, DESTRUCTION, destructionTier } from './perks.js';
+import { BuffSet, BUFFS, rollBuff, BUFF_LEN, DESTRUCTION, destructionTier, RUN_PERK_BY_ID, rollPerks, synergyFor } from './perks.js';
 import { music } from './music.js';
 import { RhythmLane } from './rhythm.js';
 import { patchMaterial } from '../shaders.js';
@@ -438,6 +438,7 @@ export class Runner {
       if (this.abil === 'nazar') { this.gapBonus = 3; this.gap += 3; }
       if (this.abil === 'penguen') this.penN = 1;
       if (this.abil) this.charIntro(id); }
+    this.initRunPerk(opts);
     this.ctx.meta?.track?.('run_start', { mode: 'endless' });
     this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.()?.nextLetter ?? null);
     this.yetiN = 0; this.dblT = 0; this.turboN = 0; this.turboT = 0;
@@ -547,7 +548,8 @@ export class Runner {
     // The first moments of a death run in slow motion so the read-out lands.
     if (this.state === 'dying') { if (this.deadT < 0.12) dt *= 0.02; else if (this.deadT < 0.7) dt *= 0.4; }
     // Countdown before the chase starts (2 s the first time, 1 s on retries): the world is frozen.
-    if (this.countT > 0) {
+    if (this.countT > 0 && this.pickT > 0) dt = 0;       // RUN-START PERK PICK: the world waits (the UI calls pickPerk)
+    else if (this.countT > 0) {
       const before = Math.ceil(this.countT);
       this.countT -= rdt;
       const after = Math.ceil(this.countT);
@@ -839,6 +841,8 @@ export class Runner {
         fired = true;
         if (!this.edgeAssist()) this.jump(RCFG.jumpV, false);
       }
+      else if (this.airJ > 0 && !this.grounded && !this.zip && this.coyoteT <= 0 && this.edgeS < 0 && this.b.vh < 6) { fired = true; this.airJ--; this.jump(RCFG.jumpV * 0.9, true); }
+      else if (this.airJ > 0 && !this.grounded && !this.zip && this.coyoteT <= 0 && this.edgeS < 0 && this.b.vh < 6) { fired = true; this.airJ--; this.jump(RCFG.jumpV * 0.9, true); }
       if (fired) this.jumpBufT = 0; else this.jumpBufT -= dt;
     }
     if (this.edgeS >= 0) {
@@ -1098,14 +1102,20 @@ export class Runner {
     const flip = Math.random() < 0.5;
     const cards = [{ def: a, risky: false, secs: BUFF_LEN }, { def: r, risky: true, secs: Math.round(BUFF_LEN * 1.6) }];
     if (flip) cards.reverse();
+    const n = LANES.length, us = [LANES[0], LANES[n - 1]];
+    if (this.perk === 'sansli') {                     // ŞANSLI KART: a third (safe) card in the middle
+      let m = rollBuff(this.buffs, Math.random, a.id), q = 0;
+      while ((m.id === a.id || m.id === r.id) && q++ < 6) m = rollBuff(this.buffs, Math.random, a.id);
+      cards.splice(1, 0, { def: m, risky: false, secs: BUFF_LEN });
+      us.splice(1, 0, 0);
+    }
     const gs = b.s + 75;
     const g = new THREE.Group();
-    const n = LANES.length, us = [LANES[0], LANES[n - 1]];
     const poleG = this._gatePoleG || (this._gatePoleG = new THREE.CylinderGeometry(0.07, 0.07, 3.6, 5).translate(0, 1.8, 0));
     const poleM = this._gatePoleM || (this._gatePoleM = new THREE.MeshLambertMaterial({ color: 0xffffff }));
     const planeG = this._gatePlaneG || (this._gatePlaneG = new THREE.PlaneGeometry(2.8, 2.1));
     g.userData.mats = []; g.userData.cards = [];
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < cards.length; i++) {
       const c = cards[i], x = us[i];
       let mat;
       if (typeof document !== 'undefined') {
@@ -1139,7 +1149,7 @@ export class Runner {
     this.gate = { s: gs, g, cards, us, done: false, clrT: 0, t: 0 };
     const ui = this.ctx.ui, sd = (k) => (cards[k].risky ? 'RİSKLİ' : 'GÜVENLİ');
     ui.holdCentre?.(true);
-    ui.toastSoft?.(`◀ ${sd(0)} · ${sd(1)} ▶`, { prio: 3, drop: true });
+    ui.toastSoft?.(cards.length > 2 ? '◀ 🍀 3 KART ▶' : `◀ ${sd(0)} · ${sd(1)} ▶`, { prio: 3, drop: true });
     this.obstacles.clearRange?.(gs - 15, gs + 15);
   }
 
@@ -1154,7 +1164,8 @@ export class Runner {
       if (b.s >= G.s) {
         G.done = true;
         const w = RCFG.laneW * 0.6;
-        const i = Math.abs(b.u - G.us[0]) < w ? 0 : Math.abs(b.u - G.us[1]) < w ? 1 : -1;
+        let i = -1;
+        for (let q = 0; q < G.us.length; q++) if (Math.abs(b.u - G.us[q]) < w) { i = q; break; }
         if (i >= 0) {
           const c = G.cards[i];
           this.grantBuff(c.def, c.secs);
@@ -1193,6 +1204,8 @@ export class Runner {
     this.buffT = rand(RCFG.buffEvery[0], RCFG.buffEvery[1]);
     if (ui.buffAdd) ui.buffAdd(def.id, def.icon, def.name, secs);
     else this.float(`${def.icon} ${def.name.toLocaleUpperCase('tr-TR')}`, 'big');
+    if (this.perk) this.checkSynergy(def.id);
+    if (this.perk) this.checkSynergy(def.id);
     if (def.id === 'akis') this.flow = Math.min(100, this.flow + 25);
     if (def.id === 'yetikov') this.stumbleT = 0;
     this.syncRadius();
@@ -1201,8 +1214,48 @@ export class Runner {
     this.ctx.meta?.track?.('perk', { id: def.id });
   }
 
+  // ---------- RUN-START PERK ----------
+  initRunPerk(opts) {
+    this.perk = null; this.synHit = []; this.steelUsed = false; this.airJ = 0; this.airJumpMax = 0; this.pickT = 0;
+    const ui = this.ctx.ui;
+    ui.runnerPerkIcon?.(null);
+    if (this.level || this.daily || this.tut || !ui.runnerPerkPick) return;
+    this.pickT = 6.1;
+    const offer = rollPerks(3);
+    ui.runnerPerkPick(offer, (id) => this.pickPerk(id), 6);
+  }
+
+  pickPerk(id) {
+    if (!(this.pickT > 0)) return;
+    this.pickT = 0;
+    const def = RUN_PERK_BY_ID[id];
+    if (!def) return;
+    this.perk = id;
+    if (id === 'kalin') { this.tier = Math.min(4, this.tier + 1); this.maxTier = Math.max(this.maxTier, this.tier); this.syncRadius(); this.rShown = this.b.r; }
+    else if (id === 'yetidostu') { this.gapBonus = (this.gapBonus || 0) + 4; this.gap += 4; }
+    else if (id === 'cifte') this.airJumpMax = 1;
+    this.airJ = this.airJumpMax;
+    this.ctx.ui.runnerPerkIcon?.(def.icon, def.name);
+    this.ctx.audio.chime?.();
+    this.ctx.platform.haptic('success');
+    this.ctx.meta?.track?.('run_perk', { id });
+  }
+
+  checkSynergy(buffId) {
+    const sy = synergyFor(this.perk, buffId);
+    if (!sy) return;
+    if (sy.perk === 'cifte') this.airJumpMax = 2;
+    if (this.synHit.indexOf(sy.name) >= 0) return;
+    this.synHit.push(sy.name);
+    const ui = this.ctx.ui;
+    ui.toastSoft?.(`SİNERJİ! ${RUN_PERK_BY_ID[sy.perk].icon}+${(BUFFS.find((x) => x.id === buffId) || {}).icon} ${sy.name}`, { prio: 3 });
+    this.kick += 2; this.burst?.(12, 0xffd34d, 4);
+    this.ctx.audio.star?.(2);
+  }
+
   // The kabuk card is spent by absorbing one hit.
   spendBuff(id) {
+    if (id === 'kabuk' && this.perk === 'kalin' && !this.steelUsed) { this.steelUsed = true; return; }     // SİNERJİ Çelik Kabuk: survives the first hit
     const e = this.buffs.remove(id);
     if (e) this.ctx.ui.buffRemove?.(id);
   }
@@ -1352,7 +1405,7 @@ export class Runner {
     this.stormTick(dt);
     // Flow decays when you stop doing skilful things.
     this.flowT -= dt;
-    if (this.flowT <= 0 && this.flow > 0) this.flow = Math.max(0, this.flow - 18 * (this.buffs.has('akis') ? 0.5 : 1) * (1 - 0.06 * Math.min(5, this.perm.flow || 0)) * dt);
+    if (this.flowT <= 0 && this.flow > 0) this.flow = Math.max(0, this.flow - 18 * (this.buffs.has('akis') ? 0.5 : 1) * (this.perk === 'kombo' ? (this.buffs.has('akis') ? 0.25 : 0.6) : 1) * (this.perk === 'kombo' ? (this.buffs.has('akis') ? 0.25 : 0.6) : 1) * (1 - 0.06 * Math.min(5, this.perm.flow || 0)) * dt);
     const lvl = this.flow >= 98 ? 4 : this.flow >= 48 ? 3 : this.flow >= 18 ? 2 : this.flow >= 6 ? 1 : 0;
     if (lvl !== this.flowLvl) {
       if (lvl > this.flowLvl) {
@@ -2016,7 +2069,7 @@ export class Runner {
     // Once the ball has dropped off the track it can no longer steer (no sliding back "through" the ground).
     const mass = 1 + this.tier * 0.06;
     const grip = this.slideT > 0 ? (this.abil === 'buzejder' ? 0.55 : 0.4) : this.iceT > 0 ? 0.5 : 1;   // BUZ KAYDIRAĞI: fast but lane changes are slow
-    const k = (RCFG.laneStiff * grip * 1.21) / mass;   // sideways moves 10% faster (spring response x1.1, so the faster pace stays controllable)
+    const k = (RCFG.laneStiff * grip * 1.21 * (this.perk === 'pateni' ? 1.3 : 1)) / mass;   // sideways moves 10% faster (spring response x1.1, so the faster pace stays controllable)
     const locked = this.fallLock || this.wallRun !== null;
     const tgtU = locked ? b.u : this.targetU;
     b.vu += ((tgtU - b.u) * k - b.vu * 2 * Math.sqrt(k) * 0.95) * dt;
@@ -2173,6 +2226,7 @@ export class Runner {
 
   land(surf) {
     const b = this.b;
+    this.airJ = this.airJumpMax;
     const impact = clamp(-b.vh / 14, 0, 1);
     this.grounded = true;
     this.fallLock = false;
@@ -2243,7 +2297,7 @@ export class Runner {
       this.obstacles.resolve?.(e.id, true);
       this.smashes++;
       this.ctx.meta?.track?.('smash', { toughness: tough });
-      this.score += 40 * tough * this.mult * (1 + 0.1 * Math.min(5, this.perm.smash || 0));
+      this.score += 40 * tough * this.mult * (1 + 0.1 * Math.min(5, this.perm.smash || 0)) * (this.perk === 'cigguc' && this.tier >= 2 ? (this.buffs.has('dev') ? 2.6 : 1.6) : 1);
       this.addTons([0, 3, 8, 20, 60, 180][Math.min(5, tough)] * (0.6 + b.r));
       audio.crash(clamp(tough / 5, 0.3, 1));
       platform.haptic('light');
@@ -2661,8 +2715,9 @@ export class Runner {
         this.nearT = 2.6;
         this.addFury(0.125);
         this.addFlow(3);
-        const bonus = Math.round(50 * this.mult);
+        const bonus = Math.round(50 * this.mult * (this.perk === 'yakin' ? 3 : 1));
         this.score += bonus;
+        if (this.perk === 'yakin') this.addFlow(2);
         const cm = this.chainBonus();
         if (this.stumbleT > 0) this.ctx.meta?.track?.('close_call', {});
         if (this.time - (this._nmAt ?? -9) >= 4) {              // a quiet extra, rate-limited (no flash, no centre text)
@@ -2994,7 +3049,7 @@ export class Runner {
 
   // Flakes (coins). The gold card doubles them; permanent upgrades add a little. Whole coins only.
   addFlakes(v) {
-    this.coinsF += v * (this.abil === 'cini' ? 1.1 : 1) * (this.buffs.has('altin') ? 2 : 1) * (1 + 0.08 * Math.min(5, this.perm.coin || 0));
+    this.coinsF += v * (this.abil === 'cini' ? 1.1 : 1) * (this.buffs.has('altin') ? 2 : 1) * (this.perk === 'altinkar' ? 1.25 : 1) * (this.perk === 'miknatis' && this.buffs.has('altin') ? 2 : 1) * (1 + 0.08 * Math.min(5, this.perm.coin || 0));
     const whole = Math.floor(this.coinsF);
     this.coins += whole;
     this.coinsF -= whole;
@@ -3080,7 +3135,7 @@ export class Runner {
   }
 
   // Magnet: pull nearby flakes in by widening the pickup radius for flakes only.
-  magnetRadius() { return this.magnetT > 0 || this.buffs.has('miknatis') ? 4.5 : 0; }
+  magnetRadius() { return this.magnetT > 0 || this.buffs.has('miknatis') ? 4.5 : this.perk === 'miknatis' ? 3.2 : 0; }
 
   finish() {
     if (this.state !== 'play') return;
@@ -3291,6 +3346,10 @@ export class Runner {
       tip: dt ? dt.tip : '',
       dailyBest,
       daily: this.daily ? { num: this.daily.num, best: (this.dailyRec || { dist }).dist } : null,
+      perk: this.perk ? RUN_PERK_BY_ID[this.perk] : null,
+      synergies: this.synHit.length ? this.synHit.slice() : null,
+      perk: this.perk ? RUN_PERK_BY_ID[this.perk] : null,
+      synergies: this.synHit.length ? this.synHit.slice() : null,
       destruction: DESTRUCTION[this.destTier].name,
       tons: Math.round(this.destTons),
       rank,
@@ -3881,6 +3940,7 @@ export class Runner {
     const ui = this.ctx.ui;
     if (this.buffs) { for (const e of this.buffs.list) ui.buffRemove?.(e.id); this.buffs.reset(); }
     ui.buffClear?.();
+    this.pickT = 0; ui.runnerPerkPick?.(null); ui.runnerPerkIcon?.(null);
     ui.hungerHide?.();
     ui.turnCue?.(0, 0);
     ui.stompCombo?.(0);

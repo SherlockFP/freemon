@@ -637,6 +637,7 @@ export class ArenaProps {
     if (c.o === g.me) {
       this.combo = g.time - this.comboAt < 0.9 ? this.combo + 1 : 1; this.comboAt = g.time;
       g.audio?.pop?.(clampN(this.pre[i] / Math.max(1, c.r), 0, 1), this.combo);
+      if (this.pre[i] > c.r * 0.35 && g.propJuice) g.propJuice(c, this.gainFor(i, c.m));
     }
     return true;
   }
