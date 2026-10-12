@@ -35,7 +35,7 @@ const DEFAULT_PAL = { tileA: 0xe8f1fb, tileB: 0xc9d9ee, edge: 0x7fb4e8, rail: 0x
 export { LANES, LANE_W };
 
 export const COL = {
-  wood: 0xb07a42, wood2: 0x8f5f32, ice: 0x3fb4f5, melt: 0xff7a1a, flake: 0x3fb8ff, snow: 0xffffff, pile: 0xc4e9ff,
+  wood: 0xb07a42, wood2: 0x8f5f32, ice: 0x3fb4f5, melt: 0xff7a1a, flake: 0x3fb8ff, snow: 0xffffff, pile: 0x6cc8ff,
   rock: 0x8a93a0, pine: 0x2f7d4a, dark: 0x2a2f3d, red: 0xd9482f, orange: 0xe8742a, cabin: 0xa5693a,
 };
 
@@ -556,7 +556,7 @@ export class Obstacles {
       const k = pk[i];
       if (k.s > ball.s + 140) break;
       if (!k.alive) continue;
-      if (k.kind === 'snow') { const q = 1 + 0.1 * pulse; this._set('ball', k.idx, k.f, k.u, 0.4 + 0.07 * Math.sin(t * 2.4 + k.ph), t * 0.8 + k.ph, 0, 1.3 * q, 0.9 * q, 1.3 * q); continue; }
+      if (k.kind === 'snow') { const q = 1 + 0.1 * pulse; this._set('ball', k.idx, k.f, k.u, 0.55 + 0.08 * Math.sin(t * 2.4 + k.ph), t * 0.8 + k.ph, 0, 1.05 * q, 1.0 * q, 1.05 * q); continue; }
       const bob = k.h + 0.1 * Math.sin(t * 2.4 + k.ph);
       if (k.kind === 'flake') this._set('flake', k.idx, k.f, k.u, bob, t * 2.2 + k.ph, 0, 0.78, 0.78, 0.78);
       else this._set(k.pool, k.idx, k.f, k.u, bob + 0.1, t * 2.4 + k.ph, k.kind === 'rocket' ? 0.5 : 0, k.sc, k.sc, k.sc);
@@ -704,9 +704,9 @@ export class Obstacles {
     const k = { kind, pool, s, u, h, f, idx, alive: true, ph: (s * 1.7) % TAU, sc, value: opts.value ?? 1, sh: -1,
       rad: opts.rad ?? (kind === 'snow' ? 0.65 : kind === 'letter' || kind === 'scarf' ? 1.0 : kind === 'flake' ? 0.5 : kind === 'gem' ? 0.75 : 0.62), letter: opts.letter || '' };
     if (kind === 'snow') {
-      this._col('ball', idx, COL.pile); this._set('ball', idx, f, u, 0.4, k.ph, 0, 1.3, 0.9, 1.3);
+      this._col('ball', idx, COL.pile); this._set('ball', idx, f, u, 0.55, k.ph, 0, 1.05, 1.0, 1.05);
       k.sh = this._alloc('shadow');                                                            // contact shadow: the pile reads on white snow
-      if (k.sh >= 0) { this._col('shadow', k.sh, 0xffffff); this._set('shadow', k.sh, f, u, 0.025, 0, 0, 1.9, 1, 1.9); }
+      if (k.sh >= 0) { this._col('shadow', k.sh, 0xffffff); this._set('shadow', k.sh, f, u, 0.025, 0, 0, 1.4, 1, 1.4); }
     } else if (kind === 'flake') this._col('flake', idx, COL.flake);
     else this._col(pool, idx, kind === 'bait' ? 0xff9a4a : kind === 'bread' ? 0xd9a05b : 0xffffff);      // (BALIK YEMİ: an orange gem; SICAK ÇÖREK: a warm tan one)
     this.picks.push(k);
@@ -779,6 +779,7 @@ export class Obstacles {
 // Biome skins (FAMILY): every type can be re-skinned per biome family in SK[family][type] without touching the generator.
 //   small rock 'stone' = low + wide (jumpable, tough 2); big 'rock' = tall faceted boulder with a red / white hazard flag (lane blocker, lethal).
 // ---------------------------------------------------------------------------------------------------------------------------
+const TRAIN_FRONT = 1, TRAIN_COLS = [0x1fb8c9, 0xffc02e, 0xff7a3a], TRAIN_ICE = [0x8fd3ff, 0xb9e6ff, 0x7bbcf0];
 const SEG = 4.2;   // train segment length (each segment has its own frame so trains follow curves)
 const FAMILY = { aurora: 'aurora', bamboo: 'bamboo', glacier: 'glacier', carnival: 'carnival', snow: 'snow', forest: 'forest', greenhill: 'forest', sakura: 'forest', kapadokya: 'desert', desert: 'desert', pirate: 'desert', town: 'town', istanbul: 'town', icecave: 'ice', candy: 'candy', neon: 'neon', moon: 'moon', volcano: 'volcano' };
 const ROCK_TINT = { snow: 0x5d6572, forest: 0x626d58, desert: 0x8b4b2e, ice: 0x5f8dbd, aurora: 0x4a6a9a, bamboo: 0x6a7a5a, glacier: 0x4a86c8, carnival: 0xb03070, candy: 0xc23c86, moon: 0x70707b, volcano: 0x3b2c28, town: 0x6a6f78, neon: 0x4d3f85 };
@@ -861,22 +862,68 @@ const DEFS = {
       if (ob.rl > 0) this._part(ob, 'wedge', ob.ice ? 0xcfeeff : COL.wood2, ob.u, ob.H / 2, 0, 0, 2.0, ob.H, ob.rl, 0, 0, 0, fr);
       this.platforms.push(ob);
     }
+    const P = PI / 2, u = ob.u, ice = !!ob.ice, FZ = TRAIN_FRONT;
     for (let k = 0; k < ns; k++) {
       const f = this._frameOf(ob.s - L / 2 + (k + 0.5) * sl);
-      this._part(ob, 'box', ob.ice ? 0xa9dcf5 : COL.orange, ob.u, ride ? ob.H / 2 : 1.15, 0, 0, 2.0, ride ? ob.H : 1.5, sl + 0.04, 0, 0, 0, f);
-      this._part(ob, 'box', COL.dark, ob.u - 0.95, 0.4, 0, 0, 0.6, 0.8, sl + 0.04, 0, 0, 0, f); this._part(ob, 'box', COL.dark, ob.u + 0.95, 0.4, 0, 0, 0.6, 0.8, sl + 0.04, 0, 0, 0, f);
-      if (ride) { this._part(ob, 'box', 0xbfe3ff, ob.u, ob.H * 0.7, 0, 0, 2.06, 0.4, sl * 0.8, 0, 0, 0, f); this._part(ob, 'box', ob.glow || 0xffd23a, ob.u, ob.H + 0.03, 0, 0, 1.9, 0.06, sl, 0, 0, 0, f); }
-      else if (k === 0) { this._part(ob, 'box', 0xbfe3ff, ob.u, 2.2, 0, 0, 1.7, 1.0, sl, 0, 0, 0, f); this._part(ob, 'box', 0xffd23a, ob.u, 2.85, 0, 0, 0.9, 0.18, 0.4, 0, 0, 0, f); this._part(ob, 'box', COL.red, ob.u, 0.1, 0, 0, 2.05, 0.2, 0.1, 0, 0, sl / 2, f); }
-      else this._part(ob, 'box', COL.rock, ob.u, 2.05, 0, 0, 1.6, 0.6, sl * 0.9, 0, 0, 0, f);
+      const body = ice ? TRAIN_ICE[k % 3] : k === 0 && !ride ? 0xe5392f : TRAIN_COLS[(k - 1 + 3) % 3];
+      const trim = ice ? 0x2f6fb0 : 0x2a2f3d;
+      if (ride) {
+        const H = ob.H;
+        this._part(ob, 'box', body, u, H / 2, 0, 0, 2.0, H, sl + 0.04, 0, 0, 0, f);
+        this._part(ob, 'box', 0xfff3d0, u, H * 0.42, 0, 0, 2.06, 0.18, sl + 0.04, 0, 0, 0, f);      // light stripe
+        this._part(ob, 'box', 0xbfe3ff, u, H * 0.72, 0, 0, 2.06, 0.4, sl * 0.8, 0, 0, 0, f);          // window band
+        this._part(ob, 'box', ob.glow || 0xffd23a, u, H + 0.03, 0, 0, 1.9, 0.06, sl, 0, 0, 0, f);     // roof glow
+        this._part(ob, 'box', trim, u, 0.22, 0, 0, 2.1, 0.3, sl + 0.04, 0, 0, 0, f);                  // chassis
+      } else {
+        const len = sl - 0.5;                                   // visible coupler gap: clean joins on curves
+        this._part(ob, 'box', trim, u, 0.42, 0, 0, 1.7, 0.4, len + 0.2, 0, 0, 0, f);                   // chassis
+        this._part(ob, 'box', body, u, 1.15, 0, 0, 2.0, 1.3, len, 0, 0, 0, f);                          // body
+        this._part(ob, 'box', 0xfff3d0, u, 0.78, 0, 0, 2.04, 0.14, len, 0, 0, 0, f);                   // cream stripe
+        if (k === 0) {                                          // front loco: cab, face, lights
+          this._part(ob, 'box', trim, u, 2.0, 0, 0, 1.9, 0.18, len * 0.9, 0, 0, -FZ * 0.15, f);        // cab roof
+          this._part(ob, 'box', 0xffffff, u, 2.14, 0, 0, 1.7, 0.1, len * 0.8, 0, 0, -FZ * 0.15, f);    // snow cap
+          this._part(ob, 'box', 0xd8f1ff, u, 1.78, 0, 0, 1.8, 0.62, len * 0.72, 0, 0, -FZ * 0.15, f);  // cab windows
+          this._part(ob, 'box', 0xe5392f, u, 1.78, 0, 0, 1.86, 0.1, len * 0.72, 0, 0, -FZ * 0.15, f);  // cab mid bar
+          this._part(ob, 'cyl', 0xffb21a, u + 0.55, 2.55, 0, 0, 0.34, 0.5, 0.34, 0, 0, FZ * 0.7, f);    // chimney
+          this._part(ob, 'cyl', 0x2a2f3d, u + 0.55, 2.84, 0, 0, 0.48, 0.1, 0.48, 0, 0, FZ * 0.7, f);
+          const zf = FZ * (len / 2 + 0.03);
+          for (const sg of [-1, 1]) {
+            this._part(ob, 'box', 0xffffff, u + sg * 0.5, 1.5, 0, 0, 0.46, 0.46, 0.08, 0, 0, zf, f);   // eyes
+            this._part(ob, 'box', 0x1a1d27, u + sg * 0.5, 1.46, 0, 0, 0.22, 0.26, 0.1, 0, 0, zf, f);
+            this._part(ob, 'box', 0xfff27a, u + sg * 0.74, 0.8, 0, 0, 0.3, 0.3, 0.1, 0, 0, zf, f);      // headlights
+            this._part(ob, 'box', 0xffb21a, u + sg * 0.74, 1.15, 0, 0, 0.1, 0.1, 0.1, 0, 0, zf, f);
+          }
+          this._part(ob, 'box', 0x1a1d27, u, 0.98, 0, 0, 0.6, 0.12, 0.1, 0, 0, zf, f);                   // smile
+          this._part(ob, 'box', 0xffb21a, u, 0.45, 0, 0, 2.1, 0.26, 0.22, 0, 0, FZ * (len / 2 + 0.1), f);// bumper
+        } else {                                                // passenger car: windows + peaked roof
+          for (const sg of [-1, 1]) for (const q of [-0.28, 0.28]) this._part(ob, 'box', 0xd8f1ff, u + sg * 1.01, 1.45, 0, 0, 0.06, 0.5, len * 0.32, 0, 0, q * len, f);
+          this._part(ob, 'box', trim, u, 1.9, 0, 0, 2.2, 0.2, len + 0.1, 0, 0, 0, f);
+          this._part(ob, 'box', 0xffffff, u, 2.05, 0, 0, 1.9, 0.12, len * 0.92, 0, 0, 0, f);            // snow on the roof
+          this._part(ob, 'box', 0xff5a8a, u, 2.2, 0, 0, 0.5, 0.2, 0.5, 0, 0, 0, f);                     // roof lantern
+        }
+        // coupler to the next car
+        if (k < ns - 1) this._part(ob, 'box', 0x2a2f3d, u, 0.55, 0, 0, 0.3, 0.2, 0.9, 0, 0, -FZ * sl / 2, f);
+      }
+      for (const sg of [-1, 1]) for (const q of [-0.3, 0.3]) {                                          // wheels
+        this._part(ob, 'cyl', 0x232733, u + sg * 1.0, 0.4, 0, P, 0.8, 0.3, 0.8, 0, 0, q * sl, f);
+        this._part(ob, 'cyl', 0xffc22e, u + sg * 1.0 + sg * 0.03, 0.4, 0, P, 0.38, 0.34, 0.38, 0, 0, q * sl, f);
+      }
     }
   } },
   longLogs: { shape: 'box', tough: 3, color: COL.wood2, ht: 1.9, hu: 1.05, ext: 12, train: true, build(ob) {
-    const L = ob.L, ns = Math.max(2, Math.round(L / SEG)), sl = L / ns, P = PI / 2;
+    const L = ob.L, ns = Math.max(2, Math.round(L / SEG)), sl = L / ns, P = PI / 2, u = ob.u, FZ = TRAIN_FRONT;
     ob.hs = L / 2; ob.hu = 1.05;
     for (let k = 0; k < ns; k++) {
-      const f = this._frameOf(ob.s - L / 2 + (k + 0.5) * sl);
-      this._part(ob, 'cyl', COL.wood, ob.u - 0.5, 0.5, P, P, 1.0, sl + 0.05, 1.0, 0, 0, 0, f); this._part(ob, 'cyl', COL.wood2, ob.u + 0.5, 0.5, P, P, 1.0, sl + 0.05, 1.0, 0, 0, 0, f);
-      this._part(ob, 'cyl', COL.wood, ob.u, 1.38, P, P, 0.95, sl + 0.05, 0.95, 0, 0, 0, f);
+      const f = this._frameOf(ob.s - L / 2 + (k + 0.5) * sl), len = sl - 0.4;
+      this._part(ob, 'box', 0x2a2f3d, u, 0.2, 0, 0, 1.9, 0.28, sl + 0.04, 0, 0, 0, f);                  // flat bed
+      this._part(ob, 'cyl', COL.wood, u - 0.5, 0.62, P, P, 1.0, len, 1.0, 0, 0, 0, f); this._part(ob, 'cyl', COL.wood2, u + 0.5, 0.62, P, P, 1.0, len, 1.0, 0, 0, 0, f);
+      this._part(ob, 'cyl', 0xb8803c, u, 1.5, P, P, 0.95, len, 0.95, 0, 0, 0, f);
+      for (const q of [-0.3, 0.3]) this._part(ob, 'box', 0xe5392f, u, 1.0, 0, 0, 2.15, 1.7, 0.12, 0, 0, q * sl, f);   // red straps
+      for (const sg of [-1, 1]) for (const q of [-0.3, 0.3]) {
+        this._part(ob, 'cyl', 0x232733, u + sg * 1.02, 0.36, 0, P, 0.72, 0.28, 0.72, 0, 0, q * sl, f);
+        this._part(ob, 'cyl', 0xffc22e, u + sg * 1.05, 0.36, 0, P, 0.34, 0.3, 0.34, 0, 0, q * sl, f);
+      }
+      if (k === 0) { const zf = FZ * (len / 2 + 0.02); for (const [dx, y, c] of [[-0.5, 0.62, 0xf0d6a0], [0.5, 0.62, 0xe9c78a], [0, 1.5, 0xf0d6a0]]) this._part(ob, 'cyl', c, u + dx, y, 0, P, 0.7, 0.05, 0.7, 0, 0, zf, f); }
     }
   } },
 };

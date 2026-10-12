@@ -113,13 +113,13 @@ const biomeIdx = (s) => (OVR >= 0 ? OVR : s > 0 ? Math.floor(s / BIOME_LENGTH) :
 // ---------------------------------------------------------------------------------------------
 export const BIOMES = [
   {
-    id: 'snow', name: 'Karlı Zirve', music: 'snow', depth: 56, flank: { U: 120, e: 1.6, top: 0xffffff, mid: 0xbcd4ec, rock: 0x7f8898, rockAmt: 0.9 },
-    sky: { top: 0x3b8de6, mid: 0x86c6f4, horizon: 0xdcefff },
-    fog: { color: 0xdcefff, near: 70, far: 330 },
-    hemi: { sky: 0xe3f2ff, ground: 0xaec3e3, intensity: 1.5 },
-    sun: { color: 0xfff1dc, intensity: 1.9, az: 2.5, el: 0.95 },
+    id: 'snow', name: 'Karlı Zirve', music: 'snow', depth: 56, flank: { U: 120, e: 1.6, top: 0xffffff, mid: 0xa9c6e8, rock: 0x7f8898, rockAmt: 0.9 },
+    sky: { top: 0x1f6fe0, mid: 0x6bb6f2, horizon: 0xf2e6d4 },
+    fog: { color: 0xcfe2f4, near: 70, far: 330 },
+    hemi: { sky: 0xcfe4ff, ground: 0x8fa9d6, intensity: 1.45 },
+    sun: { color: 0xffe4b8, intensity: 2.1, az: 2.5, el: 0.95 },
     disc: { color: 0xfff6dc, size: 0.055, az: 0.32, el: 0.62, kind: 'sun' },
-    ground: [0xdbe8f5, 0xbed5ec, 0xeaf3fb],
+    ground: [0xe6f0fb, 0xaec9ea, 0xf8fbff],
     track: { tileA: 0xf4f9ff, tileB: 0x84c0ec, edge: 0x4f9ccc, rail: 0x7cc0e8, glow: 0x8fe1ff, under: 0x5d8fb5 },
     clouds: 0xffffff, stars: 0, grid: 0,
     pulse: { sky: 0.035, glow: 0, grid: 0, spark: 0.25, lava: 0 }, glowBase: 1,

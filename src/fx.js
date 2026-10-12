@@ -59,8 +59,9 @@ export class Fx {
     cv.width = cv.height = 64;
     const g = cv.getContext('2d');
     const grd = g.createRadialGradient(32, 32, 4, 32, 32, 32);
-    grd.addColorStop(0, 'rgba(40,70,120,0.55)');
-    grd.addColorStop(1, 'rgba(40,70,120,0)');
+    grd.addColorStop(0, 'rgba(20,40,95,0.9)');
+    grd.addColorStop(0.55, 'rgba(20,40,95,0.55)');
+    grd.addColorStop(1, 'rgba(20,40,95,0)');
     g.fillStyle = grd;
     g.fillRect(0, 0, 64, 64);
     this.shadow = new THREE.Mesh(

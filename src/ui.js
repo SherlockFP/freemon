@@ -791,6 +791,8 @@ REKOR −${this._rg} m`;
     c.className = 'cmb';
     c.innerHTML = '<span class="cmb-n"></span><i class="cmb-bar"><b></b></i>';
     this._cmK = document.createElement('b'); this._cmK.className = 'ch k';
+    this._cmKs = document.createElement('small'); this._cmKe = document.createElement('em'); this._cmKu = document.createElement('u');
+    this._cmK.append(this._cmKs, this._cmKe, this._cmKu);
     this._cmM = document.createElement('b'); this._cmM.className = 'ch m';
     c.firstChild.appendChild(this._cmK); c.firstChild.appendChild(this._cmM);
     this.el.hud.appendChild(c);
@@ -805,7 +807,7 @@ REKOR −${this._rg} m`;
     const n = this._cmN >= 3 ? this._cmN : 0, mu = this._mu || 0;
     if (!n) { if (c.classList.contains('on')) c.className = 'cmb'; return; }
     // ONE small chip: 'KOMBO x34 · x5' (the multiplier rides inside it, no second chip, no drain bar)
-    this._cmK.textContent = n ? `KOMBO x${n}${mu > 1 ? ` · x${Math.round(mu * 10) / 10}` : ''}` : '';
+    this._cmKs.textContent = 'KOMBO'; this._cmKe.textContent = `x${n}`; this._cmKe.dataset.t = `x${n}`; this._cmKu.textContent = mu > 1 ? `x${Math.round(mu * 10) / 10} SKOR` : '';
     this._cmK.style.display = n ? '' : 'none';
     this._cmM.textContent = '';
     this._cmM.style.display = 'none';
@@ -836,7 +838,7 @@ REKOR −${this._rg} m`;
       }
     } else if (this._cmN >= 3) {
       this._cmN = 0; this._cmT = 0;
-      this._cmK.textContent = 'KOMBO KIRILDI'; this._cmK.style.display = ''; this._cmM.style.display = 'none';
+      this._cmKs.textContent = ''; this._cmKe.textContent = 'KOMBO KIRILDI'; this._cmKe.dataset.t = ''; this._cmKu.textContent = ''; this._cmK.style.display = ''; this._cmM.style.display = 'none';
       c.className = 'cmb broke';
       clearTimeout(this._cmBk);
       this._cmBk = setTimeout(() => { if (c.classList.contains('broke')) { c.className = 'cmb'; this._cmRender(); } }, 1150);

@@ -95,6 +95,12 @@ const FRAG_MAIN = /* glsl */`
     float ndv = abs( dot( normal, cigView ) );
     outgoingLight *= mix( 0.12, 1.0, smoothstep( 0.16, 0.34, ndv ) );
   }
+  else {
+    // Grade: gentle saturation, cool shadows / warm highlights (cheap, no extra pass).
+    float gl = dot( outgoingLight, vec3( 0.299, 0.587, 0.114 ) );
+    outgoingLight = max( mix( vec3( gl ), outgoingLight, 1.14 ), 0.0 );
+    outgoingLight *= mix( vec3( 0.93, 0.97, 1.05 ), vec3( 1.05, 1.01, 0.95 ), smoothstep( 0.15, 0.85, gl ) );
+  }
 }
 #include <opaque_fragment>
 `;
