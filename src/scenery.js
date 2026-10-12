@@ -32,6 +32,7 @@
 
 import * as THREE from 'three';
 import { makeRng } from './rng.js';
+import { t } from './i18n.js';
 
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -549,6 +550,7 @@ function bannerTexture() {
   if (!g) return null;
   const ink = '#17345c';
   const band = (y0, text, c1, c2, trim) => {
+    text = t(text);
     const h = 256, w = BANNER_W, p = 10;
     const grad = g.createLinearGradient(0, y0, 0, y0 + h);
     grad.addColorStop(0, c1); grad.addColorStop(1, c2);

@@ -17,6 +17,7 @@ import { ACTS, LEVELS, levelById, BONUS } from './campaign.js';
 import { dagPlan, DAG_COUNT, planBrief } from './cigplan.js';
 import { nextGoal, vitrinInfo } from './shop.js';
 import { hideBoot, runnerDeathText } from './ui.js';
+import { getLang, setLang } from './i18n.js';
 import { hasArenaInvite } from './agar/invite.js';
 
 const STYLE_ID = 'freemon-menus-style';
@@ -1925,6 +1926,11 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     }
 
     add(p.list, toggleRow('🔊', 'SES', 'sound', cb.onSound), toggleRow('🎵', 'MÜZİK', 'music', cb.onMusic), toggleRow('📳', 'TİTREŞİM', 'haptics', cb.onHaptics));
+
+    const lr = el('div', 'fm-row');
+    const lbtn = button('fm-btn blue', getLang() === 'en' ? '🇬🇧 English' : '🇹🇷 Türkçe', () => { sfx('toggle'); setLang(getLang() === 'en' ? 'tr' : 'en'); });
+    add(lr, el('div', 'fm-aico', getLang() === 'en' ? '🇬🇧' : '🇹🇷'), el('div', 'fm-tgl', 'DİL'), lbtn);
+    p.list.appendChild(lr);
 
     const vr = el('div', 'fm-row');
     const vlabel = el('div', 'fm-tgl', 'GÖRÜNÜM');

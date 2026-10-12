@@ -1,3 +1,5 @@
+import { installI18n } from "./i18n.js";
+installI18n();
 import * as THREE from 'three';
 import './style.css';
 import { CFG } from './config.js';
@@ -21,6 +23,7 @@ import { createMenus } from './menus.js';
 import { levelById, evalGoals, countStars } from './campaign.js';
 import { openShop } from './shop.js';
 import { CigPlus, CigGame } from './cigplus.js';
+import { t as tr } from './i18n.js';
 import { dagPlan, DAG_COUNT, evalStars, validatePlan, fmtD } from './cigplan.js';
 // YETİ RUSH (the runner) is loaded on demand (keeps the first load small and ÇIĞ SONSUZ independent of it).
 let Runner = null;
@@ -1023,7 +1026,7 @@ setVisualLabel();
 try { ui.setToggle('sound', !audio.isMuted()); ui.setToggle('haptic', platform.hapticsEnabled()); } catch { /* optional buttons */ }
 
 function shareText(r) {
-  return `❄️ PATPAT · ÇIĞ SONSUZ\n🌋 ${r.tierName}\n⚖️ ${fmtTons(r.tons)}\n📏 ${Math.round(r.dist).toLocaleString('tr-TR')} m\nBeni geçebilir misin?`;
+  return `❄️ PATPAT · ${tr("ÇIĞ SONSUZ")}\n🌋 ${tr(r.tierName)}\n⚖️ ${fmtTons(r.tons)}\n📏 ${Math.round(r.dist).toLocaleString('tr-TR')} m\n${tr("Beni geçebilir misin?")}`;
 }
 
 // ---------- ÇIĞ SONSUZ: per-frame ----------
@@ -1569,12 +1572,12 @@ async function notifSync(afterRun) {
     const list = [];
     let n = 0;
     try { n = meta.daily().streak | 0; } catch { /* ignore */ }
-    list.push({ id: 9101, at: new Date(t + 20 * 3600e3), body: n > 0 ? '🔥 ' + n + ' günlük serin bitmek üzere! Bir koşu yeter.' : '🔥 Serin bitmek üzere! Bir koşu yeter.' });
+    list.push({ id: 9101, at: new Date(t + 20 * 3600e3), body: tr(n > 0 ? '🔥 ' + n + ' günlük serin bitmek üzere! Bir koşu yeter.' : '🔥 Serin bitmek üzere! Bir koşu yeter.') });
     const d = new Date(t); d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0);
-    list.push({ id: 9102, at: d, body: '🏃 Günün Rush’ı hazır — bugünkü parkuru herkes aynı oynuyor!' });
+    list.push({ id: 9102, at: d, body: tr('🏃 Günün Rush’ı hazır — bugünkü parkuru herkes aynı oynuyor!') });
     try {
       const s = meta.season();
-      if (s && s.msLeft > 0 && s.msLeft <= 3 * 86400000) list.push({ id: 9103, at: new Date(t + Math.max(60000, s.msLeft - 12 * 3600e3)), body: '⏳ Sezon bitiyor! Ödüllerini topla.' });
+      if (s && s.msLeft > 0 && s.msLeft <= 3 * 86400000) list.push({ id: 9103, at: new Date(t + Math.max(60000, s.msLeft - 12 * 3600e3)), body: tr('⏳ Sezon bitiyor! Ödüllerini topla.') });
     } catch { /* ignore */ }
     await notify.schedule(list.filter((x) => x.at.getTime() > t + 30000));
   } catch { /* ignore */ }

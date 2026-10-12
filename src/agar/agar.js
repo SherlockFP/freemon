@@ -11,6 +11,7 @@ const VALID_SKIN = new Set(SKINS.map((k) => k.id)), VALID_TRAIL = new Set(TRAILS
 const SKIN_COL = new Map(SKINS.map((k) => [k.id, parseInt(String((k.preview && (k.preview.b || k.preview.a)) || '#ffffff').slice(1), 16) || 0xffffff]));
 import { ArenaProps, TIER_NAMES, TIER_HINT, tierOfM } from './props.js';
 import { meta } from '../meta.js';
+import { t } from '../i18n.js';
 import { takeArenaInvite, arenaInviteUrl } from './invite.js';
 const EAT_K = 1.1; // eat when 10% heavier (agar.io-like); closer than that the two balls bump
 // bot personalities: 0 none(human/boss) 1 Avci 2 Korkak 3 Toplayici 4 Kurnaz 5 Zorba
@@ -1194,7 +1195,7 @@ export class AgarMode {
       const k2 = x * x + z * z > (R - 8) * (R - 8) ? (R - 8) / Math.hypot(x, z) : 1, px = x * k2, pz = z * k2;
       for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.o === b.id) { c.x = c.tx = px; c.z = c.tz = pz; c.px0 = c.lsx = px; c.pz0 = c.lsz = pz; c.m = nm; c.r = KR * Math.sqrt(nm); c.vx = c.vz = 0; } }
       b.mass = nm; b.cx = b.lx = px; b.cz = b.lz = pz; b.preyT = this.time + 25; b.shield = 0;
-      if (n === 0) { b.realName = b.name; this.setName(b, '🎯 av', false); b.name = b.realName; b.hiT = this.time + 25; }
+      if (n === 0) { b.realName = b.name; this.setName(b, t('🎯 av'), false); b.name = b.realName; b.hiT = this.time + 25; }
     }
     if (want) this.toast('Küçükleri ye!');
   }
@@ -1227,7 +1228,7 @@ export class AgarMode {
     if (!o.away) this.removeBot(o, false);
     const me = this.owners[this.me], p = { x: 0, z: 0 };
     for (let t = 0; t < 12; t++) { this.randPos(p, 90); if (!me.alive || Math.hypot(p.x - me.cx, p.z - me.cz) > 260) break; }
-    this.setColor(o, 0x7a3cff); this.setName(o, '👑💀 BOSS TOPU', false);
+    this.setColor(o, 0x7a3cff); this.setName(o, t('👑💀 BOSS TOPU'), false);
     this.newCell(o, p.x, p.z, BOSSM);
     o.boss = true; o.bot = true; o.human = null; o.away = false; o.alive = true; o.wasAlive = true; o.cellN = 1; o.mass = BOSSM; o.cx = o.lx = p.x; o.cz = o.lz = p.z; o.shield = 0; o.preyT = 0; o.hideT = 0;
     o.dx = 0; o.dz = 1; o.mag = 0; o.tx = p.x; o.tz = p.z; o.wanderT = 0; o.aiT = 0;
@@ -1581,7 +1582,7 @@ export class AgarMode {
     const g = e.cvs.getContext('2d'); g.clearRect(0, 0, 128, 64);
     g.fillStyle = 'rgba(255,255,255,0.92)'; g.beginPath(); if (g.roundRect) g.roundRect(4, 4, 120, 48, 18); else g.rect(4, 4, 120, 48); g.fill();
     g.beginPath(); g.moveTo(54, 52); g.lineTo(64, 62); g.lineTo(74, 52); g.fill();
-    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#16304f'; g.font = '800 30px "Trebuchet MS", system-ui, sans-serif'; g.fillText(text, 64, 29, 108);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#16304f'; g.font = '800 30px "Trebuchet MS", system-ui, sans-serif'; g.fillText(t(text), 64, 29, 108);
     e.tex.needsUpdate = true; e.o = o; e.t0 = this.time; e.until = this.time + 2.2;
   }
 
@@ -2066,12 +2067,12 @@ export class AgarMode {
   }
   nickInput(card) {
     const inp = document.createElement('input');
-    inp.className = 'ag-inp'; inp.maxLength = 12; inp.placeholder = 'Takma adın'; inp.value = this.nick; inp.autocomplete = 'off';
+    inp.className = 'ag-inp'; inp.maxLength = 12; inp.placeholder = t('Takma adın'); inp.value = this.nick; inp.autocomplete = 'off';
     inp.style.cssText = 'flex:1 1 auto;min-width:0;width:auto;max-width:220px';
     inp.addEventListener('input', () => { this.nick = inp.value.slice(0, 12); lsSet(NICK_KEY, this.nick); });
     if (!inp.value.trim()) { inp.value = generateNames(1, [])[0].slice(0, 12); this.nick = inp.value; lsSet(NICK_KEY, this.nick); }
     const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;align-items:center;justify-content:center;width:100%;max-width:290px;margin:0 auto';
-    const dice = document.createElement('button'); dice.type = 'button'; dice.className = 'ag-btn'; dice.textContent = '🎲'; dice.title = 'Rastgele isim'; dice.style.cssText = 'flex:0 0 auto;width:auto;min-width:48px;padding:6px 10px';
+    const dice = document.createElement('button'); dice.type = 'button'; dice.className = 'ag-btn'; dice.textContent = '🎲'; dice.title = t('Rastgele isim'); dice.style.cssText = 'flex:0 0 auto;width:auto;min-width:48px;padding:6px 10px';
     dice.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('click'); inp.value = generateNames(1, [])[0].slice(0, 12); this.nick = inp.value; lsSet(NICK_KEY, this.nick); });
     row.appendChild(inp); row.appendChild(dice); card.appendChild(row);
     return inp;
@@ -2226,7 +2227,7 @@ export class AgarMode {
         const cnt = document.createElement('span'); cnt.style.cssText = 'flex:none;font-size:13px;min-width:40px;text-align:right'; cnt.textContent = r.n + '/' + r.max;
         const go = document.createElement('span'); go.style.cssText = 'flex:none;font-size:12px;padding:3px 9px;border-radius:9px;background:' + (full ? '#5a6b8c' : '#ff7a2f'); go.textContent = full ? 'DOLU' : 'KATIL';
         b.append(nm, bar, cnt, go);
-        b.title = Math.max(0, Math.round((now - r.ts) / 1000)) + ' sn önce görüldü';
+        b.title = t(Math.max(0, Math.round((now - r.ts) / 1000)) + ' sn önce görüldü');
         b.addEventListener('click', () => { this.audio?.init?.(); this.audio?.ui?.('click'); if (full) { this.toast('Oda dolu'); return; } this.doJoin(r.code, () => this.openBrowser()); });
         list.appendChild(b);
       }
@@ -2782,7 +2783,7 @@ export class AgarMode {
       const a = ho ? accSuffix(ho.name) : '', txt = ho ? ho.name + (a.includes("'y") ? a.replace("'y", "'n") : a) + 'n KALESİ' : '';
       if (txt !== f.lbl) {
         f.lbl = txt; const g = f.tex.image.getContext('2d'); g.clearRect(0, 0, 512, 64);
-        if (txt) { g.font = '900 40px "Trebuchet MS", system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round'; g.lineWidth = 9; g.strokeStyle = 'rgba(10,30,60,0.92)'; g.strokeText(txt, 256, 34, 500); g.fillStyle = '#' + ('000000' + col.toString(16)).slice(-6); g.fillText(txt, 256, 34, 500); }
+        if (txt) { g.font = '900 40px "Trebuchet MS", system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round'; g.lineWidth = 9; g.strokeStyle = 'rgba(10,30,60,0.92)'; g.strokeText(t(txt), 256, 34, 500); g.fillStyle = '#' + ('000000' + col.toString(16)).slice(-6); g.fillText(t(txt), 256, 34, 500); }
         f.tex.needsUpdate = true;
       }
       f.sp.visible = !!txt;
@@ -2999,7 +3000,7 @@ export class AgarMode {
     // chat (log is always shown - bots talk too; the input is only offered in online rooms)
     const chat = document.createElement('div');
     chat.className = 'ag-chat';
-    chat.innerHTML = '<div class="ag-clog"></div><div class="ag-cpanel"><div class="ag-cin"><input maxlength="80" placeholder="Mesaj yaz..." autocomplete="off"><button type="button">➤</button></div><div class="ag-cq"></div></div><button type="button" class="ag-cbtn">💬</button>';
+    chat.innerHTML = '<div class="ag-clog"></div><div class="ag-cpanel"><div class="ag-cin"><input maxlength="80" placeholder="' + t('Mesaj yaz...') + '" autocomplete="off"><button type="button">➤</button></div><div class="ag-cq"></div></div><button type="button" class="ag-cbtn">💬</button>';
     root.appendChild(chat);
     const cl = chat.querySelector('.ag-clog'), cin = chat.querySelector('input'), cpanel = chat.querySelector('.ag-cpanel'), cbtn = chat.querySelector('.ag-cbtn');
     const cels = [];

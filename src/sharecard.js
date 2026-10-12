@@ -2,6 +2,7 @@
 // Optional: main.js may call setShareContext({ renderer, scene, camera }) so the card gets a live game snapshot;
 // without it we try the page canvas and, if it is blank, fall back to a gradient in the skin colour.
 import { save } from './save.js';
+import { t } from './i18n.js';
 import { SKINS } from './skins.js';
 
 let ctx3d = null;
@@ -47,12 +48,14 @@ function rr(c, x, y, w, h, r) {
 }
 
 function outlined(c, text, x, y, size, fill, lw = 14, font = '"Arial Black", Impact, system-ui, sans-serif') {
+  text = t(text);
   c.font = `900 ${size}px ${font}`;
   c.lineJoin = 'round'; c.lineWidth = lw; c.strokeStyle = INK;
   c.strokeText(text, x, y); c.fillStyle = fill; c.fillText(text, x, y);
 }
 
 function fit(c, text, x, y, maxW, size, fill, lw) {
+  text = t(text);
   let s = size;
   c.font = `900 ${s}px "Arial Black", Impact, system-ui, sans-serif`;
   while (s > 24 && c.measureText(text).width > maxW) { s -= 4; c.font = `900 ${s}px "Arial Black", Impact, system-ui, sans-serif`; }
@@ -98,7 +101,7 @@ export function drawCard({ mode, big, unit, isRec, challenge }) {
   outlined(c, mode, W / 2, 450, 62, '#2f9bff', 12);
   fit(c, String(big), W / 2, 620, W - 260, 190, '#ff5a3c', 22);
   outlined(c, unit, W / 2, 760, 56, '#14213d', 0);
-  c.fillStyle = INK; c.font = '900 56px "Arial Black", Impact, system-ui, sans-serif'; c.fillText(unit, W / 2, 760);
+  c.fillStyle = INK; c.font = '900 56px "Arial Black", Impact, system-ui, sans-serif'; c.fillText(t(unit), W / 2, 760);
   if (isRec) {
     c.save(); c.translate(W / 2, 850); c.rotate(-0.05);
     c.fillStyle = '#ffd23f'; c.strokeStyle = INK; c.lineWidth = 12;
@@ -136,12 +139,12 @@ async function toast(msg) {
 /** opts: { mode, big, unit, isRec, challenge, text } — call from a click handler */
 export async function shareCard(opts) {
   const url = location.origin + location.pathname;
-  const text = opts.text || `PATPAT ${opts.mode}: ${opts.big} ${opts.unit}${opts.isRec ? ' — YENİ REKOR!' : ''} ${opts.challenge}`;
+  const text = opts.text || `PATPAT ${t(opts.mode)}: ${opts.big} ${t(opts.unit)}${opts.isRec ? ' — ' + t('YENİ REKOR!') : ''} ${t(opts.challenge)}`;
   let cv;
   try { cv = drawCard(opts); } catch { cv = null; }
-  if (!cv) { toast('Kart oluşturulamadı'); return 'failed'; }
+  if (!cv) { toast(t('Kart oluşturulamadı')); return 'failed'; }
   const blob = await new Promise((r) => { try { cv.toBlob(r, 'image/png'); } catch { r(null); } });
-  if (!blob) { toast('Kart oluşturulamadı'); return 'failed'; }
+  if (!blob) { toast(t('Kart oluşturulamadı')); return 'failed'; }
   const file = new File([blob], 'patpat.png', { type: 'image/png' });
   try {
     if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -156,6 +159,6 @@ export async function shareCard(opts) {
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   } catch { /* ignore */ }
   try { await navigator.clipboard.writeText(`${text}\n${url}`); } catch { /* ignore */ }
-  toast('Görsel indirildi, link kopyalandı!');
+  toast(t('Görsel indirildi, link kopyalandı!'));
   return 'copied';
 }

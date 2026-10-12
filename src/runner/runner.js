@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { t, getLang } from '../i18n.js';
+const UP = (s) => { const x = t(s); return x.toLocaleUpperCase(getLang() === 'en' ? 'en-US' : 'tr-TR'); };
 import { Track, flightDist, LANES, setLanes } from './track.js';
 import { Obstacles } from './obstacles.js';
 import { ABILITIES, SKINS } from '../skins.js';
@@ -1165,10 +1167,10 @@ export class Runner {
         cx.textAlign = 'center'; cx.textBaseline = 'middle';
         cx.font = '72px system-ui, sans-serif'; cx.fillStyle = '#fff'; cx.fillText(c.def.icon, 128, 70);
         cx.font = '900 30px system-ui, sans-serif'; cx.lineWidth = 6; cx.strokeStyle = '#17345c';
-        const nm = c.def.name.toLocaleUpperCase('tr-TR');
+        const nm = UP(c.def.name);
         cx.strokeText(nm, 128, 128); cx.fillText(nm, 128, 128);
         cx.font = '900 20px system-ui, sans-serif'; cx.fillStyle = c.risky ? '#ffe066' : '#d6ffe4';
-        cx.fillText(c.risky ? 'RİSKLİ · UZUN' : 'GÜVENLİ', 128, 164);
+        cx.fillText(t(c.risky ? 'RİSKLİ · UZUN' : 'GÜVENLİ'), 128, 164);
         mat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), side: THREE.DoubleSide });
       } else mat = new THREE.MeshBasicMaterial({ color: c.risky ? 0xd8352a : 0x2a9d5c, side: THREE.DoubleSide });
       g.userData.mats.push(mat);
@@ -1207,7 +1209,7 @@ export class Runner {
         if (i >= 0) {
           const c = G.cards[i];
           this.grantBuff(c.def, c.secs);
-          this.ctx.ui.toastSoft?.(`${c.def.icon} ${c.def.name.toLocaleUpperCase('tr-TR')}${c.risky ? ' · RİSKLİ' : ''}`, { prio: 2 });
+          this.ctx.ui.toastSoft?.(`${c.def.icon} ${UP(c.def.name)}${c.risky ? ' · RİSKLİ' : ''}`, { prio: 2 });
           this.burst(10, c.risky ? 0xff5040 : 0xffe066, 4);
           if (c.risky) { this.cardRiskT = 20; this.gap = Math.max(4, this.gap - 2); }
           G.g.visible = false;
@@ -1241,7 +1243,7 @@ export class Runner {
     if (res.replaced) ui.buffRemove?.(res.replaced.id);
     this.buffT = rand(RCFG.buffEvery[0], RCFG.buffEvery[1]);
     if (ui.buffAdd) ui.buffAdd(def.id, def.icon, def.name, secs);
-    else this.float(`${def.icon} ${def.name.toLocaleUpperCase('tr-TR')}`, 'big');
+    else this.float(`${def.icon} ${UP(def.name)}`, 'big');
     if (this.perk) this.checkSynergy(def.id);
     if (this.perk) this.checkSynergy(def.id);
     if (def.id === 'akis') this.flow = Math.min(100, this.flow + 25);
@@ -2511,7 +2513,7 @@ export class Runner {
     let name = id; try { name = this.ctx.save.skinName?.(id) || (SKINS?.find?.((s) => s.id === id)?.name) || id; } catch { /* ignore */ }
     const el = this.introEl = document.createElement('div');
     el.className = 'char-intro';
-    el.innerHTML = '<span class="ci-ico">' + A.icon + '</span><b>' + String(name).toLocaleUpperCase('tr-TR') + '</b><i>' + A.text + '</i>';
+    el.innerHTML = '<span class="ci-ico">' + A.icon + '</span><b>' + UP(String(name)) + '</b><i>' + A.text + '</i>';
     document.body.appendChild(el);
     el.style.visibility = 'hidden'; this._introPend = true;      // revealed when the 3-2-1 ends (see step)
     this.ctx.ball.group.rotation.y = 0; this._introT = 1.5;

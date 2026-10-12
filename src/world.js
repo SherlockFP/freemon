@@ -23,6 +23,7 @@ import * as THREE from 'three';
 import { CFG, MASS, fallbackMass, tierOf, foodRelAt, expectedRAt } from './config.js';
 import { planAt, planSlope, crateRadius, RAMP_AIR_K } from './cigplan.js';
 import { makeRng } from './rng.js';
+import { t } from './i18n.js';
 import { patchMaterial } from './shaders.js';
 
 // Movement modes for props.
@@ -2503,6 +2504,7 @@ const CRATE_PLAIN = [1, 1, 1], CRATE_IRON = [0.62, 0.68, 0.8], SECRET_DIM = [0.7
 
 // (re)draw a label sprite's canvas: dark pill, coloured outline, white text shrunk to fit
 function drawLabel(spr, text, color) {
+  text = t(text);
   const cv = spr.userData.cv;
   const g = cv.getContext('2d');
   g.clearRect(0, 0, 320, 96);
