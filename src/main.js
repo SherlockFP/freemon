@@ -12,7 +12,7 @@ import { platform, notify } from './platform.js';
 import { save } from './save.js';
 import { dailySeed, dailyNumber } from './rng.js';
 import { PostFX, VISUAL_MODES, SU, patchMaterial } from './shaders.js';
-import { makeSkin, disposeSkin, trailStyle } from './skins.js';
+import { makeSkin, disposeSkin, trailStyle, setGoldBall } from './skins.js';
 import { Scenery, themeForLevel } from './scenery.js';
 import { loadModels } from './assets.js';
 import { meta } from './meta.js';
@@ -125,12 +125,11 @@ function applySkin(id) {
   if (id !== 'lav') patchMaterial(next.material, { snow: id === 'classic' || id === 'pamuk' });
   ball.snow.geometry = next.geometry;
   ball.snow.material = next.material;
-  if (window.__patpatGold) tintGold();
   if (skin) disposeSkin(skin);
   skin = next;
 }
 function tintGold() {
-  try { ball.snow.material.color?.setHex(0xffd44a); } catch { /* ignore */ }
+  setGoldBall(true); // classic skin only; makeSkin re-applies the tint for every later build
 }
 function applyTrail(id) {
   fx?.setTrailStyle(trailStyle(id));

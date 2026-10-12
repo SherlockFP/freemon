@@ -14,6 +14,7 @@
 import * as THREE from 'three';
 import { makeRng } from '../rng.js';
 import { LANES } from './track.js';
+import { nearFade } from './nearfade.js';
 
 const PI = Math.PI, TAU = PI * 2;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -138,8 +139,8 @@ export class Critters {
     this.ev = opts.ev || null;
     this.rng = makeRng(((opts.seed ?? 1) ^ 0x51ed270b) >>> 0);
     this.time = 0;
-    this.lit = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-    this.glow = new THREE.MeshBasicMaterial({ vertexColors: true });
+    this.lit = nearFade(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+    this.glow = nearFade(new THREE.MeshBasicMaterial({ vertexColors: true }));
     this.puffMat = new THREE.MeshBasicMaterial({ vertexColors: false });
     this.sp = {};              // species id -> { def, mesh, free[], hi, geo }
     this._geos = [];

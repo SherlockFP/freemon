@@ -24,6 +24,7 @@ import { makeRng } from '../rng.js';
 import { LANES, LANE_W, setLanes, laneOf, hwFor } from './track.js';
 import { Critters } from './critters.js';
 import { gustAt } from './goals.js';
+import { nearFade } from './nearfade.js';
 
 const PI = Math.PI, TAU = PI * 2;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -308,10 +309,10 @@ export class Obstacles {
     if (scene && scene.add) scene.add(this.group);
     this.G = makeGeometries();
     this.mats = {
-      lit: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }),
-      ice: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.82, depthWrite: false }),
-      pulse: new THREE.MeshBasicMaterial({ vertexColors: true }),
-      glow: new THREE.MeshBasicMaterial({ vertexColors: true }),
+      lit: nearFade(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true })),
+      ice: nearFade(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.82, depthWrite: false })),
+      pulse: nearFade(new THREE.MeshBasicMaterial({ vertexColors: true })),
+      glow: nearFade(new THREE.MeshBasicMaterial({ vertexColors: true })),
       shadow: new THREE.MeshBasicMaterial({ color: 0x1d3a66, transparent: true, opacity: 0.3, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
     };
     this.pool = {};

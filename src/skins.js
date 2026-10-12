@@ -2416,6 +2416,7 @@ const BUILDERS = {
 
 // ---- golden snowball secret (10 quick taps on the lobby ball): the CLASSIC skin turns gold for the rest of the session ----
 let activeSkin = null;
+const liveSkins = []; // every built-and-not-yet-disposed skin; the newest live one is the 'active' one (arena exit falls back to the menu ball's skin)
 function tintGold(skin, on) {
   if (!skin || skin.id !== 'classic') return false;
   const mats = Array.isArray(skin.material) ? skin.material : [skin.material];
@@ -2437,6 +2438,7 @@ export function makeSkin(id) {
   const skin = BUILDERS[key]();
   skin.id = key;
   activeSkin = skin;
+  liveSkins.push(skin);
   let gold = false;
   try { gold = !!globalThis.__patpatGold; } catch (e) { gold = false; }
   if (gold) tintGold(skin, true);
@@ -2445,7 +2447,9 @@ export function makeSkin(id) {
 
 export function disposeSkin(skin) {
   if (!skin) return;
-  if (skin === activeSkin) activeSkin = null;
+  const li = liveSkins.indexOf(skin);
+  if (li >= 0) liveSkins.splice(li, 1);
+  if (skin === activeSkin) activeSkin = liveSkins.length ? liveSkins[liveSkins.length - 1] : null;
   if (skin.geometry) skin.geometry.dispose();
   const mats = Array.isArray(skin.material) ? skin.material : [skin.material];
   for (const m of mats) {

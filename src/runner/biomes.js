@@ -36,6 +36,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { nearFade } from './nearfade.js';
 import { buildPropLibrary } from '../props.js';
 import { makeRng } from '../rng.js';
 
@@ -2002,10 +2003,10 @@ export class Environment {
     else { this.bg = new THREE.Color(0xdcefff); scene.background = this.bg; }
 
     // materials
-    this.matLit = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-    this.matGlow = new THREE.MeshBasicMaterial({ vertexColors: true });
+    this.matLit = nearFade(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+    this.matGlow = nearFade(new THREE.MeshBasicMaterial({ vertexColors: true }));
     this.cloudMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-    this.matIce = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, emissive: 0x0a2c55 });
+    this.matIce = nearFade(new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, emissive: 0x0a2c55 }));
     this.matWall = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     this._wfTex = waterfallTexture();
     this.matWater = new THREE.MeshBasicMaterial({ map: this._wfTex, transparent: true, opacity: 0.82, depthWrite: false, side: THREE.DoubleSide, color: 0xdff6ff });
