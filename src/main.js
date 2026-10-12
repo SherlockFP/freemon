@@ -294,7 +294,7 @@ const cigHost = {
     if (G.lv) return G.lv.n <= 2 ? 6 : G.lv.n <= 6 ? 3 : 1;
     return Math.max(2, 7 - Math.min(5, save.cigEndlessRuns?.() || 0));
   },
-  combo(n) { if (G.lv) { if (n > 0) ui.pulse(); return; } ui.setCombo(n); if (n > 0) ui.pulse(); },
+  combo(n) { if (!G.lv) ui.setCombo(n); if (n > 0) ui.pulse(); comboMilestone(n); },
   onPower(kind) { if (kind === 'rainbow') { rainbowTrail = true; fx.setTrailStyle({ rainbow: true, glow: true }); } },
   onPowerEnd(kind) { if (kind === 'rainbow') { rainbowTrail = false; applyTrail(save.selected('trail')); } },
   ended(cause) {
@@ -307,6 +307,53 @@ const cigHost = {
     meta.track('cig_progress', { tons: game.totalTons(), dist: ball.d });
   },
 };
+
+// KOMBO ÖDÜLÜ: x10 / x25 / x50 = size punch + a short speed/growth burst (the existing fever state), a coin shower and a big popup.
+// Coins are banked in G.comboCoins and paid out (and listed) on the result screen. Allocation-free: constant tables, pooled fx.burst.
+const CM_AT = [10, 25, 50], CM_COINS = [5, 15, 40], CM_FEVER = [1.2, 2, 3];
+function comboMilestone(n) {
+  if (n <= 0) { G.cmTier = 0; return; }
+  const tier = n >= 50 ? 3 : n >= 25 ? 2 : n >= 10 ? 1 : 0;
+  if (tier <= (G.cmTier | 0)) return;
+  G.cmTier = tier;
+  if (!game || !plus || G.state !== 'play') return;
+  const k = tier - 1;
+  const coins = Math.round(CM_COINS[k] * (G.lv && G.lv.coinK ? G.lv.coinK : 1));
+  G.comboCoins = (G.comboCoins | 0) + coins;
+  if (plus.feverT < CM_FEVER[k]) plus.feverT = CM_FEVER[k];
+  ball.punch?.(0.05 + 0.03 * k);
+  for (let i = 0; i <= k; i++) fx.burst(ball.x, ball.y + ball.r * (0.8 + 0.3 * i), ball.d, 14, 0xffd23a, 7 + 2 * i, 0.22, 7 + 2 * i);
+  G.shake += 0.15 + 0.1 * k; camZoom = Math.max(camZoom, 0.1); G.fovKick = Math.max(G.fovKick, 5 + 2 * k);
+  audio.milestone(1 + k); audio.pop(0.9, CM_AT[k]);
+  platform.haptic(k ? 'success' : 'medium');
+  ui.banner?.('KOMBO x' + CM_AT[k] + '!', 2 + (k > 1 ? 1 : 0));
+  game._msg?.(2, '🪙 +' + coins + ' KOMBO ÖDÜLÜ');
+}
+
+// level intro chip: PATRON SEVİYESİ and/or the chapter modifier, ~3 s, then it fades (one pooled element)
+let introChip = null, introChipT = 0, nightEl = null;
+function showIntroChip(plan) {
+  if (!introChip) {
+    introChip = document.createElement('div');
+    introChip.id = 'cig-introchip';
+    document.body.appendChild(introChip);
+    nightEl = document.createElement('div');
+    nightEl.id = 'cig-night';
+    document.body.appendChild(nightEl);
+  }
+  const parts = [];
+  if (plan.boss && !plan.daily) parts.push('<b class="pat' + (plan.bigBoss ? ' big' : '') + '">' + (plan.bigBoss ? '👑 ' : '👹 ') + 'PATRON SEVİYESİ</b>');
+  if (plan.mod && !plan.daily) parts.push('<b class="mod">' + plan.mod.icon + ' ' + plan.mod.name + '</b>');
+  nightEl.style.display = plan.mod && plan.mod.night && !plan.daily ? 'block' : 'none';
+  if (!parts.length) { introChip.style.display = 'none'; return; }
+  introChip.innerHTML = parts.join('');
+  introChip.style.display = 'flex';
+  introChip.classList.remove('out');
+  clearTimeout(introChipT);
+  introChipT = setTimeout(() => { introChip.classList.add('out'); introChipT = setTimeout(() => { introChip.style.display = 'none'; }, 600); }, 3200);
+}
+function hideIntroChip() { if (introChip) { clearTimeout(introChipT); introChip.style.display = 'none'; } if (nightEl) nightEl.style.display = 'none'; }
+const NIGHT_C = new THREE.Color(0x14204a);
 
 function setCigVisible(on) {
   if (world) world.group.visible = on;
@@ -661,6 +708,7 @@ function updateStars(V) {
   for (let i = 0; i < 3; i++) lvHud.stars[i].className = a[i] === 1 ? 'on' : a[i] === 2 ? 'dead' : '';
 }
 function hideLevelHud() {
+  hideIntroChip();
   if (lvHud) lvHud.root.style.display = 'none';
   try { if (ui.el.tons) { ui.el.tons.textContent = ''; ui.lastTonsText = ''; if (ui._cg) ui._cg.kg = -1; } } catch { /* optional */ }
   const hud = ui.el?.hud;
@@ -722,7 +770,9 @@ function startCigLevel(arg, opts = {}) {
   G.daily = daily;
   G.lv = plan;
   G.runNo++;
+  G.comboCoins = 0; G.cmTier = 0;
   buildWorld(plan.seed, plan.n, daily, plan);
+  if (plan.mod && plan.mod.night && !daily) { scene.fog.color.lerp(NIGHT_C, 0.5); if (scene.background && scene.background.isColor) scene.background.lerp(NIGHT_C, 0.5); }   // GECE: darker fog tint
   clearWaveVis();
   game.reset();
   G.paused = false;
@@ -734,6 +784,7 @@ function startCigLevel(arg, opts = {}) {
   ui.startRun(plan.label);
   if (streak > 0) { try { game._msg(2, '🔥 SERİ x' + streak + ' · +' + 5 * streak + '% BAŞLANGIÇ'); } catch { /* optional */ } }
   ensureLevelHud(plan);
+  showIntroChip(plan);
   const showHint = plan.n <= 2 && (plan.n === 1 || (!G.hinted && (save.cigTut?.() ?? 0) < 3));
   ui.hint(showHint, 'sürükle · küçükleri ye, kapıyı kır');
   if (showHint && plan.n !== 1) save.bumpCigTut?.();
@@ -769,11 +820,14 @@ function finishCigLevel() {
     if (!daily) { save.cigLvFailReset(n); streakSet(streakGet() + 1); }
     const firstClear = !!(rec && rec.firstClear);
     const prev = rec ? rec.prevStars : 0;
-    let coins = daily ? 20 + 4 * n : firstClear ? 25 + 4 * n + (plan.boss ? 100 : 0) : 5 + 2 * stars;
+    let coins = daily ? 20 + 4 * n : firstClear ? 25 + 4 * n + (plan.boss ? (plan.bigBoss ? 250 : 100) : 0) : 5 + 2 * stars;
     const bonus = [15, 22, 30];
     for (let k = prev + 1; k <= stars; k++) coins += bonus[k - 1];
     let crystals = 0;
-    if (plan.boss && !daily) { if (firstClear) crystals += 2; if (stars === 3 && prev < 3) crystals += 1; }
+    if (plan.boss && !daily) { if (firstClear) crystals += plan.bigBoss ? 5 : 2; if (stars === 3 && prev < 3) crystals += plan.bigBoss ? 2 : 1; }
+    if (!daily && plan.coinK > 1) coins = Math.round(coins * plan.coinK);   // ALTIN modifier
+    const comboC = G.comboCoins | 0; G.comboCoins = 0;
+    coins += comboC;
     save.addCoins(coins);
     let lootChip = null;
     if (G.lootGot && !daily) {   // BOSS GANİMETİ: boss-themed unlock the first time, else ❄️ + 💎
@@ -791,7 +845,7 @@ function finishCigLevel() {
     menus.showLevelComplete({
       level: planAsLevel(plan), stars, goalsMet, rewards: { coins, crystals }, hasNext,
       labels: { banner: 'DAĞ TAMAM!', bossBanner: 'PATRON YENİLDİ!', next: 'SONRAKİ DAĞ ▶', map: 'DAĞLAR', retry: '↻ TEKRAR' },
-      chips: ['⚪ ' + fmtD(2 * G.finalR) + ' m', '⚖️ ' + fmtTons(r.tons), '⏱ ' + clock(st.time)].concat(lootChip ? [lootChip] : []),
+      chips: ['⚪ ' + fmtD(2 * G.finalR) + ' m', '⚖️ ' + fmtTons(r.tons), '⏱ ' + clock(st.time)].concat(comboC ? ['🪙 KOMBO +' + comboC] : [], plan.bigBoss && firstClear ? ['👑 PATRON ÖDÜLÜ'] : [], lootChip ? [lootChip] : []),
       special: !daily && firstClear && n === 10 ? '∞ ÇIĞ SONSUZ AÇILDI!' : !daily && firstClear && n === DAG_COUNT ? '🏆 TÜM DAĞLAR TAMAM!' : null,
     }, {
       onNext: () => playCigLevel(n + 1),
@@ -802,6 +856,7 @@ function finishCigLevel() {
     G.lastEval = { win, stars: 0, goalsMet: [false, false, false] };
     if (sim) return;
     if (!daily) { save.cigLvFail(n); streakSet(0); }
+    if (G.comboCoins) { save.addCoins(G.comboCoins | 0); G.comboCoins = 0; }   // combo coins are kept even on a loss
     save.recordRun(r.tons); notifSync(true);
     meta.track('cig_end', { level: n, stars: 0, tons: r.tons, pct: Math.min(0.99, peakD / plan.length), reached: false, daily, theme: scenery.theme.id, endless: false });
     meta.track('cig_progress', { tons: r.tons, dist: peakD });
@@ -827,7 +882,8 @@ function finishCig() {
   const r = game.result();
   G.result = r;
   ui.hint(false);
-  const coins = Math.round(Math.sqrt(Math.max(0, r.tons)) * 1.5 + r.dist / 40);
+  const comboC = G.comboCoins | 0; G.comboCoins = 0;
+  const coins = Math.round(Math.sqrt(Math.max(0, r.tons)) * 1.5 + r.dist / 40) + comboC;
   save.addCoins(coins);
   save.recordRun(r.tons); notifSync(true);
   if (G.daily) save.recordDaily(G.dailySeed, { tons: r.tons, pct: 0, stars: 0 });

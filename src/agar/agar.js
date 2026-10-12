@@ -11,6 +11,7 @@ const VALID_SKIN = new Set(SKINS.map((k) => k.id)), VALID_TRAIL = new Set(TRAILS
 const SKIN_COL = new Map(SKINS.map((k) => [k.id, parseInt(String((k.preview && (k.preview.b || k.preview.a)) || '#ffffff').slice(1), 16) || 0xffffff]));
 import { ArenaProps, TIER_NAMES, TIER_HINT, tierOfM } from './props.js';
 import { meta } from '../meta.js';
+import { takeArenaInvite, arenaInviteUrl } from './invite.js';
 const EAT_K = 1.1; // eat when 10% heavier (agar.io-like); closer than that the two balls bump
 // bot personalities: 0 none(human/boss) 1 Avci 2 Korkak 3 Toplayici 4 Kurnaz 5 Zorba
 const PERS_PREY = [1, 1.7, 0.45, 0.5, 0.8, 1]; // prey scan range multiplier
@@ -687,6 +688,8 @@ export class AgarMode {
     this.state = 'title';
     this.showTitle();
     this.hud.root.classList.add('ag-menu');
+    const inv = takeArenaInvite();
+    if (inv) setTimeout(() => { if (!this.disposed && this.state === 'title') this.doJoin(inv, () => this.openBrowser()); }, 150);
   }
 
   playSolo() {
@@ -2281,7 +2284,7 @@ export class AgarMode {
     } catch (e) {
       this.closeNet();
       if (this.disposed || tok !== this._tok) return;
-      this.toast(e && e.type === 'peer-unavailable' ? 'Oda bulunamadı' : e && e.type === 'timeout' ? 'Bağlantı zaman aşımı' : 'Bağlanılamadı');
+      this.toast(e && e.type === 'peer-unavailable' ? 'Bu oda bulunamadı, kod yanlış ya da oda kapanmış olabilir' : e && e.type === 'timeout' ? 'Bağlantı zaman aşımı' : 'Bağlanılamadı');
       back();
     }
   }
@@ -2300,7 +2303,7 @@ export class AgarMode {
 
   /** share the room code + link (navigator.share, else clipboard) */
   async invite(code) {
-    const url = (typeof location !== 'undefined' ? location.origin + location.pathname : '') + '#arena=' + code;
+    const url = arenaInviteUrl(code);
     const text = 'PATPAT Arena odama gel! Oda kodu: ' + code;
     try {
       if (navigator.share) { await navigator.share({ title: 'PATPAT Arena', text, url }); return; }

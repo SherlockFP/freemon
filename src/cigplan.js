@@ -17,7 +17,7 @@ export const DAG_COUNT = 30;
 // the first mountain that uses each mechanic (also drives the one-time intro card)
 export const MECH_AT = {
   crate: 2, chase: 3, strip: 4, boss: 5, iceWall: 5, chain: 6, crateWall: 6, rival: 7, cannon: 8, gold: 9,
-  strong: 11, bridge: 12, ice: 16, wind: 18, fog: 22, rush: 26,
+  strong: 11, bridge: 12, ice: 16, wind: 13, fog: 22, rush: 26,
 };
 
 export const NAMES = [
@@ -26,7 +26,16 @@ export const NAMES = [
   'Beyaz Orman', 'Sisli Geçit', 'Şehir Eteği', 'Çığ Yolu', 'Robot Ordusu', 'İkiz Çığ', 'Kayalık Duvar', 'Gökdelen Vadisi', 'Dağ Devi', 'Kış Kralı',
 ];
 
-const BOSS_K = 0.94;   // PATRON size vs the final-gate pace requirement
+const BOSS_K = 0.94;   // PATRON size vs the final-gate pace requirement (+0.02 per chapter of 10 mountains)
+// one light modifier per 5 mountains (twist = an existing cigplus/main twist; night = darker fog; coinK = coin reward multiplier)
+export const MODS = [
+  { id: 'gold', name: 'Altın', icon: '🪙', coinK: 1.5 },
+  { id: 'night', name: 'Gece', icon: '🌙', night: true },
+  { id: 'wind', name: 'Rüzgârlı', icon: '💨', twist: 'wind' },
+  { id: 'ice', name: 'Buzlu', icon: '⛸️', twist: 'ice' },
+  { id: 'fog', name: 'Sisli', icon: '🌫️', twist: 'fog' },
+  { id: 'rush', name: 'Hızlı Çığ', icon: '🌨️', twist: 'rush' },
+];
 export const BOSS_IDS = { 5: 'yeti', 10: 'robot', 15: 'golem', 20: 'yeti', 25: 'robot', 30: 'golem' };
 
 // one-time intro cards (shown BEFORE the mountain starts, never during play)
@@ -43,7 +52,7 @@ export const INTRO = {
   11: { icon: '🔩', text: 'Demir kasa: yeterince büyük değilsen geri seker.', mech: 'strong' },
   12: { icon: '🧊', text: 'Buz köprüsü kestirmedir ama çok büyüksen çöker. Boyuna güven.', mech: 'bridge' },
   16: { icon: '⛸️', text: 'Buzlu yol: top kayar, erken dön.', mech: 'ice' },
-  18: { icon: '💨', text: 'Rüzgâr seni yana iter.', mech: 'wind' },
+  13: { icon: '💨', text: 'Rüzgâr seni yana iter.', mech: 'wind' },
   22: { icon: '🌫️', text: 'Sis var: kapı etiketlerine bak.', mech: 'fog' },
   26: { icon: '🌨️', text: 'Çığ bu sefer daha hızlı.', mech: 'rush' },
 };
@@ -135,6 +144,9 @@ function build(n, daily, assist, opts) {
   const boss = !daily && n % 5 === 0;
   const bossArena = boss && L.bossArena;
   const bossId = boss ? BOSS_IDS[n] || 'yeti' : null;
+  const bigBoss = boss && n % 10 === 0;   // PATRON SEVİYESİ: every 10th mountain is a grand boss (bigger reward)
+  const mod0 = daily ? null : MODS[Math.floor((n - 1) / 5)] || null;
+  const mod = mod0 && boss && mod0.twist && mod0.id !== 'rush' ? null : mod0;   // (boss mountains stay a clean size duel)
   const S = 2 + Math.floor(n / 7);
   const ters = !daily && !boss && n >= 7 && n % 7 === 0;   // TERS ÇIĞ: the avalanche runs ahead, you chase it
   const tNom = Math.min(90, Math.round(45 + 1.5 * (n - 1)) + (boss ? 8 : 0));
@@ -151,7 +163,7 @@ function build(n, daily, assist, opts) {
 
   const P = {
     n, id: 'dag' + n, label: daily ? 'GÜNÜN DAĞI' : 'DAĞ ' + n, name: daily ? 'Günün Dağı' : NAMES[n - 1], seed, daily,
-    ters, boss, bossId, bossHits: boss ? 6 + Math.floor(n / 5) : 0,
+    ters, boss, bossId, bigBoss, mod, coinK: mod && mod.coinK ? mod.coinK : 1, bossHits: boss ? 6 + Math.floor(n / 5) : 0,
     speedK, tNom, par, r0, rEnd, rCap, tierStart: tierOf(r0), tierCap: tierOf(rEnd), hw0, length, dF, S,
     gateK, star2K, r2: star2K * rEnd, meltMul: n <= 2 ? 0.7 : n <= 5 ? 0.85 : 1, assist,
     gates: [], finale: null, items: [], widths: [], chase: null, twist: null, mech: [], intro: null,
@@ -177,7 +189,7 @@ function build(n, daily, assist, opts) {
   P.finale = { kind: bossArena ? 'boss' : (n % 2 ? 'wall' : 'gate'), d: dF, minR: fg.minR };
   // PATRON: a fixed size (radius) from the plan. Ball >= it at contact: swallow it; smaller: crash. It is also the finish barrier's
   // requirement (the boss IS the barrier), so the HUD chip shows it. Fair: a bit under a normal final gate at that distance.
-  P.bossNeedR = boss ? Math.round(BOSS_K * fg.minR * 20) / 20 : 0;
+  P.bossNeedR = boss ? Math.round((BOSS_K + 0.02 * Math.floor((n - 1) / 10)) * fg.minR * 20) / 20 : 0;
   if (bossArena) fg.minR = P.finale.minR = P.bossNeedR;
   P.bossR = P.bossNeedR || 1.7 * rEnd + 1;   // the boss model is exactly the size you need
 
@@ -189,7 +201,8 @@ function build(n, daily, assist, opts) {
     if (assist) gap0 += 20;
     P.chase = { t0: 6, gap0, k, clamp: 1.35 };
   }
-  P.twist = n >= 26 ? 'rush' : ({ 16: 'ice', 18: 'wind', 22: 'fog' })[n] || null;
+  // modifier twist: not on boss mountains (they stay a clean size duel) except the existing late-game rush
+  P.twist = n >= 26 ? 'rush' : mod && mod.twist && !boss ? mod.twist : null;
   for (const m in MECH_AT) if (MECH_AT[m] <= n) P.mech.push(m);
   if (!daily) P.intro = INTRO[n] || null;
 

@@ -17,6 +17,7 @@ import { ACTS, LEVELS, levelById, BONUS } from './campaign.js';
 import { dagPlan, DAG_COUNT, planBrief } from './cigplan.js';
 import { nextGoal, vitrinInfo } from './shop.js';
 import { hideBoot, runnerDeathText } from './ui.js';
+import { hasArenaInvite } from './agar/invite.js';
 
 const STYLE_ID = 'freemon-menus-style';
 const VERSION = '0.3.0';
@@ -3850,6 +3851,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     setTimeout(() => { if (refs) refs.root.classList.remove('enter'); }, 1000);
     startMainTimers();
     scheduleWheel();
+    if (hasArenaInvite() && callbacks.onAgar) setTimeout(() => { if (hasArenaInvite()) { try { callbacks.onAgar(); } catch { /* ignore */ } } }, 350);
   }
 
   function hideMain() {

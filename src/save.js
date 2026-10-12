@@ -197,6 +197,14 @@ export const save = {
     const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
     return data.dailyRunner && data.dailyRunner.key === key ? data.dailyRunner.best : 0;
   },
+  // Weekly mutator best (keyed by ISO week); returns true when this run set it.
+  recordWeeklyRunner(key, score) {
+    if (!data.weeklyRunner || data.weeklyRunner.key !== key) data.weeklyRunner = { key, best: 0 };
+    const isBest = score > data.weeklyRunner.best;
+    if (isBest) { data.weeklyRunner.best = score; persist(); }
+    return isBest;
+  },
+  weeklyRunnerBest: (key) => (data.weeklyRunner && data.weeklyRunner.key === key ? data.weeklyRunner.best : 0),
   runnerTop: () => (Array.isArray(data.runner?.top) ? data.runner.top.slice() : []),
 
   // ---- ÇIĞ SONSUZ (endless avalanche) ----

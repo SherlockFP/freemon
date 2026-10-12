@@ -156,6 +156,26 @@ function storeDaily(dl, dist, score) {
   try { localStorage.setItem('patpat.dailyRush', JSON.stringify(r)); } catch (e) { /* ignore */ }
   return r;
 }
+/** HAFTANIN MUTATÖRÜ: one per ISO week (seeded from year+week), normal Rush runs only. Static table = no per-frame allocation. */
+export const MUTATORS = [
+  { id: 'ters', name: 'Ters Dünya', icon: '⇄', score: 1, desc: 'Sağ-sol yer değiştirdi' },
+  { id: 'hiz', name: 'Hız Çılgınlığı', icon: '⚡', score: 1.5, speed: 1.3, desc: '+%30 hız, x1.5 puan' },
+  { id: 'dev', name: 'Dev Kar', icon: '🏔️', score: 1, tier: 3, desc: 'Büyük başla' },
+  { id: 'altin', name: 'Altın Hafta', icon: '🪙', score: 1, coin: 2, desc: 'x2 altın' },
+  { id: 'sis', name: 'Sisli Vadi', icon: '🌫️', score: 1.3, fog: 0.55, desc: 'Yoğun sis, x1.3 puan' },
+  { id: 'yeti', name: 'Yeti Öfkeli', icon: '👹', score: 1.4, yetiMax: 11, desc: 'Yeti yakın, x1.4 puan' },
+  { id: 'mik', name: 'Mıknatıs Haftası', icon: '🧲', score: 1, magnet: true, desc: 'Tüm ganimet sana gelir' },
+];
+export function weekInfo(date = new Date()) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dn = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dn);                       // the Thursday decides the ISO year
+  const year = d.getUTCFullYear(), week = Math.ceil(((d - Date.UTC(year, 0, 1)) / 86400000 + 1) / 7);
+  let h = 2166136261; const k = year * 100 + week;
+  h = Math.imul(h ^ k, 16777619); h ^= h >>> 15; h = Math.imul(h, 2246822519); h ^= h >>> 13;
+  return { key: year + '-W' + String(week).padStart(2, '0'), year, week, mut: MUTATORS[(h >>> 0) % MUTATORS.length] };
+}
+
 // Menu hook: `window.patpatDailyRush()` flags the next runner.start() as the daily run (call it right before main's startEndless()).
 if (typeof window !== 'undefined') window.patpatDailyRush = () => { window.__patpatDailyRush = true; return dailyInfo(); };
 
@@ -192,6 +212,12 @@ export class Runner {
     if (level) seed = level.seed >>> 0;
     this.seed = seed;
     this.tut = !level && !this.ctx.noTut && !(save.runnerTutDone?.() ?? true);
+    // HAFTALIK MUTATÖR: normal Rush only (not daily / campaign / tutorial)
+    this.week = (!level && !dly && !this.tut) ? weekInfo() : null;
+    this.mut = this.week ? this.week.mut : null;
+    this.mutSpd = this.mut?.speed || 1; this.mutScore = this.mut?.score || 1; this.mutCoin = this.mut?.coin || 1;
+    this.mutInv = this.mut?.id === 'ters'; this.mutFog = this.mut?.fog || 0; this.mutMag = !!this.mut?.magnet;
+    this.mutYMax = this.mut?.yetiMax || RCFG.yetiMax;
     Biomes.setBiomeOverride?.(level ? level.biome : null);
     this.track = new Track(scene, {
       seed,
@@ -226,7 +252,7 @@ export class Runner {
     this.avalanche = makeAvalanche(scene);
 
     // ---- size / hunger ----
-    this.tier = level ? Math.max(0, Math.min(4, level.startTier ?? 1)) : 2;
+    this.tier = level ? Math.max(0, Math.min(4, level.startTier ?? 1)) : (this.mut?.tier || 2);
     this.grow = level ? 0 : 0.5;            // progress to the next tier (0..1)
     const b = (this.b = { s: 16, u: 0, h: 0, r: RCFG.tierR[this.tier], vs: RCFG.startSpeed * 0.6, vu: 0, ve: 0, vh: 0, size: 2 });
     this.buffs.reset();
@@ -439,6 +465,7 @@ export class Runner {
       if (this.abil === 'penguen') this.penN = 1;
       if (this.abil) this.charIntro(id); }
     this.initRunPerk(opts);
+    this.mutChip();
     this.ctx.meta?.track?.('run_start', { mode: 'endless' });
     this.obstacles.setNextLetter?.(this.ctx.meta?.letterHunt?.()?.nextLetter ?? null);
     this.yetiN = 0; this.dblT = 0; this.turboN = 0; this.turboT = 0;
@@ -482,9 +509,19 @@ export class Runner {
   // RCFG.multCap); permanent progression (mission sets, upgrades) sits on top of the cap. No more compounding.
   get mult() {
     if (!this.buffs) return 1;
+    return this.mutScore * this._mult0();
+  }
+
+  _mult0() {
     // Combo is earned: flow (skill events only) adds +0.5 per point (x10 / x25 / x50 at 18 / 48 / 98); size counts for at most +2.
     return (this.furyT > 0 ? 2 : 1) * (this.flow * 0.5 + 0.1 * (this.penN || 0) + scoreMult(Math.min(2, this.tier), 0, this.chainBonus(), this.dangerBonus(), this.riskBonus(),
       (this.ctx.meta?.multiplier?.() ?? 1) - 1 + 0.15 * Math.min(5, this.perm.speed || 0), RCFG.multCap));
+  }
+
+  // chip on the run start: "BU HAFTA: Ters Dünya ⇄" (once per start, not per frame)
+  mutChip() {
+    const ui = this.ctx.ui;
+    ui.runnerMutator?.(this.mut ? `BU HAFTA: ${this.mut.name} ${this.mut.icon}` : null, this.mut ? this.mut.desc : '');
   }
 
   dangerBonus() { return dangerBonus(this.stumbleT > 0); }
@@ -582,7 +619,7 @@ export class Runner {
     this.obstacles.trim(this.b.s - 70);
     this.obstacles.update(dt, beat, this.b);
     if (play) { this.rhythm?.update(dt, beat); if (this.rhythm?.strip) this.tip('rhythm', 'RİTİM HATTI: altın pedlere vuruşta bas!', false); }
-    this.env.fogPress = this.fogK;
+    this.env.fogPress = this.fogK > this.mutFog ? this.fogK : this.mutFog;
     this.env.ballVs = this.b.vs;
     this.env.update(dt, this.ctx.camera, this.b, beat);
     // Size changes animate quickly instead of popping (crash = visible shrink).
@@ -632,6 +669,7 @@ export class Runner {
     input.consumeDx(); // free drag isn't used here — lanes are
     if (counting) { input.consumeJump(); input.consumeDive(); input.consumeDoubleTap(); }   // the countdown eats those
     let lane = input.consumeLane();
+    if (this.mutInv) lane = -lane;      // TERS DÜNYA
     if (this.wallRun) {
       // a missed turn is already a crash: nothing you do now counts
       lane = 0;
@@ -658,7 +696,7 @@ export class Runner {
     this.duckT -= dt;
 
     // ---- speed: downhill pace + size bonus; rocket overrides ----
-    const top = speedAt(b.s) * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1) * (this.riskT > 0 ? 1.45 : 1) * (this.cardRiskT > 0 ? 1.04 : 1) * (this.slideT > 0 ? (this.abil === 'buzejder' ? 1.4 : 1.2) : 1) * (this.rhythm ? this.rhythm.speedK : 1);
+    const top = speedAt(b.s) * this.mutSpd * (1 + this.tier * RCFG.sizeSpeed) * (this.rocketT > 0 ? 1.35 : 1) * (this.riskT > 0 ? 1.45 : 1) * (this.cardRiskT > 0 ? 1.04 : 1) * (this.slideT > 0 ? (this.abil === 'buzejder' ? 1.4 : 1.2) : 1) * (this.rhythm ? this.rhythm.speedK : 1);
     if (b.vs < top) b.vs = Math.min(top, b.vs + RCFG.accel * dt);
     else b.vs = Math.max(top, b.vs - RCFG.accel * 0.6 * dt);
     this.invulnT -= dt;
@@ -1290,7 +1328,7 @@ export class Runner {
         this.float('KURTULDUN!', 'big');
       }
     } else if (b.vs >= top * RCFG.yetiStumbleSpeed) {
-      this.gap = Math.min(RCFG.yetiMax, this.gap + RCFG.yetiRecover * dt);
+      this.gap = Math.min(this.mutYMax, this.gap + RCFG.yetiRecover * dt);
     } else {
       this.gap = Math.max(RCFG.yetiStart, this.gap - (top * RCFG.yetiStumbleSpeed - b.vs) * 0.32 * dt);
     }
@@ -2040,7 +2078,7 @@ export class Runner {
     if ((this._progT = (this._progT || 0) + 1) % 30 === 0) this.ctx.meta?.track?.('run_progress', { distance: Math.round(this.b.s), coins: this.coins });
     const v = this._vit, y = this._yeti;
     v.tier = this.tier; v.grow = this.grow; v.gap = Math.min(RCFG.yetiMax, this.gap + (this.baitBonus || 0));
-    v.helmet = this.helmet; v.helmetT = this.helmetT; v.magnet = this.magnetT > 0 || this.buffs.has('miknatis'); v.rocket = this.rocketT > 0;
+    v.helmet = this.helmet; v.helmetT = this.helmetT; v.magnet = this.mutMag || this.magnetT > 0 || this.buffs.has('miknatis'); v.rocket = this.rocketT > 0;
     v.x2 = this.x2T > 0; v.superjump = this.superT > 0 || this.buffs.has('yay'); v.sled = this.sledT > 0; v.sledCd = this.sledCdT;
     y.mode = this.stumbleT > 0 ? 'stumble' : this.yetiHoldT > 0 ? 'hold' : null;
     y.frac = this.stumbleT > 0 ? this.stumbleT / Math.max(0.1, this.stumbleMax) : this.yetiHoldT > 0 ? this.yetiHoldT / RCFG.yetiHold : 0;
@@ -3049,7 +3087,7 @@ export class Runner {
 
   // Flakes (coins). The gold card doubles them; permanent upgrades add a little. Whole coins only.
   addFlakes(v) {
-    this.coinsF += v * (this.abil === 'cini' ? 1.1 : 1) * (this.buffs.has('altin') ? 2 : 1) * (this.perk === 'altinkar' ? 1.25 : 1) * (this.perk === 'miknatis' && this.buffs.has('altin') ? 2 : 1) * (1 + 0.08 * Math.min(5, this.perm.coin || 0));
+    this.coinsF += v * this.mutCoin * (this.abil === 'cini' ? 1.1 : 1) * (this.buffs.has('altin') ? 2 : 1) * (this.perk === 'altinkar' ? 1.25 : 1) * (this.perk === 'miknatis' && this.buffs.has('altin') ? 2 : 1) * (1 + 0.08 * Math.min(5, this.perm.coin || 0));
     const whole = Math.floor(this.coinsF);
     this.coins += whole;
     this.coinsF -= whole;
@@ -3135,7 +3173,7 @@ export class Runner {
   }
 
   // Magnet: pull nearby flakes in by widening the pickup radius for flakes only.
-  magnetRadius() { return this.magnetT > 0 || this.buffs.has('miknatis') ? 4.5 : this.perk === 'miknatis' ? 3.2 : 0; }
+  magnetRadius() { return this.mutMag ? 4.5 : this.magnetT > 0 || this.buffs.has('miknatis') ? 4.5 : this.perk === 'miknatis' ? 3.2 : 0; }
 
   finish() {
     if (this.state !== 'play') return;
@@ -3246,7 +3284,7 @@ export class Runner {
 
   // The run is over for good: record it (top list, daily best, missions) exactly once.
   recordRun() {
-    if (this.recorded) return this.recInfo || { rank: 0, dailyBest: false };
+    if (this.recorded) return this.recInfo || { rank: 0, dailyBest: false, weeklyBest: false };
     this.recorded = true;
     if (!this.level) this.ctx.meta?.track?.('season_run_end', { total: this.seasonTokens || 0, n: this.seasonTokens || 0 });
     const { save } = this.ctx;
@@ -3255,12 +3293,13 @@ export class Runner {
     const rank = save.recordRunner?.(score, dist) || 0;
     const dailyBest = !!save.recordDailyRunner?.(score);
     if (this.daily) this.dailyRec = storeDaily(this.daily, dist, score);
+    const weeklyBest = this.week ? !!save.recordWeeklyRunner?.(this.week.key, score) : false;
     meta?.track?.('endless_end', {
       distance: dist, score, coins: this.coins, crashes: this.crashes, cause: this.cause, killKind: this.killKind,
       maxTier: this.maxTier, seasonTokens: this.seasonTokens || 0, jumps: this.jumps, smashes: this.smashes, turns: this.turns, stumbles: this.stumbles, stomps: this.stompTotal,
     });
     if (this.boxes) meta?.addBoxes?.(this.boxes);      // credited silently
-    this.recInfo = { rank, dailyBest };
+    this.recInfo = { rank, dailyBest, weeklyBest };
     return this.recInfo;
   }
 
@@ -3334,8 +3373,8 @@ export class Runner {
     const b = this.b;
     const bestBefore = save.runnerBest?.() ?? 0, bestDistBefore = save.runnerBestDist?.() ?? 0;
     const dist = Math.round(b.s), score = Math.round(this.score);
-    let rank = 0, dailyBest = false;
-    if (!canRevive) { const info = this.recordRun(); rank = info.rank; dailyBest = info.dailyBest; }
+    let rank = 0, dailyBest = false, weeklyBest = false;
+    if (!canRevive) { const info = this.recordRun(); rank = info.rank; dailyBest = info.dailyBest; weeklyBest = !!info.weeklyBest; }
     else rank = save.previewRunnerRank?.(dist) ?? 0;
     const isBestDist = dist >= 50 && dist > bestDistBefore;
     const dt = ui.runnerDeathText ? ui.runnerDeathText(this.cause, this.killKind) : null;
@@ -3345,6 +3384,9 @@ export class Runner {
       title: (dt && dt.title) || DEATH_TEXT[this.cause] || 'BİTTİ!',
       tip: dt ? dt.tip : '',
       dailyBest,
+      mutator: this.mut ? { name: this.mut.name, icon: this.mut.icon, score: this.mut.score } : null,
+      weeklyBest,
+      weeklyRecord: this.week ? (save.weeklyRunnerBest?.(this.week.key) ?? 0) : 0,
       daily: this.daily ? { num: this.daily.num, best: (this.dailyRec || { dist }).dist } : null,
       perk: this.perk ? RUN_PERK_BY_ID[this.perk] : null,
       synergies: this.synHit.length ? this.synHit.slice() : null,

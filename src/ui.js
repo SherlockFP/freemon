@@ -296,6 +296,8 @@ REKOR −${this._rg} m`;
     try { seaTok = Math.floor(Number(p && (p.seasonTokens ?? (p.stats && p.stats.seasonTokens))) || meta.stats().seasonTokens || 0); } catch { seaTok = 0; }
     if (seaTok > 0) chips.push(`<div class="rx-chip"><small>SEZON</small><b>+${fmtN(seaTok)} 🧣</b></div>`);
     html += `<div class="rx-stats">${chips.join('')}</div>`;
+    if (p && p.mutator) html += `<div class="rx-line">HAFTA: ${p.mutator.name} ${p.mutator.icon}${p.mutator.score > 1 ? ' · x' + p.mutator.score + ' puan' : ''}</div>`;
+    if (p && p.weeklyBest) html += `<div class="rx-line">🏆 Haftalık rekor! ${fmtN(p.weeklyRecord || score)}</div>`;
     if (p && p.synergies) html += `<div class="rx-line">SİNERJİ: ${p.synergies.join(' · ')}</div>`;
     const dly = p && p.daily;
     let shareTxt = '';
@@ -1056,6 +1058,15 @@ REKOR −${this._rg} m`;
     fill.style.width = '100%';
     this._perkIv = setInterval(() => { fill.style.width = Math.max(0, 100 - ((performance.now() - t0) / (secs * 10))) + '%'; }, 100);
     this._perkTm = setTimeout(() => pick(perks[0].id), secs * 1000);
+  }
+
+  runnerMutator(text, title) {
+    let el = this._mutChip;
+    if (!text) { if (el) el.classList.add('hidden'); return; }
+    if (!el) { el = this._mutChip = document.createElement('div'); el.className = 'mut-chip'; this.el.hud.appendChild(el); }
+    el.textContent = text; el.title = title || '';
+    el.classList.remove('hidden');
+    el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
   }
 
   runnerPerkIcon(icon, name) {

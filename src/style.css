@@ -1032,3 +1032,16 @@ html, body {
 .pp-bar i { display: block; height: 100%; width: 100%; background: #ffd34d; transition: width 0.1s linear; }
 .perk-ico { position: absolute; right: 10px; top: calc(var(--sat) + 100px); width: 22px; height: 22px; display: grid; place-items: center; font-size: 12px; border-radius: 50%; background: #17345c; border: 2px solid var(--ink); pointer-events: none; }
 .perk-ico.hidden { display: none; }
+
+.mut-chip { position: absolute; left: 50%; transform: translateX(-50%); top: calc(var(--sat) + 64px); padding: 3px 10px; border-radius: 12px; background: rgba(23,52,92,.85); border: 2px solid var(--ink); color: #fff; font: 900 12px system-ui, sans-serif; white-space: nowrap; pointer-events: none; animation: mutFade 6s forwards; }
+.mut-chip.hidden { display: none; }
+@keyframes mutFade { 0%, 80% { opacity: 1; } 100% { opacity: .35; } }
+
+/* level intro chips (PATRON SEVİYESİ / modifier) + GECE overlay */
+#cig-introchip{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 96px);transform:translateX(-50%);z-index:30;display:none;flex-direction:column;align-items:center;gap:6px;pointer-events:none;transition:opacity .5s,transform .5s;animation:cigChipIn .45s cubic-bezier(.2,1.4,.4,1)}
+#cig-introchip.out{opacity:0;transform:translateX(-50%) translateY(-10px)}
+#cig-introchip b{font:900 14px system-ui,sans-serif;letter-spacing:.08em;color:#fff;padding:6px 14px;border-radius:999px;background:rgba(20,40,80,.72);border:2px solid rgba(255,255,255,.55);text-shadow:0 1px 3px rgba(0,0,0,.6)}
+#cig-introchip b.pat{background:linear-gradient(#ff6a4a,#c8201a);border-color:#ffd9a0;font-size:17px}
+#cig-introchip b.pat.big{background:linear-gradient(#ffd23a,#e07a10);color:#3a1600;text-shadow:none}
+#cig-night{position:fixed;inset:0;z-index:2;display:none;pointer-events:none;background:radial-gradient(ellipse at 50% 40%,rgba(10,20,60,0) 35%,rgba(10,16,48,.38) 100%)}
+@keyframes cigChipIn{from{opacity:0;transform:translateX(-50%) scale(.6)}to{opacity:1;transform:translateX(-50%) scale(1)}}
