@@ -1634,3 +1634,18 @@ Object.assign(meta, {
     };
   },
 });
+
+// BUGUN hub helper (read-only): the visible, unfinished achievement closest to its goal.
+Object.assign(meta, {
+  nextAchievement() {
+    let best = null;
+    for (const def of DEFS) {
+      if (def.secret) continue;
+      const e = S.a[def.id];
+      if (e && e.d) continue;
+      const frac = Math.min(1, (e ? e.v : 0) / Math.max(1, def.goal));
+      if (!best || frac > best.frac) best = { id: def.id, name: def.name, desc: def.desc, icon: def.icon, value: e ? Math.min(e.v, def.goal) : 0, goal: def.goal, frac };
+    }
+    return best;
+  },
+});

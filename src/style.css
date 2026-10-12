@@ -1045,3 +1045,27 @@ html, body {
 #cig-introchip b.pat.big{background:linear-gradient(#ffd23a,#e07a10);color:#3a1600;text-shadow:none}
 #cig-night{position:fixed;inset:0;z-index:2;display:none;pointer-events:none;background:radial-gradient(ellipse at 50% 40%,rgba(10,20,60,0) 35%,rgba(10,16,48,.38) 100%)}
 @keyframes cigChipIn{from{opacity:0;transform:translateX(-50%) scale(.6)}to{opacity:1;transform:translateX(-50%) scale(1)}}
+
+/* ===== SHARECARD (share button on result screens) ===== */
+#btn-card { background: linear-gradient(180deg, #ffd84a, #ffb000); color: #14213d; text-shadow: none; box-shadow: 0 5px 0 #b57400; }
+#btn-card:active { transform: translateY(4px); box-shadow: 0 1px 0 #b57400; }
+#btn-card.rec { animation: cardPulse 0.8s ease-in-out infinite alternate; }
+@keyframes cardPulse { from { transform: scale(1); } to { transform: scale(1.07); filter: brightness(1.12); } }
+/* ===== /SHARECARD ===== */
+
+/* ===== BUGÜN hub ===== */
+.fm-main .fm-today { position: relative; width: min(100%, 380px); min-height: 50px; display: flex; align-items: center; justify-content: center; gap: 10px; border: 3px solid var(--ink, #17345c); border-radius: 18px; cursor: pointer; font-size: 22px; letter-spacing: 0.08em; color: #fff; background: linear-gradient(180deg, #5fb8ff, #2f7dff); box-shadow: 0 5px 0 #1b4fb3, 0 9px 12px rgba(10, 30, 60, 0.3); }
+.fm-main .fm-today:active { transform: translateY(4px); box-shadow: 0 1px 0 #1b4fb3; }
+.fm-main .fm-today.hot { background: linear-gradient(180deg, #ffd24a, #ff9a1f); box-shadow: 0 5px 0 #b3600f, 0 9px 12px rgba(10, 30, 60, 0.3); animation: fmDlWob 1.6s ease-in-out infinite; }
+.fm-main .fm-today .tic { font-size: 24px; }
+.fm-main .fm-tbdg { position: absolute; top: -9px; right: -7px; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px; display: grid; place-items: center; font-size: 14px; color: #fff; background: #ff2d3d; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35); text-shadow: none; }
+.fm-main .fm-tbdg.off { display: none; }
+.fm-main .fm-dl, .fm-main .fm-rwc { display: none !important; }
+.fm-p-today .fm-btn.big { width: 100%; margin: 4px 0 8px; }
+.fm-p-today .fm-btn.big[disabled] { filter: grayscale(0.5) brightness(0.9); animation: none; cursor: default; }
+.fm-p-today .fm-td-row { align-items: center; }
+.fm-p-today .fm-td-word { display: flex; gap: 4px; margin-top: 4px; }
+.fm-p-today .fm-td-more { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 12px; }
+.fm-p-today .fm-td-more .fm-btn { flex: 1 1 30%; }
+@media (prefers-reduced-motion: reduce) { .fm-main .fm-today.hot { animation: none; } }
+/* ===== /BUGÜN hub ===== */

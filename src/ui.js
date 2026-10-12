@@ -8,6 +8,7 @@
 import { meta } from './meta.js';
 import { save } from './save.js';
 import { nextGoal } from './shop.js';
+import { shareCard } from './sharecard.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -248,6 +249,17 @@ REKOR −${this._rg} m`;
     setTimeout(() => gb.classList.remove('tick'), 520);
   }
 
+  // PAYLAŞ 📸 share-card button under TEKRAR (created once, re-armed per result)
+  shareCardBtn(o) {
+    let b = document.getElementById('btn-card');
+    if (!b) { b = document.createElement('button'); b.id = 'btn-card'; b.className = 'btn big'; this.el.retry.after(b); }
+    window.__cigUi = this;
+    b.style.display = '';
+    b.textContent = 'PAYLAŞ 📸';
+    b.classList.toggle('rec', !!o.isRec);
+    b.onclick = () => { b.disabled = true; shareCard(o).finally(() => { b.disabled = false; }); };
+  }
+
   // ---------- result screen (YETİ RUSH) ----------
   // p: { title?, cause?, killKind?, tip?, distance, score, coins, best, bestDist, isBest, isBestDist, canRevive, reviveCost, crystals,
   //      rank, toRecord, missions?, onRevive? }. No box overlay, no upgrade card, no chained popups.
@@ -336,6 +348,7 @@ REKOR −${this._rg} m`;
 
     this.el.result.classList.remove('hidden');
     this.el.result.classList.add('runner');
+    this.shareCardBtn({ mode: 'YETİ RUSH', big: fmtN(distance), unit: 'metre', isRec, challenge: 'Beni geçebilir misin? 🏔️' });
     this.el.resTitle.textContent = title;
     this.el.resBadge.classList.toggle('hidden', !isRec);
     this.el.resLabel.textContent = 'metre';
@@ -1368,6 +1381,7 @@ REKOR −${this._rg} m`;
       this.el.resLabel.textContent = tierName ? String(tierName).toLocaleUpperCase('tr-TR') : 'çığ boyutu';
       this.el.resSub.textContent = rec ? '' : bt > 0 ? `REKOR ${fmtTons(bt)}${bd > 0 ? ` · ${fmtN(bd)} m` : ''}` : sub || '';
       this.el.next.classList.add('hidden');
+      this.shareCardBtn({ mode: 'ÇIĞ', big: fmtTons(tons), unit: tierName ? String(tierName) : 'çığ boyutu', isRec: rec, challenge: 'Beni geçebilir misin? 🏔️' });
       let html = (!rec && (tip || dt.tip)) ? `<div class="rx-dim">${tip || dt.tip}</div>` : '';
       if ((this._bestCombo || 0) >= 3) html += `<div class="rx-line rx-combo">\u{1F525} EN \u0130Y\u0130 KOMBO x${this._bestCombo}</div>`;
       html += mrep.html + this.goalBlock(coins);
@@ -1380,6 +1394,7 @@ REKOR −${this._rg} m`;
       return;
     }
 
+    { const cb = document.getElementById('btn-card'); if (cb) cb.style.display = 'none'; }
     this.el.resBadge.classList.add('hidden');
     this.el.resTitle.textContent = title;
     this.el.resSub.textContent = sub || '';

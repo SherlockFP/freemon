@@ -1634,6 +1634,158 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     } catch { /* ignore */ }
   }
 
+
+  // ---------------------------------------------------------------------------------------------- BUGÜN hub
+  // One scrollable panel that gathers every daily surface (reward, missions, season, wheel, letter hunt, achievement, weekly mutator).
+  // It only calls the existing claim functions (meta.claimDaily / claimHoliday / claimDailyTask / seasonClaim / claimAchievement / openPostcard).
+  function todayItems() {
+    const o = { daily: false, holiday: false, tasks: [], season: [], ach: [], post: false, globe: false, wheel: false };
+    try { o.daily = !!meta.daily().available; } catch { /* ignore */ }
+    try { const h = meta.holiday(); o.holiday = !!(h && !h.claimed); } catch { /* ignore */ }
+    try { o.tasks = meta.dailyTasks().tasks.filter((t) => t.done && !t.claimed).map((t) => t.i); } catch { /* ignore */ }
+    try { o.season = meta.season().tiers.filter((t) => t.state === 'ready').map((t) => t.n); } catch { /* ignore */ }
+    try { o.ach = ACHIEVEMENTS.filter((a) => { const pr = meta.progress(a.id); return pr.done && !pr.claimed; }).map((a) => a.id); } catch { /* ignore */ }
+    try { o.post = !!meta.postcard().available; } catch { /* ignore */ }
+    try { o.globe = !!meta.globeReady(); } catch { /* ignore */ }
+    try { o.wheel = !!(!WHEEL_BLOCK && save.wheelSeen && save.wheelSeen() && save.wheelDay() !== dayKey()); } catch { /* ignore */ }
+    o.count = (o.daily ? 1 : 0) + (o.holiday ? 1 : 0) + o.tasks.length + o.season.length + o.ach.length + (o.post ? 1 : 0) + (o.globe ? 1 : 0) + (o.wheel ? 1 : 0);
+    o.collectable = o.count - (o.wheel ? 1 : 0);
+    return o;
+  }
+
+  function claimAllToday(src, p) {
+    const it = todayItems();
+    const sum = { coins: 0, crystals: 0, boxes: 0, items: 0, n: 0 };
+    const take = (g, kind) => {
+      if (!g) return;
+      sum.n++;
+      sum.coins += g.coins | 0; sum.crystals += g.crystals | 0; sum.boxes += g.boxes | 0;
+      if (g.skin || g.trail) sum.items++;
+      if (kind && cb.onReward) { try { cb.onReward(kind, g); } catch { /* ignore */ } }
+    };
+    try { if (it.daily) take(meta.claimDaily(), 'daily'); } catch { /* ignore */ }
+    try { if (it.holiday) take(meta.claimHoliday(), 'holiday'); } catch { /* ignore */ }
+    for (const i of it.tasks) { try { take(meta.claimDailyTask(i), 'daily'); } catch { /* ignore */ } }
+    for (const n of it.season) { try { take(meta.seasonClaim(n)); } catch { /* ignore */ } }
+    for (const id of it.ach) { try { take(meta.claimAchievement(id), 'achievement'); } catch { /* ignore */ } }
+    try { if (it.post) take(meta.openPostcard()); } catch { /* ignore */ }
+    try { if (it.globe) take(meta.globeShake()); } catch { /* ignore */ }
+    if (!sum.n) { sfx('error'); return; }
+    sfx('reward'); confetti(80);
+    for (let k = 0; k < 3; k++) setTimeout(() => coinFly(src), k * 220);
+    if (p && p.pills.coins) fly(src, p.pills.coins.el, '❄️', 12, () => p.refreshPills(true));
+    if (p && p.pills.crystals && sum.crystals) fly(src, p.pills.crystals.el, '💎', Math.min(8, 2 + sum.crystals), () => p.refreshPills(true));
+    const parts = [];
+    if (sum.coins) parts.push(`+${fmt(sum.coins)} ❄️`);
+    if (sum.crystals) parts.push(`+${sum.crystals} 💎`);
+    if (sum.boxes) parts.push(`+${sum.boxes} 🧩`);
+    if (sum.items) parts.push(`${sum.items} yeni eşya`);
+    toast({ icon: '🎁', title: 'HEPSİ TOPLANDI!', sub: parts.join(' · ') || `${sum.n} ödül`, kind: 'gold', ms: 3000 });
+  }
+
+  let weekCache = null; // weekInfo() is read lazily so the runner chunk is not pulled into the lobby
+  function openToday() {
+    sfx('click');
+    const p = openPanel({ id: 'today', title: 'BUGÜN', pills: ['coins', 'crystals'] });
+    const sec = (t) => p.list.appendChild(el('div', 'fm-sec', t));
+    const barOf = (v, g) => { const b = el('div', 'fm-bar'); const f = el('i'); setCss(f, '--p', `${Math.round(Math.max(0, Math.min(1, v / Math.max(1, g))) * 100)}%`); b.appendChild(f); return b; };
+    const after = (fn) => () => { fn(); setTimeout(() => { if (activePanel === p) { const k = p.body.scrollTop; render(); p.body.scrollTop = k; } if (mainOpen) updateMain(); }, 650); };
+    const rowOf = (ico, name, desc, right, extra) => {
+      const r = el('div', 'fm-row fm-td-row');
+      const mid = add(el('div', 'fm-amid'), el('div', 'fm-an', name));
+      if (desc) mid.appendChild(el('div', 'fm-ad', desc));
+      if (extra) mid.appendChild(extra);
+      add(r, el('div', 'fm-aico', ico), mid, right);
+      return r;
+    };
+    const rew = (cbk) => () => { const g = cbk(); if (g) { sfx('reward'); confetti(30); coinFly(p.list); p.refreshPills(true); } return g; };
+    function render() {
+      clear(p.list);
+      const it = todayItems();
+      const all = button(`fm-btn big${it.collectable ? ' glow' : ''}`, it.collectable ? `HEPSİNİ TOPLA (${it.collectable})` : 'HEPSİ TOPLANDI ✓', () => {
+        if (!todayItems().collectable) { sfx('error'); return; }
+        claimAllToday(all, p); setTimeout(() => { if (activePanel === p) render(); if (mainOpen) updateMain(); }, 900);
+      });
+      if (!it.collectable) all.disabled = true;
+      p.list.appendChild(all);
+      p.setSub(it.count ? `${it.count} HAZIR` : 'BUGÜN TAMAM');
+
+      // 1. daily reward + streak
+      sec('GÜNLÜK ÖDÜL');
+      try {
+        const d = meta.daily();
+        const right = d.available
+          ? button('fm-btn sm glow', 'AL', after(rew(() => { const g = meta.claimDaily(); if (g && cb.onReward) { try { cb.onReward('daily', g); } catch { /* ignore */ } } return g; })))
+          : button('fm-btn sm', 'AÇ', () => openDaily());
+        p.list.appendChild(rowOf(d.streak > 0 ? '🔥' : '🌱', d.streak > 0 ? `${d.streak} günlük seri` : 'Serini başlat', d.available ? `Gün ${d.day}: ${rewardLine(d.reward)}` : `Sonraki ödül ${fmtLeft(d.nextInMs)} sonra`, right));
+        const h = meta.holiday();
+        if (h && !h.claimed) p.list.appendChild(rowOf(h.emoji || '🎉', h.name, rewardLine({ coins: h.coins }), button('fm-btn sm glow', 'AL', after(rew(() => meta.claimHoliday())))));
+      } catch { /* ignore */ }
+
+      // 2. today's 3 missions
+      sec('GÜNLÜK GÖREVLER');
+      try {
+        for (const t of meta.dailyTasks().tasks) {
+          const right = t.claimed ? el('div', 'fm-ok', '✓') : t.done ? button('fm-btn sm glow', 'AL', after(rew(() => { const g = meta.claimDailyTask(t.i); if (g && cb.onReward) { try { cb.onReward('daily', g); } catch { /* ignore */ } } return g; }))) : null;
+          p.list.appendChild(rowOf(t.icon, t.text, 'Ödül: ' + rewardLine(t.reward), right, add(el('div', 'fm-abar'), barOf(t.value, t.goal), el('div', 'fm-bn', t.goal > 1 ? `${fmt(t.value)}/${fmt(t.goal)}` : (t.done ? '1/1' : '0/1')))));
+        }
+      } catch { /* ignore */ }
+
+      // 3. season
+      try {
+        const s = meta.season();
+        sec('SEZON AVI');
+        const nx = s.tiers.find((t) => t.state === 'locked');
+        const rdy = s.tiers.filter((t) => t.state === 'ready');
+        const right = rdy.length ? button('fm-btn sm glow', 'AL', after(rew(() => { let any = null; for (const t of rdy) { const g = meta.seasonClaim(t.n); if (g) any = g; } return any; }))) : button('fm-btn sm', 'AÇ', () => openSeason());
+        p.list.appendChild(rowOf('🧣', `Sezon ${s.claimed}/${s.total}`, nx ? `Sıradaki ödül: ${s.tokens}/${nx.need} 🧣 · ${s.daysLeft}g kaldı` : 'Tüm ödüller tamam!', right, nx ? add(el('div', 'fm-abar'), barOf(s.tokens, nx.need)) : null));
+      } catch { /* ignore */ }
+
+      // 4. wheel / globe / postcard
+      sec('ŞANS');
+      try {
+        const spun = !(save.wheelSeen && save.wheelSeen() && save.wheelDay() !== dayKey());
+        p.list.appendChild(rowOf('🎡', 'ŞANS ÇARKI', spun ? 'Yarın yeniden çevir!' : 'Günlük bedava çevirme hazır!', spun ? null : button('fm-btn sm glow', 'ÇEVİR', () => { closePanel(true); openWheel(false); })));
+      } catch { /* ignore */ }
+      try {
+        const gr = meta.globeReady();
+        p.list.appendChild(rowOf('🔮', 'Kar Küresi', gr ? 'Salla, sürpriz ödül çıksın!' : 'Bugün sallandı', gr ? button('fm-btn sm glow', 'SALLA', after(rew(() => meta.globeShake()))) : null));
+        const pc = meta.postcard();
+        p.list.appendChild(rowOf('✉️', 'Yeti Postası', pc.available ? `Kupon: +${pc.coins} ❄️` : 'Bugünün kartı alındı', pc.available ? button('fm-btn sm glow', 'AL', after(rew(() => meta.openPostcard()))) : null));
+      } catch { /* ignore */ }
+
+      // 5. letter hunt
+      try {
+        const h = meta.letterHunt();
+        sec('GÜNÜN KELİMESİ');
+        const word = el('div', 'fm-word fm-td-word');
+        h.found.forEach((got, i) => word.appendChild(el('div', `fm-chip${got ? ' got' : i === h.nextLetter ? ' next' : ''}`, got || i === h.nextLetter ? WORD[i] : '?')));
+        p.list.appendChild(rowOf('🔤', h.complete ? 'Bugün tamam!' : `${h.count}/${WORD.length} harf`, `Ödül: ${rewardLine(h.reward)} · seri ${h.streakDay}/7`, button('fm-btn sm', 'AÇ', () => openHunt()), word));
+      } catch { /* ignore */ }
+
+      // 6. next achievement
+      try {
+        const a = meta.nextAchievement();
+        if (a) { sec('YAKIN BAŞARIM'); p.list.appendChild(rowOf(a.icon, a.name, a.desc, button('fm-btn sm', 'AÇ', () => openAchievements()), add(el('div', 'fm-abar'), barOf(a.value, a.goal), el('div', 'fm-bn', `${fmt(a.value)}/${fmt(a.goal)}`)))); }
+      } catch { /* ignore */ }
+
+      // 7. weekly Rush mutator
+      try {
+        const w = weekCache;
+        if (w && w.mut) { sec("BU HAFTANIN RUSH'I"); p.list.appendChild(rowOf(w.mut.icon, w.mut.name, w.mut.desc, button('fm-btn sm', 'OYNA', () => { closePanel(true); sfx('confirm'); playMode('endless'); }))); }
+      } catch { /* ignore */ }
+
+      // secondary entry points (the old screens stay reachable)
+      sec('DİĞER');
+      const more = el('div', 'fm-td-more');
+      add(more, button('fm-btn sm', '🏆 Başarımlar', () => openAchievements()), button('fm-btn sm', '📜 Görevler', () => openMissions()), button('fm-btn sm', '🧣 Sezon', () => openSeason()), button('fm-btn sm', '🎁 Günlük', () => openDaily()), button('fm-btn sm', '🛂 Pasaport', () => openPassport()), button('fm-btn sm', '⬆️ Geliştir', () => openUpgrades()));
+      p.list.appendChild(more);
+    }
+    render();
+    if (!weekCache) import('./runner/runner.js').then((m) => { weekCache = m.weekInfo(); if (activePanel === p) { const k = p.body.scrollTop; render(); p.body.scrollTop = k; } }).catch(() => { /* ignore */ });
+    return p;
+  }
+
   function openPostcard() {
     sfx('click');
     const p = openPanel({ id: 'post', title: 'YETİ POSTASI', pills: ['coins'] });
@@ -3070,6 +3222,10 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.play = button('fm-play', 'OYNA', () => { sfx('confirm'); playMode('endless'); }, 'Oyna: Yeti Rush');
     r.play.appendChild(el('small', '', 'YETİ RUSH'));
     add(bot, add(el('div', 'fm-playw'), r.play));
+    r.today = button('fm-today', '', () => { sfx('open'); openToday(); }, 'Bugün: ödüller ve görevler');
+    r.todayBdg = el('span', 'fm-tbdg off', '');
+    add(r.today, el('span', 'tic', '📅'), el('span', 'ttx', 'BUGÜN'), r.todayBdg);
+    bot.appendChild(r.today);
     r.arena = button('fm-arena', '', () => { sfx('confirm'); if (cb.onAgar) cb.onAgar(); }, 'Kartopu Arena');
     add(r.arena, el('span', 'ico', '⚔️'), add(el('span', 'tx'), el('b', '', 'KARTOPU ARENA'), el('small', '', 'Dev harita · botlar · arkadaşlarınla oda kur')));
     bot.appendChild(r.arena);
@@ -3131,6 +3287,7 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     r.avXpFill.style.width = `${Math.round(Math.max(0, Math.min(1, li.cur / Math.max(1, li.need))) * 100)}%`;
     r.coinsPill.set(coins(), false);
     r.crPill.set(meta.crystals, false);
+    try { const tc = todayItems().count; r.todayBdg.textContent = tc > 9 ? '9+' : String(tc); r.todayBdg.classList.toggle('off', !tc); r.today.classList.toggle('hot', tc > 0); } catch { /* ignore */ }
 
     const mult = meta.multiplier();
     r.multChip.textContent = `✖️ ×${mult} ÇARPAN`;
@@ -3898,6 +4055,6 @@ export function createMenus({ save, meta, root, callbacks = {} } = {}) {
     // Mystery boxes never pop up by themselves any more: a bare openBoxes(n) call (the old post-run auto-open) is ignored, boxes stay
     // banked and open from the lobby (💎 pill). Pass { user: true } as the 3rd argument for an explicit open.
     openBoxes: (n, onDone, opts) => { if (opts && opts.user) return openBoxes(n, onDone); if (onDone) { try { onDone(); } catch { /* ignore */ } } return null; },
-    openDaily, openAchievements, openPassport, openPostcard, openMissions, openUpgrades, openHunt, openSettings, closePanel, destroy,
+    openToday, openDaily, openAchievements, openPassport, openPostcard, openMissions, openUpgrades, openHunt, openSettings, closePanel, destroy,
   };
 }

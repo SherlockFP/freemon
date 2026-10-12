@@ -7,6 +7,7 @@ import { Ball } from './ball.js';
 import { Fx } from './fx.js';
 import { Input } from './input.js';
 import { UI, fmtTons } from './ui.js';
+import { setShareContext } from './sharecard.js';
 import { audio } from './audio.js';
 import { platform, notify } from './platform.js';
 import { save } from './save.js';
@@ -61,6 +62,7 @@ sun.visible = false;
 scene.add(sun);
 
 const camera = new THREE.PerspectiveCamera(60, 1, 0.5, 1800);
+setShareContext({ renderer, scene, camera });
 const post = new PostFX(renderer);
 let visualMode = 'normal';
 try { visualMode = localStorage.getItem('cig.visual') || 'normal'; } catch { /* ignore */ }
