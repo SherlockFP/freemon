@@ -6,6 +6,7 @@
 //   cigHud({tons, dist, tierName, frac, best}) · cigTier(name) · toastSoft(text)
 // Everything lives at the top / bottom edge of the screen: the middle strip (the reaction zone) stays empty.
 import { meta } from './meta.js';
+import { t as tr } from './i18n.js';
 import { save } from './save.js';
 import { nextGoal } from './shop.js';
 import { shareCard } from './sharecard.js';
@@ -255,6 +256,7 @@ REKOR −${this._rg} m`;
     if (!b) { b = document.createElement('button'); b.id = 'btn-card'; b.className = 'btn big'; this.el.retry.after(b); }
     window.__cigUi = this;
     b.style.display = '';
+    { const old = document.getElementById('btn-share'); if (old) old.style.display = 'none'; }   // the image card replaces the old text share
     b.textContent = 'PAYLAŞ 📸';
     b.classList.toggle('rec', !!o.isRec);
     b.onclick = () => { b.disabled = true; shareCard(o).finally(() => { b.disabled = false; }); };
@@ -301,16 +303,16 @@ REKOR −${this._rg} m`;
     else if (rank > 0 && rank <= 3) note = `#${rank}. en iyi koşun`;
     const isScoreRec = !!(p && p.isBest) || isRec;
     const chips = [`<div class="rx-chip${isScoreRec ? ' gold' : ''}"><small>EN İYİ</small><b>${isScoreRec ? '★ ' : ''}${fmtN(Math.max(best, score))}</b></div>`];
-    if (p && p.perk) chips.push(`<div class="rx-chip"><small>YETENEK</small><b>${p.perk.icon} ${p.perk.name}</b></div>`);
+    if (p && p.perk) chips.push(`<div class="rx-chip"><small>YETENEK</small><b>${p.perk.icon} ${tr(p.perk.name)}</b></div>`);
     if (coins) chips.push(`<div class="rx-chip"><small>KAZANÇ</small><b>❄️ +${fmtN(coins)}</b></div>`);
     if ((this._bestCombo || 0) >= 3) chips.push(`<div class="rx-chip"><small>KOMBO</small><b>🔥 x${this._bestCombo}</b></div>`);
     let seaTok = 0;
     try { seaTok = Math.floor(Number(p && (p.seasonTokens ?? (p.stats && p.stats.seasonTokens))) || meta.stats().seasonTokens || 0); } catch { seaTok = 0; }
     if (seaTok > 0) chips.push(`<div class="rx-chip"><small>SEZON</small><b>+${fmtN(seaTok)} 🧣</b></div>`);
     html += `<div class="rx-stats">${chips.join('')}</div>`;
-    if (p && p.mutator) html += `<div class="rx-line">HAFTA: ${p.mutator.name} ${p.mutator.icon}${p.mutator.score > 1 ? ' · x' + p.mutator.score + ' puan' : ''}</div>`;
+    if (p && p.mutator) html += `<div class="rx-line">${tr('BU HAFTA: ' + p.mutator.name)} ${p.mutator.icon}${p.mutator.score > 1 ? ' · ' + tr('x' + p.mutator.score + ' puan') : ''}</div>`;
     if (p && p.weeklyBest) html += `<div class="rx-line">🏆 Haftalık rekor! ${fmtN(p.weeklyRecord || score)}</div>`;
-    if (p && p.synergies) html += `<div class="rx-line">SİNERJİ: ${p.synergies.join(' · ')}</div>`;
+    if (p && p.synergies) html += `<div class="rx-line">${tr('SİNERJİ:')} ${p.synergies.map((x) => tr(x)).join(' · ')}</div>`;
     const dly = p && p.daily;
     let shareTxt = '';
     if (dly) {
@@ -452,7 +454,7 @@ REKOR −${this._rg} m`;
       const lv = (nm.match(/[aeıioöuüAEIİOÖUÜ](?=[^aeıioöuüAEIİOÖUÜ]*$)/) || ['e'])[0];
       const back = /[aıouAIOU]/.test(lv), endsV = /[aeıioöuüAEIİOÖUÜ]$/.test(nm);
       const dat = `${nm}'${endsV ? 'y' : ''}${back ? 'a' : 'e'}`;
-      h += left > 0 ? `<div class="rg-goal">${g.icon} ${dat} <b>${fmtN(left)} ❄️</b> kaldı</div>` : `<div class="rg-goal">${g.icon} ${g.name} <b>HAZIR!</b></div>`;
+      h += left > 0 ? `<div class="rg-goal">${g.icon} ${dat} <b>${fmtN(left)} ❄️</b> kaldı</div>` : `<div class="rg-goal">${g.icon} ${tr(g.name)} <b>${tr('HAZIR!')}</b></div>`;
       h += bar(g.price > 0 ? Math.max(0, g.have - gained) / g.price : 0, g.frac);
       h += `<div class="rg-sub"><span>${fmtN(g.have)} / ${fmtN(g.price)} ❄️</span>${gained ? `<em>+${fmtN(gained)}</em>` : ''}</div>`;
     }
@@ -473,7 +475,7 @@ REKOR −${this._rg} m`;
     if (!list || !list.length) return;
     let n = 0;
     for (const x of list) {
-      if (x.kind === 'mission' && n < 3) { const t = x; this.timers.push(setTimeout(() => this.toastSoft(`${t.icon || '🎯'} GÖREV TAMAM: ${t.text}`), 700 + n * 900)); n++; }
+      if (x.kind === 'mission' && n < 3) { const t = x; this.timers.push(setTimeout(() => this.toastSoft(`${t.icon || '🎯'} ${tr('GÖREV TAMAM:')} ${tr(t.text)}`), 700 + n * 900)); n++; }
       else if (x.kind === 'missionset') {
         const t = x, r = x.reward || {};
         const gift = `${r.coins ? ` · +❄️${fmtN(r.coins)}` : ''}${r.crystals ? ` +💎${r.crystals}` : ''}${r.boxes ? ' +🎁' : ''}`;
@@ -1396,7 +1398,7 @@ REKOR −${this._rg} m`;
       return;
     }
 
-    { const cb = document.getElementById('btn-card'); if (cb) cb.style.display = 'none'; }
+    { const cb = document.getElementById('btn-card'); if (cb) cb.style.display = 'none'; const os = document.getElementById('btn-share'); if (os) os.style.display = ''; }
     this.el.resBadge.classList.add('hidden');
     this.el.resTitle.textContent = title;
     this.el.resSub.textContent = sub || '';

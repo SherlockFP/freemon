@@ -516,8 +516,12 @@ export class Runner {
 
   _mult0() {
     // Combo is earned: flow (skill events only) adds +0.5 per point (x10 / x25 / x50 at 18 / 48 / 98); size counts for at most +2.
-    return (this.furyT > 0 ? 2 : 1) * (this.flow * 0.5 + 0.1 * (this.penN || 0) + scoreMult(Math.min(2, this.tier), 0, this.chainBonus(), this.dangerBonus(), this.riskBonus(),
-      (this.ctx.meta?.multiplier?.() ?? 1) - 1 + 0.15 * Math.min(5, this.perm.speed || 0), RCFG.multCap));
+    // Rebalanced: the skill combo (flow) saturates at x5 with diminishing returns; size / chain / danger / power-ups add at most
+    // +2.5 together, permanent progression at most +1.5, ÖFKE +1. Everything ADDS, nothing multiplies: hard ceiling ~x10.
+    const comboM = 1 + 4 * (1 - Math.exp(-this.flow / 12));
+    const extras = Math.min(2.5, Math.min(2, this.tier) * 0.5 + 0.1 * (this.penN || 0) + this.chainBonus() * 0.5 + this.dangerBonus() * 0.5 + this.riskBonus() * 0.5);
+    const keep = Math.min(1.5, 0.1 * ((this.ctx.meta?.multiplier?.() ?? 1) - 1) + 0.15 * Math.min(5, this.perm.speed || 0));
+    return Math.round((comboM + extras + keep + (this.furyT > 0 ? 1 : 0)) * 10) / 10;
   }
 
   // chip on the run start: "BU HAFTA: Ters Dünya ⇄" (once per start, not per frame)
@@ -1863,7 +1867,7 @@ export class Runner {
       const c = cv.getContext('2d');
       c.fillStyle = '#e8322a'; c.fillRect(0, 0, 256, 128);
       c.fillStyle = '#fff'; c.font = '900 56px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-      c.lineWidth = 8; c.strokeStyle = '#17345c'; c.strokeText('REKOR', 128, 66); c.fillText('REKOR', 128, 66);
+      c.lineWidth = 8; c.strokeStyle = '#17345c'; c.strokeText(t('REKOR'), 128, 66); c.fillText(t('REKOR'), 128, 66);
       mat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), side: THREE.DoubleSide });
     } else mat = new THREE.MeshBasicMaterial({ color: 0xe8322a, side: THREE.DoubleSide });
     const banner = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.8).translate(1.8, 5.8, 0), mat);
@@ -1939,7 +1943,7 @@ export class Runner {
       const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
       const c = cv.getContext('2d');
       c.font = '900 44px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-      c.lineWidth = 7; c.strokeStyle = '#17345c'; c.strokeText('REKOR', 128, 34); c.fillStyle = '#bff0ff'; c.fillText('REKOR', 128, 34);
+      c.lineWidth = 7; c.strokeStyle = '#17345c'; c.strokeText(t('REKOR'), 128, 34); c.fillStyle = '#bff0ff'; c.fillText(t('REKOR'), 128, 34);
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false, depthTest: false }));
       sp.scale.set(3, 0.75, 1); sp.position.y = 1.9; sp.renderOrder = 10;
       m.add(sp);

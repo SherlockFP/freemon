@@ -506,9 +506,9 @@ export class AgarMode {
   /** lively start: dense pellets + 3 bots (2 prey, 1 slight threat) close to a freshly spawned player */
   seedAround(x, z, m) {
     if (this.mp === 'client') return;
-    for (let k = 0, n = 0; k < 5000 && n < 420; k++) {
+    for (let k = 0, n = 0; k < 7000 && n < 650; k++) {
       const i = (Math.random() * FOOD) | 0; if (i % 60 === 0 || this.fv[i] === 0) continue;
-      const a = Math.random() * 6.2832, d = 5 + Math.sqrt(Math.random()) * 70, px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
+      const a = Math.random() * 6.2832, d = 5 + Math.sqrt(Math.random()) * 55, px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
       if (px * px + pz * pz > (R - 4) * (R - 4)) continue;
       this.foodMove(i, px, pz); n++;
     }
@@ -679,7 +679,7 @@ export class AgarMode {
     if (!o.bot && this.state !== 'title') this.seedAround(p.x, p.z, m);
     if (o.id === this.me && this.mp !== 'client' && this.state !== 'title') { this.sessT = this.time; for (let k = 4; k < NOWN; k++) { const b = this.owners[k]; if (!b.alive || !b.bot || b.human || b.cellN !== 1 || b.mass < 60 || Math.random() < 0.4) continue; const nm = 14 * Math.exp(Math.random() * 3.2); for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.o === b.id) { c.m = nm; c.r = KR * Math.sqrt(nm); } } b.mass = nm; } }
     if (o.id === this.me && this.mp !== 'client' && this.state !== 'title') this.spawnPrey(o);
-    if (o.id === this.me) { this.firstEat = false; this.lastRankToast = 0; this.msDone = null; this.bigT = 0; this.rankBest = 99; }
+    if (o.id === this.me) { this.earlyEats = 0; this.firstEat = false; this.lastRankToast = 0; this.msDone = null; this.bigT = 0; this.rankBest = 99; }
   }
 
   startMass() { return 24; } // everybody starts equal (XP / level is cosmetic only)
@@ -759,6 +759,7 @@ export class AgarMode {
       if (this.state !== 'play' && !this.ghost) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       if (this.stickId !== null) return;
+      if (this.tipT > 0 && this.tipT < 4) this.tipT = 4;
       this.stickId = e.pointerId; this.sx = e.clientX; this.sy = e.clientY;
       try { d.setPointerCapture(e.pointerId); } catch { /* ignore */ }
       this.stickMouse = e.pointerType === 'mouse';
@@ -1110,6 +1111,7 @@ export class AgarMode {
               let pv = o.bot ? v * (this.time - this.sessT < 150 ? 0.5 : this.time - this.sessT < 240 ? 0.75 : 1) : v;
               if (o.bot && c.m > this.botCap * capK(o.id)) pv *= 0.1;
               for (const f of this.forts) if (f.pa > 0.5 && f.pc === c.o) { const px = this.fx[i] - f.x, pz = this.fz[i] - f.z; if (px * px + pz * pz < PAINT_R * PAINT_R) { pv *= 1.2; break; } }
+              if (!o.bot && c.o === this.me) { const ag = this.time - o.t0; if (ag < 45) pv *= 1 + 1.6 * (1 - ag / 45); } // early-game reward: pellets feed up to 2.6x for the first 45 s
               c.m = Math.min(MAXM, c.m + pv); o.xpRun += v;
               if (c.o === this.me) { this.snd('pellet'); if (!this.firstEat && this.state === 'play') { this.firstEat = true; this.toast('İLK YEMEK! 🎉'); this.audio?.milestone?.(1); } }
               if (i < FOOD) { const p = this.tmpP || (this.tmpP = { x: 0, z: 0 }); this.foodPos(p); this.foodPlace(i, p.x, p.z, this.baseVal(i)); } else this.foodPlace(i, 0, 0, 0);
@@ -1188,10 +1190,10 @@ export class AgarMode {
   spawnPrey(me) {
     const cand = [];
     for (let k = 4; k < NOWN; k++) { const b = this.owners[k]; if (b.alive && b.bot && !b.human && !b.boss && b.cellN === 1 && b.hideT <= 0 && b.mass < 400) cand.push(b); }
-    const want = Math.min(3, cand.length);
+    const want = Math.min(4, cand.length);
     for (let n = 0; n < want; n++) {
       const b = cand.splice((Math.random() * cand.length) | 0, 1)[0];
-      const a = (n / 3) * 6.2832 + Math.random() * 1.2, d = 24 + Math.random() * 28, x = me.cx + Math.cos(a) * d, z = me.cz + Math.sin(a) * d, nm = 9 + Math.random() * 4;
+      const a = (n / 4) * 6.2832 + Math.random() * 1.2, d = 20 + Math.random() * 24, x = me.cx + Math.cos(a) * d, z = me.cz + Math.sin(a) * d, nm = 6 + Math.random() * 4;
       const k2 = x * x + z * z > (R - 8) * (R - 8) ? (R - 8) / Math.hypot(x, z) : 1, px = x * k2, pz = z * k2;
       for (let i = 0; i < CAP; i++) { const c = this.cells[i]; if (c.on && c.o === b.id) { c.x = c.tx = px; c.z = c.tz = pz; c.px0 = c.lsx = px; c.pz0 = c.lsz = pz; c.m = nm; c.r = KR * Math.sqrt(nm); c.vx = c.vz = 0; } }
       b.mass = nm; b.cx = b.lx = px; b.cz = b.lz = pz; b.preyT = this.time + 25; b.shield = 0;
@@ -1544,6 +1546,7 @@ export class AgarMode {
     if (po.shield > 0) return;
     let kb = 0;
     if (this.kingId === prey.o && pred.o !== prey.o && prey.m > po.mass * 0.4) { kb = prey.m * 0.25; this.pushFeed('KRAL DÜŞTÜ! ' + this.owners[pred.o].name + ', ' + po.name + accSuffix(po.name) + ' devirdi'); if (pred.o === this.me) { this.toast('LİDERİ DEVİRDİN! +%25 kütle', 2400); this.audio?.milestone?.(4); this.pulseT = 0; this.camKick = Math.max(this.camKick, 0.2); } this.kingId = -1; this.king = null; }
+    if (pred.o === this.me && prey.o !== this.me && (this.earlyEats | 0) < 4) { this.earlyEats = (this.earlyEats | 0) + 1; kb += 5; } // first swallows give a bit extra
     pred.m = Math.min(MAXM, pred.m + prey.m + kb);
     if (pred.o === this.me && prey.o !== this.me && prey.m >= 6) this.floatTxt('+' + Math.round(prey.m + kb), prey.x, prey.z, '#7dffb0');
     { const pw = this.owners[pred.o]; if (pw.prot && pw.shield > 0) { pw.shield = 0; pw.prot = false; if (pred.o === this.me) this.toast('KORUMA BİTTİ'); } }
@@ -2967,7 +2970,7 @@ export class AgarMode {
       '<div class="ag-tl"><div class="ag-mass"><div class="r1"><b class="m">0</b><span class="ag-rank"><b>-</b></span></div><small class="tt"></small><small class="rg" style="display:block;font-size:10px;color:#ffe9a8;font-weight:900"></small><div class="ag-lvl"><span class="lv">Sv 1</span><div class="bar"><i></i></div></div></div>' +
       '<div class="ag-room"></div><div class="ag-feed"></div><div class="ag-chips"></div></div>' +
       '<div class="ag-tr"><div class="ag-lb"><div class="t"><span>LİDERLER</span><span class="ag-online">🟢<span class="on">0</span></span><span class="tg">▾</span></div><div class="rows"></div></div><canvas class="ag-map" width="84" height="84"></canvas></div><div class="ag-zn"></div>' +
-      '<div class="ag-stick"><i></i></div><div class="ag-toast" style="top:calc(env(safe-area-inset-top,0px) + 82px);padding:0 8px;font-size:15px;text-shadow:0 2px 0 #0a2a4a;pointer-events:none"></div><div class="ag-avw" style="position:absolute;left:0;right:0;top:12%;text-align:center;font-size:34px;font-weight:900;color:#ff5a4d;text-shadow:0 3px 0 #3a0a0a,2px 2px 0 #3a0a0a,-2px 2px 0 #3a0a0a;pointer-events:none;opacity:0;transition:opacity .2s"></div><div class="ag-tip" style="position:absolute;left:8%;right:8%;top:25%;text-align:center;font-size:15px;color:#fff;background:rgba(10,42,74,.7);border-radius:14px;padding:10px 14px;pointer-events:none;opacity:0;transition:opacity .4s"></div><div class="ag-arrow" style="position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;opacity:0;transition:opacity .4s"><div style="position:absolute;left:-14px;top:-150px;font-size:34px;color:#ffe066;opacity:.7">▲</div></div>' +
+      '<div class="ag-stick"><i></i></div><div class="ag-toast" style="top:calc(env(safe-area-inset-top,0px) + 82px);padding:0 8px;font-size:15px;text-shadow:0 2px 0 #0a2a4a;pointer-events:none"></div><div class="ag-avw" style="position:absolute;left:0;right:0;top:12%;text-align:center;font-size:34px;font-weight:900;color:#ff5a4d;text-shadow:0 3px 0 #3a0a0a,2px 2px 0 #3a0a0a,-2px 2px 0 #3a0a0a;pointer-events:none;opacity:0;transition:opacity .2s"></div><div class="ag-tip" style="position:absolute;left:6%;right:6%;bottom:calc(env(safe-area-inset-bottom,0px) + 190px);text-align:center;font-size:12px;color:#fff;background:rgba(10,42,74,.6);border-radius:12px;padding:5px 10px;pointer-events:none;opacity:0;transition:opacity .4s"></div><div class="ag-arrow" style="position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;opacity:0;transition:opacity .4s"><div style="position:absolute;left:-14px;top:-150px;font-size:34px;color:#ffe066;opacity:.7">▲</div></div>' +
       '<div class="ag-btns"><button type="button" class="ag-act split"><span>✂️</span><small>BÖL</small></button>' +
       '<button type="button" class="ag-act eject"><span>❄️</span><small>FIRLAT</small></button>' +
       '<button type="button" class="ag-act boost"><span>🚀</span><small>HIZLAN</small><i class="cd"></i></button></div>';
@@ -3060,11 +3063,11 @@ export class AgarMode {
     this.duelHud();
     this.hudT -= dt; this.lbT -= dt; this.mapT -= dt;
     if (this.state === 'play' && !this.tipDone) {
-      if (this.tipT === 0 && lsGet(TIP_KEY, '') === '1') this.tipDone = true;
+      if (this.tipT === 0 && (parseInt(lsGet(TIP_KEY, '0'), 10) || 0) >= 2) this.tipDone = true;
       else {
-        if (this.tipT === 0) { h.tip.textContent = 'Sürükle: yön · HIZLAN: atıl · BÖL: ikiye bölün · küçükleri ye, büyüklerden kaç'; lsSet(TIP_KEY, '1'); if (lsGet(TIP_KEY + '.v', '') !== '1') { lsSet(TIP_KEY + '.v', '1'); this.toast('❄ Buz dikeni büyükleri böler — arkasına saklan!', 3200); } }
+        if (this.tipT === 0) { h.tip.textContent = 'Sürükle: yön · HIZLAN: atıl · BÖL: ikiye bölün · küçükleri ye, büyüklerden kaç'; lsSet(TIP_KEY, String((parseInt(lsGet(TIP_KEY, '0'), 10) || 0) + 1)); if (lsGet(TIP_KEY + '.v', '') !== '1') { lsSet(TIP_KEY + '.v', '1'); this.toast('❄ Buz dikeni büyükleri böler — arkasına saklan!', 3200); } }
         this.tipT += dt;
-        h.tip.style.opacity = this.tipT < 5 ? '1' : '0';
+        h.tip.style.opacity = this.tipT < 4 ? '1' : '0';
         if (false) {
           if (this.arrT === undefined || this.time - this.arrT > 0.4) {
             this.arrT = this.time; let sx = 0, sz = 0, n = 0;
@@ -3138,7 +3141,7 @@ export class AgarMode {
         this.chatDirty = false;
       }
       for (let i = 0; i < 6; i++) { const m = this.chatLog[this.chatLog.length - 6 + i]; ch.els[i].style.opacity = m ? clampN((m.until - this.time) / 1.5, 0, 1).toFixed(2) : '0'; }
-      if (this.mp && this.net) { const hn = this.mp === 'host' ? this.net.clients.size + 1 : this.humans; h.room.style.display = ''; h.room.textContent = (this.net.pub === false ? '🔒 ' : this.net.pub ? '🌐 ' : '🏠 ') + this.net.code + ' · ' + hn + '/' + MAX_HUMANS + ' oyuncu'; } else h.room.style.display = 'none';
+      if (this.mp && this.net) { const hn = this.mp === 'host' ? this.net.clients.size + 1 : this.humans; h.room.style.display = ''; h.room.textContent = (this.net.pub === false ? '🔒 ' : this.net.pub ? '🌐 ' : '🏠 ') + 'Oda ' + this.net.code + ' · ' + hn + '/' + MAX_HUMANS + ' oyuncu'; } else { h.room.style.display = ''; h.room.textContent = t('🤖 Botlarla'); }
       const xp = this.xp + me.xpRun, lv = lvlOf(xp), lo = 60 * (lv - 1) * (lv - 1), hi = 60 * lv * lv;
       h.lv.textContent = 'Sv ' + lv;
       h.bar.style.width = clampN(((xp - lo) / (hi - lo)) * 100, 0, 100).toFixed(0) + '%';
@@ -3185,7 +3188,7 @@ export class AgarMode {
       this._mapSeed = this.seed;
     }
     g.drawImage(this._mapBg, 0, 0);
-    if (this.revId >= 0 && this.time < (this.revT || 0)) { const ro = this.owners[this.revId]; if (ro && ro.alive) { const rx = c0 + ro.cx * sc, rz = c0 + ro.cz * sc; g.fillStyle = '#ff2a2a'; g.strokeStyle = '#fff'; g.lineWidth = 1; g.beginPath(); g.arc(rx, rz, 3.2, 0, 6.2832); g.fill(); g.stroke(); g.fillStyle = '#fff'; g.font = '700 7px sans-serif'; g.textAlign = 'center'; g.fillText('İNTİKAM', Math.min(W - 16, Math.max(16, rx)), Math.max(8, rz - 5)); g.textAlign = 'start'; } }
+    if (this.revId >= 0 && this.time < (this.revT || 0)) { const ro = this.owners[this.revId]; if (ro && ro.alive) { const rx = c0 + ro.cx * sc, rz = c0 + ro.cz * sc; g.fillStyle = '#ff2a2a'; g.strokeStyle = '#fff'; g.lineWidth = 1; g.beginPath(); g.arc(rx, rz, 3.2, 0, 6.2832); g.fill(); g.stroke(); g.fillStyle = '#fff'; g.font = '700 7px sans-serif'; g.textAlign = 'center'; g.fillText(t('İNTİKAM'), Math.min(W - 16, Math.max(16, rx)), Math.max(8, rz - 5)); g.textAlign = 'start'; } }
     const wr = this.wo.k > 0.35 && me.alive ? Math.max(6, this.woVis() * sc * 1.3) : 0;
     if (wr) { g.save(); g.beginPath(); g.arc(c0 + me.cx * sc, c0 + me.cz * sc, wr, 0, 6.2832); g.clip(); }
     if (this.rain.st) { const rx = c0 + this.rain.x * sc, rz = c0 + this.rain.z * sc, pu = 0.6 + 0.4 * Math.sin(this.time * 8); g.strokeStyle = this.rain.st === 1 ? 'rgba(255,220,60,' + pu + ')' : '#ffd23f'; g.fillStyle = 'rgba(255,210,60,0.35)'; g.lineWidth = 2; g.beginPath(); g.arc(rx, rz, Math.max(5, 65 * sc), 0, 6.2832); g.fill(); g.stroke(); }

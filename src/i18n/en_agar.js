@@ -240,4 +240,6 @@ export const patterns = [
   // results
   [/^En iyi sıran #(\d+) — ilk 3'e (\d+) kütle!$/, (m, r, g) => 'Your best rank #' + r + ' — ' + g + ' mass to reach the top 3!'],
   [/^En iyi sıran #(\d+) — bir üstüne çık!$/, (m, r) => 'Your best rank #' + r + ' — climb one higher!'],
+  [/^(.+)Oda (\S+) · (\d+)\/(\d+) oyuncu$/, (m, i, c, a, b) => i + 'Room ' + c + ' · ' + a + '/' + b + ' players'],
+  [/^🤖 Botlarla$/, () => '🤖 With bots'],
 ];

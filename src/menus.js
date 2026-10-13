@@ -1028,6 +1028,13 @@ const CSS = `
 .fm-rails.fm-lock .fm-rc { filter: grayscale(1) brightness(0.8); opacity: 0.6; }
 .fm-rails.fm-lock[data-lock]::after, .fm-rails.fm-new::after { display: none; }
 @media (max-width: 360px) { .fm-rc { width: 54px; } .fm-rc .ri { width: 42px; height: 42px; font-size: 20px; } .fm-rc .rl { max-width: 54px; } }
+/* label fit @375px: bottom bar + rail chips wrap to 2 lines, fluid font, readable lock badge */
+.fm-main .fm-secrow { gap: 4px; }
+.fm-main .fm-secrow .fm-sb .lb { height: auto; min-height: 24px; max-width: 100%; padding: 0 1px; box-sizing: border-box; font-size: clamp(8.5px, 2.5vw, 10.5px); line-height: 1.1; letter-spacing: 0; white-space: normal; overflow-wrap: anywhere; hyphens: none; display: flex; align-items: flex-start; justify-content: center; }
+.fm-rc .rl { max-width: 68px; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; font-size: clamp(9px, 2.6vw, 10.5px); line-height: 1.1; text-align: center; padding: 2px 5px; }
+.fm-sb.fm-lock { filter: none; opacity: 1; }
+.fm-sb.fm-lock .ic, .fm-sb.fm-lock .lb { filter: grayscale(1) brightness(0.85); opacity: 0.55; }
+.fm-sb.fm-lock[data-lock]::after { left: 50%; right: auto; top: 12px; transform: translateX(-50%); font-size: 11px; line-height: 1.1; padding: 3px 7px; border-width: 1.5px; background: #0d1630; color: #fff; z-index: 6; }
 @media (prefers-reduced-motion: reduce) { .fm-rc.hot .ri { animation: none; } }
 
 /* ---- ŞANS ÇARKI ---- */
